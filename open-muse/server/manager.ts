@@ -49,6 +49,7 @@ export class ConversationManager {
   private activeApproval?: {
     conversationId: string; approvalId: string; actionDigest: string; approved: boolean;
     promise: Promise<ReturnType<ConversationManager["snapshot"]>>;
+    settled: Promise<void>;
   };
   private viewerNonces = new Map<string, { conversationId: string; expiresAt: number; controlEpoch: string; mode: DisplayMode }>();
   private viewerInvalidators = new Set<(conversationId: string) => void>();
@@ -456,14 +457,20 @@ export class ConversationManager {
       return this.snapshot(id);
     })();
     const lease = promise.then(() => undefined, () => undefined);
-    this.activeApproval = { conversationId: id, approvalId, actionDigest, approved, promise };
+    let finishCleanup!: () => void;
+    const settled = new Promise<void>((resolve) => { finishCleanup = resolve; });
+    this.activeApproval = { conversationId: id, approvalId, actionDigest, approved, promise, settled };
     this.activeAction = lease;
     try {
       return await promise;
     } finally {
-      if (this.activeApproval?.promise === promise) this.activeApproval = undefined;
-      if (this.activeAction === lease) this.activeAction = undefined;
-      await this.checkpoint();
+      try {
+        if (this.activeApproval?.promise === promise) this.activeApproval = undefined;
+        if (this.activeAction === lease) this.activeAction = undefined;
+        await this.checkpoint();
+      } finally {
+        finishCleanup();
+      }
     }
   }
 
@@ -1017,7 +1024,9 @@ export class ConversationManager {
     if (!context) throw new Error("No active conversation can be archived.");
     if (this.modelAccessTransition) throw Object.assign(new Error("Wait for the current model change to finish, then try again."), { status: 409, code: "model_access_busy" });
     if (context.controlOwner !== "agent") throw Object.assign(new Error("Return browser control before switching conversations."), { status: 409, code: "conversation_busy" });
-    if (!["idle", "interrupted", "stopped", "failed"].includes(context.runState) || this.activeApproval) {
+    const switchableRunStates = ["idle", "interrupted", "stopped", "failed"];
+    if (this.activeApproval && switchableRunStates.includes(context.runState)) await this.activeApproval.settled;
+    if (!switchableRunStates.includes(context.runState) || this.activeApproval) {
       throw Object.assign(new Error("Stop the current work before switching conversations."), { status: 409, code: "conversation_busy" });
     }
     await this.releaseComputer(context, "detach");

@@ -88,6 +88,46 @@ test("conversation changes reject busy, human-controlled, and overlapping transi
   await creating;
 });
 
+test("conversation changes wait for visible-idle approval cleanup", async () => {
+  const manager = new ConversationManager("", "gpt-5-mini");
+  await manager.create();
+  const context = contextOf(manager);
+  context.runState = "waiting_for_approval";
+  context.pendingApproval = {
+    kind: "browser_operation",
+    approvalId: "approval-denied",
+    actionDigest: "d".repeat(64),
+    reason: "Open the link",
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  };
+  let finishCleanup!: () => void;
+  const cleanup = new Promise<void>((resolve) => { finishCleanup = resolve; });
+  const internals = manager as unknown as {
+    broker: (active: ConversationContext) => { resolveApproval: () => Promise<{ resumeAgent: false }> };
+  };
+  internals.broker = (active) => ({
+    resolveApproval: async () => {
+      delete active.pendingApproval;
+      active.runState = "idle";
+      await cleanup;
+      return { resumeAgent: false };
+    },
+  });
+
+  const denying = manager.approve(context.id, "approval-denied", "d".repeat(64), false);
+  await Promise.resolve();
+  assert.equal(manager.snapshot(context.id).runState, "idle");
+
+  let switched = false;
+  const switching = manager.create().then(() => { switched = true; });
+  await Promise.resolve();
+  assert.equal(switched, false);
+
+  finishCleanup();
+  await Promise.all([denying, switching]);
+  assert.equal(manager.list().conversations.length, 2);
+});
+
 test("a turn cannot be accepted after conversation cleanup begins", async () => {
   const manager = new ConversationManager("", "gpt-5-mini");
   await manager.create();
