@@ -459,13 +459,14 @@ export class ConversationManager {
     const lease = promise.then(() => undefined, () => undefined);
     let finishCleanup!: () => void;
     const settled = new Promise<void>((resolve) => { finishCleanup = resolve; });
-    this.activeApproval = { conversationId: id, approvalId, actionDigest, approved, promise, settled };
+    const activeApproval = { conversationId: id, approvalId, actionDigest, approved, promise, settled };
+    this.activeApproval = activeApproval;
     this.activeAction = lease;
     try {
       return await promise;
     } finally {
       try {
-        if (this.activeApproval?.promise === promise) this.activeApproval = undefined;
+        if (this.activeApproval === activeApproval) this.activeApproval = undefined;
         if (this.activeAction === lease) this.activeAction = undefined;
         await this.checkpoint();
       } finally {
