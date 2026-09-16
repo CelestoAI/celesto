@@ -595,9 +595,10 @@ export class ConversationManager {
     if (!value || !context || context.id !== id || value.conversationId !== id || value.expiresAt <= Date.now()) return;
     if (context.controlEpoch !== value.controlEpoch) return;
     const currentMode: DisplayMode = context.controlOwner === "human" ? "read_write" : "read_only";
-    if (currentMode !== value.mode || !context.computer) return;
-    const connection = await context.computer.createDisplayConnection(currentMode);
-    if (this.context !== context || context.controlEpoch !== value.controlEpoch) return;
+    const computer = context.computer;
+    if (currentMode !== value.mode || !computer || context.sessionLifecycle !== "ready") return;
+    const connection = await computer.createDisplayConnection(currentMode);
+    if (this.conversationTransition || this.context !== context || context.computer !== computer || context.sessionLifecycle !== "ready" || ["stopping", "stopped"].includes(context.runState) || context.controlEpoch !== value.controlEpoch) return;
     const modeAfterMint: DisplayMode = context.controlOwner === "human" ? "read_write" : "read_only";
     if (modeAfterMint !== value.mode) return;
     return connection.url;
@@ -861,8 +862,14 @@ export class ConversationManager {
       await this.checkpoint();
     } catch (error) {
       if (execution && !this.executionIsCurrent(context, execution)) {
+        await context.playwright?.close().catch(() => undefined);
         await createdComputer?.detach().catch(() => undefined);
         if (context.computer === createdComputer) delete context.computer;
+        delete context.playwright;
+        delete context.page;
+        context.tabs.clear();
+        delete context.activeTabId;
+        delete context.storefront;
         if (context.sessionLifecycle === "starting") context.sessionLifecycle = "absent";
         throw error;
       }

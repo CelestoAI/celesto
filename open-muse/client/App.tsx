@@ -3,6 +3,7 @@ import * as api from "./api";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { TurnTrace } from "./TurnTrace";
 import { applyTraceEvent, type TraceEvent, type TraceSnapshot } from "./trace";
+import { viewerReconnectDelay } from "./viewer-reconnect";
 import "./trace.css";
 import "./trace-state.css";
 
@@ -28,6 +29,8 @@ export function App() {
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [viewerPath, setViewerPath] = useState("");
+  const [viewerRetryAt, setViewerRetryAt] = useState(0);
+  const [viewerReconnectRequired, setViewerReconnectRequired] = useState(false);
   const [controlEpoch, setControlEpoch] = useState("");
   const [approvalPending, setApprovalPending] = useState(false);
   const [recoveryPending, setRecoveryPending] = useState(false);
@@ -40,6 +43,7 @@ export function App() {
   const conversationPendingRef = useRef(false);
   const conversationIdRef = useRef<string | undefined>(undefined);
   const chatMenuRef = useRef<HTMLDetailsElement>(null);
+  const viewerRetryAttemptRef = useRef(0);
 
   const showConversation = (next: api.Conversation) => { conversationIdRef.current = next.id; setConversation(next); };
   const refresh = async (id = conversationIdRef.current) => {
@@ -139,24 +143,45 @@ export function App() {
     setSelectedModelId(selected?.modelId ?? provider?.models.find((model) => model.recommended)?.id ?? provider?.models[0]?.id ?? "");
   }, [modelAccess]);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [conversation?.messages.length]);
-  useEffect(() => { setViewerPath(""); setControlEpoch(""); }, [conversation?.id]);
-  useEffect(() => { setViewerPath(""); }, [conversation?.controlOwner]);
+  useEffect(() => {
+    setViewerPath(""); setControlEpoch(""); viewerRetryAttemptRef.current = 0; setViewerRetryAt(0); setViewerReconnectRequired(false);
+  }, [conversation?.id]);
+  useEffect(() => {
+    setViewerPath(""); viewerRetryAttemptRef.current = 0; setViewerRetryAt(0); setViewerReconnectRequired(false);
+  }, [conversation?.controlOwner]);
   useEffect(() => {
     const refreshViewer = (event: MessageEvent) => {
-      if (event.origin === window.location.origin && event.data?.type === "openmuse.viewer.disconnected") setViewerPath("");
+      if (event.origin !== window.location.origin || event.data?.type !== "openmuse.viewer.disconnected") return;
+      setViewerPath("");
+      viewerRetryAttemptRef.current += 1;
+      const delay = viewerReconnectDelay(viewerRetryAttemptRef.current);
+      if (delay === undefined) {
+        setViewerRetryAt(0);
+        setViewerReconnectRequired(true);
+      } else setViewerRetryAt(Date.now() + delay);
     };
     window.addEventListener("message", refreshViewer);
     return () => window.removeEventListener("message", refreshViewer);
   }, []);
   useEffect(() => {
-    if (!conversation?.viewerReady || viewerPath) return;
+    if (!conversation?.viewerReady || viewerPath || viewerReconnectRequired) return;
     let cancelled = false;
-    void api.viewerToken(conversation.id)
-      .then(({ viewerPath: path }) => { if (!cancelled) setViewerPath(path); })
-      .catch((caught) => { if (!cancelled) setError(String(caught)); });
-    return () => { cancelled = true; };
-  }, [conversation?.viewerReady, conversation?.id, conversation?.controlOwner, viewerPath]);
+    const timer = setTimeout(() => {
+      void api.viewerToken(conversation.id)
+        .then(({ viewerPath: path }) => { if (!cancelled) setViewerPath(path); })
+        .catch((caught) => { if (!cancelled) setError(String(caught)); });
+    }, Math.max(0, viewerRetryAt - Date.now()));
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [conversation?.viewerReady, conversation?.id, conversation?.controlOwner, viewerPath, viewerRetryAt, viewerReconnectRequired]);
   useEffect(() => { if (conversation?.runState === "stopped") setViewerPath(""); }, [conversation?.runState]);
+
+  const reconnectViewer = () => {
+    setError("");
+    setViewerPath("");
+    viewerRetryAttemptRef.current = 0;
+    setViewerRetryAt(0);
+    setViewerReconnectRequired(false);
+  };
 
   const submit = async (value = text) => {
     if (!conversation || !value.trim()) return;
@@ -377,7 +402,7 @@ export function App() {
       <section className="computer-pane">
         <div className="computer-head"><div><div className="eyebrow">Isolated workspace</div><h2>Agent’s computer</h2></div><div className="computer-actions">{conversation?.runState !== "stopped" && (humanControl ? <button onClick={() => void returnControl()}>Return control</button> : pausingControl ? <button className="secondary" disabled>Pausing…</button> : <button className="secondary" onClick={() => void takeControl()} disabled={!conversation?.viewerReady}>Take control</button>)}</div></div>
         <div className="screen">
-          {viewerPath ? <iframe title="Live OpenMuse computer" src={viewerPath}/> : <div className="screen-empty"><div className="orbit"><span>S</span></div><h3>{conversation?.runState === "stopped" ? "Computer deleted" : conversation?.sessionLifecycle === "starting" ? "Booting the computer…" : "The computer is asleep"}</h3><p>{conversation?.runState === "stopped" ? "Start a new conversation to get a fresh VM." : "It starts only when the agent needs a browser."}</p></div>}
+          {viewerPath ? <iframe title="Live OpenMuse computer" src={viewerPath}/> : <div className="screen-empty"><div className="orbit"><span>S</span></div><h3>{viewerReconnectRequired ? "Live view disconnected" : conversation?.runState === "stopped" ? "Computer deleted" : conversation?.sessionLifecycle === "starting" ? "Booting the computer…" : "The computer is asleep"}</h3><p>{viewerReconnectRequired ? "Automatic reconnects stopped after repeated failures." : conversation?.runState === "stopped" ? "Start a new conversation to get a fresh VM." : "It starts only when the agent needs a browser."}</p>{viewerReconnectRequired && <button onClick={reconnectViewer}>Reconnect live view</button>}</div>}
           {viewerPath && conversation?.controlOwner === "agent" && <div className="input-shield"><span><i></i> LIVE · Agent controlling</span><button onClick={() => void takeControl()}>Take control</button></div>}
           {viewerPath && pausingControl && <div className="input-shield"><span><i></i> LIVE · Pausing agent control</span><button disabled>Pausing…</button></div>}
         </div>

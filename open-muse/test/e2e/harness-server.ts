@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { mkdtemp, rm, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -285,6 +286,19 @@ await listen(controls, controlPort);
 const viewer = createServer((_request, response) => {
   response.setHeader("content-type", "text/html; charset=utf-8");
   response.end("<!doctype html><title>Scripted viewer</title><p>Deterministic browser viewer</p>");
+});
+viewer.on("upgrade", (request, socket) => {
+  const key = request.headers["sec-websocket-key"];
+  if (typeof key !== "string") return socket.destroy();
+  const accept = createHash("sha1").update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest("base64");
+  socket.write([
+    "HTTP/1.1 101 Switching Protocols",
+    "Upgrade: websocket",
+    "Connection: Upgrade",
+    `Sec-WebSocket-Accept: ${accept}`,
+    "",
+    "",
+  ].join("\r\n"));
 });
 await listen(viewer, viewerPort);
 console.log(`Deterministic OpenMuse manager harness ready at http://127.0.0.1:${appPort}`);

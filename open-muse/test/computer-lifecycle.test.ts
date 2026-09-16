@@ -124,6 +124,35 @@ test("viewer capabilities are one-time and follow the current control owner", as
   assert.deepEqual(invalidations, [created.id, created.id, created.id]);
 });
 
+test("a display connection minted after Stop is discarded", async () => {
+  let markMintStarted!: () => void;
+  let finishMint!: () => void;
+  const mintStarted = new Promise<void>((resolve) => { markMintStarted = resolve; });
+  const mintFinished = new Promise<void>((resolve) => { finishMint = resolve; });
+  const calls: string[] = [];
+  const handle = computer(calls);
+  handle.createDisplayConnection = async () => {
+    markMintStarted();
+    await mintFinished;
+    return { url: "wss://gateway/display?token=expired" };
+  };
+  const manager = new ConversationManager("", "gpt-5-mini");
+  const created = await manager.create();
+  const context = contextOf(manager);
+  context.computer = handle;
+  context.computerReference = handle.reference;
+  context.sessionLifecycle = "ready";
+  const viewerPath = manager.issueViewerNonce(created.id).viewerPath;
+  const token = new URL(viewerPath, "http://localhost").searchParams.get("path")!.split("token=")[1]!;
+
+  const consuming = manager.consumeViewerNonce(created.id, token);
+  await mintStarted;
+  await manager.stop(created.id);
+  finishMint();
+
+  assert.equal(await consuming, undefined);
+});
+
 test("saved state contains the cloud ID but no API or connection token", async (t) => {
   const store = await temporaryStore(t);
   const calls: string[] = [];

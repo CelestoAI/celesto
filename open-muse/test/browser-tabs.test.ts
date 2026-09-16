@@ -217,3 +217,54 @@ test("stopping closes browser ownership and clears every tab", async () => {
 
   assert.deepEqual(manager.snapshot(created.id).tabs, []);
 });
+
+test("superseded browser startup closes its CDP connection and clears tab state", async () => {
+  const initial = new FakePage("https://example.com");
+  const browserContext = new FakeBrowserContext([initial]);
+  const calls: string[] = [];
+  let supersede = () => undefined;
+  const originalOn = browserContext.on.bind(browserContext);
+  browserContext.on = ((event: string, listener: (...args: unknown[]) => void) => {
+    const result = originalOn(event, listener);
+    if (event === "page") supersede();
+    return result;
+  }) as typeof browserContext.on;
+  const browser = {
+    contexts: () => [browserContext as unknown as BrowserContext],
+    isConnected: () => true,
+    close: async () => { calls.push("browser.close"); },
+  } as unknown as Browser;
+  const computer = {
+    exec: async () => ({ ok: true, exitCode: 0, stdout: "", stderr: "", durationMs: 0 }),
+    createBrowserConnection: async () => ({ url: "http://browser.test" }),
+    createDisplayConnection: async () => ({ url: "ws://display.test" }),
+    detach: async () => { calls.push("computer.detach"); },
+    delete: async () => undefined,
+  };
+  const manager = new ConversationManager("", "gpt-5-mini", false, undefined, undefined, {
+    computerProvider: { id: "smolvm", create: async () => computer, reconnect: async () => undefined },
+    connectOverCDP: async () => browser,
+  });
+  const created = await manager.create();
+  const internals = manager as unknown as {
+    context: ConversationContext;
+    currentExecution?: { conversationId: string; turnId: string; userMessageId: string };
+    traceScope: { run<T>(store: { execution: { conversationId: string; turnId: string; userMessageId: string } }, callback: () => T): T };
+    ensureBrowser: (context: ConversationContext) => Promise<void>;
+  };
+  const execution = { conversationId: created.id, turnId: "turn-current", userMessageId: "message-current" };
+  internals.currentExecution = execution;
+  supersede = () => { internals.currentExecution = { ...execution, turnId: "turn-new" }; };
+
+  await assert.rejects(
+    internals.traceScope.run({ execution }, () => internals.ensureBrowser(internals.context)),
+    /request changed before the browser was ready/,
+  );
+
+  assert.deepEqual(calls, ["browser.close", "computer.detach"]);
+  assert.equal(internals.context.playwright, undefined);
+  assert.equal(internals.context.page, undefined);
+  assert.equal(internals.context.tabs.size, 0);
+  assert.equal(internals.context.computer, undefined);
+  assert.equal(internals.context.sessionLifecycle, "absent");
+});
