@@ -1,6 +1,6 @@
 import { createReadStream } from "node:fs";
 import { access, stat } from "node:fs/promises";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
 import { extname, join, normalize, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -344,6 +344,14 @@ export function startupFailureMessage(error: unknown): string {
   return `OpenMuse could not start: ${detail}`;
 }
 
+export function closeHttpServer(server: Server): Promise<void> {
+  if (!server.listening) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+    server.closeAllConnections();
+  });
+}
+
 async function main(): Promise<void> {
   try { process.loadEnvFile(".env.local"); } catch { /* optional */ }
   const host = process.env.OPEN_MUSE_HOST ?? "127.0.0.1"; const port = Number(process.env.OPEN_MUSE_PORT ?? 4318);
@@ -359,7 +367,12 @@ async function main(): Promise<void> {
     modelAccess,
   );
   const server = createApp(manager, fileURLToPath(new URL("../client", import.meta.url)), modelAccess); let closing = false;
-  const shutdown = async () => { if (closing) return; closing = true; modelAccess.close(); server.close(); await manager.close(); };
+  const shutdown = async () => {
+    if (closing) return;
+    closing = true;
+    modelAccess.close();
+    await Promise.all([closeHttpServer(server), manager.close()]);
+  };
   process.once("SIGINT", () => void shutdown()); process.once("SIGTERM", () => void shutdown());
   server.listen(port, host, () => console.log(`OpenMuse is ready at http://${host}:${port}`));
 }

@@ -92,6 +92,32 @@ test("Start over replaces unknown work with a clean conversation", async ({ page
   expect(state.conversation?.recovery).toBeUndefined();
 });
 
+test("Start over blocks overlapping conversation changes while reset is pending", async ({ page, request }) => {
+  await setScenario(request, "outcome_unknown");
+  await requestAndApprove(page);
+  await expect(page.getByText("Action outcome unknown", { exact: true })).toBeVisible();
+
+  let releaseReset!: () => void;
+  const resetBlocked = new Promise<void>((resolve) => { releaseReset = resolve; });
+  let markResetStarted!: () => void;
+  const resetStarted = new Promise<void>((resolve) => { markResetStarted = resolve; });
+  await page.route("**/api/conversations/*/start-over", async (route) => {
+    markResetStarted();
+    await resetBlocked;
+    await route.continue();
+  });
+
+  await page.getByRole("button", { name: "Start over" }).click();
+  await resetStarted;
+  await expect(page.locator("header").getByText("Changing conversation…", { exact: true })).toBeVisible();
+  await page.getByText("Chats", { exact: true }).click();
+  await expect(page.getByRole("button", { name: /New chat/ })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Reset conversation" })).toBeDisabled();
+
+  releaseReset();
+  await expect(page.getByRole("heading", { name: /What should we get done/ })).toBeVisible();
+});
+
 test("concurrent duplicate approval submissions produce one terminal result", async ({ page, request }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /Try a public web task/ }).click();

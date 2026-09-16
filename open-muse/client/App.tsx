@@ -39,7 +39,6 @@ export function App() {
   const [traceStatus, setTraceStatus] = useState<"ready" | "reconnecting" | "unavailable">("ready");
   const endRef = useRef<HTMLDivElement>(null);
   const approvalPendingRef = useRef(false);
-  const recoveryPendingRef = useRef(false);
   const conversationPendingRef = useRef(false);
   const conversationIdRef = useRef<string | undefined>(undefined);
   const chatMenuRef = useRef<HTMLDetailsElement>(null);
@@ -219,22 +218,24 @@ export function App() {
     }
   };
   const continueConversation = async () => {
-    if (!conversation || recoveryPendingRef.current) return;
-    recoveryPendingRef.current = true;
+    if (!conversation || conversationPendingRef.current) return;
+    conversationPendingRef.current = true;
     setRecoveryPending(true);
+    setConversationPending(true);
     setError("");
     try { showConversation(await api.continueConversation(conversation.id)); }
     catch (caught) { setError(caught instanceof Error ? caught.message : "Could not continue the conversation."); }
-    finally { recoveryPendingRef.current = false; setRecoveryPending(false); }
+    finally { conversationPendingRef.current = false; setRecoveryPending(false); setConversationPending(false); }
   };
   const startOver = async () => {
-    if (!conversation || recoveryPendingRef.current) return;
-    recoveryPendingRef.current = true;
+    if (!conversation || conversationPendingRef.current) return;
+    conversationPendingRef.current = true;
     setRecoveryPending(true);
+    setConversationPending(true);
     setError("");
     try { showConversation(await api.startOver(conversation.id)); await refreshConversationList(); }
     catch (caught) { setError(caught instanceof Error ? caught.message : "Could not start over."); }
-    finally { recoveryPendingRef.current = false; setRecoveryPending(false); }
+    finally { conversationPendingRef.current = false; setRecoveryPending(false); setConversationPending(false); }
   };
   const beginAuth = async (providerId: string, method: "oauth" | "api_key") => {
     setError(""); setAuthValue("");
@@ -318,7 +319,7 @@ export function App() {
   const interrupted = conversation?.runState === "interrupted";
   const humanControl = conversation?.controlOwner === "human";
   const pausingControl = conversation?.controlOwner === "pause_requested";
-  const status = conversation?.runState === "stopped" ? "Stopped" : interrupted ? "Interrupted" : humanControl ? "You have control" : pausingControl ? "Pausing agent control…" : busy ? "Agent working" : conversation?.runState === "waiting_for_approval" ? "Waiting for you" : "Ready";
+  const status = conversationPending ? "Changing conversation…" : conversation?.runState === "stopped" ? "Stopped" : interrupted ? "Interrupted" : humanControl ? "You have control" : pausingControl ? "Pausing agent control…" : busy ? "Agent working" : conversation?.runState === "waiting_for_approval" ? "Waiting for you" : "Ready";
   const canChangeConversation = Boolean(conversation && conversation.controlOwner === "agent" && !["model_turn", "tool_action", "waiting_for_approval", "stopping"].includes(conversation.runState));
   const traceByTurn = new Map((traces?.turns ?? []).map((turn) => [turn.turnId, turn]));
   const quarantinedPopups = (conversation?.tabs ?? []).filter((tab) => tab.owner === "quarantined");
@@ -383,7 +384,7 @@ export function App() {
       <div className="brand"><span className="brandmark">M</span><span>OpenMuse</span><span className="preview">PREVIEW</span></div>
       <div className="top-actions">
         <details className="chat-menu" ref={chatMenuRef}><summary>Chats</summary><div className="chat-menu-popover"><button className="new-chat" disabled={!canChangeConversation || conversationPending} onClick={() => void newConversation()}>+ New chat</button><div className="chat-list">{conversationList.conversations.map((item) => <button className={item.id === conversation?.id ? "active" : ""} disabled={!canChangeConversation || conversationPending} key={item.id} onClick={() => void activateConversation(item.id)}><span>{item.title}</span><small>{item.modelId}</small></button>)}</div><button className="reset-chat" disabled={!canChangeConversation || conversationPending} onClick={() => void resetConversation()}>Reset conversation</button></div></details>
-        {modelAccess && conversation && <button className="quiet" onClick={() => setShowModelSetup(true)}>Model: {conversation.modelId}</button>}<span className={`status-dot ${busy ? "working" : ""}`}></span><span>{status}</span>{conversation && conversation.runState !== "stopped" && <button className="quiet danger" onClick={() => void api.stopConversation(conversation.id)}>Stop</button>}
+        {modelAccess && conversation && <button className="quiet" disabled={conversationPending} onClick={() => setShowModelSetup(true)}>Model: {conversation.modelId}</button>}<span className={`status-dot ${busy ? "working" : ""}`}></span><span>{status}</span>{conversation && conversation.runState !== "stopped" && <button className="quiet danger" disabled={conversationPending} onClick={() => void api.stopConversation(conversation.id)}>Stop</button>}
       </div>
     </header>
     <section className="workspace">

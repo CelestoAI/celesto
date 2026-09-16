@@ -200,15 +200,6 @@ function wrapCloudComputer(computer: CloudComputer, runtime: ProviderDependencie
     async delete() {
       try {
         await computer.delete();
-        const deadline = Date.now() + 60_000;
-        let delay = 250;
-        while (computer.status !== "deleted") {
-          if (Date.now() >= deadline) throw new Error("The Celesto computer is still deleting. Retry Stop before closing OpenMuse.");
-          await runtime.wait(delay);
-          delay = Math.min(delay * 2, 4_000);
-          try { await computer.refresh(); }
-          catch (error) { if (isNotFound(error)) return; else throw error; }
-        }
       }
       catch (error) { if (!isNotFound(error)) throw error; }
     },
