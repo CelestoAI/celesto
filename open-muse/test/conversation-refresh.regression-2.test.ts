@@ -53,13 +53,12 @@ test("replacing a failed conversation releases its disposable resources", async 
   const closed: string[] = [];
   context.runState = "failed";
   context.playwright = { close: async () => { closed.push("playwright"); } } as ConversationContext["playwright"];
-  context.computer = { delete: async () => { closed.push("computer"); } } as ConversationContext["computer"];
-  context.smolvm = { close: async () => { closed.push("smolvm"); } } as ConversationContext["smolvm"];
+  context.computer = { detach: async () => { closed.push("computer"); } } as ConversationContext["computer"];
 
   const replacement = await manager.create();
 
   assert.notEqual(replacement.id, created.id);
-  assert.deepEqual(closed, ["playwright", "computer", "smolvm"]);
+  assert.deepEqual(closed, ["playwright", "computer"]);
 });
 
 test("takeover pauses an in-flight approved action and requires recovery", async () => {

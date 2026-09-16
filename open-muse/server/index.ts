@@ -1,12 +1,14 @@
 import { createReadStream } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { Duplex } from "node:stream";
 import { extname, join, normalize, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomBytes } from "node:crypto";
 import httpProxy from "http-proxy";
 import { z } from "zod";
 import { ConversationManager } from "./manager.js";
+import { createComputerProvider } from "./computer-provider.js";
 import { ModelAccessService, type ModelSelection } from "./model-access.js";
 import { parseTraceCursor, type TraceEvent } from "./trace.js";
 
@@ -33,6 +35,13 @@ const securityHeaders = {
 };
 
 export function createApp(manager: ConversationManager, staticRoot = fileURLToPath(new URL("../client", import.meta.url)), modelAccess?: ModelAccessService) {
+  const viewerSockets = new Map<string, Set<Duplex>>();
+  const closeViewerSockets = (conversationId: string) => {
+    const sockets = viewerSockets.get(conversationId);
+    viewerSockets.delete(conversationId);
+    for (const socket of sockets ?? []) socket.destroy();
+  };
+  const stopWatchingViewerSessions = manager.onViewerInvalidated(closeViewerSockets);
   const server = createServer(async (request, response) => {
     for (const [name, value] of Object.entries(securityHeaders)) response.setHeader(name, value);
     try { await route(manager, staticRoot, request, response, modelAccess); }
@@ -44,18 +53,36 @@ export function createApp(manager: ConversationManager, staticRoot = fileURLToPa
       sendJson(response, status, { error: message, code: error instanceof z.ZodError ? "invalid_request" : typeof (error as { code?: unknown })?.code === "string" ? (error as { code: string }).code : "request_failed" });
     }
   });
-  server.on("upgrade", (request, socket, head) => {
+  server.on("upgrade", async (request, socket, head) => {
     try {
       const url = new URL(request.url ?? "/", "http://127.0.0.1");
       const match = url.pathname.match(/^\/api\/conversations\/([^/]+)\/viewer\/websockify$/);
-      if (!match || !authenticated(request) || !manager.consumeViewerNonce(match[1], url.searchParams.get("token") ?? "")) return socket.destroy();
-      request.url = "/websockify";
-      proxy.ws(request, socket, head, { target: manager.viewerTarget(match[1]) });
+      if (!match || !authenticated(request)) return socket.destroy();
+      const targetUrl = await manager.consumeViewerNonce(match[1], url.searchParams.get("token") ?? "");
+      if (!targetUrl) return socket.destroy();
+      const target = new URL(targetUrl);
+      const conversationId = match[1];
+      const sockets = viewerSockets.get(conversationId) ?? new Set<Duplex>();
+      viewerSockets.set(conversationId, sockets);
+      sockets.add(socket);
+      const forgetSocket = () => {
+        sockets.delete(socket);
+        if (sockets.size === 0) viewerSockets.delete(conversationId);
+      };
+      socket.once("close", forgetSocket);
+      socket.once("error", forgetSocket);
+      request.url = `${target.pathname}${target.search}`;
+      proxy.ws(request, socket, head, { target: target.origin });
     } catch { socket.destroy(); }
   });
   const cleanupTimer = setInterval(() => cleanupSessions(modelAccess), 15 * 60_000);
   cleanupTimer.unref();
-  server.on("close", () => { clearInterval(cleanupTimer); modelAccess?.close(); });
+  server.on("close", () => {
+    clearInterval(cleanupTimer);
+    stopWatchingViewerSessions();
+    for (const conversationId of viewerSockets.keys()) closeViewerSockets(conversationId);
+    modelAccess?.close();
+  });
   return server;
 }
 
@@ -169,15 +196,6 @@ async function route(manager: ConversationManager, staticRoot: string, request: 
   }
   const tokenMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)\/viewer-token$/);
   if (method === "POST" && tokenMatch) return sendJson(response, 200, manager.issueViewerNonce(tokenMatch[1]));
-  const viewerMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)\/viewer\/(.+)$/);
-  if (method === "GET" && viewerMatch) {
-    const target = manager.viewerTarget(viewerMatch[1]);
-    if (viewerMatch[2] === "package.json") return sendJson(response, 200, { name: "smolvm-novnc", version: "embedded" });
-    const remainder = `/${viewerMatch[2]}${url.search}`;
-    request.url = remainder;
-    proxy.web(request, response, { target });
-    return;
-  }
   if (url.pathname.startsWith("/api/")) throw Object.assign(new Error("That OpenMuse route does not exist."), { status: 404 });
   if (method !== "GET" && method !== "HEAD") throw Object.assign(new Error("Method not allowed."), { status: 405 });
   await serveStatic(staticRoot, url.pathname, response, method === "HEAD");
@@ -325,12 +343,13 @@ async function main(): Promise<void> {
   const host = process.env.OPEN_MUSE_HOST ?? "127.0.0.1"; const port = Number(process.env.OPEN_MUSE_PORT ?? 4318);
   if (host !== "127.0.0.1") throw new Error("OpenMuse only listens locally. Set OPEN_MUSE_HOST=127.0.0.1.");
   const modelAccess = ModelAccessService.createDefault();
+  const computerProvider = createComputerProvider();
   const manager = await ConversationManager.open(
     process.env.OPENAI_API_KEY ?? "",
     process.env.OPENAI_MODEL ?? "gpt-5.6-luna",
     process.env.OPEN_MUSE_FIXTURE_STORE === "1",
     undefined,
-    {},
+    { computerProvider },
     modelAccess,
   );
   const server = createApp(manager, fileURLToPath(new URL("../client", import.meta.url)), modelAccess); let closing = false;

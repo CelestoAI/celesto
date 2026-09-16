@@ -86,6 +86,18 @@ test("switching models replaces an idle agent and preserves conversation history
   await assert.rejects(manager.switchModel(created.id, { providerId: "test-provider", modelId: "model-a" }), /current work to finish/);
 });
 
+test("switching models remains available after a failed turn", async () => {
+  const { manager } = fixture();
+  const created = await manager.create({ providerId: "test-provider", modelId: "model-a" });
+  const context = (manager as unknown as { context: ConversationContext }).context;
+  context.runState = "failed";
+
+  const switched = await manager.switchModel(created.id, { providerId: "test-provider", modelId: "model-b" });
+
+  assert.equal(switched.modelId, "model-b");
+  assert.equal(switched.runState, "failed");
+});
+
 test("disconnect and reconnect update the active conversation's access state", async () => {
   const { manager, logoutProvider, configure } = fixture();
   const created = await manager.create({ providerId: "test-provider", modelId: "model-a" });

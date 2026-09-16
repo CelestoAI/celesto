@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { SmolVM } from "@celestoai/smolvm";
+import { SmolVM, type SmolVMClient } from "@celestoai/smolvm";
 import { chromium } from "playwright-core";
 import { ActionBroker } from "./broker.js";
 import { redactBrowserOperation, validateBrowserOperation } from "./browser-operations.js";
@@ -16,13 +16,15 @@ import type { ConversationContext, ConversationEvent, ConversationSummary, Messa
 import { ModelAccessService, sanitizeModelAccessError, type ModelSelection } from "./model-access.js";
 import { TraceBuffer, type ToolTraceAdapter, type TraceCursor, type TraceEvent, type TraceSnapshot, type TraceTurnState, type TurnExecution } from "./trace.js";
 import { hostBrowserDriver, type BrowserDriver } from "./browser-driver.js";
+import { createComputerProvider, type ComputerProvider, type DisplayMode } from "./computer-provider.js";
 
 type Listener = (event: ConversationEvent) => void;
 
 export interface RuntimeDependencies {
   createAgent: typeof createAgent;
   createAgentWithModel: typeof createAgentWithModel;
-  createSmolVM: () => SmolVM;
+  createSmolVM: () => SmolVMClient;
+  computerProvider?: ComputerProvider;
   connectOverCDP: typeof chromium.connectOverCDP;
   convertPageToMarkdown: typeof convertPageToMarkdown;
   browserDriver: BrowserDriver;
@@ -48,7 +50,8 @@ export class ConversationManager {
     conversationId: string; approvalId: string; actionDigest: string; approved: boolean;
     promise: Promise<ReturnType<ConversationManager["snapshot"]>>;
   };
-  private viewerNonces = new Map<string, { conversationId: string; expiresAt: number }>();
+  private viewerNonces = new Map<string, { conversationId: string; expiresAt: number; controlEpoch: string; mode: DisplayMode }>();
+  private viewerInvalidators = new Set<(conversationId: string) => void>();
   private replayConversationOnNextTurn = false;
   private modelAccessTransition = false;
   private conversationTransition = false;
@@ -56,7 +59,7 @@ export class ConversationManager {
   private currentExecution?: TurnExecution;
   private readonly traceScope = new AsyncLocalStorage<{ execution: TurnExecution; stepId?: number }>();
   private readonly approvalTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  private readonly runtime: RuntimeDependencies;
+  private readonly runtime: RuntimeDependencies & { computerProvider: ComputerProvider };
 
   constructor(
     private readonly apiKey: string,
@@ -67,7 +70,12 @@ export class ConversationManager {
     runtime: Partial<RuntimeDependencies> = {},
     private readonly modelAccess?: ModelAccessService,
   ) {
-    this.runtime = { ...DEFAULT_RUNTIME_DEPENDENCIES, ...runtime };
+    const legacySmolVM = runtime.createSmolVM ?? DEFAULT_RUNTIME_DEPENDENCIES.createSmolVM;
+    this.runtime = {
+      ...DEFAULT_RUNTIME_DEPENDENCIES,
+      ...runtime,
+      computerProvider: runtime.computerProvider ?? createComputerProvider({ provider: "smolvm" }, { createSmolVM: legacySmolVM }),
+    };
     if (restored) {
       const active = restored.conversations.find((conversation) => conversation.id === restored.activeConversationId)!;
       for (const conversation of restored.conversations) if (conversation.id !== active.id) this.history.set(conversation.id, conversation);
@@ -94,6 +102,7 @@ export class ConversationManager {
   ): Promise<ConversationManager> {
     const restored = await stateStore.load();
     const manager = new ConversationManager(apiKey, model, fixtureStore, stateStore, restored, runtime, modelAccess);
+    await manager.restoreComputerHandle();
     if (restored && modelAccess) await manager.reconcileModelAccess();
     if (restored) await manager.checkpoint();
     return manager;
@@ -147,6 +156,7 @@ export class ConversationManager {
       nextHistory.delete(id);
       const next = this.restore(saved, true);
       await this.reconcileModelAccess(next);
+      await this.restoreComputerHandle(next);
       await this.checkpointState(next, nextHistory);
       this.commitConversation(next, nextHistory, next.messages.length > 0);
       return this.snapshot(id);
@@ -173,7 +183,7 @@ export class ConversationManager {
         active: tab.id === context.activeTabId,
         openerTabId: tab.openerTabId,
       })),
-      viewerReady: context.sessionLifecycle === "ready" && Boolean(context.computer?.display.viewerUrl),
+      viewerReady: context.sessionLifecycle === "ready" && Boolean(context.computer),
       events: context.events,
     };
   }
@@ -244,6 +254,11 @@ export class ConversationManager {
     const context = this.require(id);
     if (this.modelAccessTransition) throw Object.assign(new Error("Wait for the current model change to finish, then try again."), { status: 409, code: "model_access_busy" });
     if (context.runState !== "interrupted") throw Object.assign(new Error("This conversation is not waiting to continue."), { status: 409 });
+    const missingComputer = context.recovery?.kind === "computer_unavailable";
+    if (missingComputer) {
+      delete context.computerReference;
+      context.sessionLifecycle = "absent";
+    }
     context.runState = "model_turn";
     context.controlOwner = "agent";
     context.controlEpoch = randomBytes(18).toString("base64url");
@@ -344,7 +359,7 @@ export class ConversationManager {
     this.assertConversationStable();
     const context = this.require(id);
     if (!this.modelAccess) throw Object.assign(new Error("Model account setup is not available."), { status: 409, code: "model_access_unavailable" });
-    if (!["idle", "interrupted"].includes(context.runState)) throw Object.assign(new Error("Wait for the current work to finish before switching models."), { status: 409, code: "conversation_busy" });
+    if (!["idle", "interrupted", "failed"].includes(context.runState)) throw Object.assign(new Error("Wait for the current work to finish before switching models."), { status: 409, code: "conversation_busy" });
     if (this.modelAccessTransition) throw Object.assign(new Error("Wait for the current model change to finish, then try again."), { status: 409, code: "model_access_busy" });
     this.modelAccessTransition = true;
     try {
@@ -463,6 +478,7 @@ export class ConversationManager {
     if (this.context !== context || context.controlOwner !== "agent") throw Object.assign(new Error("Browser control changed. Take control again and retry."), { status: 409 });
     context.controlOwner = "pause_requested";
     context.controlEpoch = randomBytes(18).toString("base64url");
+    this.invalidateViewerSessions(context.id);
     this.invalidateBrowserRefs(context);
     for (const [tabId, tab] of context.tabs) {
       if (tab.owner === "agent") context.tabs.set(tabId, bumpTab(tab, "paused", context.controlEpoch));
@@ -478,6 +494,7 @@ export class ConversationManager {
     if (this.context !== context || context.controlOwner !== "pause_requested") throw Object.assign(new Error("Browser control changed. Take control again and retry."), { status: 409 });
     context.controlOwner = "human";
     context.controlEpoch = randomBytes(18).toString("base64url");
+    this.invalidateViewerSessions(context.id);
     for (const [tabId, tab] of context.tabs) {
       if (tab.owner === "paused") context.tabs.set(tabId, bumpTab(tab, "human", context.controlEpoch));
     }
@@ -494,6 +511,7 @@ export class ConversationManager {
     if (context.controlOwner !== "human" || context.controlEpoch !== controlEpoch) throw Object.assign(new Error("Browser control changed. Take control again and retry."), { status: 409 });
     context.controlOwner = "agent";
     context.controlEpoch = randomBytes(18).toString("base64url");
+    this.invalidateViewerSessions(context.id);
     this.invalidateBrowserRefs(context);
     for (const [tabId, tab] of context.tabs) {
       if (tab.owner === "human") context.tabs.set(tabId, bumpTab(tab, "agent", context.controlEpoch));
@@ -540,6 +558,7 @@ export class ConversationManager {
     if (context.runState === "stopped") return;
     context.runState = "stopping";
     context.stateVersion += 1;
+    this.invalidateViewerSessions(context.id);
     this.emit("conversation.stopping", { summary: "Stopping the disposable computer" }, false);
     await this.checkpoint();
     context.agent?.abort();
@@ -547,7 +566,7 @@ export class ConversationManager {
     await this.activeAction?.catch(() => undefined);
     await this.turnQueue.catch(() => undefined);
     delete context.pendingApproval;
-    await this.releaseComputer(context);
+    await this.releaseComputer(context, "delete");
     context.runState = "stopped";
     context.sessionLifecycle = "deleted";
     context.stateVersion += 1;
@@ -558,25 +577,40 @@ export class ConversationManager {
   issueViewerNonce(id: string): { viewerPath: string; expiresAt: string } {
     this.assertConversationStable();
     const context = this.require(id);
-    if (!context.computer?.display.viewerUrl) throw Object.assign(new Error("The live computer is not ready yet."), { status: 409 });
+    if (!context.computer || context.sessionLifecycle !== "ready") throw Object.assign(new Error("The live computer is not ready yet."), { status: 409 });
     const nonce = randomBytes(32).toString("base64url");
     const expiresAt = Date.now() + 60_000;
-    this.viewerNonces.set(nonce, { conversationId: id, expiresAt });
+    for (const [candidate, value] of this.viewerNonces) if (value.expiresAt <= Date.now()) this.viewerNonces.delete(candidate);
+    const mode: DisplayMode = context.controlOwner === "human" ? "read_write" : "read_only";
+    this.viewerNonces.set(nonce, { conversationId: id, expiresAt, controlEpoch: context.controlEpoch!, mode });
     const wsPath = `api/conversations/${id}/viewer/websockify?token=${nonce}`;
-    return { viewerPath: `/api/conversations/${id}/viewer/vnc.html?autoconnect=1&resize=scale&path=${encodeURIComponent(wsPath)}`, expiresAt: new Date(expiresAt).toISOString() };
+    return { viewerPath: `/viewer.html?path=${encodeURIComponent(`/${wsPath}`)}&mode=${mode}`, expiresAt: new Date(expiresAt).toISOString() };
   }
 
-  consumeViewerNonce(id: string, nonce: string): boolean {
-    if (this.conversationTransition) return false;
+  async consumeViewerNonce(id: string, nonce: string): Promise<string | undefined> {
+    if (this.conversationTransition) return;
     const value = this.viewerNonces.get(nonce);
     this.viewerNonces.delete(nonce);
-    return Boolean(value && value.conversationId === id && value.expiresAt > Date.now());
+    const context = this.context;
+    if (!value || !context || context.id !== id || value.conversationId !== id || value.expiresAt <= Date.now()) return;
+    if (context.controlEpoch !== value.controlEpoch) return;
+    const currentMode: DisplayMode = context.controlOwner === "human" ? "read_write" : "read_only";
+    if (currentMode !== value.mode || !context.computer) return;
+    const connection = await context.computer.createDisplayConnection(currentMode);
+    if (this.context !== context || context.controlEpoch !== value.controlEpoch) return;
+    const modeAfterMint: DisplayMode = context.controlOwner === "human" ? "read_write" : "read_only";
+    if (modeAfterMint !== value.mode) return;
+    return connection.url;
   }
 
-  viewerTarget(id: string): string {
-    const url = this.require(id).computer?.display.viewerUrl;
-    if (!url) throw Object.assign(new Error("The live computer is not ready."), { status: 409 });
-    return new URL(url).origin;
+  onViewerInvalidated(listener: (conversationId: string) => void): () => void {
+    this.viewerInvalidators.add(listener);
+    return () => this.viewerInvalidators.delete(listener);
+  }
+
+  private invalidateViewerSessions(conversationId: string): void {
+    for (const [nonce, value] of this.viewerNonces) if (value.conversationId === conversationId) this.viewerNonces.delete(nonce);
+    for (const listener of this.viewerInvalidators) listener(conversationId);
   }
 
   async close(): Promise<void> {
@@ -590,7 +624,7 @@ export class ConversationManager {
     this.cancelCurrentExecution(interrupted ? "interrupted" : "cancelled");
     await this.activeAction?.catch(() => undefined);
     await this.turnQueue.catch(() => undefined);
-    await this.releaseComputer(context);
+    await this.releaseComputer(context, "detach");
     delete context.pendingApproval;
     context.recovery ??= interrupted ? { kind: "interrupted" } : undefined;
     context.controlOwner = "agent";
@@ -779,7 +813,7 @@ export class ConversationManager {
     if (context.sessionLifecycle === "ready" && context.computer && trackedBrowserReady) return;
     if (context.sessionLifecycle === "ready" && context.computer) {
       this.emit("browser.reconnecting", { summary: "Reconnecting browser automation" }, false);
-      await this.attachBrowser(context, await this.browserCdpUrl(context.computer), fence);
+      await this.attachBrowserWithFreshConnection(context, context.computer, fence);
       fence();
       this.emit("browser.reconnected", { summary: "Browser automation reconnected" }, false);
       return;
@@ -788,39 +822,57 @@ export class ConversationManager {
     context.sessionLifecycle = "starting";
     context.runState = "tool_action";
     context.stateVersion += 1;
-    this.emit("browser.starting", { summary: "Booting a disposable SmolVM browser" }, false);
+    this.emit("browser.starting", { summary: "Booting the computer browser" }, false);
     await this.checkpoint();
-    const smolvm = this.runtime.createSmolVM();
-    context.smolvm = smolvm;
     let createdComputer: ConversationContext["computer"];
     try {
-      const computer = await smolvm.computers.create({
-        display: { width: 1440, height: 900 },
-        network: { mode: this.fixtureStore ? "off" : "open" },
-      });
+      const computer = context.computerReference
+        ? await this.runtime.computerProvider.reconnect(context.computerReference)
+        : await this.runtime.computerProvider.create({
+            viewport: { width: 1440, height: 900 },
+            network: this.fixtureStore ? "off" : "open",
+          });
+      if (!computer) {
+        context.sessionLifecycle = "error";
+        context.runState = "interrupted";
+        context.recovery = { kind: "computer_unavailable", summary: "The saved Celesto computer no longer exists" };
+        context.stateVersion += 1;
+        await this.checkpoint();
+        throw Object.assign(new Error("The saved Celesto computer no longer exists. Continue to create a new one, or choose Start over."), { status: 409, code: "computer_missing" });
+      }
       createdComputer = computer;
       fence();
       context.computer = computer;
-      await this.attachBrowser(context, await this.browserCdpUrl(computer), fence);
+      if (computer.reference && !context.computerReference) {
+        context.computerReference = computer.reference;
+        try { await this.checkpoint(); }
+        catch (error) {
+          await computer.delete().catch(() => undefined);
+          delete context.computer;
+          delete context.computerReference;
+          throw error;
+        }
+      }
+      await this.attachBrowserWithFreshConnection(context, computer, fence);
       fence();
       context.sessionLifecycle = "ready";
       context.stateVersion += 1;
-      this.emit("browser.ready", { summary: "Disposable computer ready", sandboxId: computer.sandboxId }, false);
+      this.emit("browser.ready", { summary: "Computer ready" }, false);
       await this.checkpoint();
     } catch (error) {
       if (execution && !this.executionIsCurrent(context, execution)) {
-        await createdComputer?.delete().catch(() => undefined);
-        await smolvm.close().catch(() => undefined);
+        await createdComputer?.detach().catch(() => undefined);
         if (context.computer === createdComputer) delete context.computer;
-        if (context.smolvm === smolvm) delete context.smolvm;
         if (context.sessionLifecycle === "starting") context.sessionLifecycle = "absent";
         throw error;
       }
+      if ((error as { code?: unknown })?.code === "computer_missing") throw error;
       context.sessionLifecycle = "error";
-      await smolvm.close().catch(() => undefined);
-      context.lastBrowserError = "The disposable browser could not start.";
+      await createdComputer?.detach().catch(() => undefined);
+      if (context.computer === createdComputer) delete context.computer;
+      context.lastBrowserError = "The computer browser could not start.";
       console.error("OpenMuse browser startup failed.");
-      this.emit("browser.failed", { summary: "Disposable browser startup failed" }, false);
+      this.emit("browser.failed", { summary: "Computer browser startup failed" }, false);
       await this.checkpoint();
       throw error;
     }
@@ -854,6 +906,24 @@ export class ConversationManager {
       if (context.playwright !== browser) await browser.close().catch(() => undefined);
       throw error;
     }
+  }
+
+  private async attachBrowserWithFreshConnection(
+    context: ConversationContext,
+    computer: NonNullable<ConversationContext["computer"]>,
+    fence: () => void = () => undefined,
+  ): Promise<void> {
+    let firstError: unknown;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const connection = await computer.createBrowserConnection();
+      try {
+        await this.attachBrowser(context, connection.url, fence);
+        return;
+      } catch (error) {
+        firstError ??= error;
+      }
+    }
+    throw firstError;
   }
 
   private registerTab(context: ConversationContext, page: BrowserTab["page"], owner: BrowserTab["owner"], openerTabId?: string): BrowserTab {
@@ -906,13 +976,6 @@ export class ConversationManager {
     return { id: tab.id, epoch: tab.epoch, controlEpoch: tab.controlEpoch, pageIndex, pageBinding, pageUrl: publicTabUrl(tab.page) };
   }
 
-  private async browserCdpUrl(computer: NonNullable<ConversationContext["computer"]>): Promise<string> {
-    if (!computer.browser.cdpUrl) await computer.browser.launch();
-    const cdpUrl = computer.browser.cdpUrl;
-    if (!cdpUrl) throw new Error("Chromium has no automation address; start it again with computer.browser.launch().");
-    return cdpUrl;
-  }
-
   private emit(type: string, payload: Record<string, unknown>, mutates = false): void {
     const context = this.context;
     if (!context) return;
@@ -936,7 +999,7 @@ export class ConversationManager {
   private checkpointState(context: ConversationContext, history: Map<string, StoredConversationRecord>): Promise<void> {
     if (!this.stateStore) return Promise.resolve();
     return this.stateStore.save({
-      fileVersion: 5,
+      fileVersion: 6,
       activeConversationId: context.id,
       conversations: [serializeConversationRecord(context), ...history.values()],
     });
@@ -950,7 +1013,7 @@ export class ConversationManager {
     if (!["idle", "interrupted", "stopped", "failed"].includes(context.runState) || this.activeApproval) {
       throw Object.assign(new Error("Stop the current work before switching conversations."), { status: 409, code: "conversation_busy" });
     }
-    await this.releaseComputer(context);
+    await this.releaseComputer(context, "detach");
     if (!["stopped", "failed"].includes(context.runState)) context.sessionLifecycle = "absent";
     return serializeConversationRecord(context);
   }
@@ -1018,6 +1081,7 @@ export class ConversationManager {
       modelId: saved.modelId,
       modelAccessState: saved.modelAccessState,
       sessionLifecycle: terminal ? "deleted" : "absent",
+      computerReference: saved.computerReference,
       messages: saved.messages.map((message) => ({ ...message })),
       events: saved.events.map((event) => ({ ...event, payload: { ...event.payload } })),
       grants: [], cart: [], receipts: new Map(), commerceRevision: 0, observationId: "", browserRefs: new Map(),
@@ -1052,7 +1116,9 @@ export class ConversationManager {
   }
 
   private recoveryPrompt(context: ConversationContext): string {
-    const operationGuidance = context.recovery?.kind === "failed_before_execution"
+    const operationGuidance = context.recovery?.kind === "computer_unavailable"
+      ? "The saved Celesto computer no longer exists. Create a fresh computer and observe the website before relying on earlier browser state."
+      : context.recovery?.kind === "failed_before_execution"
       ? "The approved website action did not run. Re-plan it and request a fresh approval if it is still needed."
       : context.recovery?.kind === "outcome_unknown"
         ? "The approved website action may have completed. Do not repeat it automatically; observe the website or ask the user before taking another effectful action."
@@ -1085,18 +1151,47 @@ export class ConversationManager {
       .join("\n\n");
   }
 
-  private async releaseComputer(context: ConversationContext): Promise<void> {
+  private async restoreComputerHandle(context = this.context): Promise<void> {
+    if (!context?.computerReference || ["stopped", "failed"].includes(context.runState)) return;
+    if (context.computerReference.provider !== this.runtime.computerProvider.id) {
+      throw new Error(`Saved conversations still use the '${context.computerReference.provider}' computer provider. Set OPENMUSE_COMPUTER_PROVIDER=${context.computerReference.provider}, restart OpenMuse, then Stop or Reset those conversations before changing providers.`);
+    }
+    try {
+      const computer = await this.runtime.computerProvider.reconnect(context.computerReference);
+      if (!computer) {
+        context.sessionLifecycle = "error";
+        context.runState = "interrupted";
+        context.recovery = { kind: "computer_unavailable", summary: "The saved Celesto computer no longer exists" };
+        context.stateVersion += 1;
+        return;
+      }
+      context.computer = computer;
+      context.sessionLifecycle = "ready";
+    } catch {
+      context.sessionLifecycle = "error";
+      context.lastBrowserError = "OpenMuse could not reconnect to the saved Celesto computer. Check your connection, then try again.";
+    }
+  }
+
+  private async releaseComputer(context: ConversationContext, disposition: "detach" | "delete"): Promise<void> {
+    this.invalidateViewerSessions(context.id);
     this.invalidateBrowserRefs(context);
     await context.playwright?.close().catch(() => undefined);
-    await context.computer?.delete().catch(() => undefined);
-    await context.smolvm?.close().catch(() => undefined);
+    let computer = context.computer;
+    if (!computer && disposition === "delete" && context.computerReference) {
+      computer = await this.runtime.computerProvider.reconnect(context.computerReference);
+    }
+    if (computer) {
+      if (disposition === "delete") await computer.delete();
+      else await computer.detach();
+    }
+    if (disposition === "delete") delete context.computerReference;
     delete context.playwright;
     delete context.page;
     context.tabs.clear();
     delete context.activeTabId;
     delete context.storefront;
     delete context.computer;
-    delete context.smolvm;
     delete context.agent;
     delete context.abortController;
   }

@@ -1,6 +1,6 @@
 import type { Browser, Page } from "playwright-core";
 import type { Agent } from "@earendil-works/pi-agent-core";
-import type { ComputerSessionClient, SmolVMClient } from "@celestoai/smolvm";
+import type { ComputerReference, OpenMuseComputer } from "./computer-provider.js";
 import type { StorefrontController } from "./storefront.js";
 import type { BrowserTarget, ExecutableBrowserOperation } from "./browser-operations.js";
 import type { OperationRecord, RecoveryState } from "./operation-lifecycle.js";
@@ -57,7 +57,7 @@ export interface ConversationContext {
   recoveryTurn?: { turnId: string; userMessageId: string };
   tabs: Map<string, BrowserTab>; activeTabId?: string;
   browserRefs: Map<string, BrowserRef>;
-  agent?: Agent; smolvm?: SmolVMClient; computer?: ComputerSessionClient;
+  agent?: Agent; computer?: OpenMuseComputer; computerReference?: ComputerReference;
   playwright?: Browser; page?: Page; abortController?: AbortController;
   storefront?: StorefrontController; receipts: Map<string, string>;
   lastBrowserError?: string;

@@ -133,8 +133,7 @@ test("closing every tab reconnects browser automation instead of using a missing
   initial.closePage();
   internals.context.sessionLifecycle = "ready";
   internals.context.computer = {
-    display: { viewerUrl: "http://viewer.test" },
-    browser: { cdpUrl: "http://browser.test", launch: async () => undefined },
+    createBrowserConnection: async () => ({ url: "http://browser.test" }),
   } as ConversationContext["computer"];
 
   await internals.ensureBrowser(internals.context);
@@ -194,8 +193,7 @@ test("takeover and return control update every owned tab epoch", async () => {
 
   internals.context.sessionLifecycle = "ready";
   internals.context.computer = {
-    display: { viewerUrl: "http://viewer.test" },
-    browser: { cdpUrl: "http://browser.test", launch: async () => undefined },
+    createBrowserConnection: async () => ({ url: "http://browser.test" }),
   } as ConversationContext["computer"];
   const observation = await internals.broker(internals.context).runWebOperation({ kind: "observe" });
   assert.equal(observation.textBlocked, true);

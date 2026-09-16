@@ -4,7 +4,7 @@ export interface Message { id: string; role: "user" | "assistant"; text: string;
 export interface BrowserOperation { kind: string; url?: string; direction?: string; key?: string; value?: string; label?: string; target?: { role: string; name: string } }
 export interface Approval { kind: "checkout_review" | "browser_program" | "browser_operation"; approvalId: string; actionDigest: string; reason: string; expiresAt: string; totalPriceMinor?: number; operation?: BrowserOperation; pageUrl?: string }
 export interface Event { id: number; type: string; createdAt: string; payload: Record<string, unknown> }
-export interface Recovery { kind: "failed_before_execution" | "outcome_unknown" | "interrupted"; operationId?: string; summary?: string }
+export interface Recovery { kind: "failed_before_execution" | "outcome_unknown" | "interrupted" | "computer_unavailable"; operationId?: string; summary?: string }
 export interface BrowserTab { id: string; owner: "agent" | "paused" | "human" | "quarantined"; epoch: number; url: string; active: boolean; openerTabId?: string }
 export interface Conversation {
   id: string; stateVersion: number; controlOwner: "agent" | "pause_requested" | "human";
@@ -39,7 +39,21 @@ export interface AuthAttempt {
 
 let csrfToken = "";
 export async function bootstrap(): Promise<{ conversationId?: string; modelAccess?: ModelAccess }> {
-  const response = await fetch("/api/bootstrap", { credentials: "same-origin" });
+  const retryDelays = [100, 200, 400, 800, 1_000, 1_000, 1_000];
+  let response: Response | undefined;
+  for (let attempt = 0; attempt <= retryDelays.length; attempt += 1) {
+    try {
+      response = await fetch("/api/bootstrap", { credentials: "same-origin" });
+      break;
+    }
+    catch {
+      if (attempt === retryDelays.length) {
+        throw new Error("The OpenMuse server did not become ready. Check the server log, then reload this page.");
+      }
+      await new Promise((resolve) => setTimeout(resolve, retryDelays[attempt]));
+    }
+  }
+  if (!response) throw new Error("The OpenMuse server did not become ready. Check the server log, then reload this page.");
   if (!response.ok) throw new Error("Could not start the local OpenMuse session.");
   const result = await response.json() as { csrfToken: string; conversationId?: string; modelAccess?: ModelAccess };
   csrfToken = result.csrfToken;

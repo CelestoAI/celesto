@@ -77,9 +77,17 @@ const storedConversationV4Schema = z.object({
   }),
 });
 
-const conversationRecordSchema = storedConversationV4Schema.shape.conversation;
-const storedConversationSchema = z.object({
+const legacyConversationRecordSchema = storedConversationV4Schema.shape.conversation;
+const storedConversationV5Schema = z.object({
   fileVersion: z.literal(5),
+  activeConversationId: z.string(),
+  conversations: z.array(legacyConversationRecordSchema).min(1).max(50),
+});
+const conversationRecordSchema = legacyConversationRecordSchema.extend({
+  computerReference: z.object({ provider: z.enum(["smolvm", "celesto"]), id: z.string().min(1).max(200) }).optional(),
+});
+const storedConversationSchema = z.object({
+  fileVersion: z.literal(6),
   activeConversationId: z.string(),
   conversations: z.array(conversationRecordSchema).min(1).max(50),
 }).superRefine((value, context) => {
@@ -165,6 +173,7 @@ export function serializeConversationRecord(context: ConversationContext): Store
       modelId: context.modelId,
       modelAccessState: context.modelAccessState,
       sessionLifecycle: context.sessionLifecycle,
+      computerReference: context.computerReference,
       messages: boundedMessages(context.messages),
       events: context.events.slice(-MAX_EVENTS).map(safeEvent),
       operationJournal: context.operationJournal.reduce(
@@ -178,7 +187,7 @@ export function serializeConversationRecord(context: ConversationContext): Store
 
 export function serializeConversation(context: ConversationContext): StoredConversation {
   const conversation = serializeConversationRecord(context);
-  return withActiveConversation({ fileVersion: 5, activeConversationId: conversation.id, conversations: [conversation] });
+  return withActiveConversation({ fileVersion: 6, activeConversationId: conversation.id, conversations: [conversation] });
 }
 
 export class ConversationStateStore {
@@ -204,6 +213,16 @@ export class ConversationStateStore {
       if (current.success) return withActiveConversation({
         ...current.data,
         conversations: current.data.conversations.map((conversation) => ({
+          ...conversation,
+          events: conversation.events.map((event) => safeEvent(event as ConversationEvent)),
+          operationJournal: conversation.operationJournal.map(redactOperationRecord),
+        })),
+      });
+      const legacyV5 = storedConversationV5Schema.safeParse(parsed);
+      if (legacyV5.success) return withActiveConversation({
+        fileVersion: 6,
+        activeConversationId: legacyV5.data.activeConversationId,
+        conversations: legacyV5.data.conversations.map((conversation) => ({
           ...conversation,
           events: conversation.events.map((event) => safeEvent(event as ConversationEvent)),
           operationJournal: conversation.operationJournal.map(redactOperationRecord),
@@ -260,7 +279,7 @@ function wrapLegacy(conversation: StoredConversationRecord): StoredConversation 
     events: conversation.events.map((event) => safeEvent(event as ConversationEvent)),
     operationJournal: conversation.operationJournal.map(redactOperationRecord),
   };
-  return withActiveConversation({ fileVersion: 5, activeConversationId: sanitized.id, conversations: [sanitized] });
+  return withActiveConversation({ fileVersion: 6, activeConversationId: sanitized.id, conversations: [sanitized] });
 }
 
 function withActiveConversation(state: StoredConversationState): StoredConversation {

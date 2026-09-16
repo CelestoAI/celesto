@@ -17,7 +17,7 @@ export interface OperationRecord {
 }
 
 export interface RecoveryState {
-  kind: "failed_before_execution" | "outcome_unknown" | "interrupted";
+  kind: "failed_before_execution" | "outcome_unknown" | "interrupted" | "computer_unavailable";
   operationId?: string;
   summary?: string;
 }

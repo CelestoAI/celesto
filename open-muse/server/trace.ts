@@ -90,6 +90,14 @@ function safeText(value: unknown, max = 16_000): string {
   return text.length <= max ? text : `${text.slice(0, max)}…`;
 }
 
+function safeErrorText(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error);
+  return safeText(text
+    .replace(/\bwss?:\/\/[^\s<>"']+/gi, "[connection URL omitted]")
+    .replace(/\bauthorization\s*:\s*(?:bearer\s+)?[^\s,;]+/gi, "[credential omitted]")
+    .replace(/\b(?:[a-z][a-z0-9_]*_api_key|api[_-]?key|token)\s*[:=]\s*[^\s,;]+/gi, "[credential omitted]"), 2_000);
+}
+
 function normalizeValue(value: unknown, depth = 0, seen = new WeakSet<object>()): TracePayload {
   if (value === null || typeof value === "boolean") return value;
   if (typeof value === "number") return Number.isFinite(value) ? value : `[unsupported:${String(value)}]`;
@@ -218,7 +226,7 @@ export class TraceBuffer {
     this.updateStep(execution, stepId, (step) => {
       step.state = "failed";
       step.completedAt = new Date().toISOString();
-      step.error = safeText(error instanceof Error ? error.message : error, 2_000);
+      step.error = safeErrorText(error);
     });
   }
 

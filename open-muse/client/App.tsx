@@ -140,10 +140,22 @@ export function App() {
   }, [modelAccess]);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [conversation?.messages.length]);
   useEffect(() => { setViewerPath(""); setControlEpoch(""); }, [conversation?.id]);
+  useEffect(() => { setViewerPath(""); }, [conversation?.controlOwner]);
+  useEffect(() => {
+    const refreshViewer = (event: MessageEvent) => {
+      if (event.origin === window.location.origin && event.data?.type === "openmuse.viewer.disconnected") setViewerPath("");
+    };
+    window.addEventListener("message", refreshViewer);
+    return () => window.removeEventListener("message", refreshViewer);
+  }, []);
   useEffect(() => {
     if (!conversation?.viewerReady || viewerPath) return;
-    void api.viewerToken(conversation.id).then(({ viewerPath: path }) => setViewerPath(path)).catch((caught) => setError(String(caught)));
-  }, [conversation?.viewerReady, conversation?.id, viewerPath]);
+    let cancelled = false;
+    void api.viewerToken(conversation.id)
+      .then(({ viewerPath: path }) => { if (!cancelled) setViewerPath(path); })
+      .catch((caught) => { if (!cancelled) setError(String(caught)); });
+    return () => { cancelled = true; };
+  }, [conversation?.viewerReady, conversation?.id, conversation?.controlOwner, viewerPath]);
   useEffect(() => { if (conversation?.runState === "stopped") setViewerPath(""); }, [conversation?.runState]);
 
   const submit = async (value = text) => {
@@ -285,7 +297,13 @@ export function App() {
   const canChangeConversation = Boolean(conversation && conversation.controlOwner === "agent" && !["model_turn", "tool_action", "waiting_for_approval", "stopping"].includes(conversation.runState));
   const traceByTurn = new Map((traces?.turns ?? []).map((turn) => [turn.turnId, turn]));
   const quarantinedPopups = (conversation?.tabs ?? []).filter((tab) => tab.owner === "quarantined");
-  const recoveryCopy = conversation?.recovery?.kind === "failed_before_execution"
+  const recoveryCopy = conversation?.recovery?.kind === "computer_unavailable"
+    ? {
+        eyebrow: "Computer unavailable",
+        title: "The saved Celesto computer no longer exists",
+        detail: "Continue to create a fresh computer, or start over to remove this conversation.",
+      }
+    : conversation?.recovery?.kind === "failed_before_execution"
     ? {
         eyebrow: "Action did not run",
         title: "Choose how to proceed",
@@ -354,12 +372,12 @@ export function App() {
           {busy && <div className="thinking"><i></i><i></i><i></i> Working in the browser</div>}
           <div ref={endRef}></div>
         </div>
-        <div className="composer-wrap">{error && <div className="error">{error}</div>}<div className="composer"><textarea value={text} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submit(); } }} placeholder={interrupted ? "Choose Continue or Start over…" : pausingControl ? "Pausing agent control…" : humanControl ? "Return control to message OpenMuse…" : "Message OpenMuse…"} disabled={!conversation || conversation.runState === "stopped" || interrupted || conversation.controlOwner !== "agent"}/><button aria-label="Send" onClick={() => void submit()} disabled={!text.trim() || interrupted || conversation?.controlOwner !== "agent"}>↑</button></div><div className="hint">{interrupted ? "Nothing will run until you choose" : pausingControl ? "Waiting for the current browser action to finish" : humanControl ? "Return control to continue chatting" : "Enter to send · SmolVM is deleted when you stop"}</div></div>
+        <div className="composer-wrap">{error && <div className="error">{error}</div>}<div className="composer"><textarea value={text} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submit(); } }} placeholder={interrupted ? "Choose Continue or Start over…" : pausingControl ? "Pausing agent control…" : humanControl ? "Return control to message OpenMuse…" : "Message OpenMuse…"} disabled={!conversation || conversation.runState === "stopped" || interrupted || conversation.controlOwner !== "agent"}/><button aria-label="Send" onClick={() => void submit()} disabled={!text.trim() || interrupted || conversation?.controlOwner !== "agent"}>↑</button></div><div className="hint">{interrupted ? "Nothing will run until you choose" : pausingControl ? "Waiting for the current browser action to finish" : humanControl ? "Return control to continue chatting" : "Enter to send · Computer is deleted when you stop"}</div></div>
       </section>
       <section className="computer-pane">
         <div className="computer-head"><div><div className="eyebrow">Isolated workspace</div><h2>Agent’s computer</h2></div><div className="computer-actions">{conversation?.runState !== "stopped" && (humanControl ? <button onClick={() => void returnControl()}>Return control</button> : pausingControl ? <button className="secondary" disabled>Pausing…</button> : <button className="secondary" onClick={() => void takeControl()} disabled={!conversation?.viewerReady}>Take control</button>)}</div></div>
         <div className="screen">
-          {viewerPath ? <iframe title="Live SmolVM computer" src={viewerPath}/> : <div className="screen-empty"><div className="orbit"><span>S</span></div><h3>{conversation?.runState === "stopped" ? "Computer deleted" : conversation?.sessionLifecycle === "starting" ? "Booting the computer…" : "The computer is asleep"}</h3><p>{conversation?.runState === "stopped" ? "Start a new conversation to get a fresh VM." : "It starts only when the agent needs a browser."}</p></div>}
+          {viewerPath ? <iframe title="Live OpenMuse computer" src={viewerPath}/> : <div className="screen-empty"><div className="orbit"><span>S</span></div><h3>{conversation?.runState === "stopped" ? "Computer deleted" : conversation?.sessionLifecycle === "starting" ? "Booting the computer…" : "The computer is asleep"}</h3><p>{conversation?.runState === "stopped" ? "Start a new conversation to get a fresh VM." : "It starts only when the agent needs a browser."}</p></div>}
           {viewerPath && conversation?.controlOwner === "agent" && <div className="input-shield"><span><i></i> LIVE · Agent controlling</span><button onClick={() => void takeControl()}>Take control</button></div>}
           {viewerPath && pausingControl && <div className="input-shield"><span><i></i> LIVE · Pausing agent control</span><button disabled>Pausing…</button></div>}
         </div>

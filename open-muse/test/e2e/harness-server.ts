@@ -4,6 +4,7 @@ import { mkdtemp, rm, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent } from "@earendil-works/pi-agent-core";
+import type { ComputerSessionClient } from "@celestoai/smolvm";
 import type { Browser, BrowserContext, Frame, Page } from "playwright-core";
 import type { ActionBroker } from "../../server/broker.js";
 import { createApp } from "../../server/index.js";
@@ -134,7 +135,7 @@ class ScriptedRuntime {
     } as unknown as ReturnType<RuntimeDependencies["createSmolVM"]>;
   }
 
-  private createComputer(): NonNullable<ConversationContext["computer"]> {
+  private createComputer(): ComputerSessionClient {
     return {
       status: "ready", computerId: "computer-e2e", sandboxId: "sandbox-e2e", template: "linux-desktop", capabilities: [],
       display: { viewerUrl: `http://127.0.0.1:${viewerPort}`, vncUrl: "vnc://127.0.0.1:5900" },
@@ -172,7 +173,7 @@ class ScriptedRuntime {
         return this.result({ navigated: true });
       },
       delete: async () => undefined,
-    } as NonNullable<ConversationContext["computer"]>;
+    } as ComputerSessionClient;
   }
 
   private result(programResult: unknown) {

@@ -123,7 +123,7 @@ test("invalid state reports a recovery command instead of silently resetting", a
   );
 });
 
-test("v1 checkpoints migrate to v5 with model binding and an empty operation journal", async (t) => {
+test("v1 checkpoints migrate to v6 with model binding and an empty operation journal", async (t) => {
   const store = await temporaryStore(t);
   const { created, context } = await conversationFixture();
   const current = serializeConversation(context);
@@ -134,14 +134,14 @@ test("v1 checkpoints migrate to v5 with model binding and an empty operation jou
   const migrated = await store.load();
 
   assert.equal(restored.snapshot(created.id).runState, "idle");
-  assert.equal(migrated?.fileVersion, 5);
+  assert.equal(migrated?.fileVersion, 6);
   assert.deepEqual(migrated?.conversation.operationJournal, []);
   assert.equal(migrated?.conversation.providerId, "openai");
   assert.equal(migrated?.conversation.modelId, "gpt-5-mini");
   assert.equal(migrated?.conversation.modelAccessState, "ready");
 });
 
-test("v2-v4 checkpoints migrate to a single active v5 history entry", async (t) => {
+test("v2-v4 checkpoints migrate to a single active v6 history entry", async (t) => {
   const { context } = await conversationFixture();
   const current = serializeConversation(context).conversation;
   const variants = [
@@ -156,10 +156,24 @@ test("v2-v4 checkpoints migrate to a single active v5 history entry", async (t) 
 
     const migrated = await store.load();
 
-    assert.equal(migrated?.fileVersion, 5);
+    assert.equal(migrated?.fileVersion, 6);
     assert.equal(migrated?.activeConversationId, current.id);
     assert.deepEqual(migrated?.conversations.map((conversation) => conversation.id), [current.id]);
   }
+});
+
+test("v5 conversation history migrates to v6 without inventing a computer reference", async (t) => {
+  const store = await temporaryStore(t);
+  const { context } = await conversationFixture();
+  const current = serializeConversation(context);
+  const conversations = current.conversations.map(({ computerReference: _computerReference, ...conversation }) => conversation);
+  await writeFile(store.path, JSON.stringify({ fileVersion: 5, activeConversationId: current.activeConversationId, conversations }), "utf8");
+
+  const migrated = await store.load();
+
+  assert.equal(migrated?.fileVersion, 6);
+  assert.equal(migrated?.activeConversationId, current.activeConversationId);
+  assert.equal(migrated?.conversation.computerReference, undefined);
 });
 
 test("restored conversations pause when their saved provider is no longer configured", async (t) => {

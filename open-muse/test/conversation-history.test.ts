@@ -58,12 +58,11 @@ test("switching chats releases the outgoing disposable runtime", async () => {
   const calls: string[] = [];
   const context = contextOf(manager);
   context.playwright = { close: async () => { calls.push("playwright"); } } as ConversationContext["playwright"];
-  context.computer = { delete: async () => { calls.push("computer"); } } as ConversationContext["computer"];
-  context.smolvm = { close: async () => { calls.push("smolvm"); } } as ConversationContext["smolvm"];
+  context.computer = { detach: async () => { calls.push("computer"); } } as ConversationContext["computer"];
 
   await manager.create();
 
-  assert.deepEqual(calls, ["playwright", "computer", "smolvm"]);
+  assert.deepEqual(calls, ["playwright", "computer"]);
   assert.equal(context.sessionLifecycle, "absent");
   assert.equal(context.agent, undefined);
 });
@@ -81,7 +80,7 @@ test("conversation changes reject busy, human-controlled, and overlapping transi
   contextOf(manager).controlOwner = "agent";
   let finishDelete!: () => void;
   const deleting = new Promise<void>((resolve) => { finishDelete = resolve; });
-  contextOf(manager).computer = { delete: async () => deleting } as ConversationContext["computer"];
+  contextOf(manager).computer = { detach: async () => deleting } as ConversationContext["computer"];
   const creating = manager.create();
   await Promise.resolve();
   await assert.rejects(manager.activate(first.id), (error: unknown) => (error as { code?: string }).code === "conversation_busy");
@@ -99,7 +98,7 @@ test("a turn cannot be accepted after conversation cleanup begins", async () => 
     runTurn: (context: ConversationContext, text: string) => Promise<void>;
   };
   internals.runTurn = async () => undefined;
-  internals.context.computer = { delete: async () => deleting } as ConversationContext["computer"];
+  internals.context.computer = { detach: async () => deleting } as ConversationContext["computer"];
   const creating = manager.create();
   await Promise.resolve();
 
