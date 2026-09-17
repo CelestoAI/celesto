@@ -33,7 +33,6 @@ export function App() {
   const [viewerReconnectRequired, setViewerReconnectRequired] = useState(false);
   const [controlEpoch, setControlEpoch] = useState("");
   const [approvalPending, setApprovalPending] = useState(false);
-  const [recoveryPending, setRecoveryPending] = useState(false);
   const [conversationPending, setConversationPending] = useState(false);
   const [traces, setTraces] = useState<TraceSnapshot>();
   const [traceStatus, setTraceStatus] = useState<"ready" | "reconnecting" | "unavailable">("ready");
@@ -220,22 +219,20 @@ export function App() {
   const continueConversation = async () => {
     if (!conversation || conversationPendingRef.current) return;
     conversationPendingRef.current = true;
-    setRecoveryPending(true);
     setConversationPending(true);
     setError("");
     try { showConversation(await api.continueConversation(conversation.id)); }
     catch (caught) { setError(caught instanceof Error ? caught.message : "Could not continue the conversation."); }
-    finally { conversationPendingRef.current = false; setRecoveryPending(false); setConversationPending(false); }
+    finally { conversationPendingRef.current = false; setConversationPending(false); }
   };
   const startOver = async () => {
     if (!conversation || conversationPendingRef.current) return;
     conversationPendingRef.current = true;
-    setRecoveryPending(true);
     setConversationPending(true);
     setError("");
     try { showConversation(await api.startOver(conversation.id)); await refreshConversationList(); }
     catch (caught) { setError(caught instanceof Error ? caught.message : "Could not start over."); }
-    finally { conversationPendingRef.current = false; setRecoveryPending(false); setConversationPending(false); }
+    finally { conversationPendingRef.current = false; setConversationPending(false); }
   };
   const beginAuth = async (providerId: string, method: "oauth" | "api_key") => {
     setError(""); setAuthValue("");
@@ -392,7 +389,7 @@ export function App() {
         <div className="chat-scroll">
           {!conversation?.messages.length && <div className="welcome"><div className="eyebrow">A computer coworker in a disposable VM</div><h1>What should we<br/>get done?</h1><p>Ask naturally. It can operate public websites in its own browser, while you watch, approve interactions, or take control.</p><button className="suggestion" onClick={() => void submit(SUGGESTION)}><span>Try a public web task</span><strong>{SUGGESTION}</strong><b>→</b></button></div>}
           <div className="messages">{conversation?.messages.map((message) => <div className="message-block" key={message.id}><article className={`message ${message.role}`}><div className="avatar">{message.role === "user" ? "Y" : "M"}</div><div className="message-content"><div className="message-role">{message.role === "user" ? "You" : "OpenMuse"}</div>{message.role === "assistant" ? <MarkdownMessage>{message.text}</MarkdownMessage> : <p>{message.text}</p>}</div></article>{message.role === "user" && message.turnId && traceByTurn.get(message.turnId) && <TurnTrace turn={traceByTurn.get(message.turnId)!}/>} {message.role === "user" && message.turnId && !traceByTurn.get(message.turnId) && traceStatus !== "ready" && <div className="trace-unavailable">{traceStatus === "reconnecting" ? "Run details reconnecting…" : "Run details unavailable"}</div>}</div>)}</div>
-          {interrupted && <aside className="approval recovery"><div className="eyebrow">{recoveryCopy.eyebrow}</div><h3>{recoveryCopy.title}</h3><p>{recoveryCopy.detail}</p><div><button disabled={recoveryPending} onClick={() => void continueConversation()}>Continue</button><button className="secondary" disabled={recoveryPending} onClick={() => void startOver()}>Start over</button></div></aside>}
+          {interrupted && <aside className="approval recovery"><div className="eyebrow">{recoveryCopy.eyebrow}</div><h3>{recoveryCopy.title}</h3><p>{recoveryCopy.detail}</p><div><button disabled={conversationPending} onClick={() => void continueConversation()}>Continue</button><button className="secondary" disabled={conversationPending} onClick={() => void startOver()}>Start over</button></div></aside>}
           {quarantinedPopups.map((tab) => <aside className="approval" key={tab.id}><div className="eyebrow">Popup quarantined</div><h3>Use this new tab?</h3><p>{tab.url}</p><div><button disabled={interrupted} onClick={() => void api.adoptPopup(conversation!.id, tab.id).then(showConversation).catch((caught) => setError(caught instanceof Error ? caught.message : "Could not adopt the popup."))}>Adopt tab</button></div></aside>)}
           {conversation?.pendingApproval && <aside className="approval"><div className="eyebrow">Approval required</div><h3>Allow this website interaction?</h3><p>{conversation.pendingApproval.reason}</p>{conversation.pendingApproval.pageUrl && <p>Current page: {conversation.pendingApproval.pageUrl}</p>}{operationDetails(conversation.pendingApproval.operation) && <p>{operationDetails(conversation.pendingApproval.operation)}</p>}<div><button disabled={approvalPending} onClick={() => void resolve(true)}>{approvalPending ? "Running…" : "Approve once"}</button><button className="secondary" disabled={approvalPending} onClick={() => void resolve(false)}>Not now</button></div></aside>}
           {busy && <div className="thinking"><i></i><i></i><i></i> Working in the browser</div>}

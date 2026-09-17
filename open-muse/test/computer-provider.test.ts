@@ -124,6 +124,31 @@ test("Celesto reconnect treats only a missing computer as recoverable", async ()
   assert.equal(await deleted.reconnect({ provider: "celesto", id: "deleted" }), undefined);
 });
 
+test("Celesto delete returns after the delete request is accepted", async () => {
+  const cloud = {
+    id: "cmp-delete", status: "running", lastError: undefined,
+    exec: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+    createBrowserConnection: async () => ({ url: "wss://gateway/browser" }),
+    createDisplayConnection: async () => ({ url: "wss://gateway/display", mode: "read_only" as const }),
+    delete: async () => { cloud.status = "deleting"; return cloud; },
+    start: async () => cloud,
+    refresh: async () => cloud,
+  };
+  const provider = createComputerProvider({ provider: "celesto", apiKey: "key-secret" }, {
+    createCloudComputer: async () => cloud as never,
+    wait: async () => new Promise<void>(() => undefined),
+  });
+  const computer = await provider.create({ network: "open", viewport: { width: 1, height: 1 } });
+
+  const deleted = await Promise.race([
+    computer.delete().then(() => true),
+    new Promise<false>((resolve) => setTimeout(() => resolve(false), 25)),
+  ]);
+
+  assert.equal(deleted, true);
+  assert.equal(cloud.status, "deleting");
+});
+
 test("Celesto connections poll a starting sandbox with bounded backoff", async () => {
   const waits: number[] = [];
   let browserAttempts = 0;
