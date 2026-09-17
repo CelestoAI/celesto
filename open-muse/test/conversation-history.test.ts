@@ -67,13 +67,51 @@ test("switching chats releases the outgoing disposable runtime", async () => {
   assert.equal(context.agent, undefined);
 });
 
-test("conversation changes reject busy, human-controlled, and overlapping transitions", async () => {
+test("conversation changes interrupt current model work", async () => {
   const manager = new ConversationManager("", "gpt-5-mini");
   const first = await manager.create();
-  contextOf(manager).runState = "model_turn";
-  await assert.rejects(manager.create(), (error: unknown) => (error as { code?: string }).code === "conversation_busy");
+  const context = contextOf(manager);
+  let aborted = false;
+  let finishTurn!: () => void;
+  const activeTurn = new Promise<void>((resolve) => { finishTurn = resolve; });
+  context.runState = "model_turn";
+  context.agent = { abort: () => { aborted = true; } } as ConversationContext["agent"];
+  (manager as unknown as { turnQueue: Promise<void> }).turnQueue = activeTurn;
 
-  contextOf(manager).runState = "idle";
+  const creating = manager.create();
+  await Promise.resolve();
+  assert.equal(aborted, true);
+  assert.equal(manager.activeConversationId, first.id);
+
+  finishTurn();
+  await creating;
+  const restored = await manager.activate(first.id);
+  assert.equal(restored.runState, "idle");
+});
+
+test("conversation changes clear pending approvals", async () => {
+  const manager = new ConversationManager("", "gpt-5-mini");
+  const first = await manager.create();
+  const context = contextOf(manager);
+  context.runState = "waiting_for_approval";
+  context.pendingApproval = {
+    kind: "browser_operation",
+    approvalId: "approval-pending",
+    actionDigest: "p".repeat(64),
+    reason: "Open the link",
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  };
+
+  await manager.create();
+  const restored = await manager.activate(first.id);
+  assert.equal(restored.runState, "idle");
+  assert.equal(restored.pendingApproval, undefined);
+});
+
+test("conversation changes reject human control and overlapping transitions", async () => {
+  const manager = new ConversationManager("", "gpt-5-mini");
+  const first = await manager.create();
+
   contextOf(manager).controlOwner = "human";
   await assert.rejects(manager.create(), (error: unknown) => (error as { code?: string }).code === "conversation_busy");
 

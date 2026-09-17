@@ -317,7 +317,7 @@ export function App() {
   const humanControl = conversation?.controlOwner === "human";
   const pausingControl = conversation?.controlOwner === "pause_requested";
   const status = conversationPending ? "Changing conversation…" : conversation?.runState === "stopped" ? "Stopped" : interrupted ? "Interrupted" : humanControl ? "You have control" : pausingControl ? "Pausing agent control…" : busy ? "Agent working" : conversation?.runState === "waiting_for_approval" ? "Waiting for you" : "Ready";
-  const canChangeConversation = Boolean(conversation && conversation.controlOwner === "agent" && !["model_turn", "tool_action", "waiting_for_approval", "stopping"].includes(conversation.runState));
+  const canChangeConversation = Boolean(conversation && conversation.controlOwner === "agent" && conversation.runState !== "stopping");
   const traceByTurn = new Map((traces?.turns ?? []).map((turn) => [turn.turnId, turn]));
   const quarantinedPopups = (conversation?.tabs ?? []).filter((tab) => tab.owner === "quarantined");
   const recoveryCopy = conversation?.recovery?.kind === "computer_unavailable"

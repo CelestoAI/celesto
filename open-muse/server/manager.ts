@@ -1026,6 +1026,21 @@ export class ConversationManager {
     if (this.modelAccessTransition) throw Object.assign(new Error("Wait for the current model change to finish, then try again."), { status: 409, code: "model_access_busy" });
     if (context.controlOwner !== "agent") throw Object.assign(new Error("Return browser control before switching conversations."), { status: 409, code: "conversation_busy" });
     const switchableRunStates = ["idle", "interrupted", "stopped", "failed"];
+    if (["model_turn", "tool_action", "waiting_for_approval"].includes(context.runState)) {
+      context.agent?.abort();
+      this.cancelCurrentExecution("cancelled");
+      if (!this.activeApproval && context.pendingApproval) {
+        delete context.pendingApproval;
+        this.emit("approval.invalidated", { summary: "Approval cleared because the conversation changed" }, false);
+      }
+      await this.activeAction?.catch(() => undefined);
+      await this.turnQueue.catch(() => undefined);
+      if (["model_turn", "tool_action", "waiting_for_approval"].includes(context.runState)) {
+        context.runState = "idle";
+        context.stateVersion += 1;
+        this.emit("agent.cancelled", { summary: "Current work cancelled because the conversation changed" }, false);
+      }
+    }
     if (this.activeApproval && switchableRunStates.includes(context.runState)) await this.activeApproval.settled;
     if (!switchableRunStates.includes(context.runState) || this.activeApproval) {
       throw Object.assign(new Error("Stop the current work before switching conversations."), { status: 409, code: "conversation_busy" });

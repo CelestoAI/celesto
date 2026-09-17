@@ -57,12 +57,13 @@ test("reset can be cancelled and then permanently replaces the selected chat", a
   await expect(page.getByRole("article").getByText("Delete this conversation", { exact: true })).toBeHidden();
 });
 
-test("chat changes are disabled while browser work awaits approval", async ({ page }) => {
+test("starting a new chat cancels browser work awaiting approval", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /Try a public web task/ }).click();
   await expect(page.getByText("Approval required")).toBeVisible();
   await page.getByText("Chats", { exact: true }).click();
 
-  await expect(page.getByRole("button", { name: /New chat/ })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Reset conversation" })).toBeDisabled();
+  await page.getByRole("button", { name: /New chat/ }).click();
+  await expect(page.getByRole("heading", { name: /What should we get done/ })).toBeVisible();
+  await expect(page.getByText("Approval required")).toBeHidden();
 });
