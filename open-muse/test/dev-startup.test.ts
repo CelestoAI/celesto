@@ -30,3 +30,14 @@ test("the dev client stops waiting when the API cannot start", async () => {
     /check the server log/,
   );
 });
+
+test("the dev client times out a health request that never settles", async () => {
+  await assert.rejects(
+    waitForOpenMuseApi(
+      async () => new Promise<Response>(() => undefined),
+      async () => undefined,
+      10,
+    ),
+    /check the server log/,
+  );
+});
