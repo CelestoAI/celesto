@@ -7,7 +7,9 @@ Branch: `codex/open-muse-handoff`
 Repo: `CelestoAI/SmolVM`
 Status: APPROVED
 Mode: Builder
-Supersedes: `docs/designs/open-muse.md` for the browser-tool and network scope; the existing document remains authoritative for the chat UI, live viewer, lifecycle, and takeover flow.
+Supersedes: `docs/designs/open-muse.md` for browser isolation and network scope. [OpenMuse — Authoritative Conversation Runtime](open-muse-runtime.md) supersedes both documents for the approval policy, approval lifecycle, conversation state, and UI synchronization.
+
+> **Scope notice:** The conservative mechanical approval rules described below are historical. The approved runtime design allows deterministic public research actions and confirms external side effects instead.
 
 > **Current implementation:** The example exposes only structured browser operations to the production model.
 >

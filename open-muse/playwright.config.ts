@@ -16,6 +16,9 @@ export default defineConfig({
   reporter: ci
     ? [["line"], ["html", { outputFolder: "artifacts/playwright-report", open: "never" }]]
     : "list",
+  // The harness replaces its loopback API between tests; Vite may need one
+  // EventSource reconnect before the next full conversation view arrives.
+  expect: { timeout: 10_000 },
   use: {
     baseURL: `http://127.0.0.1:${clientPort}`,
     trace: "retain-on-failure",

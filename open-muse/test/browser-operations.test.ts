@@ -250,6 +250,8 @@ test("host driver executes every structured interaction directly on the page", a
       click: async () => { calls.push("click"); },
       evaluate: async () => ({ type: "text", autocomplete: "" }),
       fill: async (value: string) => { calls.push(`fill:${value}`); },
+      press: async (key: string) => { calls.push(`target-key:${key}`); },
+      getAttribute: async () => "/learn",
       selectOption: async ({ label }: { label: string }) => { calls.push(`select:${label}`); },
     }),
   };
@@ -259,6 +261,7 @@ test("host driver executes every structured interaction directly on the page", a
     goto: async (url: string) => { calls.push(`goto:${url}`); },
     mouse: { wheel: async (_x: number, y: number) => { calls.push(`wheel:${y}`); } },
     keyboard: { press: async (key: string) => { calls.push(`key:${key}`); } },
+    waitForLoadState: async () => undefined,
     locator: (selector: string) => selector === "body"
       ? { ariaSnapshot: async () => "- text: Catalog", innerText: async () => "Catalog" }
       : { and: () => target },
@@ -268,12 +271,14 @@ test("host driver executes every structured interaction directly on the page", a
 
   await executeBrowserOperation(hostPage, { kind: "scroll", direction: "down" });
   await executeBrowserOperation(hostPage, { kind: "navigate", url: "https://example.org" });
+  await executeBrowserOperation(hostPage, { kind: "follow_link", ref: "e1", target: { ...markedTarget, role: "link", name: "Learn" } });
+  await executeBrowserOperation(hostPage, { kind: "search", ref: "e1", target: { ...markedTarget, role: "searchbox", name: "Search" }, query: "OpenMuse" });
   await executeBrowserOperation(hostPage, { kind: "click", ref: "e1", target: markedTarget });
   await executeBrowserOperation(hostPage, { kind: "fill", ref: "e1", target: markedTarget, value: "Ada" });
   await executeBrowserOperation(hostPage, { kind: "select", ref: "e1", target: markedTarget, label: "Medium" });
   await executeBrowserOperation(hostPage, { kind: "keypress", key: "Enter" });
 
-  assert.deepEqual(calls, ["wheel:600", "goto:https://example.org", "click", "fill:Ada", "select:Medium", "key:Enter"]);
+  assert.deepEqual(calls, ["wheel:600", "goto:https://example.org", "goto:https://example.com/learn", "fill:OpenMuse", "target-key:Enter", "click", "fill:Ada", "select:Medium", "key:Enter"]);
 });
 
 test("host driver distinguishes a lost CDP connection from a visible page", async () => {

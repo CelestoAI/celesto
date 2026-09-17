@@ -9,7 +9,7 @@ Status: APPROVED
 Mode: Builder
 Supersedes: `aniket-codex-open-muse-handoff-design-20260912-190500.md` as the branch-level implementation handoff; `docs/designs/open-muse-research.md` remains the design for the bounded OpenMuse Research sibling.
 
-> **Scope notice:** [OpenMuse — General Web Operator](open-muse-general-web.md) supersedes this page for browser tools and network access. The browser guidance below is obsolete; this approved design remains authoritative for the chat UI, live viewer, lifecycle, and takeover flow.
+> **Scope notice:** [OpenMuse — Authoritative Conversation Runtime](open-muse-runtime.md) supersedes this page for conversation lifecycle, UI synchronization, approval flow, and the HTTP/event contract. [OpenMuse — General Web Operator](open-muse-general-web.md) remains authoritative for browser isolation and network access. The guidance below is retained as historical context where superseded.
 
 ## Problem Statement
 

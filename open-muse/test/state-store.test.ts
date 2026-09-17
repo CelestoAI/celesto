@@ -530,12 +530,16 @@ test("approved browser actions clear approval data before the next durable turn"
   const created = await manager.create();
   const internals = manager as unknown as {
     context: ConversationContext;
-    turnQueue: Promise<void>;
-    runTurn: (context: ConversationContext, text: string) => Promise<void>;
+    broker: (active: ConversationContext) => {
+      runProgram: (program: string, interaction: boolean, summary: string) => Promise<Record<string, unknown>>;
+    };
   };
-  internals.runTurn = async () => undefined;
   internals.context.sessionLifecycle = "ready";
-  const page = { url: () => "https://example.com", isClosed: () => false } as ConversationContext["page"];
+  const page = {
+    url: () => "https://example.com",
+    isClosed: () => false,
+    context: () => ({ browser: () => ({ isConnected: () => true }) }),
+  } as ConversationContext["page"];
   internals.context.page = page;
   internals.context.activeTabId = "tab-test";
   internals.context.tabs.set("tab-test", { id: "tab-test", owner: "agent", epoch: 1, controlEpoch: internals.context.controlEpoch!, page: page! });
@@ -570,17 +574,13 @@ test("approved browser actions clear approval data before the next durable turn"
     }),
     delete: async () => undefined,
   };
-  internals.context.pendingApproval = {
-    kind: "browser_program",
-    approvalId: "approval-durable",
-    actionDigest: "f".repeat(64),
-    reason: "Finish the action",
-    expiresAt: new Date(Date.now() + 60_000).toISOString(),
-    program: "return { done: true };",
-  };
-
-  await manager.approve(created.id, "approval-durable", "f".repeat(64), true);
-  await internals.turnQueue;
+  const action = internals.broker(internals.context).runProgram("return { done: true };", true, "Finish the action");
+  while (!internals.context.pendingApproval) await Promise.resolve();
+  const pending = internals.context.pendingApproval;
+  await Promise.all([
+    manager.approve(created.id, pending.approvalId, pending.actionDigest, true),
+    action,
+  ]);
   const checkpoint = await readFile(store.path, "utf8");
 
   assert.equal((await store.load())?.conversation.runState, "model_turn");

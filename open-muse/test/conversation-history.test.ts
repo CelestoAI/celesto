@@ -141,19 +141,20 @@ test("conversation changes wait for visible-idle approval cleanup", async () => 
   let finishCleanup!: () => void;
   const cleanup = new Promise<void>((resolve) => { finishCleanup = resolve; });
   const internals = manager as unknown as {
-    broker: (active: ConversationContext) => { resolveApproval: () => Promise<{ resumeAgent: false }> };
+    confirmations: {
+      wait: (pending: NonNullable<ConversationContext["pendingApproval"]>) => Promise<boolean>;
+      finish: (approvalId: string) => void;
+    };
   };
-  internals.broker = (active) => ({
-    resolveApproval: async () => {
-      delete active.pendingApproval;
-      active.runState = "idle";
-      await cleanup;
-      return { resumeAgent: false };
-    },
+  const originalAction = internals.confirmations.wait(context.pendingApproval).then(async () => {
+    delete context.pendingApproval;
+    context.runState = "idle";
+    await cleanup;
+    internals.confirmations.finish("approval-denied");
   });
 
   const denying = manager.approve(context.id, "approval-denied", "d".repeat(64), false);
-  await Promise.resolve();
+  while (manager.snapshot(context.id).runState !== "idle") await Promise.resolve();
   assert.equal(manager.snapshot(context.id).runState, "idle");
 
   let switched = false;
@@ -162,7 +163,7 @@ test("conversation changes wait for visible-idle approval cleanup", async () => 
   assert.equal(switched, false);
 
   finishCleanup();
-  await Promise.all([denying, switching]);
+  await Promise.all([originalAction, denying, switching]);
   assert.equal(manager.list().conversations.length, 2);
 });
 

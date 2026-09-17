@@ -20,7 +20,7 @@ test("startup failures preserve the actionable cause", async () => {
   assert.equal(startupFailureMessage(undefined), "OpenMuse could not start: An unknown error occurred.");
 });
 
-test("server shutdown closes active trace streams", async () => {
+test("server shutdown closes active conversation view streams", async () => {
   const { closeHttpServer, createApp } = await import("../server/index.js");
   const manager = new ConversationManager("", "gpt-5-mini");
   const conversation = await manager.create();
@@ -32,7 +32,7 @@ test("server shutdown closes active trace streams", async () => {
   const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const bootstrap = await fetch(`${origin}/api/bootstrap`);
   const cookie = bootstrap.headers.get("set-cookie")!.split(";")[0]!;
-  const stream = await fetch(`${origin}/api/conversations/${conversation.id}/traces/events`, { headers: { cookie } });
+  const stream = await fetch(`${origin}/api/conversations/${conversation.id}/events`, { headers: { cookie } });
 
   await closeHttpServer(server);
 

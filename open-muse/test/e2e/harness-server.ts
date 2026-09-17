@@ -75,13 +75,19 @@ class ScriptedRuntime {
     return {
       state,
       prompt: async (prompt: string) => {
+        if (prompt.includes("Navigate only")) {
+          await this.traced(trace, "browser_navigate", { url: "https://example.com" }, () => broker.runWebOperation({ kind: "navigate", url: "https://example.com" }));
+          state.messages.push({ role: "assistant", content: [{ type: "text", text: "Navigation completed without confirmation." }] });
+          return;
+        }
         if (prompt.includes("may have completed")) {
           await this.traced(trace, "browser_observe", {}, () => broker.runWebOperation({ kind: "observe" }));
           state.messages.push({ role: "assistant", content: [{ type: "text", text: "I inspected the current page before deciding what to do next." }] });
           return;
         }
         if (prompt.includes("did not run")) {
-          await this.traced(trace, "browser_navigate", { url: "https://example.com" }, () => broker.runWebOperation({ kind: "navigate", url: "https://example.com" }));
+          await this.traced(trace, "browser_observe", {}, () => broker.runWebOperation({ kind: "observe" }));
+          await this.traced(trace, "browser_click", { ref: "e1" }, () => broker.runWebOperation({ kind: "click", ref: "e1" }));
           return;
         }
         if (prompt.includes("browser runner returned")) {
@@ -89,6 +95,10 @@ class ScriptedRuntime {
           return;
         }
         await this.traced(trace, "browser_navigate", { url: "https://example.com" }, () => broker.runWebOperation({ kind: "navigate", url: "https://example.com" }));
+        await this.traced(trace, "browser_observe", {}, () => broker.runWebOperation({ kind: "observe" }));
+        const result = await this.traced(trace, "browser_click", { ref: "e1" }, () => broker.runWebOperation({ kind: "click", ref: "e1" }));
+        if (result.approved === false) return;
+        state.messages.push({ role: "assistant", content: [{ type: "text", text: "The scripted browser opened Example Domain." }] });
       },
       abort: () => undefined,
       waitForIdle: async () => undefined,
@@ -109,10 +119,15 @@ class ScriptedRuntime {
         return { binding, display: "https://example.com/" };
       },
       execute: async (_page, operation) => {
-        if (this.scenario === "outcome_unknown" && operation.kind === "navigate") throw new Error("scripted post-dispatch failure");
+        if (this.scenario === "outcome_unknown" && operation.kind === "click") throw new Error("scripted post-dispatch failure");
         const observation = {
           title: "Example Domain", url: "https://example.com/", pageBinding: "https://example.com/",
-          snapshot: '- document "Example Domain"', refs: [], truncated: false,
+          snapshot: '- button "Open result" [ref=e1]',
+          refs: [{
+            ref: "e1", role: "button", name: "Open result", publicName: "Open result", nth: 0,
+            locatorId: "00000000-0000-4000-8000-000000000001", actionable: true,
+          }],
+          truncated: false,
         };
         if (operation.kind === "observe") { this.observationCount += 1; return observation; }
         if (operation.kind === "navigate") return { opened: operation.url, observation };
@@ -121,6 +136,8 @@ class ScriptedRuntime {
         if (operation.kind === "click") return { clicked: true };
         if (operation.kind === "fill") return { filled: true, outcome: "filled", fieldClass: "ordinary" };
         if (operation.kind === "select") return { selected: operation.label };
+        if (operation.kind === "follow_link") return { opened: "https://example.com/", observation };
+        if (operation.kind === "search") return { searched: true, observation };
         return { pressed: operation.key };
       },
     };

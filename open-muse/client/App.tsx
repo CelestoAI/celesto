@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as api from "./api";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { TurnTrace } from "./TurnTrace";
-import { applyTraceEvent, type TraceEvent, type TraceSnapshot } from "./trace";
+import type { TraceSnapshot } from "./trace";
 import { viewerReconnectDelay } from "./viewer-reconnect";
 import "./trace.css";
 import "./trace-state.css";
@@ -31,6 +31,7 @@ export function App() {
   const [viewerPath, setViewerPath] = useState("");
   const [viewerRetryAt, setViewerRetryAt] = useState(0);
   const [viewerReconnectRequired, setViewerReconnectRequired] = useState(false);
+  const [conversationStreamGeneration, setConversationStreamGeneration] = useState(0);
   const [controlEpoch, setControlEpoch] = useState("");
   const [approvalPending, setApprovalPending] = useState(false);
   const [conversationPending, setConversationPending] = useState(false);
@@ -76,44 +77,24 @@ export function App() {
   useEffect(() => {
     if (!conversation?.id) return;
     const source = new EventSource(`/api/conversations/${conversation.id}/events`);
-    const update = () => { void refresh(conversation.id).catch(() => undefined); void refreshConversationList().catch(() => undefined); };
-    source.onmessage = update;
-    for (const name of ["message.completed", "browser.starting", "browser.ready", "agent.started", "agent.completed", "agent.failed", "model.auth_required", "tool.failed", "approval.requested", "approval.resolved", "approval.invalidated", "operation.approved", "operation.dispatched", "operation.completed", "operation.outcome_unknown", "popup.quarantined", "popup.adopted", "tab.navigated", "tab.closed", "control.changed", "cart.updated", "conversation.stopped"]) source.addEventListener(name, update);
+    const update = (event: MessageEvent) => {
+      const next = (JSON.parse(event.data) as { view: api.Conversation }).view;
+      if (conversationIdRef.current === next.id) showConversation(next);
+      void refreshConversationList().catch(() => undefined);
+    };
+    source.addEventListener("conversation.view", update as EventListener);
     return () => source.close();
-  }, [conversation?.id]);
+  }, [conversation?.id, conversationStreamGeneration]);
   useEffect(() => {
-    const id = conversation?.id;
-    if (!id) { setTraces(undefined); setTraceStatus("ready"); return; }
-    let cancelled = false;
-    let source: EventSource | undefined;
-    let retry: ReturnType<typeof setTimeout> | undefined;
-    const connect = () => void api.getTraces(id).then((snapshot) => {
-        if (cancelled) return;
-        setTraces(snapshot);
-        setTraceStatus("ready");
-        source?.close();
-        source = new EventSource(`/api/conversations/${id}/traces/events?after=${encodeURIComponent(`${snapshot.streamId}:${snapshot.cursor}`)}`);
-        const update = (raw: MessageEvent) => {
-          setTraceStatus("ready");
-          const event = JSON.parse(raw.data) as TraceEvent;
-          if (event.type === "trace.resync_required") {
-            source?.close();
-            connect();
-            return;
-          }
-          setTraces((current) => current ? applyTraceEvent(current, event) : current);
-        };
-        for (const name of ["trace.turn_upsert", "trace.step_upsert", "trace.turn_evict", "trace.resync_required"]) source.addEventListener(name, update as EventListener);
-        source.onopen = () => { if (!cancelled) setTraceStatus("ready"); };
-        source.onerror = () => { if (!cancelled) setTraceStatus("reconnecting"); };
-      }).catch(() => {
-        if (cancelled) return;
-        setTraceStatus("unavailable");
-        retry = setTimeout(connect, 1_500);
-      });
-    connect();
-    return () => { cancelled = true; if (retry) clearTimeout(retry); source?.close(); };
-  }, [conversation?.id]);
+    if (!conversation || !["model_running", "browser_running"].includes(conversation.activity.kind)) return;
+    const timer = setTimeout(() => setConversationStreamGeneration((generation) => generation + 1), 2_000);
+    return () => clearTimeout(timer);
+  }, [conversation, conversationStreamGeneration]);
+  useEffect(() => {
+    if (!conversation) { setTraces(undefined); setTraceStatus("ready"); return; }
+    setTraces({ streamId: "conversation-view", cursor: conversation.stateVersion, conversationId: conversation.id, turns: conversation.turns, limits: { maxPayloadBytes: 0, maxCanonicalBytes: 0, maxJournalBytes: 0, maxSteps: 0, maxJournalEvents: 0 } });
+    setTraceStatus("ready");
+  }, [conversation]);
   useEffect(() => {
     if (!authAttempt || ["succeeded", "expired", "cancelled", "failed"].includes(authAttempt.state)) return;
     const source = new EventSource(`/api/auth-attempts/${authAttempt.id}/events`);
@@ -166,8 +147,21 @@ export function App() {
     let cancelled = false;
     const timer = setTimeout(() => {
       void api.viewerToken(conversation.id)
-        .then(({ viewerPath: path }) => { if (!cancelled) setViewerPath(path); })
-        .catch((caught) => { if (!cancelled) setError(String(caught)); });
+        .then(({ viewerPath: path }) => {
+          if (cancelled) return;
+          setError("");
+          setViewerPath(path);
+        })
+        .catch((caught) => {
+          if (cancelled) return;
+          setError(caught instanceof Error ? caught.message : "Could not connect the live view.");
+          viewerRetryAttemptRef.current += 1;
+          const delay = viewerReconnectDelay(viewerRetryAttemptRef.current);
+          if (delay === undefined) {
+            setViewerRetryAt(0);
+            setViewerReconnectRequired(true);
+          } else setViewerRetryAt(Date.now() + delay);
+        });
     }, Math.max(0, viewerRetryAt - Date.now()));
     return () => { cancelled = true; clearTimeout(timer); };
   }, [conversation?.viewerReady, conversation?.id, conversation?.controlOwner, viewerPath, viewerRetryAt, viewerReconnectRequired]);
@@ -183,8 +177,8 @@ export function App() {
 
   const submit = async (value = text) => {
     if (!conversation || !value.trim()) return;
-    if (conversation.controlOwner !== "agent") {
-      setError("Select Return control before sending a message to OpenMuse.");
+    if (!conversation.availableCommands.includes("send_message")) {
+      setError("OpenMuse cannot accept a message in the current state.");
       return;
     }
     setError(""); setText("");
@@ -312,12 +306,14 @@ export function App() {
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not disconnect the model provider."); }
   };
 
-  const busy = approvalPending || conversation?.runState === "model_turn" || conversation?.runState === "tool_action";
-  const interrupted = conversation?.runState === "interrupted";
-  const humanControl = conversation?.controlOwner === "human";
+  const commandAvailable = (command: string) => conversation?.availableCommands.includes(command) ?? false;
+  const activity = conversation?.activity.kind;
+  const busy = approvalPending || activity === "model_running" || activity === "browser_running";
+  const interrupted = activity === "recovering";
+  const humanControl = activity === "human_control";
   const pausingControl = conversation?.controlOwner === "pause_requested";
-  const status = conversationPending ? "Changing conversation…" : conversation?.runState === "stopped" ? "Stopped" : interrupted ? "Interrupted" : humanControl ? "You have control" : pausingControl ? "Pausing agent control…" : busy ? "Agent working" : conversation?.runState === "waiting_for_approval" ? "Waiting for you" : "Ready";
-  const canChangeConversation = Boolean(conversation && conversation.controlOwner === "agent" && conversation.runState !== "stopping");
+  const status = conversationPending ? "Changing conversation…" : activity === "stopped" ? "Stopped" : activity === "stopping" ? "Stopping…" : interrupted ? "Interrupted" : humanControl ? "You have control" : pausingControl ? "Pausing agent control…" : busy ? "Agent working" : activity === "awaiting_confirmation" ? "Waiting for you" : activity === "failed" ? "Needs attention" : "Ready";
+  const canChangeConversation = commandAvailable("change_conversation");
   const traceByTurn = new Map((traces?.turns ?? []).map((turn) => [turn.turnId, turn]));
   const quarantinedPopups = (conversation?.tabs ?? []).filter((tab) => tab.owner === "quarantined");
   const recoveryCopy = conversation?.recovery?.kind === "computer_unavailable"
@@ -381,7 +377,7 @@ export function App() {
       <div className="brand"><span className="brandmark">M</span><span>OpenMuse</span><span className="preview">PREVIEW</span></div>
       <div className="top-actions">
         <details className="chat-menu" ref={chatMenuRef}><summary>Chats</summary><div className="chat-menu-popover"><button className="new-chat" disabled={!canChangeConversation || conversationPending} onClick={() => void newConversation()}>+ New chat</button><div className="chat-list">{conversationList.conversations.map((item) => <button className={item.id === conversation?.id ? "active" : ""} disabled={!canChangeConversation || conversationPending} key={item.id} onClick={() => void activateConversation(item.id)}><span>{item.title}</span><small>{item.modelId}</small></button>)}</div><button className="reset-chat" disabled={!canChangeConversation || conversationPending} onClick={() => void resetConversation()}>Reset conversation</button></div></details>
-        {modelAccess && conversation && <button className="quiet" disabled={conversationPending} onClick={() => setShowModelSetup(true)}>Model: {conversation.modelId}</button>}<span className={`status-dot ${busy ? "working" : ""}`}></span><span>{status}</span>{conversation && conversation.runState !== "stopped" && <button className="quiet danger" disabled={conversationPending} onClick={() => void api.stopConversation(conversation.id)}>Stop</button>}
+        {modelAccess && conversation && <button className="quiet" disabled={conversationPending || !commandAvailable("change_model")} onClick={() => setShowModelSetup(true)}>Model: {conversation.modelId}</button>}<span className={`status-dot ${busy ? "working" : ""}`}></span><span>{status}</span>{conversation && commandAvailable("stop") && <button className="quiet danger" disabled={conversationPending} onClick={() => void api.stopConversation(conversation.id)}>Stop</button>}
       </div>
     </header>
     <section className="workspace">
@@ -389,16 +385,16 @@ export function App() {
         <div className="chat-scroll">
           {!conversation?.messages.length && <div className="welcome"><div className="eyebrow">A computer coworker in a disposable VM</div><h1>What should we<br/>get done?</h1><p>Ask naturally. It can operate public websites in its own browser, while you watch, approve interactions, or take control.</p><button className="suggestion" onClick={() => void submit(SUGGESTION)}><span>Try a public web task</span><strong>{SUGGESTION}</strong><b>→</b></button></div>}
           <div className="messages">{conversation?.messages.map((message) => <div className="message-block" key={message.id}><article className={`message ${message.role}`}><div className="avatar">{message.role === "user" ? "Y" : "M"}</div><div className="message-content"><div className="message-role">{message.role === "user" ? "You" : "OpenMuse"}</div>{message.role === "assistant" ? <MarkdownMessage>{message.text}</MarkdownMessage> : <p>{message.text}</p>}</div></article>{message.role === "user" && message.turnId && traceByTurn.get(message.turnId) && <TurnTrace turn={traceByTurn.get(message.turnId)!}/>} {message.role === "user" && message.turnId && !traceByTurn.get(message.turnId) && traceStatus !== "ready" && <div className="trace-unavailable">{traceStatus === "reconnecting" ? "Run details reconnecting…" : "Run details unavailable"}</div>}</div>)}</div>
-          {interrupted && <aside className="approval recovery"><div className="eyebrow">{recoveryCopy.eyebrow}</div><h3>{recoveryCopy.title}</h3><p>{recoveryCopy.detail}</p><div><button disabled={conversationPending} onClick={() => void continueConversation()}>Continue</button><button className="secondary" disabled={conversationPending} onClick={() => void startOver()}>Start over</button></div></aside>}
+          {interrupted && <aside className="approval recovery"><div className="eyebrow">{recoveryCopy.eyebrow}</div><h3>{recoveryCopy.title}</h3><p>{recoveryCopy.detail}</p><div><button disabled={conversationPending || !commandAvailable("continue")} onClick={() => void continueConversation()}>Continue</button><button className="secondary" disabled={conversationPending || !commandAvailable("start_over")} onClick={() => void startOver()}>Start over</button></div></aside>}
           {quarantinedPopups.map((tab) => <aside className="approval" key={tab.id}><div className="eyebrow">Popup quarantined</div><h3>Use this new tab?</h3><p>{tab.url}</p><div><button disabled={interrupted} onClick={() => void api.adoptPopup(conversation!.id, tab.id).then(showConversation).catch((caught) => setError(caught instanceof Error ? caught.message : "Could not adopt the popup."))}>Adopt tab</button></div></aside>)}
-          {conversation?.pendingApproval && <aside className="approval"><div className="eyebrow">Approval required</div><h3>Allow this website interaction?</h3><p>{conversation.pendingApproval.reason}</p>{conversation.pendingApproval.pageUrl && <p>Current page: {conversation.pendingApproval.pageUrl}</p>}{operationDetails(conversation.pendingApproval.operation) && <p>{operationDetails(conversation.pendingApproval.operation)}</p>}<div><button disabled={approvalPending} onClick={() => void resolve(true)}>{approvalPending ? "Running…" : "Approve once"}</button><button className="secondary" disabled={approvalPending} onClick={() => void resolve(false)}>Not now</button></div></aside>}
+          {conversation?.pendingApproval && <aside className="approval"><div className="eyebrow">Approval required</div><h3>Allow this website interaction?</h3><p>{conversation.pendingApproval.reason}</p>{conversation.pendingApproval.pageUrl && <p>Current page: {conversation.pendingApproval.pageUrl}</p>}{operationDetails(conversation.pendingApproval.operation) && <p>{operationDetails(conversation.pendingApproval.operation)}</p>}<div><button disabled={approvalPending || !commandAvailable("approve")} onClick={() => void resolve(true)}>{approvalPending ? "Running…" : "Approve once"}</button><button className="secondary" disabled={approvalPending || !commandAvailable("reject")} onClick={() => void resolve(false)}>Not now</button></div></aside>}
           {busy && <div className="thinking"><i></i><i></i><i></i> Working in the browser</div>}
           <div ref={endRef}></div>
         </div>
-        <div className="composer-wrap">{error && <div className="error">{error}</div>}<div className="composer"><textarea value={text} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submit(); } }} placeholder={interrupted ? "Choose Continue or Start over…" : pausingControl ? "Pausing agent control…" : humanControl ? "Return control to message OpenMuse…" : "Message OpenMuse…"} disabled={!conversation || conversation.runState === "stopped" || interrupted || conversation.controlOwner !== "agent"}/><button aria-label="Send" onClick={() => void submit()} disabled={!text.trim() || interrupted || conversation?.controlOwner !== "agent"}>↑</button></div><div className="hint">{interrupted ? "Nothing will run until you choose" : pausingControl ? "Waiting for the current browser action to finish" : humanControl ? "Return control to continue chatting" : "Enter to send · Computer is deleted when you stop"}</div></div>
+        <div className="composer-wrap">{error && <div className="error">{error}</div>}<div className="composer"><textarea value={text} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submit(); } }} placeholder={interrupted ? "Choose Continue or Start over…" : pausingControl ? "Pausing agent control…" : humanControl ? "Return control to message OpenMuse…" : "Message OpenMuse…"} disabled={!commandAvailable("send_message")}/><button aria-label="Send" onClick={() => void submit()} disabled={!text.trim() || !commandAvailable("send_message")}>↑</button></div><div className="hint">{interrupted ? "Nothing will run until you choose" : pausingControl ? "Waiting for the current browser action to finish" : humanControl ? "Return control to continue chatting" : "Enter to send · Computer is deleted when you stop"}</div></div>
       </section>
       <section className="computer-pane">
-        <div className="computer-head"><div><div className="eyebrow">Isolated workspace</div><h2>Agent’s computer</h2></div><div className="computer-actions">{conversation?.runState !== "stopped" && (humanControl ? <button onClick={() => void returnControl()}>Return control</button> : pausingControl ? <button className="secondary" disabled>Pausing…</button> : <button className="secondary" onClick={() => void takeControl()} disabled={!conversation?.viewerReady}>Take control</button>)}</div></div>
+        <div className="computer-head"><div><div className="eyebrow">Isolated workspace</div><h2>Agent’s computer</h2></div><div className="computer-actions">{humanControl ? <button disabled={!commandAvailable("return_control")} onClick={() => void returnControl()}>Return control</button> : pausingControl ? <button className="secondary" disabled>Pausing…</button> : commandAvailable("take_control") ? <button className="secondary" onClick={() => void takeControl()} disabled={!conversation?.viewerReady}>Take control</button> : null}</div></div>
         <div className="screen">
           {viewerPath ? <iframe title="Live OpenMuse computer" src={viewerPath}/> : <div className="screen-empty"><div className="orbit"><span>S</span></div><h3>{viewerReconnectRequired ? "Live view disconnected" : conversation?.runState === "stopped" ? "Computer deleted" : conversation?.sessionLifecycle === "starting" ? "Booting the computer…" : "The computer is asleep"}</h3><p>{viewerReconnectRequired ? "Automatic reconnects stopped after repeated failures." : conversation?.runState === "stopped" ? "Start a new conversation to get a fresh VM." : "It starts only when the agent needs a browser."}</p>{viewerReconnectRequired && <button onClick={reconnectViewer}>Reconnect live view</button>}</div>}
           {viewerPath && conversation?.controlOwner === "agent" && <div className="input-shield"><span><i></i> LIVE · Agent controlling</span><button onClick={() => void takeControl()}>Take control</button></div>}

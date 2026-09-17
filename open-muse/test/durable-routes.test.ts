@@ -12,7 +12,41 @@ import type { ModelAccessService } from "../server/model-access.js";
 import { ConversationStateStore, serializeConversation } from "../server/state-store.js";
 import type { ConversationContext } from "../server/types.js";
 
-test("trace endpoints are session-bound and stale generations request a resync", async (t) => {
+test("conversation commands are idempotent and reject stale versions", async (t) => {
+  const manager = new ConversationManager("", "gpt-5-mini");
+  const created = await manager.create();
+  const internals = manager as unknown as { runTurn: (context: ConversationContext, text: string) => Promise<void> };
+  internals.runTurn = async () => undefined;
+  const server = createApp(manager);
+  await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
+  t.after(() => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())));
+  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const bootstrapResponse = await fetch(`${origin}/api/bootstrap`);
+  const bootstrap = await bootstrapResponse.json() as { csrfToken: string };
+  const headers = {
+    "content-type": "application/json",
+    "x-smol-csrf": bootstrap.csrfToken,
+    cookie: bootstrapResponse.headers.get("set-cookie")!.split(";")[0]!,
+    origin,
+  };
+  const body = JSON.stringify({ commandId: "message-one", command: { kind: "send_message", text: "Only once" } });
+
+  const first = await fetch(`${origin}/api/conversations/${created.id}/commands`, { method: "POST", headers, body });
+  const duplicate = await fetch(`${origin}/api/conversations/${created.id}/commands`, { method: "POST", headers, body });
+  assert.equal(first.status, 202);
+  assert.equal(duplicate.status, 202);
+  assert.equal(manager.snapshot(created.id).messages.filter((message) => message.text === "Only once").length, 1);
+
+  const stale = await fetch(`${origin}/api/conversations/${created.id}/commands`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ commandId: "stale-stop", expectedVersion: 1, command: { kind: "stop" } }),
+  });
+  assert.equal(stale.status, 409);
+  assert.equal((await stale.json() as { code: string }).code, "stale_version");
+});
+
+test("the conversation view stream is session-bound and starts with a full current view", async (t) => {
   const manager = new ConversationManager("", "gpt-5-mini");
   const created = await manager.create();
   const server = createApp(manager);
@@ -20,19 +54,14 @@ test("trace endpoints are session-bound and stale generations request a resync",
   t.after(() => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())));
   const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
-  const unauthenticated = await fetch(`${origin}/api/conversations/${created.id}/traces`);
+  const unauthenticated = await fetch(`${origin}/api/conversations/${created.id}/events`);
   assert.equal(unauthenticated.status, 401);
 
   const bootstrapResponse = await fetch(`${origin}/api/bootstrap`);
   const cookie = bootstrapResponse.headers.get("set-cookie")!.split(";")[0]!;
-  const snapshotResponse = await fetch(`${origin}/api/conversations/${created.id}/traces`, { headers: { cookie } });
-  const snapshot = await snapshotResponse.json() as { streamId: string; cursor: number; turns: unknown[]; limits: Record<string, number> };
-  assert.equal(snapshotResponse.status, 200);
-  assert.deepEqual(snapshot.turns, []);
-  assert.ok(snapshot.limits.maxPayloadBytes > 0);
 
   const nonLoopbackStatus = await new Promise<number>((resolve, reject) => {
-    const request = httpRequest({ hostname: "127.0.0.1", port: (server.address() as AddressInfo).port, path: `/api/conversations/${created.id}/traces`, headers: { cookie, host: "example.com" } }, (response) => {
+    const request = httpRequest({ hostname: "127.0.0.1", port: (server.address() as AddressInfo).port, path: `/api/conversations/${created.id}/events`, headers: { cookie, host: "example.com" } }, (response) => {
       response.resume();
       response.on("end", () => resolve(response.statusCode ?? 0));
     });
@@ -41,13 +70,17 @@ test("trace endpoints are session-bound and stale generations request a resync",
   });
   assert.equal(nonLoopbackStatus, 403);
 
-  const missing = await fetch(`${origin}/api/conversations/not-this-conversation/traces`, { headers: { cookie } });
+  const missing = await fetch(`${origin}/api/conversations/not-this-conversation`, { headers: { cookie } });
   assert.equal(missing.status, 404);
 
-  const resync = await fetch(`${origin}/api/conversations/${created.id}/traces/events?after=old-stream%3A0`, { headers: { cookie } });
-  const body = await resync.text();
-  assert.match(body, /event: trace\.resync_required/);
-  assert.match(body, new RegExp(`id: ${snapshot.streamId}:${snapshot.cursor}`));
+  const stream = await fetch(`${origin}/api/conversations/${created.id}/events`, { headers: { cookie } });
+  const reader = stream.body!.getReader();
+  const first = await reader.read();
+  const body = new TextDecoder().decode(first.value);
+  assert.match(body, /event: conversation\.view/);
+  assert.match(body, new RegExp(`"conversationId":"${created.id}"`));
+  assert.match(body, /"turns":\[\]/);
+  await reader.cancel().catch(() => undefined);
 });
 
 test("recovery routes continue interrupted work and start over with a clean conversation", async (t) => {
@@ -91,24 +124,24 @@ test("recovery routes continue interrupted work and start over with a clean conv
   };
   assert.equal(bootstrap.conversationId, created.id);
 
-  const continuedResponse = await fetch(`${origin}/api/conversations/${created.id}/continue`, {
+  const continuedResponse = await fetch(`${origin}/api/conversations/${created.id}/commands`, {
     method: "POST",
     headers,
-    body: "{}",
+    body: JSON.stringify({ commandId: "continue-one", command: { kind: "continue" } }),
   });
   const continued = await continuedResponse.json() as { id: string; runState: string };
-  assert.equal(continuedResponse.status, 202);
+  assert.equal(continuedResponse.status, 200);
   assert.equal(continued.id, created.id);
   assert.equal(continued.runState, "model_turn");
   await internals.turnQueue;
 
-  const startOverResponse = await fetch(`${origin}/api/conversations/${created.id}/start-over`, {
+  const startOverResponse = await fetch(`${origin}/api/conversations/${created.id}/commands`, {
     method: "POST",
     headers,
-    body: "{}",
+    body: JSON.stringify({ commandId: "start-over-one", command: { kind: "start_over" } }),
   });
   const replacement = await startOverResponse.json() as { id: string; runState: string; messages: unknown[] };
-  assert.equal(startOverResponse.status, 201);
+  assert.equal(startOverResponse.status, 200);
   assert.notEqual(replacement.id, created.id);
   assert.equal(replacement.runState, "idle");
   assert.deepEqual(replacement.messages, []);
@@ -141,20 +174,20 @@ test("message and resume routes wait for their checkpoints before responding", a
     origin,
   };
 
-  const messageResponse = await fetch(`${origin}/api/conversations/${created.id}/messages`, {
+  const messageResponse = await fetch(`${origin}/api/conversations/${created.id}/commands`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ text: "Persist this before replying" }),
+    body: JSON.stringify({ commandId: "message-durable", command: { kind: "send_message", text: "Persist this before replying" } }),
   });
   assert.equal(messageResponse.status, 202);
   assert.equal((await store.load())?.conversation.messages.at(-1)?.text, "Persist this before replying");
   await internals.turnQueue;
 
   const takeover = await manager.takeover(created.id);
-  const resumeResponse = await fetch(`${origin}/api/conversations/${created.id}/resume`, {
+  const resumeResponse = await fetch(`${origin}/api/conversations/${created.id}/commands`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ controlEpoch: takeover.controlEpoch }),
+    body: JSON.stringify({ commandId: "return-control-one", command: { kind: "return_control", controlEpoch: takeover.controlEpoch } }),
   });
   assert.equal(resumeResponse.status, 200);
   assert.equal((await store.load())?.conversation.controlOwner, "agent");
@@ -248,11 +281,11 @@ test("model-access routes preserve session selection and expose the complete loc
   assert.match(await eventResponse.text(), /event: auth\.succeeded/);
   assert.equal((await fetch(`${origin}/api/auth-attempts/${attempt.id}`, { method: "DELETE", headers, body: "{}" })).status, 202);
 
-  const switchedResponse = await fetch(`${origin}/api/conversations/${created.id}/model-access`, { method: "PUT", headers, body: JSON.stringify({ providerId: "test-provider", modelId: "model-b" }) });
+  const switchedResponse = await fetch(`${origin}/api/conversations/${created.id}/commands`, { method: "POST", headers, body: JSON.stringify({ commandId: "change-model-one", command: { kind: "change_model", providerId: "test-provider", modelId: "model-b" } }) });
   assert.equal(switchedResponse.status, 200);
   assert.equal(((await switchedResponse.json()) as { modelId: string }).modelId, "model-b");
   assert.equal((await fetch(`${origin}/api/model-access/providers/test-provider`, { method: "DELETE", headers, body: "{}" })).status, 200);
-  assert.equal((await fetch(`${origin}/api/conversations/${created.id}/model-access/reconnect`, { method: "POST", headers, body: "{}" })).status, 200);
+  assert.equal((await fetch(`${origin}/api/conversations/${created.id}/commands`, { method: "POST", headers, body: JSON.stringify({ commandId: "reconnect-model-one", command: { kind: "reconnect_model" } }) })).status, 200);
 
   assert.deepEqual(calls, ["validate:model-a", "validate:model-a", "start", "prompt:prompt-positive:secret", "cancel", "preflight:model-b", "logout:test-provider", "preflight:model-b"]);
 });

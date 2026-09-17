@@ -114,7 +114,7 @@ Select the current model in the header to open model settings. Use **Back to con
 
 ### Approvals
 
-Reading the current page and scrolling can run directly. Navigation, clicks, form changes, and keypresses require a one-time approval tied to the current page and exact action. Approvals expire after five minutes and stop working if the page or target element changes.
+Reading, scrolling, public navigation, safe link opening, and search can run directly. Clicks, ordinary form changes, and keypresses require a one-time approval tied to the current page and exact action. Passwords, payment details, and verification codes require **Take control**. Approvals expire after five minutes and stop working if the page or target element changes.
 
 ### Take control
 

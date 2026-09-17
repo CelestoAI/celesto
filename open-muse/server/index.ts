@@ -10,15 +10,28 @@ import { z } from "zod";
 import { ConversationManager } from "./manager.js";
 import { createComputerProvider } from "./computer-provider.js";
 import { ModelAccessService, type ModelSelection } from "./model-access.js";
-import { parseTraceCursor, type TraceEvent } from "./trace.js";
 
-const messageBody = z.object({ text: z.string().trim().min(1).max(8_000) });
-const approvalBody = z.object({ actionDigest: z.string().length(64), approved: z.boolean() });
-const resumeBody = z.object({ controlEpoch: z.string().min(12).max(200) });
 const authAttemptBody = z.object({ providerId: z.string().min(1).max(80), method: z.enum(["oauth", "api_key"]) }).strict();
 const authPromptBody = z.object({ value: z.string().min(1).max(16_384) }).strict();
 const selectionBody = z.object({ providerId: z.string().min(1).max(80), modelId: z.string().min(1).max(200) }).strict();
 const createConversationBody = z.union([z.object({}).strict(), selectionBody]);
+const commandBody = z.object({
+  commandId: z.string().min(1).max(100),
+  expectedVersion: z.number().int().nonnegative().optional(),
+  command: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("send_message"), text: z.string().trim().min(1).max(8_000) }).strict(),
+    z.object({ kind: z.literal("approve"), approvalId: z.string().min(1).max(200), actionDigest: z.string().length(64) }).strict(),
+    z.object({ kind: z.literal("reject"), approvalId: z.string().min(1).max(200), actionDigest: z.string().length(64) }).strict(),
+    z.object({ kind: z.literal("take_control") }).strict(),
+    z.object({ kind: z.literal("return_control"), controlEpoch: z.string().min(12).max(200) }).strict(),
+    z.object({ kind: z.literal("continue") }).strict(),
+    z.object({ kind: z.literal("start_over") }).strict(),
+    z.object({ kind: z.literal("stop") }).strict(),
+    z.object({ kind: z.literal("reconnect_model") }).strict(),
+    z.object({ kind: z.literal("change_model"), providerId: z.string().min(1).max(80), modelId: z.string().min(1).max(200) }).strict(),
+    z.object({ kind: z.literal("adopt_popup"), tabId: z.string().min(1).max(200) }).strict(),
+  ]),
+}).strict();
 interface LocalSession { csrfToken: string; createdAt: number; lastSeenAt: number; selection?: ModelSelection }
 const sessions = new Map<string, LocalSession>();
 const SESSION_IDLE_MS = 12 * 60 * 60_000;
@@ -148,12 +161,15 @@ async function route(manager: ConversationManager, staticRoot: string, request: 
     if (modelAccess) session.selection = { providerId: conversation.providerId, modelId: conversation.modelId };
     return sendJson(response, 201, conversation);
   }
-  const tracesMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)\/traces$/);
-  if (method === "GET" && tracesMatch) { assertLoopbackRequest(request); return sendJson(response, 200, manager.traceSnapshot(tracesMatch[1])); }
-  const traceEventsMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)\/traces\/events$/);
-  if (method === "GET" && traceEventsMatch) { assertLoopbackRequest(request); return streamTraceEvents(manager, traceEventsMatch[1], request, response, url.searchParams.get("after") ?? undefined); }
   const snapshotMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)$/);
   if (method === "GET" && snapshotMatch) return sendJson(response, 200, manager.snapshot(snapshotMatch[1]));
+  const commandsMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)\/commands$/);
+  if (method === "POST" && commandsMatch) {
+    const body = commandBody.parse(await readJson(request));
+    const result = await manager.dispatch(commandsMatch[1], body);
+    if (modelAccess && body.command.kind === "change_model") session.selection = { providerId: body.command.providerId, modelId: body.command.modelId };
+    return sendJson(response, body.command.kind === "send_message" || body.command.kind === "stop" ? 202 : 200, result);
+  }
   const activateMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)\/activate$/);
   if (method === "POST" && activateMatch) {
     const conversation = await manager.activate(activateMatch[1]);
@@ -165,35 +181,8 @@ async function route(manager: ConversationManager, staticRoot: string, request: 
     assertLoopbackRequest(request);
     return sendJson(response, 200, manager.diagnostics(diagnosticsMatch[1]));
   }
-  const messagesMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)\/messages$/);
-  if (method === "POST" && messagesMatch) return sendJson(response, 202, await manager.send(messagesMatch[1], messageBody.parse(await readJson(request)).text));
-  const reconnectMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)\/model-access\/reconnect$/);
-  if (modelAccess && method === "POST" && reconnectMatch) return sendJson(response, 200, await manager.reconnectProvider(reconnectMatch[1]));
-  const switchModelMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)\/model-access$/);
-  if (modelAccess && method === "PUT" && switchModelMatch) return sendJson(response, 200, await manager.switchModel(switchModelMatch[1], selectionBody.parse(await readJson(request))));
   const eventsMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)\/events$/);
-  if (method === "GET" && eventsMatch) return streamEvents(manager, eventsMatch[1], request, response);
-  const approvalMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)\/approvals\/([^/]+)$/);
-  if (method === "POST" && approvalMatch) {
-    const body = approvalBody.parse(await readJson(request));
-    return sendJson(response, 200, await manager.approve(approvalMatch[1], approvalMatch[2], body.actionDigest, body.approved));
-  }
-  const takeoverMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)\/takeover$/);
-  if (method === "POST" && takeoverMatch) return sendJson(response, 200, await manager.takeover(takeoverMatch[1]));
-  const adoptPopupMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)\/tabs\/([^/]+)\/adopt$/);
-  if (method === "POST" && adoptPopupMatch) return sendJson(response, 200, await manager.adoptPopup(adoptPopupMatch[1], adoptPopupMatch[2]));
-  const resumeMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)\/resume$/);
-  if (method === "POST" && resumeMatch) return sendJson(response, 200, await manager.resume(resumeMatch[1], resumeBody.parse(await readJson(request)).controlEpoch));
-  const continueMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)\/continue$/);
-  if (method === "POST" && continueMatch) return sendJson(response, 202, await manager.continueInterrupted(continueMatch[1]));
-  const startOverMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)\/start-over$/);
-  if (method === "POST" && startOverMatch) return sendJson(response, 201, await manager.startOver(startOverMatch[1]));
-  const stopMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)\/stop$/);
-  if (method === "POST" && stopMatch) {
-    manager.snapshot(stopMatch[1]);
-    void manager.stop(stopMatch[1]).catch(() => console.error("OpenMuse stop failed."));
-    return sendJson(response, 202, { stopping: true });
-  }
+  if (method === "GET" && eventsMatch) { assertLoopbackRequest(request); return streamEvents(manager, eventsMatch[1], request, response); }
   const tokenMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)\/viewer-token$/);
   if (method === "POST" && tokenMatch) return sendJson(response, 200, manager.issueViewerNonce(tokenMatch[1]));
   if (url.pathname.startsWith("/api/")) throw Object.assign(new Error("That OpenMuse route does not exist."), { status: 404 });
@@ -279,54 +268,10 @@ function streamAuthEvents(modelAccess: ModelAccessService, sessionId: string, at
 
 function streamEvents(manager: ConversationManager, id: string, request: IncomingMessage, response: ServerResponse): void {
   response.statusCode = 200; response.setHeader("content-type", "text/event-stream"); response.setHeader("connection", "keep-alive"); response.setHeader("x-accel-buffering", "no"); response.flushHeaders();
-  const afterId = Number(request.headers["last-event-id"] ?? 0) || 0;
-  const unsubscribe = manager.subscribe(id, (event) => response.write(`id: ${event.id}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`), afterId);
+  const unsubscribe = manager.subscribeViews(id, (view) => response.write(`id: ${view.version}\nevent: conversation.view\ndata: ${JSON.stringify({ view })}\n\n`));
   if (!unsubscribe) { response.end(`event: error\ndata: {"error":"Conversation not found"}\n\n`); return; }
   const heartbeat = setInterval(() => response.write(": heartbeat\n\n"), 15_000);
   request.on("close", () => { clearInterval(heartbeat); unsubscribe(); });
-}
-
-function streamTraceEvents(manager: ConversationManager, id: string, request: IncomingMessage, response: ServerResponse, after?: string): void {
-  response.statusCode = 200;
-  response.setHeader("content-type", "text/event-stream");
-  response.setHeader("connection", "keep-alive");
-  response.setHeader("x-accel-buffering", "no");
-  response.setHeader("cache-control", "no-store");
-  response.flushHeaders();
-  const cursor = parseTraceCursor(typeof request.headers["last-event-id"] === "string" ? request.headers["last-event-id"] : after);
-  let closed = false;
-  let unsubscribe: () => void = () => undefined;
-  let heartbeat: ReturnType<typeof setInterval> | undefined;
-  const close = () => {
-    if (closed) return;
-    closed = true;
-    if (heartbeat) clearInterval(heartbeat);
-    unsubscribe();
-    response.end();
-  };
-  const closeAfterDrain = () => {
-    if (closed) return;
-    closed = true;
-    if (heartbeat) clearInterval(heartbeat);
-    unsubscribe();
-    response.once("drain", () => response.end());
-  };
-  const write = (event: TraceEvent): void => {
-    if (closed) return;
-    const ok = response.write(`id: ${event.streamId}:${event.eventId}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
-    if (!ok) closeAfterDrain();
-    else if (event.type === "trace.resync_required") queueMicrotask(close);
-  };
-  const subscription = manager.subscribeTraces(id, write, cursor);
-  unsubscribe = subscription.unsubscribe ?? (() => undefined);
-  if (subscription.resync) {
-    const snapshot = manager.traceSnapshot(id);
-    response.end(`id: ${snapshot.streamId}:${snapshot.cursor}\nevent: trace.resync_required\ndata: ${JSON.stringify({ type: "trace.resync_required", streamId: snapshot.streamId, eventId: snapshot.cursor, conversationId: id, createdAt: new Date().toISOString() })}\n\n`);
-    return;
-  }
-  if (closed) { unsubscribe(); return; }
-  heartbeat = setInterval(() => { if (!response.write(": heartbeat\n\n")) closeAfterDrain(); }, 15_000);
-  request.on("close", close);
 }
 
 async function serveStatic(root: string, pathname: string, response: ServerResponse, head: boolean): Promise<void> {

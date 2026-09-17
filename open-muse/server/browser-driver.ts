@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Locator, Page } from "playwright-core";
-import type { BrowserTarget, ExecutableBrowserOperation } from "./browser-operations.js";
+import { validatePublicBrowserUrl, type BrowserTarget, type ExecutableBrowserOperation } from "./browser-operations.js";
 
 export interface BrowserDriver {
   inspect(page: Page): Promise<{ binding: string; display: string }>;
@@ -55,6 +55,23 @@ export async function executeBrowserOperation(
       case "navigate":
         await page.goto(operation.url);
         return { opened: operation.url, observation: await observe(page) };
+      case "follow_link": {
+        if (operation.target.role !== "link") throw new Error("That ref is not a link. Observe the page again and choose a link.");
+        const target = await resolveTarget(page, operation.target);
+        const href = await target.getAttribute("href");
+        if (!href) throw new Error("That link does not have a website address.");
+        const url = validatePublicBrowserUrl(new URL(href, page.url()).href);
+        await page.goto(url);
+        return { opened: url, observation: await observe(page) };
+      }
+      case "search": {
+        if (operation.target.role !== "searchbox") throw new Error("That ref is not a search box. Observe the page again and choose a search box.");
+        const target = await resolveTarget(page, operation.target);
+        await target.fill(operation.query);
+        await target.press("Enter");
+        await page.waitForLoadState("domcontentloaded").catch(() => undefined);
+        return { searched: true, observation: await observe(page) };
+      }
       case "click": {
         const target = await resolveTarget(page, operation.target);
         await target.click();

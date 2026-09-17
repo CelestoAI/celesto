@@ -11,6 +11,8 @@ test("production policy exposes only structured browser tools", () => {
     "browser_extract",
     "browser_scroll",
     "browser_navigate",
+    "browser_follow_link",
+    "browser_search",
     "browser_click",
     "browser_fill",
     "browser_select",

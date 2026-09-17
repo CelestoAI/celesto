@@ -11,8 +11,10 @@ const WEB_TOOL_DESCRIPTIONS = {
   browser_observe: "Read a bounded, redacted snapshot of the current page without requesting approval.",
   browser_extract: "Convert the current page, or one observed element, to bounded Markdown without requesting approval.",
   browser_scroll: "Scroll the current page without requesting approval and return a fresh observation.",
-  browser_navigate: "Request one-time approval to open an HTTP or HTTPS URL.",
-  browser_click: "Request one-time approval to click one interactive ref from the latest observation.",
+  browser_navigate: "Open a public HTTP or HTTPS URL. Public research navigation does not require approval.",
+  browser_follow_link: "Open one link ref from the latest observation without firing arbitrary page click handlers.",
+  browser_search: "Enter and submit a public search using one searchbox ref from the latest observation.",
+  browser_click: "Request one-time approval to click an interactive control that may change external state.",
   browser_fill: "Request one-time approval to fill one non-secret field ref from the latest observation. Never use this for passwords, payment data, or tokens.",
   browser_select: "Request one-time approval to choose one visible option in a combobox ref from the latest observation.",
   browser_keypress: "Request one-time approval to press one navigation or confirmation key.",
@@ -59,6 +61,7 @@ export function traceInput(tool: string, params: unknown): Record<string, unknow
   if (!params || typeof params !== "object") return {};
   const value = params as Record<string, unknown>;
   if (tool === "browser_fill") return typeof value.ref === "string" ? { ref: value.ref } : {};
+  if (tool === "browser_search") return typeof value.ref === "string" ? { ref: value.ref } : {};
   if (tool === "browser_observe" || tool === "request_approval") return {};
   if (tool === "browser_navigate" && typeof value.url === "string") {
     try {
@@ -74,7 +77,7 @@ export function traceInput(tool: string, params: unknown): Record<string, unknow
   const allowed = tool === "browser_extract" ? ["scopeRef"]
     : tool === "browser_scroll" ? ["direction"]
       : tool === "browser_navigate" ? ["route"]
-        : tool === "browser_click" ? ["ref"]
+        : tool === "browser_click" || tool === "browser_follow_link" ? ["ref"]
           : tool === "browser_select" ? ["ref", "label"]
             : tool === "browser_keypress" ? ["key"] : [];
   return Object.fromEntries(allowed.filter((key) => typeof value[key] === "string").map((key) => [key, value[key]]));
@@ -137,6 +140,21 @@ function createConfiguredAgent(model: Model<Api>, broker: ActionBroker, fixtureS
       execute: async (_id, params) => {
         const { url } = z.object({ url: z.string().url().max(2_048).refine((value) => ["http:", "https:"].includes(new URL(value).protocol)) }).parse(params);
         return result(await broker.runWebOperation({ kind: "navigate", url }));
+      },
+    },
+    {
+      name: "browser_follow_link", label: "Open link",
+      description: WEB_TOOL_DESCRIPTIONS.browser_follow_link,
+      parameters: Type.Object({ ref: Type.String({ pattern: "^e[1-9]\\d{0,2}$" }) }), executionMode: "sequential", replay: "never",
+      execute: async (_id, params) => result(await broker.runWebOperation({ kind: "follow_link", ref: z.object({ ref: refSchema }).parse(params).ref })),
+    },
+    {
+      name: "browser_search", label: "Search website",
+      description: WEB_TOOL_DESCRIPTIONS.browser_search,
+      parameters: Type.Object({ ref: Type.String({ pattern: "^e[1-9]\\d{0,2}$" }), query: Type.String({ minLength: 1, maxLength: 500 }) }), executionMode: "sequential", replay: "never",
+      execute: async (_id, params) => {
+        const { ref, query } = z.object({ ref: refSchema, query: z.string().min(1).max(500) }).parse(params);
+        return result(await broker.runWebOperation({ kind: "search", ref, query }));
       },
     },
     {

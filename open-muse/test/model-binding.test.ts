@@ -67,7 +67,7 @@ test("model-aware conversations require and retain an explicit selection", async
   assert.deepEqual(selections, [{ providerId: "test-provider", modelId: "model-a" }]);
 });
 
-test("switching models replaces an idle agent and preserves conversation history", async () => {
+test("switching models interrupts active work and preserves conversation history", async () => {
   const { manager, replacement } = fixture();
   const created = await manager.create({ providerId: "test-provider", modelId: "model-a" });
   const context = (manager as unknown as { context: ConversationContext }).context;
@@ -83,7 +83,10 @@ test("switching models replaces an idle agent and preserves conversation history
   assert.equal(previous.idleWaits(), 1);
   assert.equal(context.agent, replacement.value);
   context.runState = "model_turn";
-  await assert.rejects(manager.switchModel(created.id, { providerId: "test-provider", modelId: "model-a" }), /current work to finish/);
+  const switchedDuringWork = await manager.switchModel(created.id, { providerId: "test-provider", modelId: "model-a" });
+  assert.equal(switchedDuringWork.modelId, "model-a");
+  assert.equal(switchedDuringWork.runState, "idle");
+  assert.equal(replacement.aborted(), true);
 });
 
 test("switching models remains available after a failed turn", async () => {
