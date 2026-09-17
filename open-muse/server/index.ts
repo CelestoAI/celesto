@@ -71,8 +71,7 @@ export function createApp(manager: ConversationManager, staticRoot = fileURLToPa
       };
       socket.once("close", forgetSocket);
       socket.once("error", forgetSocket);
-      request.url = `${target.pathname}${target.search}`;
-      stripLocalViewerCredentials(request);
+      prepareViewerProxyRequest(request, target);
       proxy.ws(request, socket, head, { target: target.origin });
     } catch { socket.destroy(); }
   });
@@ -225,7 +224,9 @@ function authenticated(request: IncomingMessage): boolean {
   if (session) session.lastSeenAt = Date.now();
   return Boolean(session);
 }
-function stripLocalViewerCredentials(request: IncomingMessage): void {
+function prepareViewerProxyRequest(request: IncomingMessage, target: URL): void {
+  request.url = `${target.pathname}${target.search}`;
+  request.headers.host = target.host;
   delete request.headers.cookie;
   delete request.headers.authorization;
   delete request.headers["x-smol-csrf"];
@@ -383,4 +384,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   });
 }
 
-export const _test = { assertLoopbackRequest, stripLocalViewerCredentials };
+export const _test = { assertLoopbackRequest, prepareViewerProxyRequest };
