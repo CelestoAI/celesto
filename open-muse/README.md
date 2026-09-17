@@ -96,13 +96,13 @@ Send:
 
 > Open https://example.com and tell me what the page says.
 
-OpenMuse will ask before opening the page. Approve the request, then watch the disposable desktop start and Chromium open the site. A normal first boot can take longer than later boots while SmolVM prepares the downloaded image.
+OpenMuse will open the public page directly. Watch the disposable desktop start and Chromium open the site. A normal first boot can take longer than later boots while SmolVM prepares the downloaded image.
 
 Try one more prompt after the page opens:
 
 > Give me the raw page data as Markdown.
 
-Click **Stop** when you are done. OpenMuse deletes the conversation's computer. Local SmolVM computers are also deleted when the server exits; Celesto Cloud computers stay linked to the conversation so the next OpenMuse process can reconnect.
+Click **Stop** when you are done. OpenMuse deletes the conversation's computer and clears its association for both providers. When the server exits without **Stop**, local SmolVM computers are deleted while Celesto Cloud computers stay linked so the next OpenMuse process can reconnect.
 
 ## Everyday controls
 

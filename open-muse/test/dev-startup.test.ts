@@ -17,3 +17,16 @@ test("the dev client waits for the API before starting Vite", async () => {
   assert.equal(attempts, 3);
   assert.deepEqual(waits, [50, 50]);
 });
+
+test("the dev client stops waiting when the API cannot start", async () => {
+  let clock = 0;
+  await assert.rejects(
+    waitForOpenMuseApi(
+      async () => { throw new TypeError("connection refused"); },
+      async (milliseconds) => { clock += milliseconds; },
+      100,
+      () => clock,
+    ),
+    /check the server log/,
+  );
+});
