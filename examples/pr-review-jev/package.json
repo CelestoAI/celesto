@@ -1,0 +1,7 @@
+{
+  "name": "jev-review-gateway",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "dependencies": { "ai": "^7.0.105" }
+}
