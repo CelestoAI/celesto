@@ -1,12 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import { CATALOG, STOREFRONT_VERSION, formatInr, productById } from "./catalog.js";
 import { operationReason, redactBrowserOperation, validateBrowserOperation, type BrowserOperation, type BrowserTarget, type ExecutableBrowserOperation } from "./browser-operations.js";
-import { BrowserDriverError, hostBrowserDriver, type BrowserDriver } from "./browser-driver.js";
+import { browserHasAuthenticatedState, BrowserDriverError, hostBrowserDriver, type BrowserDriver } from "./browser-driver.js";
 import { approveOperation, completeOperation, dispatchOperation, markOutcomeUnknown, upsertOperation, type OperationRecord, type RecoveryState } from "./operation-lifecycle.js";
 import type { TabTarget } from "./browser-tabs.js";
 import type { BrowserRef, ConversationContext, IntentGrant, PendingApproval } from "./types.js";
 import { MARKDOWN_MODEL, type MarkdownInput } from "./markdown.js";
 import type { TurnExecution } from "./trace.js";
+import { decideBrowserAction } from "./action-policy.js";
 
 type Emit = (type: string, payload: Record<string, unknown>, mutates?: boolean) => void;
 type Persist = () => Promise<void>;
@@ -18,6 +19,8 @@ export interface BrokerTraceHooks {
   currentExecution: () => TurnExecution | undefined;
   isCurrentExecution: () => boolean;
   approvalRequested: (pending: PendingApproval) => void;
+  waitForApproval?: (pending: PendingApproval) => Promise<boolean>;
+  approvalSettled?: (approvalId: string) => void;
   revealCurrentStepInput: (input: unknown) => void;
 }
 
@@ -112,6 +115,8 @@ export class ActionBroker {
       expiresAt: pending.expiresAt,
       summary: approvalEventSummary(pending.kind),
     }, true);
+    const resolution = await this.waitForApproval(pending);
+    if (resolution) return this.publicResolution(resolution);
     return { approvalRequired: true, ...this.publicApproval(pending) };
   }
 
@@ -134,8 +139,19 @@ export class ActionBroker {
       const result = await this.executeWebOperation(page, executable, "browser_extract");
       return this.formatExtraction(result);
     }
-    if (this.context.pendingApproval) return { approvalRequired: true, ...this.publicApproval(this.context.pendingApproval) };
     const executable = this.resolveOperation(operation, tab);
+    let policy = decideBrowserAction(executable);
+    if (executable.kind === "search" && policy.decision === "allow" && await browserHasAuthenticatedState(page)) {
+      policy = { decision: "confirm", reason: "Searching from a signed-in browser may change website state." };
+    }
+    if (policy.decision === "deny") throw new Error(policy.reason);
+    if (policy.decision === "allow") {
+      const result = await this.executeWebOperation(page, executable, `browser_${operation.kind}`) as { observation?: unknown } | undefined;
+      return result?.observation
+        ? { ...result, observation: this.registerObservation(result.observation, this.tabTarget()) }
+        : (result ?? {});
+    }
+    if (this.context.pendingApproval) return { approvalRequired: true, ...this.publicApproval(this.context.pendingApproval) };
     const reason = operationReason(executable).slice(0, 240);
     const { binding: pageBinding, display: pageUrl } = await this.currentPage(tab);
     if (this.context.pendingApproval) return { approvalRequired: true, ...this.publicApproval(this.context.pendingApproval) };
@@ -161,7 +177,32 @@ export class ActionBroker {
       expiresAt: pending.expiresAt,
       summary: approvalEventSummary(pending.kind),
     }, true);
+    const resolution = await this.waitForApproval(pending);
+    if (resolution) return this.publicResolution(resolution);
     return { approvalRequired: true, ...this.publicApproval(pending) };
+  }
+
+  private async waitForApproval(pending: PendingApproval): Promise<ApprovalResolution | undefined> {
+    if (!this.trace?.waitForApproval) return;
+    try {
+      const approved = await this.trace.waitForApproval(pending);
+      const resolution = await this.resolveApproval(pending.approvalId, pending.actionDigest, approved);
+      if (!( ["interrupted", "stopping", "stopped"] as string[]).includes(this.context.runState)) this.context.runState = "model_turn";
+      return resolution;
+    } finally {
+      this.trace.approvalSettled?.(pending.approvalId);
+    }
+  }
+
+  private publicResolution(resolution: ApprovalResolution): Record<string, unknown> {
+    if (!resolution.resumeAgent && resolution.recovery) {
+      throw Object.assign(new Error("The approved website action needs recovery before OpenMuse can continue."), {
+        code: "browser_recovery_required",
+      });
+    }
+    return resolution.resumeAgent
+      ? (resolution.browserResult as Record<string, unknown> ?? {})
+      : { approved: false, reason: "The website interaction was not approved." };
   }
 
   private async executeWebOperation(
@@ -350,7 +391,7 @@ export class ActionBroker {
       && (grant.variant.kind === "any" || grant.variant.id === variantId));
   }
 
-  async requestCheckoutApproval(): Promise<PendingApproval> {
+  async requestCheckoutApproval(): Promise<PendingApproval | Record<string, unknown>> {
     await this.ready();
     if (!this.context.cart.length) throw new Error("The cart is empty.");
     if (this.context.pendingApproval) return this.context.pendingApproval;
@@ -368,6 +409,8 @@ export class ActionBroker {
     this.registerPending(pending);
     this.context.runState = "waiting_for_approval";
     this.emit("approval.requested", { ...pending, total: formatInr(totalPriceMinor) }, true);
+    const resolution = await this.waitForApproval(pending);
+    if (resolution) return this.publicResolution(resolution);
     return pending;
   }
 
@@ -475,9 +518,12 @@ export class ActionBroker {
     } finally {
       if (!(["interrupted", "stopping", "stopped"] as string[]).includes(this.context.runState)) this.context.runState = "idle";
     }
-    return (pending.kind === "browser_program" || pending.kind === "browser_operation")
-      ? { resumeAgent: true, browserResult }
-      : { resumeAgent: false };
+    return {
+      resumeAgent: true,
+      browserResult: pending.kind === "checkout_review"
+        ? { approved: true, reviewOpened: true }
+        : browserResult,
+    };
   }
 
   private async failBeforeExecution(operation: OperationRecord, errorCode: string): Promise<ApprovalResolution> {
@@ -507,15 +553,17 @@ export class ActionBroker {
   }
 
   private resolveOperation(operation: BrowserOperation, tab: TabTarget): ExecutableBrowserOperation {
-    if (operation.kind !== "click" && operation.kind !== "fill" && operation.kind !== "select") return operation;
+    if (operation.kind !== "click" && operation.kind !== "fill" && operation.kind !== "select" && operation.kind !== "follow_link" && operation.kind !== "search") return operation;
     const resolved = this.resolveRef(operation.ref, tab);
     if (!resolved.ref.actionable) throw new Error("That browser ref is not interactive. Observe the page again and choose an interactive ref.");
+    if (operation.kind === "follow_link" && resolved.target.role !== "link") throw new Error("That browser ref is not a link. Observe the page again and choose a link.");
+    if (operation.kind === "search" && resolved.target.role !== "searchbox") throw new Error("That browser ref is not a search box. Observe the page again and choose a search box.");
     if (operation.kind === "fill") {
       if (!["textbox", "searchbox", "spinbutton"].includes(resolved.target.role)) throw new Error("OpenMuse can fill only text, search, or number fields.");
       if (SENSITIVE_TARGET.test(resolved.target.name)) throw new Error("Use Take control to enter passwords, payment details, codes, or other secrets.");
     }
     if (operation.kind === "select" && resolved.target.role !== "combobox") throw new Error("OpenMuse can select options only in a combobox.");
-    return { ...operation, target: resolved.target };
+    return { ...operation, target: resolved.target } as ExecutableBrowserOperation;
   }
 
   private resolveRef(ref: string, tab: TabTarget): { ref: BrowserRef; target: BrowserTarget } {

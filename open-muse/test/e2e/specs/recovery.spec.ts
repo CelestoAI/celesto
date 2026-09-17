@@ -46,7 +46,7 @@ test("safe pre-dispatch failure survives reload and Continue requires fresh appr
   await page.getByRole("button", { name: "Continue" }).click();
 
   await expect(page.getByText("Approval required")).toBeVisible();
-  await expect(page.getByText("Open https://example.com/", { exact: true })).toBeVisible();
+  await expect(page.getByText("Click button “Open result”", { exact: true })).toBeVisible();
   const state = await harnessState(request);
   expect(state.dispatchCount).toBe(0);
   expect(state.terminalCount).toBe(1);
@@ -74,7 +74,7 @@ test("unknown outcome survives reload and Continue observes without replay", asy
   const state = await harnessState(request);
   expect(state.dispatchCount).toBe(1);
   expect(state.terminalCount).toBe(1);
-  expect(state.observationCount).toBe(1);
+  expect(state.observationCount).toBe(2);
   expect(state.conversation?.pendingApproval).toBeUndefined();
 });
 
@@ -92,6 +92,34 @@ test("Start over replaces unknown work with a clean conversation", async ({ page
   expect(state.conversation?.recovery).toBeUndefined();
 });
 
+test("Start over blocks overlapping conversation changes while reset is pending", async ({ page, request }) => {
+  await setScenario(request, "outcome_unknown");
+  await requestAndApprove(page);
+  await expect(page.getByText("Action outcome unknown", { exact: true })).toBeVisible();
+
+  let releaseReset!: () => void;
+  const resetBlocked = new Promise<void>((resolve) => { releaseReset = resolve; });
+  let markResetStarted!: () => void;
+  const resetStarted = new Promise<void>((resolve) => { markResetStarted = resolve; });
+  await page.route("**/api/conversations/*/commands", async (route) => {
+    const body = route.request().postDataJSON() as { command?: { kind?: string } };
+    if (body.command?.kind !== "start_over") return route.continue();
+    markResetStarted();
+    await resetBlocked;
+    await route.continue();
+  });
+
+  await page.getByRole("button", { name: "Start over" }).click();
+  await resetStarted;
+  await expect(page.locator("header").getByText("Changing conversation…", { exact: true })).toBeVisible();
+  await page.getByText("Chats", { exact: true }).click();
+  await expect(page.getByRole("button", { name: /New chat/ })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Reset conversation" })).toBeDisabled();
+
+  releaseReset();
+  await expect(page.getByRole("heading", { name: /What should we get done/ })).toBeVisible();
+});
+
 test("concurrent duplicate approval submissions produce one terminal result", async ({ page, request }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /Try a public web task/ }).click();
@@ -100,11 +128,11 @@ test("concurrent duplicate approval submissions produce one terminal result", as
   const responses = await page.evaluate(async () => {
     const conversation = await fetch("/api/bootstrap").then((response) => response.json()) as { conversationId: string; csrfToken: string };
     const snapshot = await fetch(`/api/conversations/${conversation.conversationId}`).then((response) => response.json()) as { pendingApproval: { approvalId: string; actionDigest: string } };
-    const path = `/api/conversations/${conversation.conversationId}/approvals/${snapshot.pendingApproval.approvalId}`;
+    const path = `/api/conversations/${conversation.conversationId}/commands`;
     const options = {
       method: "POST",
       headers: { "content-type": "application/json", "x-smol-csrf": conversation.csrfToken },
-      body: JSON.stringify({ actionDigest: snapshot.pendingApproval.actionDigest, approved: true }),
+      body: JSON.stringify({ commandId: "approve-duplicate", command: { kind: "approve", approvalId: snapshot.pendingApproval.approvalId, actionDigest: snapshot.pendingApproval.actionDigest } }),
     };
     return await Promise.all([fetch(path, options).then((response) => response.status), fetch(path, options).then((response) => response.status)]);
   });

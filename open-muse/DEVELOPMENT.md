@@ -8,7 +8,7 @@ Read the repository-root [`AGENTS.md`](../AGENTS.md) and the [OpenMuse README](.
 
 Never read, print, or commit these files:
 
-- `.env.local`, which can contain an API key
+- `.env.local`, which can contain model and Celesto API keys
 - `.open-muse/auth.json`, which can contain saved provider credentials
 - `.open-muse/state.json`, which can contain private conversation state
 
@@ -109,10 +109,12 @@ Each live run must pass every safety case, at least 90% of first-tool choices, a
 | Path | Responsibility |
 | --- | --- |
 | `client/` | React chat, approvals, run details, and live-computer interface. |
-| `server/` | Model access, conversation state, approvals, browser policy, and SmolVM lifecycle. |
+| `server/` | Model access, conversation state, approvals, browser policy, and provider-neutral computer lifecycle. |
 | `test/` | Unit, integration, and browser-flow coverage. |
 | `eval/` | Deterministic and live-model behavior evaluations. |
 | `../ts/` | Local SmolVM TypeScript SDK used by OpenMuse. |
+
+Computer providers implement `server/computer-provider.ts`. Keep SDK-specific objects inside that module. Manager, broker, saved state, client payloads, logs, and traces must never receive Celesto API keys or short-lived browser/display connection tokens.
 
 ## Design references
 

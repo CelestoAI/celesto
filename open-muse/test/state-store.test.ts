@@ -123,7 +123,7 @@ test("invalid state reports a recovery command instead of silently resetting", a
   );
 });
 
-test("v1 checkpoints migrate to v5 with model binding and an empty operation journal", async (t) => {
+test("v1 checkpoints migrate to v6 with model binding and an empty operation journal", async (t) => {
   const store = await temporaryStore(t);
   const { created, context } = await conversationFixture();
   const current = serializeConversation(context);
@@ -134,14 +134,14 @@ test("v1 checkpoints migrate to v5 with model binding and an empty operation jou
   const migrated = await store.load();
 
   assert.equal(restored.snapshot(created.id).runState, "idle");
-  assert.equal(migrated?.fileVersion, 5);
+  assert.equal(migrated?.fileVersion, 6);
   assert.deepEqual(migrated?.conversation.operationJournal, []);
   assert.equal(migrated?.conversation.providerId, "openai");
   assert.equal(migrated?.conversation.modelId, "gpt-5-mini");
   assert.equal(migrated?.conversation.modelAccessState, "ready");
 });
 
-test("v2-v4 checkpoints migrate to a single active v5 history entry", async (t) => {
+test("v2-v4 checkpoints migrate to a single active v6 history entry", async (t) => {
   const { context } = await conversationFixture();
   const current = serializeConversation(context).conversation;
   const variants = [
@@ -156,10 +156,24 @@ test("v2-v4 checkpoints migrate to a single active v5 history entry", async (t) 
 
     const migrated = await store.load();
 
-    assert.equal(migrated?.fileVersion, 5);
+    assert.equal(migrated?.fileVersion, 6);
     assert.equal(migrated?.activeConversationId, current.id);
     assert.deepEqual(migrated?.conversations.map((conversation) => conversation.id), [current.id]);
   }
+});
+
+test("v5 conversation history migrates to v6 without inventing a computer reference", async (t) => {
+  const store = await temporaryStore(t);
+  const { context } = await conversationFixture();
+  const current = serializeConversation(context);
+  const conversations = current.conversations.map(({ computerReference: _computerReference, ...conversation }) => conversation);
+  await writeFile(store.path, JSON.stringify({ fileVersion: 5, activeConversationId: current.activeConversationId, conversations }), "utf8");
+
+  const migrated = await store.load();
+
+  assert.equal(migrated?.fileVersion, 6);
+  assert.equal(migrated?.activeConversationId, current.activeConversationId);
+  assert.equal(migrated?.conversation.computerReference, undefined);
 });
 
 test("restored conversations pause when their saved provider is no longer configured", async (t) => {
@@ -516,12 +530,16 @@ test("approved browser actions clear approval data before the next durable turn"
   const created = await manager.create();
   const internals = manager as unknown as {
     context: ConversationContext;
-    turnQueue: Promise<void>;
-    runTurn: (context: ConversationContext, text: string) => Promise<void>;
+    broker: (active: ConversationContext) => {
+      runProgram: (program: string, interaction: boolean, summary: string) => Promise<Record<string, unknown>>;
+    };
   };
-  internals.runTurn = async () => undefined;
   internals.context.sessionLifecycle = "ready";
-  const page = { url: () => "https://example.com", isClosed: () => false } as ConversationContext["page"];
+  const page = {
+    url: () => "https://example.com",
+    isClosed: () => false,
+    context: () => ({ browser: () => ({ isConnected: () => true }) }),
+  } as ConversationContext["page"];
   internals.context.page = page;
   internals.context.activeTabId = "tab-test";
   internals.context.tabs.set("tab-test", { id: "tab-test", owner: "agent", epoch: 1, controlEpoch: internals.context.controlEpoch!, page: page! });
@@ -556,17 +574,13 @@ test("approved browser actions clear approval data before the next durable turn"
     }),
     delete: async () => undefined,
   };
-  internals.context.pendingApproval = {
-    kind: "browser_program",
-    approvalId: "approval-durable",
-    actionDigest: "f".repeat(64),
-    reason: "Finish the action",
-    expiresAt: new Date(Date.now() + 60_000).toISOString(),
-    program: "return { done: true };",
-  };
-
-  await manager.approve(created.id, "approval-durable", "f".repeat(64), true);
-  await internals.turnQueue;
+  const action = internals.broker(internals.context).runProgram("return { done: true };", true, "Finish the action");
+  while (!internals.context.pendingApproval) await Promise.resolve();
+  const pending = internals.context.pendingApproval;
+  await Promise.all([
+    manager.approve(created.id, pending.approvalId, pending.actionDigest, true),
+    action,
+  ]);
   const checkpoint = await readFile(store.path, "utf8");
 
   assert.equal((await store.load())?.conversation.runState, "model_turn");

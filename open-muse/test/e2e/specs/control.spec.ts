@@ -11,7 +11,7 @@ test("uses the real UI to take control, return control, and stop", async ({ page
   await page.getByRole("button", { name: /Try a public web task/ }).click();
   await expect(page.getByText("Approval required")).toBeVisible();
   await page.getByRole("button", { name: "Not now" }).click();
-  await expect(page.getByTitle("Live SmolVM computer")).toBeVisible();
+  await expect(page.getByTitle("Live OpenMuse computer")).toBeVisible();
 
   await page.locator(".computer-actions").getByRole("button", { name: "Take control" }).click();
   await expect(page.locator("header").getByText("You have control", { exact: true })).toBeVisible();

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Locator, Page } from "playwright-core";
-import type { BrowserTarget, ExecutableBrowserOperation } from "./browser-operations.js";
+import { validatePublicBrowserUrl, type BrowserTarget, type ExecutableBrowserOperation } from "./browser-operations.js";
 
 export interface BrowserDriver {
   inspect(page: Page): Promise<{ binding: string; display: string }>;
@@ -55,6 +55,29 @@ export async function executeBrowserOperation(
       case "navigate":
         await page.goto(operation.url);
         return { opened: operation.url, observation: await observe(page) };
+      case "follow_link": {
+        if (operation.target.role !== "link") throw new Error("That ref is not a link. Observe the page again and choose a link.");
+        const target = await resolveTarget(page, operation.target);
+        const href = await target.getAttribute("href");
+        if (!href) throw new Error("That link does not have a website address.");
+        const url = validatePublicBrowserUrl(new URL(href, page.url()).href);
+        await page.goto(url);
+        return { opened: url, observation: await observe(page) };
+      }
+      case "search": {
+        if (operation.target.role !== "searchbox") throw new Error("That ref is not a search box. Observe the page again and choose a search box.");
+        const target = await resolveTarget(page, operation.target);
+        const form = await target.evaluate((node) => {
+          const owner = node instanceof HTMLInputElement ? node.form : node.closest("form");
+          const name = node instanceof HTMLInputElement ? node.name : "";
+          return owner ? { method: owner.method.toUpperCase(), action: owner.action, name } : undefined;
+        });
+        if (!form || form.method !== "GET" || !form.name) throw new Error("Use Take control to search here because this is not a public GET form.");
+        const searchUrl = new URL(form.action);
+        searchUrl.searchParams.set(form.name, operation.query);
+        await page.goto(validatePublicBrowserUrl(searchUrl.href));
+        return { searched: true, observation: await observe(page) };
+      }
       case "click": {
         const target = await resolveTarget(page, operation.target);
         await target.click();
@@ -91,6 +114,18 @@ export const hostBrowserDriver: BrowserDriver = {
   inspect: inspectCurrentPage,
   execute: executeBrowserOperation,
 };
+
+export async function browserHasAuthenticatedState(page: Page): Promise<boolean> {
+  try {
+    const [cookies, storage] = await Promise.all([
+      page.context().cookies(),
+      page.evaluate(() => localStorage.length > 0 || sessionStorage.length > 0),
+    ]);
+    return cookies.length > 0 || storage;
+  } catch {
+    return true;
+  }
+}
 
 async function observe(page: Page): Promise<Record<string, unknown>> {
   const { binding, display } = await inspectCurrentPage(page);

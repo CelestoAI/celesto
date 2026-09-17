@@ -45,6 +45,17 @@ test("trace recording failures add one sentinel without changing the caller", ()
   assert.equal(trace.snapshot().turns[0].steps.length, 1);
 });
 
+test("trace failures remove authenticated connection URLs and credentials", () => {
+  const trace = new TraceBuffer(execution.conversationId);
+  trace.startTurn(execution);
+  const stepId = trace.startStep(execution, "tool", "Connect browser");
+  trace.failStep(execution, stepId, new Error("connect wss://gateway.example/v1/browsers/cmp-secret/connect?token=connection-secret CELESTO_API_KEY=api-secret"));
+
+  const error = trace.snapshot().turns[0].steps[0].error!;
+  assert.match(error, /connection URL omitted/);
+  assert.doesNotMatch(error, /cmp-secret|connection-secret|api-secret/);
+});
+
 test("trace payloads remain valid JSON within their byte cap", () => {
   const cyclic: { text: string; self?: unknown } = { text: "x".repeat(2_000) };
   cyclic.self = cyclic;

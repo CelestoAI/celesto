@@ -58,35 +58,113 @@ test("switching chats releases the outgoing disposable runtime", async () => {
   const calls: string[] = [];
   const context = contextOf(manager);
   context.playwright = { close: async () => { calls.push("playwright"); } } as ConversationContext["playwright"];
-  context.computer = { delete: async () => { calls.push("computer"); } } as ConversationContext["computer"];
-  context.smolvm = { close: async () => { calls.push("smolvm"); } } as ConversationContext["smolvm"];
+  context.computer = { detach: async () => { calls.push("computer"); } } as ConversationContext["computer"];
 
   await manager.create();
 
-  assert.deepEqual(calls, ["playwright", "computer", "smolvm"]);
+  assert.deepEqual(calls, ["playwright", "computer"]);
   assert.equal(context.sessionLifecycle, "absent");
   assert.equal(context.agent, undefined);
 });
 
-test("conversation changes reject busy, human-controlled, and overlapping transitions", async () => {
+test("conversation changes interrupt current model work", async () => {
   const manager = new ConversationManager("", "gpt-5-mini");
   const first = await manager.create();
-  contextOf(manager).runState = "model_turn";
-  await assert.rejects(manager.create(), (error: unknown) => (error as { code?: string }).code === "conversation_busy");
+  const context = contextOf(manager);
+  let aborted = false;
+  let finishTurn!: () => void;
+  const activeTurn = new Promise<void>((resolve) => { finishTurn = resolve; });
+  context.runState = "model_turn";
+  context.agent = { abort: () => { aborted = true; } } as ConversationContext["agent"];
+  (manager as unknown as { turnQueue: Promise<void> }).turnQueue = activeTurn;
 
-  contextOf(manager).runState = "idle";
+  const creating = manager.create();
+  await Promise.resolve();
+  assert.equal(aborted, true);
+  assert.equal(manager.activeConversationId, first.id);
+
+  finishTurn();
+  await creating;
+  const restored = await manager.activate(first.id);
+  assert.equal(restored.runState, "idle");
+});
+
+test("conversation changes clear pending approvals", async () => {
+  const manager = new ConversationManager("", "gpt-5-mini");
+  const first = await manager.create();
+  const context = contextOf(manager);
+  context.runState = "waiting_for_approval";
+  context.pendingApproval = {
+    kind: "browser_operation",
+    approvalId: "approval-pending",
+    actionDigest: "p".repeat(64),
+    reason: "Open the link",
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  };
+
+  await manager.create();
+  const restored = await manager.activate(first.id);
+  assert.equal(restored.runState, "idle");
+  assert.equal(restored.pendingApproval, undefined);
+});
+
+test("conversation changes reject human control and overlapping transitions", async () => {
+  const manager = new ConversationManager("", "gpt-5-mini");
+  const first = await manager.create();
+
   contextOf(manager).controlOwner = "human";
   await assert.rejects(manager.create(), (error: unknown) => (error as { code?: string }).code === "conversation_busy");
 
   contextOf(manager).controlOwner = "agent";
   let finishDelete!: () => void;
   const deleting = new Promise<void>((resolve) => { finishDelete = resolve; });
-  contextOf(manager).computer = { delete: async () => deleting } as ConversationContext["computer"];
+  contextOf(manager).computer = { detach: async () => deleting } as ConversationContext["computer"];
   const creating = manager.create();
   await Promise.resolve();
   await assert.rejects(manager.activate(first.id), (error: unknown) => (error as { code?: string }).code === "conversation_busy");
   finishDelete();
   await creating;
+});
+
+test("conversation changes wait for visible-idle approval cleanup", async () => {
+  const manager = new ConversationManager("", "gpt-5-mini");
+  await manager.create();
+  const context = contextOf(manager);
+  context.runState = "waiting_for_approval";
+  context.pendingApproval = {
+    kind: "browser_operation",
+    approvalId: "approval-denied",
+    actionDigest: "d".repeat(64),
+    reason: "Open the link",
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  };
+  let finishCleanup!: () => void;
+  const cleanup = new Promise<void>((resolve) => { finishCleanup = resolve; });
+  const internals = manager as unknown as {
+    confirmations: {
+      wait: (pending: NonNullable<ConversationContext["pendingApproval"]>) => Promise<boolean>;
+      finish: (approvalId: string) => void;
+    };
+  };
+  const originalAction = internals.confirmations.wait(context.pendingApproval).then(async () => {
+    delete context.pendingApproval;
+    context.runState = "idle";
+    await cleanup;
+    internals.confirmations.finish("approval-denied");
+  });
+
+  const denying = manager.approve(context.id, "approval-denied", "d".repeat(64), false);
+  while (manager.snapshot(context.id).runState !== "idle") await Promise.resolve();
+  assert.equal(manager.snapshot(context.id).runState, "idle");
+
+  let switched = false;
+  const switching = manager.create().then(() => { switched = true; });
+  await Promise.resolve();
+  assert.equal(switched, false);
+
+  finishCleanup();
+  await Promise.all([originalAction, denying, switching]);
+  assert.equal(manager.list().conversations.length, 2);
 });
 
 test("a turn cannot be accepted after conversation cleanup begins", async () => {
@@ -99,7 +177,7 @@ test("a turn cannot be accepted after conversation cleanup begins", async () => 
     runTurn: (context: ConversationContext, text: string) => Promise<void>;
   };
   internals.runTurn = async () => undefined;
-  internals.context.computer = { delete: async () => deleting } as ConversationContext["computer"];
+  internals.context.computer = { detach: async () => deleting } as ConversationContext["computer"];
   const creating = manager.create();
   await Promise.resolve();
 

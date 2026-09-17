@@ -3,9 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.19" },
+  "engines": {
+    "node": ">=22.19"
+  },
   "scripts": {
-    "dev": "concurrently -k -n server,client -c cyan,magenta \"tsx watch server/index.ts\" \"vite\"",
+    "dev": "concurrently -k -n server,client -c cyan,magenta \"tsx watch server/index.ts\" \"tsx scripts/start-client.ts\"",
     "build": "npm run clean && tsc -p tsconfig.server.json && vite build",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "start": "node dist/server/index.js",
@@ -21,9 +23,11 @@
     "check": "npm run typecheck && npm test && npm run eval:validate && npm run build"
   },
   "dependencies": {
+    "@celestoai/sdk": "^0.1.6",
     "@celestoai/smolvm": "file:../ts",
     "@earendil-works/pi-agent-core": "0.85.1",
     "@earendil-works/pi-ai": "0.85.1",
+    "@novnc/novnc": "^1.7.0",
     "http-proxy": "^1.18.1",
     "playwright-core": "^1.55.0",
     "react": "^19.1.1",

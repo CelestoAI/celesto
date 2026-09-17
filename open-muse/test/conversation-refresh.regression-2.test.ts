@@ -4,12 +4,26 @@ import { ConversationManager } from "../server/manager.js";
 import type { ConversationContext } from "../server/types.js";
 
 function attachSyntheticTab(context: ConversationContext): void {
-  const page = { url: () => "https://example.com", isClosed: () => false } as ConversationContext["page"];
+  const page = {
+    url: () => "https://example.com",
+    isClosed: () => false,
+    context: () => ({ browser: () => ({ isConnected: () => true }) }),
+  } as ConversationContext["page"];
   const id = "tab-test";
   context.page = page;
   context.activeTabId = id;
   context.tabs.set(id, { id, owner: "agent", epoch: 1, controlEpoch: context.controlEpoch!, page: page! });
   context.playwright = { isConnected: () => true, contexts: () => [{ pages: () => [page] }], close: async () => undefined } as unknown as ConversationContext["playwright"];
+}
+
+async function beginProgram(manager: ConversationManager, program: string, summary: string) {
+  const context = (manager as unknown as { context: ConversationContext }).context;
+  const broker = (manager as unknown as {
+    broker: (active: ConversationContext) => { runProgram: (source: string, interaction: boolean, reason: string) => Promise<Record<string, unknown>> };
+  }).broker(context);
+  const result = broker.runProgram(program, true, summary);
+  while (!context.pendingApproval) await Promise.resolve();
+  return { context, pending: context.pendingApproval, result };
 }
 
 // Regression: ISSUE-002 — refreshing always created a second active conversation
@@ -53,13 +67,12 @@ test("replacing a failed conversation releases its disposable resources", async 
   const closed: string[] = [];
   context.runState = "failed";
   context.playwright = { close: async () => { closed.push("playwright"); } } as ConversationContext["playwright"];
-  context.computer = { delete: async () => { closed.push("computer"); } } as ConversationContext["computer"];
-  context.smolvm = { close: async () => { closed.push("smolvm"); } } as ConversationContext["smolvm"];
+  context.computer = { detach: async () => { closed.push("computer"); } } as ConversationContext["computer"];
 
   const replacement = await manager.create();
 
   assert.notEqual(replacement.id, created.id);
-  assert.deepEqual(closed, ["playwright", "computer", "smolvm"]);
+  assert.deepEqual(closed, ["playwright", "computer"]);
 });
 
 test("takeover pauses an in-flight approved action and requires recovery", async () => {
@@ -83,33 +96,24 @@ test("takeover pauses an in-flight approved action and requires recovery", async
     },
     delete: async () => undefined,
   };
-  context.pendingApproval = {
-    kind: "browser_program", approvalId: "approval-test", actionDigest: "a".repeat(64),
-    reason: "Read the page", expiresAt: new Date(Date.now() + 60_000).toISOString(), program: "return {};",
-  };
-
-  const approval = manager.approve(created.id, "approval-test", "a".repeat(64), true);
+  const suspended = await beginProgram(manager, "return {};", "Read the page");
+  const approval = manager.approve(created.id, suspended.pending.approvalId, suspended.pending.actionDigest, true);
   await actionStarted;
   const takeover = manager.takeover(created.id);
+  const takeoverRejected = assert.rejects(takeover, (error: unknown) => (error as { status?: number }).status === 409);
+  const actionRejected = assert.rejects(suspended.result, (error: unknown) => (error as { code?: string }).code === "browser_recovery_required");
   finishAction();
-  await approval;
-  await assert.rejects(takeover, (error: unknown) => (error as { status?: number }).status === 409);
+  await Promise.all([approval, actionRejected, takeoverRejected]);
   assert.equal(manager.snapshot(created.id).runState, "interrupted");
   assert.equal(manager.snapshot(created.id).recovery?.kind, "outcome_unknown");
   assert.equal(manager.snapshot(created.id).controlOwner, "pause_requested");
   await manager.stop(created.id);
 });
 
-test("approved browser results resume the agent without requesting another observation", async () => {
+test("approved browser results return to the original suspended tool call", async () => {
   const manager = new ConversationManager("", "gpt-5-mini");
   const created = await manager.create();
-  const internals = manager as unknown as {
-    context: ConversationContext;
-    turnQueue: Promise<void>;
-    runTurn: (context: ConversationContext, text: string) => Promise<void>;
-  };
-  const prompts: string[] = [];
-  internals.runTurn = async (_context, text) => { prompts.push(text); };
+  const internals = manager as unknown as { context: ConversationContext };
   internals.context.sessionLifecycle = "ready";
   attachSyntheticTab(internals.context);
   internals.context.computer = {
@@ -123,20 +127,14 @@ test("approved browser results resume the agent without requesting another obser
     }),
     delete: async () => undefined,
   };
-  internals.context.pendingApproval = {
-    kind: "browser_program", approvalId: "approval-result", actionDigest: "b".repeat(64),
-    reason: "Read the current price", expiresAt: new Date(Date.now() + 60_000).toISOString(),
-    program: "return { title: await page.title() };",
-  };
+  const suspended = await beginProgram(manager, "return { title: await page.title() };", "Read the current price");
+  const approval = manager.approve(created.id, suspended.pending.approvalId, suspended.pending.actionDigest, true);
+  const [result] = await Promise.all([suspended.result, approval]);
 
-  await manager.approve(created.id, "approval-result", "b".repeat(64), true);
-  await internals.turnQueue;
-
-  assert.equal(prompts.length, 1);
-  assert.match(prompts[0], /"price":"₹59,900"/);
-  assert.match(prompts[0], /"visibleText":"iPhone ₹59,900"/);
-  assert.match(prompts[0], /without repeating the browser operation/);
-  assert.doesNotMatch(prompts[0], /Re-observe/);
+  assert.deepEqual(result, {
+    programResult: { title: "Amazon.in", price: "₹59,900" },
+    page: { title: "Amazon.in", url: "https://amazon.in", visibleText: "iPhone ₹59,900" },
+  });
   assert.equal(manager.snapshot(created.id).pendingApproval, undefined);
   await manager.stop(created.id);
 });
@@ -144,12 +142,7 @@ test("approved browser results resume the agent without requesting another obser
 test("duplicate approval submissions share one browser action", async () => {
   const manager = new ConversationManager("", "gpt-5-mini");
   const created = await manager.create();
-  const internals = manager as unknown as {
-    context: ConversationContext;
-    turnQueue: Promise<void>;
-    runTurn: (context: ConversationContext, text: string) => Promise<void>;
-  };
-  internals.runTurn = async () => undefined;
+  const internals = manager as unknown as { context: ConversationContext };
   let finishAction!: () => void;
   const actionFinished = new Promise<void>((resolve) => { finishAction = resolve; });
   let executions = 0;
@@ -166,15 +159,11 @@ test("duplicate approval submissions share one browser action", async () => {
     },
     delete: async () => undefined,
   };
-  internals.context.pendingApproval = {
-    kind: "browser_program", approvalId: "approval-duplicate", actionDigest: "c".repeat(64),
-    reason: "Read the page", expiresAt: new Date(Date.now() + 60_000).toISOString(), program: "return {};",
-  };
-
-  const first = manager.approve(created.id, "approval-duplicate", "c".repeat(64), true);
-  const duplicate = manager.approve(created.id, "approval-duplicate", "c".repeat(64), true);
+  const suspended = await beginProgram(manager, "return {};", "Read the page");
+  const first = manager.approve(created.id, suspended.pending.approvalId, suspended.pending.actionDigest, true);
+  const duplicate = manager.approve(created.id, suspended.pending.approvalId, suspended.pending.actionDigest, true);
   finishAction();
-  const [firstSnapshot, duplicateSnapshot] = await Promise.all([first, duplicate]);
+  const [firstSnapshot, duplicateSnapshot] = await Promise.all([first, duplicate, suspended.result]);
 
   assert.equal(executions, 1);
   assert.deepEqual(duplicateSnapshot, firstSnapshot);
@@ -194,16 +183,16 @@ test("failed approved browser actions enter durable unknown-outcome recovery", a
     exec: async () => ({ ok: false, exitCode: 1, stdout: "", stderr: "locator timed out", durationMs: 30_000 }),
     delete: async () => undefined,
   };
-  context.pendingApproval = {
-    kind: "browser_program", approvalId: "approval-failed", actionDigest: "d".repeat(64),
-    reason: "Read the page", expiresAt: new Date(Date.now() + 60_000).toISOString(), program: "return {};",
-  };
   const originalError = console.error;
   const logs: unknown[][] = [];
   console.error = (...args: unknown[]) => { logs.push(args); };
 
   try {
-    await manager.approve(created.id, "approval-failed", "d".repeat(64), true);
+    const suspended = await beginProgram(manager, "return {};", "Read the page");
+    await Promise.all([
+      manager.approve(created.id, suspended.pending.approvalId, suspended.pending.actionDigest, true),
+      assert.rejects(suspended.result, (error: unknown) => (error as { code?: string }).code === "browser_recovery_required"),
+    ]);
   } finally {
     console.error = originalError;
   }

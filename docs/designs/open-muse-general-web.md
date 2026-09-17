@@ -7,12 +7,14 @@ Branch: `codex/open-muse-handoff`
 Repo: `CelestoAI/SmolVM`
 Status: APPROVED
 Mode: Builder
-Supersedes: `docs/designs/open-muse.md` for the browser-tool and network scope; the existing document remains authoritative for the chat UI, live viewer, lifecycle, and takeover flow.
+Supersedes: `docs/designs/open-muse.md` for browser isolation and network scope. [OpenMuse — Authoritative Conversation Runtime](open-muse-runtime.md) supersedes both documents for the approval policy, approval lifecycle, conversation state, and UI synchronization.
+
+> **Scope notice:** The conservative mechanical approval rules described below are historical. The approved runtime design allows deterministic public research actions and confirms external side effects instead.
 
 > **Current implementation:** The example exposes only structured browser operations to the production model.
 >
 > - Bounded, redacted observation and scrolling run directly.
-> - Navigation, click, fill, select, and keypress requests require one-time approval bound to the current tab epoch, page, and exact normalized arguments. Approved operations have durable `approved`, `dispatched`, `completed`, and `outcome_unknown` states and are never replayed after uncertainty.
+> - Public navigation and link following run directly. Searches through public GET forms run directly only when the browser has no cookies or site storage; signed-in searches require confirmation. Click, fill, select, and keypress requests require one-time approval bound to the current tab epoch, page, and exact normalized arguments. Approved operations have durable `approved`, `dispatched`, `completed`, and `outcome_unknown` states and are never replayed after uncertainty.
 > - Popups are quarantined until explicit adoption. Takeover pauses every owned tab. Raw `browser_run` remains internal and is not exposed to the production model because a real Playwright `Page` can reach its browser context; exposure waits for the brokered guest-side page facade described below.
 > - SmolVM now has private public-egress building blocks: connection-time DNS classification, pinned upstream connections, a per-session proxy, TAP restrictions, QEMU restricted forwarding, and Chromium proxy plumbing. The public API and OpenMuse switch remain gated on real Firecracker and QEMU attack-suite smokes and image release pins.
 > - SmolVM now has an internal, unintegrated browser-profile artifact store with versioned manifests, exclusive locking, private permissions, atomic generation saves, bounded retention, and explicit reset and migration. Authenticated OpenMuse sessions remain gated on egress enforcement, masking, takeover, and profile integration.

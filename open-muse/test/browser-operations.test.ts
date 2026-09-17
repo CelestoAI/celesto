@@ -6,7 +6,7 @@ import {
   validateBrowserOperation,
   type ExecutableBrowserOperation,
 } from "../server/browser-operations.js";
-import { BrowserDriverError, executeBrowserOperation } from "../server/browser-driver.js";
+import { browserHasAuthenticatedState, BrowserDriverError, executeBrowserOperation } from "../server/browser-driver.js";
 import type { Page } from "playwright-core";
 
 const LOCATOR_ID = "00000000-0000-4000-8000-000000000001";
@@ -110,6 +110,20 @@ function page(value: Record<string, unknown>): Page {
     ...value,
   } as unknown as Page;
 }
+
+test("authenticated browser state is detected without exposing its values", async () => {
+  const anonymous = page({
+    context: () => ({ cookies: async () => [], browser: () => ({ isConnected: () => true }) }),
+    evaluate: async () => false,
+  });
+  const signedIn = page({
+    context: () => ({ cookies: async () => [{ name: "session", value: "private" }], browser: () => ({ isConnected: () => true }) }),
+    evaluate: async () => false,
+  });
+
+  assert.equal(await browserHasAuthenticatedState(anonymous), false);
+  assert.equal(await browserHasAuthenticatedState(signedIn), true);
+});
 
 test("host driver observes, redacts, and binds semantic refs", async () => {
   const observed = await executeBrowserOperation(page({
@@ -248,8 +262,10 @@ test("host driver executes every structured interaction directly on the page", a
     count: async () => 1,
     first: () => ({
       click: async () => { calls.push("click"); },
-      evaluate: async () => ({ type: "text", autocomplete: "" }),
+      evaluate: async () => ({ type: "text", autocomplete: "", method: "GET", action: "https://example.com/search", name: "q" }),
       fill: async (value: string) => { calls.push(`fill:${value}`); },
+      press: async (key: string) => { calls.push(`target-key:${key}`); },
+      getAttribute: async () => "/learn",
       selectOption: async ({ label }: { label: string }) => { calls.push(`select:${label}`); },
     }),
   };
@@ -259,6 +275,7 @@ test("host driver executes every structured interaction directly on the page", a
     goto: async (url: string) => { calls.push(`goto:${url}`); },
     mouse: { wheel: async (_x: number, y: number) => { calls.push(`wheel:${y}`); } },
     keyboard: { press: async (key: string) => { calls.push(`key:${key}`); } },
+    waitForLoadState: async () => undefined,
     locator: (selector: string) => selector === "body"
       ? { ariaSnapshot: async () => "- text: Catalog", innerText: async () => "Catalog" }
       : { and: () => target },
@@ -268,12 +285,38 @@ test("host driver executes every structured interaction directly on the page", a
 
   await executeBrowserOperation(hostPage, { kind: "scroll", direction: "down" });
   await executeBrowserOperation(hostPage, { kind: "navigate", url: "https://example.org" });
+  await executeBrowserOperation(hostPage, { kind: "follow_link", ref: "e1", target: { ...markedTarget, role: "link", name: "Learn" } });
+  await executeBrowserOperation(hostPage, { kind: "search", ref: "e1", target: { ...markedTarget, role: "searchbox", name: "Search" }, query: "OpenMuse" });
   await executeBrowserOperation(hostPage, { kind: "click", ref: "e1", target: markedTarget });
   await executeBrowserOperation(hostPage, { kind: "fill", ref: "e1", target: markedTarget, value: "Ada" });
   await executeBrowserOperation(hostPage, { kind: "select", ref: "e1", target: markedTarget, label: "Medium" });
   await executeBrowserOperation(hostPage, { kind: "keypress", key: "Enter" });
 
-  assert.deepEqual(calls, ["wheel:600", "goto:https://example.org", "click", "fill:Ada", "select:Medium", "key:Enter"]);
+  assert.deepEqual(calls, ["wheel:600", "goto:https://example.org", "goto:https://example.com/learn", "goto:https://example.com/search?q=OpenMuse", "click", "fill:Ada", "select:Medium", "key:Enter"]);
+});
+
+test("host driver refuses search forms that can submit external state", async () => {
+  const target = {
+    count: async () => 1,
+    first: () => ({
+      evaluate: async () => ({ method: "POST", action: "https://example.com/search" }),
+    }),
+  };
+  const hostPage = page({
+    url: () => "https://example.com/",
+    locator: () => ({ and: () => target }),
+    getByRole: () => ({}),
+  });
+
+  await assert.rejects(
+    executeBrowserOperation(hostPage, {
+      kind: "search",
+      ref: "e1",
+      target: { role: "searchbox", name: "Search", nth: 0, locatorId: LOCATOR_ID },
+      query: "OpenMuse",
+    }),
+    /not a public GET form/,
+  );
 });
 
 test("host driver distinguishes a lost CDP connection from a visible page", async () => {

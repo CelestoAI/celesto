@@ -1,9 +1,11 @@
 import { EventEmitter } from "node:events";
+import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { mkdtemp, rm, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent } from "@earendil-works/pi-agent-core";
+import type { ComputerSessionClient } from "@celestoai/smolvm";
 import type { Browser, BrowserContext, Frame, Page } from "playwright-core";
 import type { ActionBroker } from "../../server/broker.js";
 import { createApp } from "../../server/index.js";
@@ -73,13 +75,19 @@ class ScriptedRuntime {
     return {
       state,
       prompt: async (prompt: string) => {
+        if (prompt.includes("Navigate only")) {
+          await this.traced(trace, "browser_navigate", { url: "https://example.com" }, () => broker.runWebOperation({ kind: "navigate", url: "https://example.com" }));
+          state.messages.push({ role: "assistant", content: [{ type: "text", text: "Navigation completed without confirmation." }] });
+          return;
+        }
         if (prompt.includes("may have completed")) {
           await this.traced(trace, "browser_observe", {}, () => broker.runWebOperation({ kind: "observe" }));
           state.messages.push({ role: "assistant", content: [{ type: "text", text: "I inspected the current page before deciding what to do next." }] });
           return;
         }
         if (prompt.includes("did not run")) {
-          await this.traced(trace, "browser_navigate", { url: "https://example.com" }, () => broker.runWebOperation({ kind: "navigate", url: "https://example.com" }));
+          await this.traced(trace, "browser_observe", {}, () => broker.runWebOperation({ kind: "observe" }));
+          await this.traced(trace, "browser_click", { ref: "e1" }, () => broker.runWebOperation({ kind: "click", ref: "e1" }));
           return;
         }
         if (prompt.includes("browser runner returned")) {
@@ -87,6 +95,10 @@ class ScriptedRuntime {
           return;
         }
         await this.traced(trace, "browser_navigate", { url: "https://example.com" }, () => broker.runWebOperation({ kind: "navigate", url: "https://example.com" }));
+        await this.traced(trace, "browser_observe", {}, () => broker.runWebOperation({ kind: "observe" }));
+        const result = await this.traced(trace, "browser_click", { ref: "e1" }, () => broker.runWebOperation({ kind: "click", ref: "e1" }));
+        if (result.approved === false) return;
+        state.messages.push({ role: "assistant", content: [{ type: "text", text: "The scripted browser opened Example Domain." }] });
       },
       abort: () => undefined,
       waitForIdle: async () => undefined,
@@ -107,10 +119,15 @@ class ScriptedRuntime {
         return { binding, display: "https://example.com/" };
       },
       execute: async (_page, operation) => {
-        if (this.scenario === "outcome_unknown" && operation.kind === "navigate") throw new Error("scripted post-dispatch failure");
+        if (this.scenario === "outcome_unknown" && operation.kind === "click") throw new Error("scripted post-dispatch failure");
         const observation = {
           title: "Example Domain", url: "https://example.com/", pageBinding: "https://example.com/",
-          snapshot: '- document "Example Domain"', refs: [], truncated: false,
+          snapshot: '- button "Open result" [ref=e1]',
+          refs: [{
+            ref: "e1", role: "button", name: "Open result", publicName: "Open result", nth: 0,
+            locatorId: "00000000-0000-4000-8000-000000000001", actionable: true,
+          }],
+          truncated: false,
         };
         if (operation.kind === "observe") { this.observationCount += 1; return observation; }
         if (operation.kind === "navigate") return { opened: operation.url, observation };
@@ -119,6 +136,8 @@ class ScriptedRuntime {
         if (operation.kind === "click") return { clicked: true };
         if (operation.kind === "fill") return { filled: true, outcome: "filled", fieldClass: "ordinary" };
         if (operation.kind === "select") return { selected: operation.label };
+        if (operation.kind === "follow_link") return { opened: "https://example.com/", observation };
+        if (operation.kind === "search") return { searched: true, observation };
         return { pressed: operation.key };
       },
     };
@@ -134,7 +153,7 @@ class ScriptedRuntime {
     } as unknown as ReturnType<RuntimeDependencies["createSmolVM"]>;
   }
 
-  private createComputer(): NonNullable<ConversationContext["computer"]> {
+  private createComputer(): ComputerSessionClient {
     return {
       status: "ready", computerId: "computer-e2e", sandboxId: "sandbox-e2e", template: "linux-desktop", capabilities: [],
       display: { viewerUrl: `http://127.0.0.1:${viewerPort}`, vncUrl: "vnc://127.0.0.1:5900" },
@@ -172,7 +191,7 @@ class ScriptedRuntime {
         return this.result({ navigated: true });
       },
       delete: async () => undefined,
-    } as NonNullable<ConversationContext["computer"]>;
+    } as ComputerSessionClient;
   }
 
   private result(programResult: unknown) {
@@ -284,6 +303,19 @@ await listen(controls, controlPort);
 const viewer = createServer((_request, response) => {
   response.setHeader("content-type", "text/html; charset=utf-8");
   response.end("<!doctype html><title>Scripted viewer</title><p>Deterministic browser viewer</p>");
+});
+viewer.on("upgrade", (request, socket) => {
+  const key = request.headers["sec-websocket-key"];
+  if (typeof key !== "string") return socket.destroy();
+  const accept = createHash("sha1").update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest("base64");
+  socket.write([
+    "HTTP/1.1 101 Switching Protocols",
+    "Upgrade: websocket",
+    "Connection: Upgrade",
+    `Sec-WebSocket-Accept: ${accept}`,
+    "",
+    "",
+  ].join("\r\n"));
 });
 await listen(viewer, viewerPort);
 console.log(`Deterministic OpenMuse manager harness ready at http://127.0.0.1:${appPort}`);

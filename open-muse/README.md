@@ -96,25 +96,25 @@ Send:
 
 > Open https://example.com and tell me what the page says.
 
-OpenMuse will ask before opening the page. Approve the request, then watch the disposable desktop start and Chromium open the site. A normal first boot can take longer than later boots while SmolVM prepares the downloaded image.
+OpenMuse will open the public page directly. Watch the disposable desktop start and Chromium open the site. A normal first boot can take longer than later boots while SmolVM prepares the downloaded image.
 
 Try one more prompt after the page opens:
 
 > Give me the raw page data as Markdown.
 
-Click **Stop** when you are done. OpenMuse deletes the disposable computer when you stop the conversation or stop the server.
+Click **Stop** when you are done. OpenMuse deletes the conversation's computer and clears its association for both providers. When the server exits without **Stop**, local SmolVM computers are deleted while Celesto Cloud computers stay linked so the next OpenMuse process can reconnect.
 
 ## Everyday controls
 
 ### Chats and model settings
 
-Open **Chats** to start a new conversation or return to one of up to 50 saved local chats. Only the selected chat can use an agent or disposable computer; switching releases the current idle computer, and returning starts a fresh one only when needed. **Reset conversation** permanently removes the selected transcript and computer after confirmation.
+Open **Chats** to start a new conversation or return to one of up to 50 saved local chats. Only the selected chat can use an agent or attached computer. With SmolVM, returning starts a fresh local computer only when needed. With Celesto Cloud, returning reconnects the computer saved with that conversation. **Reset conversation** permanently removes the selected transcript and computer after confirmation.
 
 Select the current model in the header to open model settings. Use **Back to conversation** to return without changing it.
 
 ### Approvals
 
-Reading the current page and scrolling can run directly. Navigation, clicks, form changes, and keypresses require a one-time approval tied to the current page and exact action. Approvals expire after five minutes and stop working if the page or target element changes.
+Reading, scrolling, public navigation, safe link opening, and search can run directly. Clicks, ordinary form changes, and keypresses require a one-time approval tied to the current page and exact action. Passwords, payment details, and verification codes require **Take control**. Approvals expire after five minutes and stop working if the page or target element changes.
 
 ### Take control
 
@@ -126,7 +126,7 @@ Every assistant turn has a collapsed **Run details** row. Expand it to see the t
 
 ### Recovery after a restart
 
-OpenMuse stores bounded chat history and the selected conversation in `.open-muse/state.json`. If the server stops during work, the active chat returns in an interrupted state and asks you to **Continue** or **Start over**. Continuing starts a fresh computer and never replays an old approval.
+OpenMuse stores bounded chat history and the selected conversation in `.open-muse/state.json`. Celesto mode also stores the computer ID, but never API keys or short-lived browser/display connections. After a restart, OpenMuse reconnects that computer. If it no longer exists, the chat asks you to **Continue** with a fresh computer or **Start over**. An interrupted approved action is never replayed.
 
 ## Develop OpenMuse
 
@@ -146,7 +146,10 @@ OpenMuse reads `.env.local` when the Node.js server starts.
 | --- | --- | --- |
 | `OPENAI_API_KEY` | unset | Uses an OpenAI API key without entering it in the app. |
 | `OPENAI_MODEL` | `gpt-5.6-luna` | Selects the initial model when an environment API key is used. |
+| `OPENMUSE_COMPUTER_PROVIDER` | `smolvm` | Uses local `smolvm` or hosted `celesto` computers. |
 | `SMOLVM_RUNTIME` | `smolvm` | Chooses the SmolVM command. `.env.example` points to the source-checkout wrapper. |
+| `CELESTO_API_KEY` | unset | Required server-only credential when the computer provider is `celesto`. |
+| `CELESTO_API_URL` | Celesto production API | Optional development or self-hosted Celesto control-plane URL. |
 | `OPEN_MUSE_HOST` | `127.0.0.1` | Local bind address. Other addresses are rejected. |
 | `OPEN_MUSE_PORT` | `4318` | Node.js server port. |
 | `OPEN_MUSE_AUTH_PATH` | `.open-muse/auth.json` | Changes where saved provider credentials are stored. |
@@ -182,6 +185,17 @@ npm ci
 npm run build
 ```
 
+### Celesto Cloud is selected but does not start
+
+Confirm `.env.local` selects Celesto and contains its API key:
+
+```dotenv
+OPENMUSE_COMPUTER_PROVIDER=celesto
+CELESTO_API_KEY=your-key
+```
+
+OpenMuse uses `@celestoai/sdk` 0.1.6 or newer for browser and display connections. API keys and the short-lived connection URLs stay in the Node.js process and must not be printed or copied into saved state.
+
 ### The browser tests cannot find Chromium
 
 ```bash
@@ -194,7 +208,7 @@ OpenMuse restores `.open-muse/state.json` by design. Use **Reset conversation**,
 
 ## How it works
 
-The React client displays chat and the live desktop. A local Node.js server owns the model connection, credentials, approval checks, conversation state, and SmolVM lifecycle. SmolVM creates the disposable Linux desktop, while a host-owned Playwright connection sends approved browser operations to Chromium.
+The React client displays chat and the live desktop. A local Node.js server owns the model connection, credentials, approval checks, conversation state, and computer lifecycle. An OpenMuse-owned provider protocol selects local SmolVM or Celesto Cloud, while a host-owned Playwright connection sends approved browser operations to Chromium.
 
 The model chooses structured operations and their arguments; it does not send executable Playwright code. New popups remain quarantined until the user adopts them. The browser automation address and raw remote-display address stay in the Node.js process, and the client receives only a short-lived path to the viewer.
 
