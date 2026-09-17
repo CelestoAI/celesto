@@ -248,7 +248,7 @@ test("host driver executes every structured interaction directly on the page", a
     count: async () => 1,
     first: () => ({
       click: async () => { calls.push("click"); },
-      evaluate: async () => ({ type: "text", autocomplete: "" }),
+      evaluate: async () => ({ type: "text", autocomplete: "", method: "GET", action: "https://example.com/search", name: "q" }),
       fill: async (value: string) => { calls.push(`fill:${value}`); },
       press: async (key: string) => { calls.push(`target-key:${key}`); },
       getAttribute: async () => "/learn",
@@ -278,7 +278,31 @@ test("host driver executes every structured interaction directly on the page", a
   await executeBrowserOperation(hostPage, { kind: "select", ref: "e1", target: markedTarget, label: "Medium" });
   await executeBrowserOperation(hostPage, { kind: "keypress", key: "Enter" });
 
-  assert.deepEqual(calls, ["wheel:600", "goto:https://example.org", "goto:https://example.com/learn", "fill:OpenMuse", "target-key:Enter", "click", "fill:Ada", "select:Medium", "key:Enter"]);
+  assert.deepEqual(calls, ["wheel:600", "goto:https://example.org", "goto:https://example.com/learn", "goto:https://example.com/search?q=OpenMuse", "click", "fill:Ada", "select:Medium", "key:Enter"]);
+});
+
+test("host driver refuses search forms that can submit external state", async () => {
+  const target = {
+    count: async () => 1,
+    first: () => ({
+      evaluate: async () => ({ method: "POST", action: "https://example.com/search" }),
+    }),
+  };
+  const hostPage = page({
+    url: () => "https://example.com/",
+    locator: () => ({ and: () => target }),
+    getByRole: () => ({}),
+  });
+
+  await assert.rejects(
+    executeBrowserOperation(hostPage, {
+      kind: "search",
+      ref: "e1",
+      target: { role: "searchbox", name: "Search", nth: 0, locatorId: LOCATOR_ID },
+      query: "OpenMuse",
+    }),
+    /not a public GET form/,
+  );
 });
 
 test("host driver distinguishes a lost CDP connection from a visible page", async () => {

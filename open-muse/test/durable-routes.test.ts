@@ -37,6 +37,15 @@ test("conversation commands are idempotent and reject stale versions", async (t)
   assert.equal(duplicate.status, 202);
   assert.equal(manager.snapshot(created.id).messages.filter((message) => message.text === "Only once").length, 1);
 
+  const conflicting = await fetch(`${origin}/api/conversations/${created.id}/commands`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ commandId: "message-one", command: { kind: "send_message", text: "A different message" } }),
+  });
+  assert.equal(conflicting.status, 409);
+  assert.equal((await conflicting.json() as { code: string }).code, "command_id_conflict");
+  assert.equal(manager.snapshot(created.id).messages.some((message) => message.text === "A different message"), false);
+
   const stale = await fetch(`${origin}/api/conversations/${created.id}/commands`, {
     method: "POST",
     headers,
@@ -75,8 +84,13 @@ test("the conversation view stream is session-bound and starts with a full curre
 
   const stream = await fetch(`${origin}/api/conversations/${created.id}/events`, { headers: { cookie } });
   const reader = stream.body!.getReader();
-  const first = await reader.read();
-  const body = new TextDecoder().decode(first.value);
+  const decoder = new TextDecoder();
+  let body = "";
+  while (!body.includes("\n\n")) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    body += decoder.decode(chunk.value, { stream: true });
+  }
   assert.match(body, /event: conversation\.view/);
   assert.match(body, new RegExp(`"conversationId":"${created.id}"`));
   assert.match(body, /"turns":\[\]/);

@@ -16,6 +16,9 @@ viewer.scaleViewport = true;
 viewer.resizeSession = false;
 viewer.focusOnClick = true;
 viewer.background = "#080b12";
+viewer.addEventListener("connect", () => {
+  window.parent.postMessage({ type: "openmuse.viewer.connected" }, window.location.origin);
+});
 viewer.addEventListener("disconnect", () => {
   window.parent.postMessage({ type: "openmuse.viewer.disconnected" }, window.location.origin);
 });

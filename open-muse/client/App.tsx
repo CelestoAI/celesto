@@ -8,6 +8,7 @@ import "./trace.css";
 import "./trace-state.css";
 
 const SUGGESTION = "Open https://example.com and tell me what the page says";
+const VIEWER_STABILITY_MS = 3_000;
 
 function operationDetails(operation?: api.BrowserOperation): string | undefined {
   if (!operation) return;
@@ -43,6 +44,7 @@ export function App() {
   const conversationIdRef = useRef<string | undefined>(undefined);
   const chatMenuRef = useRef<HTMLDetailsElement>(null);
   const viewerRetryAttemptRef = useRef(0);
+  const viewerStableTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const showConversation = (next: api.Conversation) => { conversationIdRef.current = next.id; setConversation(next); };
   const refresh = async (id = conversationIdRef.current) => {
@@ -130,7 +132,14 @@ export function App() {
   }, [conversation?.controlOwner]);
   useEffect(() => {
     const refreshViewer = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin || event.data?.type !== "openmuse.viewer.disconnected") return;
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type === "openmuse.viewer.connected") {
+        clearTimeout(viewerStableTimerRef.current);
+        viewerStableTimerRef.current = setTimeout(() => { viewerRetryAttemptRef.current = 0; }, VIEWER_STABILITY_MS);
+        return;
+      }
+      if (event.data?.type !== "openmuse.viewer.disconnected") return;
+      clearTimeout(viewerStableTimerRef.current);
       setViewerPath("");
       viewerRetryAttemptRef.current += 1;
       const delay = viewerReconnectDelay(viewerRetryAttemptRef.current);
@@ -140,7 +149,10 @@ export function App() {
       } else setViewerRetryAt(Date.now() + delay);
     };
     window.addEventListener("message", refreshViewer);
-    return () => window.removeEventListener("message", refreshViewer);
+    return () => {
+      clearTimeout(viewerStableTimerRef.current);
+      window.removeEventListener("message", refreshViewer);
+    };
   }, []);
   useEffect(() => {
     if (!conversation?.viewerReady || viewerPath || viewerReconnectRequired) return;

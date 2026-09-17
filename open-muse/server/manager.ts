@@ -65,7 +65,11 @@ export class ConversationManager {
   private readonly traceScope = new AsyncLocalStorage<{ execution: TurnExecution; stepId?: number }>();
   private readonly approvalTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly confirmations = new ConfirmationGate();
-  private readonly commandResults = new Map<string, Promise<unknown>>();
+  private readonly commandResults = new Map<string, {
+    payload: string;
+    command: ConversationCommandRequest["command"];
+    result: Promise<unknown>;
+  }>();
   private readonly runtime: RuntimeDependencies & { computerProvider: ComputerProvider };
 
   constructor(
@@ -119,18 +123,28 @@ export class ConversationManager {
     return this.context?.id;
   }
 
-  dispatch(id: string, request: ConversationCommandRequest): Promise<unknown> {
+  dispatch(id: string, request: ConversationCommandRequest): {
+    command: ConversationCommandRequest["command"];
+    result: Promise<unknown>;
+  } {
     const key = `${id}:${request.commandId}`;
+    const payload = JSON.stringify(request.command);
     const existing = this.commandResults.get(key);
-    if (existing) return existing;
+    if (existing) {
+      if (existing.payload !== payload) {
+        throw Object.assign(new Error("That command ID was already used for a different action."), { status: 409, code: "command_id_conflict" });
+      }
+      return existing;
+    }
     const context = this.require(id);
     if (request.expectedVersion !== undefined && request.expectedVersion !== context.stateVersion) {
       throw Object.assign(new Error("The conversation changed. Review the latest state and try again."), { status: 409, code: "stale_version" });
     }
     const result = this.executeCommand(id, request.command);
-    this.commandResults.set(key, result);
+    const execution = { payload, command: request.command, result };
+    this.commandResults.set(key, execution);
     while (this.commandResults.size > 100) this.commandResults.delete(this.commandResults.keys().next().value!);
-    return result;
+    return execution;
   }
 
   private async executeCommand(id: string, command: ConversationCommandRequest["command"]): Promise<unknown> {

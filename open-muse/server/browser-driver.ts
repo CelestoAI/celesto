@@ -67,9 +67,15 @@ export async function executeBrowserOperation(
       case "search": {
         if (operation.target.role !== "searchbox") throw new Error("That ref is not a search box. Observe the page again and choose a search box.");
         const target = await resolveTarget(page, operation.target);
-        await target.fill(operation.query);
-        await target.press("Enter");
-        await page.waitForLoadState("domcontentloaded").catch(() => undefined);
+        const form = await target.evaluate((node) => {
+          const owner = node instanceof HTMLInputElement ? node.form : node.closest("form");
+          const name = node instanceof HTMLInputElement ? node.name : "";
+          return owner ? { method: owner.method.toUpperCase(), action: owner.action, name } : undefined;
+        });
+        if (!form || form.method !== "GET" || !form.name) throw new Error("Use Take control to search here because this is not a public GET form.");
+        const searchUrl = new URL(form.action);
+        searchUrl.searchParams.set(form.name, operation.query);
+        await page.goto(validatePublicBrowserUrl(searchUrl.href));
         return { searched: true, observation: await observe(page) };
       }
       case "click": {

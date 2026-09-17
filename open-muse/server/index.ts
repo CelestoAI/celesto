@@ -166,9 +166,10 @@ async function route(manager: ConversationManager, staticRoot: string, request: 
   const commandsMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)\/commands$/);
   if (method === "POST" && commandsMatch) {
     const body = commandBody.parse(await readJson(request));
-    const result = await manager.dispatch(commandsMatch[1], body);
-    if (modelAccess && body.command.kind === "change_model") session.selection = { providerId: body.command.providerId, modelId: body.command.modelId };
-    return sendJson(response, body.command.kind === "send_message" || body.command.kind === "stop" ? 202 : 200, result);
+    const dispatched = manager.dispatch(commandsMatch[1], body);
+    const result = await dispatched.result;
+    if (modelAccess && dispatched.command.kind === "change_model") session.selection = { providerId: dispatched.command.providerId, modelId: dispatched.command.modelId };
+    return sendJson(response, dispatched.command.kind === "send_message" || dispatched.command.kind === "stop" ? 202 : 200, result);
   }
   const activateMatch = url.pathname.match(/^\/api\/conversations\/([^/]+)\/activate$/);
   if (method === "POST" && activateMatch) {

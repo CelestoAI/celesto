@@ -25,6 +25,20 @@ test("conversation views stay bounded while retaining the newest public state", 
       payload: { text: "e".repeat(8_000) },
     });
   }
+  for (let index = 0; index < 4_000; index += 1) {
+    context.grants.push({
+      id: `grant-${index}-${"g".repeat(200)}`,
+      actionKind: "add_to_cart",
+      subject: { productId: `product-${index}` },
+      variant: { kind: "any" },
+      maxQuantity: 1,
+      maxUnitPriceMinor: 100,
+      currency: "INR",
+      sourceMessageId: "message-99",
+      expiresAt: new Date().toISOString(),
+      state: "available",
+    });
+  }
   const traces = new TraceBuffer(created.id);
   for (let index = 0; index < 8; index += 1) {
     const execution = { conversationId: created.id, turnId: `turn-${index}`, userMessageId: `message-${index}` };
@@ -40,4 +54,5 @@ test("conversation views stay bounded while retaining the newest public state", 
   assert.equal(view.messages.at(-1)?.id, "message-99");
   assert.equal(view.activity.kind, "idle");
   assert.ok(view.availableCommands.includes("send_message"));
+  assert.equal(view.grants.at(-1)?.id.startsWith("grant-3999-"), true);
 });

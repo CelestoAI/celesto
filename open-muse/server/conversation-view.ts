@@ -8,6 +8,7 @@ export const MAX_CONVERSATION_VIEW_BYTES = 256 * 1024;
 const MAX_VIEW_MESSAGE_BYTES = 64 * 1024;
 const MAX_VIEW_EVENT_BYTES = 64 * 1024;
 const VIEW_JSON_OVERHEAD_BYTES = 1_024;
+const MAX_VIEW_COLLECTION_ITEMS = 100;
 
 function jsonBytes(value: unknown): number { return Buffer.byteLength(JSON.stringify(value)); }
 
@@ -56,6 +57,30 @@ function boundedTurns(traces: TraceSnapshot, base: object): TraceSnapshot["turns
   return output;
 }
 
+function trimViewToBudget<T extends {
+  turns: TraceSnapshot["turns"];
+  messages: ConversationContext["messages"];
+  events: ConversationContext["events"];
+  grants: Array<{ id: string; state: string; expiresAt: string }>;
+  tabs: Array<{ id: string; active: boolean }>;
+}>(view: T): T {
+  while (jsonBytes(view) > MAX_CONVERSATION_VIEW_BYTES) {
+    if (view.turns.length) view.turns.shift();
+    else if (view.events.length) view.events.shift();
+    else if (view.messages.length) view.messages.shift();
+    else if (view.grants.length) view.grants.shift();
+    else {
+      const removableTab = view.tabs.findIndex((tab) => !tab.active);
+      if (removableTab >= 0) view.tabs.splice(removableTab, 1);
+      else break;
+    }
+  }
+  if (jsonBytes(view) > MAX_CONVERSATION_VIEW_BYTES) {
+    throw new Error("The conversation view exceeds its safe size limit.");
+  }
+  return view;
+}
+
 export function conversationActivity(context: ConversationContext): ConversationActivity {
   if (context.controlOwner === "human") return { kind: "human_control" };
   if (context.pendingApproval) return { kind: "awaiting_confirmation", approvalId: context.pendingApproval.approvalId };
@@ -90,26 +115,26 @@ export function projectConversationView(context: ConversationContext, traces: Tr
     controlOwner: context.controlOwner,
     runState: context.runState,
     sessionLifecycle: context.sessionLifecycle,
-    computer: { lifecycle: context.sessionLifecycle, automationError: context.lastBrowserError },
+    computer: { lifecycle: context.sessionLifecycle, automationError: context.lastBrowserError?.slice(0, 2_000) },
     viewer: { ready: viewerReady },
     providerId: context.providerId,
     modelId: context.modelId,
     modelAccessState: context.modelAccessState,
     messages: boundedMessages(context.messages),
-    grants: context.grants.map(({ id: grantId, state, expiresAt }) => ({ id: grantId, state, expiresAt })),
+    grants: context.grants.slice(-MAX_VIEW_COLLECTION_ITEMS).map(({ id: grantId, state, expiresAt }) => ({ id: grantId, state, expiresAt })),
     pendingApproval,
     recovery: context.recovery,
     tabs: [...context.tabs.values()].filter((tab) => !tab.page.isClosed()).map((tab) => ({
       id: tab.id,
       owner: tab.owner,
       epoch: tab.epoch,
-      url: publicTabUrl(tab.page),
+      url: publicTabUrl(tab.page).slice(0, 4_096),
       active: tab.id === context.activeTabId,
       openerTabId: tab.openerTabId,
-    })),
+    })).sort((left, right) => Number(left.active) - Number(right.active)).slice(-MAX_VIEW_COLLECTION_ITEMS),
     viewerReady,
     traceStatus: "ready" as const,
     events: boundedEvents(context.events),
   };
-  return { ...base, turns: boundedTurns(traces, base) };
+  return trimViewToBudget({ ...base, turns: boundedTurns(traces, base) });
 }
