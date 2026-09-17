@@ -1,0 +1,15 @@
+[project]
+name = "jev-review-lab"
+version = "0.1.0"
+description = "Compare LLM and Jev PR review evaluation in Celesto sandboxes"
+requires-python = ">=3.12"
+dependencies = ["httpx>=0.28,<1", "smolvm"]
+
+[project.optional-dependencies]
+cloud = ["celesto"]
+
+[tool.uv.sources]
+smolvm = { path = "../..", editable = true }
+
+[tool.ruff]
+line-length = 110

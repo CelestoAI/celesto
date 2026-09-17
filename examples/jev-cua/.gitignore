@@ -1,0 +1,6 @@
+.env
+.venv/
+__pycache__/
+artifacts/
+.ruff_cache/
+node_modules/

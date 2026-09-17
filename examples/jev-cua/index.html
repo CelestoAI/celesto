@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Review Lab · Celesto × Jev</title>
+<style>
+:root{color-scheme:light;--ink:#17241d;--muted:#647368;--line:#dce3da;--accent:#236445}
+*{box-sizing:border-box}body{margin:0;background:#f5f6f0;color:var(--ink);font:15px/1.6 system-ui,sans-serif}
+main{max-width:1120px;margin:0 auto;padding:32px 28px 80px}nav{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:20px;font-size:13px;letter-spacing:.04em}
+.brand{font-weight:700}header{padding:58px 0 28px;max-width:760px}.eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.14em;color:var(--accent)}h1{font-size:clamp(32px,5vw,52px);letter-spacing:-.045em;line-height:1.1;margin:14px 0}header p{font-size:17px;color:var(--muted);max-width:650px}
+form{display:flex;gap:10px;padding:12px;background:white;border:1px solid var(--line);border-radius:12px}input,select,button{font:inherit;border-radius:7px;border:1px solid var(--line);padding:11px 13px}input{flex:1;min-width:0;border:0}button{cursor:pointer;background:var(--accent);color:white;border:0;font-weight:600}button:disabled{opacity:.5;cursor:wait}select{background:#f5f6f0;color:var(--ink)}.note{font-size:12px;color:var(--muted);margin:10px 0 26px}.toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.toolbar button{background:white;color:var(--ink);border:1px solid var(--line);font-size:12px;padding:6px 12px}
+#error{color:#a23c29;white-space:pre-wrap}#progress{padding:23px 0;border-bottom:1px solid var(--line)}#title{font-size:20px;font-weight:650}#stage{color:var(--muted)}.lanes{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:28px}.lane{background:white;border:1px solid var(--line);border-radius:12px;padding:24px;min-height:290px}.lane.jev{border-top:3px solid var(--accent)}h2{font-size:20px;margin:0}h3{font-size:14px;margin-bottom:6px}.badge{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}.timing{font-size:34px;letter-spacing:-.04em;font-variant-numeric:tabular-nums;margin:18px 0 0}.model{font-size:12px;color:var(--muted);overflow-wrap:anywhere}.review{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px}.finding{border-top:1px solid var(--line);padding:12px 0}.finding small{color:var(--muted)}details{border-bottom:1px solid var(--line);padding:10px 0}summary{cursor:pointer;font-size:13px}pre{white-space:pre-wrap;word-break:break-word;background:#ecf0e8;padding:14px;font-size:12px;max-height:360px;overflow:auto}.section-title{margin-top:32px;display:flex;justify-content:space-between;align-items:center}.empty{color:var(--muted);font-size:14px;margin-top:32px}.tests{display:flex;gap:24px;font-size:13px;margin-top:10px}#hash{font:11px monospace;color:var(--muted);overflow-wrap:anywhere}a{color:var(--accent)}[hidden]{display:none!important}@media(max-width:700px){.lanes{grid-template-columns:1fr}form{flex-wrap:wrap}input{flex-basis:100%}main{padding:20px}header{padding-top:32px}}
+</style>
+</head>
+<body><main>
+<nav><span class="brand">CELESTO <span style="font-weight:400">× JEV</span></span><span>REVIEW LAB / 01</span></nav>
+<header><div class="eyebrow">An experiment in better code review</div><h1>One pull request.<br>Two ways to judge it.</h1><p>An agent prepares the environment and runs the tests. Then an LLM and Jev review the same evidence, side by side.</p></header>
+<form id="form"><input id="url" type="url" required placeholder="https://github.com/owner/repo/pull/123" aria-label="Public GitHub pull request URL"><select id="provider" aria-label="Sandbox provider"><option value="local">Celesto OSS · local</option><option value="cloud">Celesto Cloud</option></select><button id="start">Review PR ↗</button></form>
+<p class="note">Public repositories · Up to 30 changed files · Live runs use your configured model accounts and sandbox provider.</p>
+<div id="error" role="alert"></div>
+<section id="progress" aria-live="polite"><div id="title">Ready when you are.</div><div class="toolbar"><span id="stage">Choose a PR to start a real review.</span><button id="cancel" hidden>Stop review</button><button id="download" hidden>Download evidence</button></div><div class="tests" id="tests"></div></section>
+<section class="lanes"><article class="lane" id="llm"></article><article class="lane jev" id="jev"></article></section>
+<p class="note">Evaluation timings exclude shared preparation and the final writer. Judgments are model assessments, not a correctness benchmark. Token usage is reported; dollar costs require provider pricing.</p><p id="hash"></p>
+<div class="section-title"><h2>Activity & evidence</h2><span class="badge" id="count">No activity yet</span></div><div id="events"></div>
+</main>
+<script>
+const token='__TOKEN__';
+const $=id=>document.getElementById(id);
+const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let currentId=null,eventCount=0;const laneSnapshots={};
+function lane(kind,state={}){
+ const serialized=JSON.stringify(state);if(laneSnapshots[kind]===serialized)return;laneSnapshots[kind]=serialized;
+ const result=state.evaluation;
+ const findings=(state.findings||[]).map(f=>`<div class="finding"><span class="badge">${esc(f.disposition)}</span><h3>${esc(f.title)}</h3><small>${esc(f.location)} · ${esc(f.evidence_ids.join(', '))}</small></div>`).join('');
+ $(kind).innerHTML=`<span class="badge">${esc(state.status||'Waiting for evidence')}</span><h2>${kind==='jev'?'LLM + Jev':'LLM + LLM'}</h2><div class="timing">${result?esc(result.seconds)+'s':'—'}</div><div class="model">${esc(result?.model||'Evaluator starts after shared investigation')}</div>${result?`<details><summary>Rubric answers & token usage</summary><pre>${esc(JSON.stringify(result,null,2))}</pre></details>`:''}${state.writer?`<p class="note">Final writer: ${esc(state.writer.seconds)}s · ${esc(state.writer.model)}</p>`:''}${findings}${state.review?`<details open><summary>Final review</summary><p class="review">${esc(state.review)}</p></details>`:''}${state.error?`<p class="review">${esc(state.error)}</p>`:''}${!state.status?'<p class="empty">Same investigator. Same tests.<br>Different rubric evaluator.</p>':''}`;
+}
+async function send(path,body){const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Review-Token':token},body:JSON.stringify(body)});const data=await response.json();if(!response.ok)throw Error(data.error);return data;}
+$('form').onsubmit=async event=>{event.preventDefault();$('error').textContent='';$('start').disabled=true;try{await send('/api/run',{url:$('url').value,provider:$('provider').value});await refresh();}catch(error){$('error').textContent=error.message;$('start').disabled=false;}};
+$('cancel').onclick=async()=>{try{const result=await send('/api/cancel',{});$('error').textContent=result.message;}catch(error){$('error').textContent=error.message;}};
+$('download').onclick=async()=>{const response=await fetch('/api/report');const blob=new Blob([JSON.stringify(await response.json(),null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='review-evidence.json';a.click();URL.revokeObjectURL(url);};
+async function refresh(){try{
+ const response=await fetch('/api/state');if(!response.ok)throw Error('Could not read review state.');const state=await response.json();
+ $('start').disabled=!!state.busy;$('cancel').hidden=!state.busy;$('download').hidden=!state.id;
+ if(!state.id)return;
+ if(state.id!==currentId){currentId=state.id;eventCount=0;$('events').replaceChildren();}
+ $('title').textContent=state.title||'Opening pull request…';$('stage').textContent=`${state.stage} · ${state.total_seconds??state.elapsed}s total · ${state.provider}`;
+ $('error').textContent=state.error||'';
+ if(state.cleanup_errors?.length)$('error').textContent+='\nSandbox cleanup needs attention: '+state.cleanup_errors.join('; ');
+ $('tests').innerHTML=Object.entries(state.test_results||{}).map(([name,result])=>`<span>${esc(name)}: <b>${esc(result.status)}</b></span>`).join('');
+ for(const kind of ['llm','jev'])lane(kind,state.lanes[kind]);
+ $('hash').textContent=state.evidence_sha256?`Identical evidence · SHA-256 ${state.evidence_sha256} · Shared preparation ${state.shared_seconds}s`:'';
+ const events=state.events||[];for(const item of events.slice(eventCount)){const node=document.createElement('details');node.innerHTML=`<summary>${esc(item.at)}s · ${esc(item.title)}</summary><pre>${esc(JSON.stringify(item.detail,null,2))}</pre>`;$('events').append(node);}eventCount=events.length;$('count').textContent=`${eventCount} events`;
+ }catch(error){$('error').textContent=error.message;}}
+lane('llm');lane('jev');refresh();setInterval(refresh,1200);
+</script></body></html>
