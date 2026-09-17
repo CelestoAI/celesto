@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { CATALOG, STOREFRONT_VERSION, formatInr, productById } from "./catalog.js";
 import { operationReason, redactBrowserOperation, validateBrowserOperation, type BrowserOperation, type BrowserTarget, type ExecutableBrowserOperation } from "./browser-operations.js";
-import { BrowserDriverError, hostBrowserDriver, type BrowserDriver } from "./browser-driver.js";
+import { browserHasAuthenticatedState, BrowserDriverError, hostBrowserDriver, type BrowserDriver } from "./browser-driver.js";
 import { approveOperation, completeOperation, dispatchOperation, markOutcomeUnknown, upsertOperation, type OperationRecord, type RecoveryState } from "./operation-lifecycle.js";
 import type { TabTarget } from "./browser-tabs.js";
 import type { BrowserRef, ConversationContext, IntentGrant, PendingApproval } from "./types.js";
@@ -140,7 +140,10 @@ export class ActionBroker {
       return this.formatExtraction(result);
     }
     const executable = this.resolveOperation(operation, tab);
-    const policy = decideBrowserAction(executable);
+    let policy = decideBrowserAction(executable);
+    if (executable.kind === "search" && policy.decision === "allow" && await browserHasAuthenticatedState(page)) {
+      policy = { decision: "confirm", reason: "Searching from a signed-in browser may change website state." };
+    }
     if (policy.decision === "deny") throw new Error(policy.reason);
     if (policy.decision === "allow") {
       const result = await this.executeWebOperation(page, executable, `browser_${operation.kind}`) as { observation?: unknown } | undefined;

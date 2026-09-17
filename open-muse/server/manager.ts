@@ -894,8 +894,14 @@ export class ConversationManager {
       }
       if ((error as { code?: unknown })?.code === "computer_missing") throw error;
       context.sessionLifecycle = "error";
+      await context.playwright?.close().catch(() => undefined);
       await createdComputer?.detach().catch(() => undefined);
       if (context.computer === createdComputer) delete context.computer;
+      delete context.playwright;
+      delete context.page;
+      context.tabs.clear();
+      delete context.activeTabId;
+      delete context.storefront;
       context.lastBrowserError = "The computer browser could not start.";
       console.error("OpenMuse browser startup failed.");
       this.emit("browser.failed", { summary: "Computer browser startup failed" }, false);

@@ -81,6 +81,8 @@ test("the conversation view stream is session-bound and starts with a full curre
 
   const missing = await fetch(`${origin}/api/conversations/not-this-conversation`, { headers: { cookie } });
   assert.equal(missing.status, 404);
+  const missingStream = await fetch(`${origin}/api/conversations/not-this-conversation/events`, { headers: { cookie } });
+  assert.equal(missingStream.status, 404);
 
   const stream = await fetch(`${origin}/api/conversations/${created.id}/events`, { headers: { cookie } });
   const reader = stream.body!.getReader();

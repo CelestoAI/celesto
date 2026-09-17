@@ -6,7 +6,7 @@ import {
   validateBrowserOperation,
   type ExecutableBrowserOperation,
 } from "../server/browser-operations.js";
-import { BrowserDriverError, executeBrowserOperation } from "../server/browser-driver.js";
+import { browserHasAuthenticatedState, BrowserDriverError, executeBrowserOperation } from "../server/browser-driver.js";
 import type { Page } from "playwright-core";
 
 const LOCATOR_ID = "00000000-0000-4000-8000-000000000001";
@@ -110,6 +110,20 @@ function page(value: Record<string, unknown>): Page {
     ...value,
   } as unknown as Page;
 }
+
+test("authenticated browser state is detected without exposing its values", async () => {
+  const anonymous = page({
+    context: () => ({ cookies: async () => [], browser: () => ({ isConnected: () => true }) }),
+    evaluate: async () => false,
+  });
+  const signedIn = page({
+    context: () => ({ cookies: async () => [{ name: "session", value: "private" }], browser: () => ({ isConnected: () => true }) }),
+    evaluate: async () => false,
+  });
+
+  assert.equal(await browserHasAuthenticatedState(anonymous), false);
+  assert.equal(await browserHasAuthenticatedState(signedIn), true);
+});
 
 test("host driver observes, redacts, and binds semantic refs", async () => {
   const observed = await executeBrowserOperation(page({

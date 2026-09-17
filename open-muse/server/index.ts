@@ -268,11 +268,60 @@ function streamAuthEvents(modelAccess: ModelAccessService, sessionId: string, at
 }
 
 function streamEvents(manager: ConversationManager, id: string, request: IncomingMessage, response: ServerResponse): void {
+  let ready = false;
+  let closed = false;
+  let blocked = false;
+  let pendingView = "";
+  let heartbeatPending = false;
+  let blockedTimer: ReturnType<typeof setTimeout> | undefined;
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  let unsubscribe: (() => void) | undefined;
+
+  function drain() {
+    if (closed) return;
+    blocked = false;
+    if (blockedTimer) clearTimeout(blockedTimer);
+    const view = pendingView;
+    pendingView = "";
+    if (view) write(view, true);
+    if (!blocked && heartbeatPending) {
+      heartbeatPending = false;
+      write(": heartbeat\n\n", false);
+    }
+  }
+  function cleanup() {
+    if (closed) return;
+    closed = true;
+    if (heartbeat) clearInterval(heartbeat);
+    if (blockedTimer) clearTimeout(blockedTimer);
+    response.off("drain", drain);
+    unsubscribe?.();
+  }
+  function write(frame: string, view: boolean) {
+    if (closed) return;
+    if (blocked) {
+      if (view) pendingView = frame;
+      else heartbeatPending = true;
+      return;
+    }
+    if (!response.write(frame)) {
+      blocked = true;
+      blockedTimer = setTimeout(() => { cleanup(); response.end(); }, 15_000);
+      response.once("drain", drain);
+    }
+  }
+
+  unsubscribe = manager.subscribeViews(id, (view) => {
+    const frame = `id: ${view.version}\nevent: conversation.view\ndata: ${JSON.stringify({ view })}\n\n`;
+    if (!ready) pendingView = frame;
+    else write(frame, true);
+  });
+  if (!unsubscribe) { response.statusCode = 404; response.end("Conversation not found."); return; }
   response.statusCode = 200; response.setHeader("content-type", "text/event-stream"); response.setHeader("connection", "keep-alive"); response.setHeader("x-accel-buffering", "no"); response.flushHeaders();
-  const unsubscribe = manager.subscribeViews(id, (view) => response.write(`id: ${view.version}\nevent: conversation.view\ndata: ${JSON.stringify({ view })}\n\n`));
-  if (!unsubscribe) { response.end(`event: error\ndata: {"error":"Conversation not found"}\n\n`); return; }
-  const heartbeat = setInterval(() => response.write(": heartbeat\n\n"), 15_000);
-  request.on("close", () => { clearInterval(heartbeat); unsubscribe(); });
+  ready = true;
+  if (pendingView) { const initial = pendingView; pendingView = ""; write(initial, true); }
+  heartbeat = setInterval(() => write(": heartbeat\n\n", false), 15_000);
+  request.on("close", cleanup);
 }
 
 async function serveStatic(root: string, pathname: string, response: ServerResponse, head: boolean): Promise<void> {

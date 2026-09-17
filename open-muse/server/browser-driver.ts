@@ -115,6 +115,18 @@ export const hostBrowserDriver: BrowserDriver = {
   execute: executeBrowserOperation,
 };
 
+export async function browserHasAuthenticatedState(page: Page): Promise<boolean> {
+  try {
+    const [cookies, storage] = await Promise.all([
+      page.context().cookies(),
+      page.evaluate(() => localStorage.length > 0 || sessionStorage.length > 0),
+    ]);
+    return cookies.length > 0 || storage;
+  } catch {
+    return true;
+  }
+}
+
 async function observe(page: Page): Promise<Record<string, unknown>> {
   const { binding, display } = await inspectCurrentPage(page);
   const parsedUrl = parseUrl(page.url());
