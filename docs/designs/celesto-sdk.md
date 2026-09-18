@@ -2,10 +2,29 @@
 
 Celesto gives an agent a computer, either on the user's machine or in the cloud. The same Python code runs commands and manages that computer in either location.
 
-Status: Local-only first release; broader cloud design deferred.
+Status: Local first release shipped; core cloud Computer integration implemented on a follow-up branch.
 Date: 2026-09-18
 
-## First release scope (supersedes the broader proposal below)
+## Implementation update — 2026-09-19
+
+The current increment uses `openapi-python-client==0.29.1` against a full schema
+downloaded from the running backend. A pinned Ruff formatter makes regeneration
+repeatable. This supersedes the isolated-export and filtered-artifact machinery
+proposed below; no custom export framework was added.
+
+The private client is in `celesto._generated`; the public `Computer` now routes
+cloud create/get/run/delete through it. Local behavior remains unchanged.
+Streaming is documented correctly in the schema but not exposed by the public
+wrapper yet. Server-side expiry, installation/package restructuring, TypeScript,
+and the other cloud APIs remain deferred. See [Python cloud usage](../python-cloud.md)
+for implemented behavior and limitations; the historical proposal below is not
+a claim that those deferred features exist.
+
+## Historical first release scope (local-only)
+
+These bullets record the original local-only release, not the current cloud
+implementation described above. Its cloud failure and deferral requirements
+were superseded by the 2026-09-19 implementation update.
 
 - Keep the distribution named `smolvm`; replace its Python import namespace with `celesto` without an import shim.
 - Provide `Computer(local=True)` for local execution. `Computer()` fails with a local-only explanation until cloud support ships.

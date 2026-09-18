@@ -1,0 +1,251 @@
+from http import HTTPStatus
+from typing import Any, cast
+from urllib.parse import quote
+
+import httpx
+
+from ...client import AuthenticatedClient, Client
+from ...types import Response, UNSET
+from ... import errors
+
+from ...models.computer_display_connection_request import (
+    ComputerDisplayConnectionRequest,
+)
+from ...models.computer_display_connection_response import (
+    ComputerDisplayConnectionResponse,
+)
+from ...models.computer_validation_error_response import ComputerValidationErrorResponse
+from ...types import UNSET, Unset
+from typing import cast
+
+
+def _get_kwargs(
+    computer_id: str,
+    *,
+    body: ComputerDisplayConnectionRequest | None | Unset = UNSET,
+    x_current_organization: str | Unset = UNSET,
+) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
+    if not isinstance(x_current_organization, Unset):
+        headers["x-current-organization"] = x_current_organization
+
+    _kwargs: dict[str, Any] = {
+        "method": "post",
+        "url": "/v1/computers/{computer_id}/display".format(
+            computer_id=quote(str(computer_id), safe=""),
+        ),
+    }
+
+    if isinstance(body, ComputerDisplayConnectionRequest):
+        _kwargs["json"] = body.to_dict()
+    else:
+        _kwargs["json"] = body
+
+    headers["Content-Type"] = "application/json"
+
+    _kwargs["headers"] = headers
+    return _kwargs
+
+
+def _parse_response(
+    *, client: AuthenticatedClient | Client, response: httpx.Response
+) -> ComputerDisplayConnectionResponse | ComputerValidationErrorResponse | None:
+    if response.status_code == 201:
+        response_201 = ComputerDisplayConnectionResponse.from_dict(response.json())
+
+        return response_201
+
+    if response.status_code == 422:
+        response_422 = ComputerValidationErrorResponse.from_dict(response.json())
+
+        return response_422
+
+    if client.raise_on_unexpected_status:
+        raise errors.UnexpectedStatus(response.status_code, response.content)
+    else:
+        return None
+
+
+def _build_response(
+    *, client: AuthenticatedClient | Client, response: httpx.Response
+) -> Response[ComputerDisplayConnectionResponse | ComputerValidationErrorResponse]:
+    return Response(
+        status_code=HTTPStatus(response.status_code),
+        content=response.content,
+        headers=response.headers,
+        parsed=_parse_response(client=client, response=response),
+    )
+
+
+def sync_detailed(
+    computer_id: str,
+    *,
+    client: AuthenticatedClient | Client,
+    body: ComputerDisplayConnectionRequest | None | Unset = UNSET,
+    x_current_organization: str | Unset = UNSET,
+) -> Response[ComputerDisplayConnectionResponse | ComputerValidationErrorResponse]:
+    """Create computer display connection info
+
+     Authorize a graphical display attach and return gateway connection info.
+
+    The control plane stays in the auth/control path only; the browser uses the
+    returned short-lived token to connect to the gateway directly.
+
+    There is no connection row written here. Reconnecting is just calling
+    this endpoint again, which re-authorizes the user AND re-resolves the
+    computer's current host — necessary because a sandbox legitimately moves
+    hosts after a spot interruption (RESTORABLE then RESTORING), which would
+    strand a token minted against the old one.
+
+    Args:
+        computer_id (str):
+        x_current_organization (str | Unset): Current organization ID
+        body (ComputerDisplayConnectionRequest | None | Unset):
+
+    Raises:
+        errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
+        httpx.TimeoutException: If the request takes longer than Client.timeout.
+
+    Returns:
+        Response[ComputerDisplayConnectionResponse | ComputerValidationErrorResponse]
+    """
+
+    kwargs = _get_kwargs(
+        computer_id=computer_id,
+        body=body,
+        x_current_organization=x_current_organization,
+    )
+
+    response = client.get_httpx_client().request(
+        **kwargs,
+    )
+
+    return _build_response(client=client, response=response)
+
+
+def sync(
+    computer_id: str,
+    *,
+    client: AuthenticatedClient | Client,
+    body: ComputerDisplayConnectionRequest | None | Unset = UNSET,
+    x_current_organization: str | Unset = UNSET,
+) -> ComputerDisplayConnectionResponse | ComputerValidationErrorResponse | None:
+    """Create computer display connection info
+
+     Authorize a graphical display attach and return gateway connection info.
+
+    The control plane stays in the auth/control path only; the browser uses the
+    returned short-lived token to connect to the gateway directly.
+
+    There is no connection row written here. Reconnecting is just calling
+    this endpoint again, which re-authorizes the user AND re-resolves the
+    computer's current host — necessary because a sandbox legitimately moves
+    hosts after a spot interruption (RESTORABLE then RESTORING), which would
+    strand a token minted against the old one.
+
+    Args:
+        computer_id (str):
+        x_current_organization (str | Unset): Current organization ID
+        body (ComputerDisplayConnectionRequest | None | Unset):
+
+    Raises:
+        errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
+        httpx.TimeoutException: If the request takes longer than Client.timeout.
+
+    Returns:
+        ComputerDisplayConnectionResponse | ComputerValidationErrorResponse
+    """
+
+    return sync_detailed(
+        computer_id=computer_id,
+        client=client,
+        body=body,
+        x_current_organization=x_current_organization,
+    ).parsed
+
+
+async def asyncio_detailed(
+    computer_id: str,
+    *,
+    client: AuthenticatedClient | Client,
+    body: ComputerDisplayConnectionRequest | None | Unset = UNSET,
+    x_current_organization: str | Unset = UNSET,
+) -> Response[ComputerDisplayConnectionResponse | ComputerValidationErrorResponse]:
+    """Create computer display connection info
+
+     Authorize a graphical display attach and return gateway connection info.
+
+    The control plane stays in the auth/control path only; the browser uses the
+    returned short-lived token to connect to the gateway directly.
+
+    There is no connection row written here. Reconnecting is just calling
+    this endpoint again, which re-authorizes the user AND re-resolves the
+    computer's current host — necessary because a sandbox legitimately moves
+    hosts after a spot interruption (RESTORABLE then RESTORING), which would
+    strand a token minted against the old one.
+
+    Args:
+        computer_id (str):
+        x_current_organization (str | Unset): Current organization ID
+        body (ComputerDisplayConnectionRequest | None | Unset):
+
+    Raises:
+        errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
+        httpx.TimeoutException: If the request takes longer than Client.timeout.
+
+    Returns:
+        Response[ComputerDisplayConnectionResponse | ComputerValidationErrorResponse]
+    """
+
+    kwargs = _get_kwargs(
+        computer_id=computer_id,
+        body=body,
+        x_current_organization=x_current_organization,
+    )
+
+    response = await client.get_async_httpx_client().request(**kwargs)
+
+    return _build_response(client=client, response=response)
+
+
+async def asyncio(
+    computer_id: str,
+    *,
+    client: AuthenticatedClient | Client,
+    body: ComputerDisplayConnectionRequest | None | Unset = UNSET,
+    x_current_organization: str | Unset = UNSET,
+) -> ComputerDisplayConnectionResponse | ComputerValidationErrorResponse | None:
+    """Create computer display connection info
+
+     Authorize a graphical display attach and return gateway connection info.
+
+    The control plane stays in the auth/control path only; the browser uses the
+    returned short-lived token to connect to the gateway directly.
+
+    There is no connection row written here. Reconnecting is just calling
+    this endpoint again, which re-authorizes the user AND re-resolves the
+    computer's current host — necessary because a sandbox legitimately moves
+    hosts after a spot interruption (RESTORABLE then RESTORING), which would
+    strand a token minted against the old one.
+
+    Args:
+        computer_id (str):
+        x_current_organization (str | Unset): Current organization ID
+        body (ComputerDisplayConnectionRequest | None | Unset):
+
+    Raises:
+        errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
+        httpx.TimeoutException: If the request takes longer than Client.timeout.
+
+    Returns:
+        ComputerDisplayConnectionResponse | ComputerValidationErrorResponse
+    """
+
+    return (
+        await asyncio_detailed(
+            computer_id=computer_id,
+            client=client,
+            body=body,
+            x_current_organization=x_current_organization,
+        )
+    ).parsed

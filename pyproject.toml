@@ -27,6 +27,10 @@ classifiers = [
     "Topic :: System :: Emulators",
 ]
 dependencies = [
+    "attrs>=23.2",
+    "httpx>=0.27,<0.29",
+    "python-dateutil>=2.8",
+    "typing-extensions>=4.10",
     "click>=8.0",
     "smolvm-core~=2026.6.24",
     "paramiko>=3.0",
@@ -86,6 +90,7 @@ packages = ["src/celesto"]
 exclude = ["/ui", "/smolvm-core"]
 
 [tool.ruff]
+extend-exclude = ["src/celesto/_generated"]
 target-version = "py311"
 line-length = 100
 
