@@ -1,4 +1,4 @@
-name: TS client auto-gen sync
+name: Celesto local server OpenAPI sync
 
 on:
   push:
@@ -47,7 +47,7 @@ jobs:
 
       - name: Fail if the committed spec is stale
         run: |
-          if ! git diff --exit-code -- ts/openapi.json; then
-            echo "::error::ts/openapi.json is out of date. Run 'npm run sync' in ts/ and commit the result."
+          if ! git diff --exit-code -- ts/celesto-local-server.openapi.json; then
+            echo "::error::ts/celesto-local-server.openapi.json is out of date. Run 'npm run sync' in ts/ and commit the result."
             exit 1
           fi

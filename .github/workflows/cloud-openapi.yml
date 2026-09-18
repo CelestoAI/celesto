@@ -1,0 +1,38 @@
+name: Celesto cloud Python client sync
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39
+
+      - name: Regenerate the cloud Python client
+        run: bash scripts/generate_cloud_client.sh
+
+      - name: Fail if the committed client is stale
+        run: |
+          if [[ -n "$(git status --porcelain --untracked-files=all -- src/celesto/_generated)" ]]; then
+            git diff --stat -- src/celesto/_generated
+            git ls-files --others --exclude-standard -- src/celesto/_generated
+            echo "::error::Cloud Python client is out of date. Run 'bash scripts/generate_cloud_client.sh' and commit the result."
+            exit 1
+          fi

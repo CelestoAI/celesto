@@ -430,7 +430,7 @@ Deliver the spike findings in `docs/contributing/macos-spike.md`, including the 
 - [ ] Add `macos` and `vz` to the sanitized API request models in `src/celesto/server/models.py`.
 - [ ] Add a sanitized desktop endpoint to `SandboxResponse` or a dedicated `DesktopResponse`.
 - [ ] Add `GET /vms/{id}/desktop` and an optional local-only `POST /vms/{id}/desktop/open`; remote API callers receive the endpoint but must not cause arbitrary URL opening on the server host.
-- [ ] Update OpenAPI, regenerate `ts/openapi.json`, and update the TypeScript client.
+- [ ] Update OpenAPI, regenerate `ts/celesto-local-server.openapi.json`, and update the TypeScript client.
 - [ ] Show macOS and desktop availability on dashboard VM cards.
 - [ ] Add an `Open Desktop` action that opens the loopback VNC URL. Do not conflate macOS VMs with `BrowserSessionInfo` or the existing Chromium desktop session model.
 - [ ] Add dashboard/server tests and UI tests for running, stopped, missing-endpoint, and unsupported sandboxes.

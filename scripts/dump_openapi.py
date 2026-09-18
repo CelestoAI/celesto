@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Dump the Celesto HTTP API's OpenAPI spec to ``ts/openapi.json``.
+"""Dump the Celesto local server's spec to ``ts/celesto-local-server.openapi.json``.
 
-``ts/openapi.json`` is the committed contract the TypeScript client is
+``ts/celesto-local-server.openapi.json`` is the committed contract the TypeScript client is
 generated from. The Python server is its source of truth, so this script
 re-dumps the spec straight from ``create_app().openapi()`` whenever a
 route changes. Run it (or ``npm run sync`` in ``ts/``, which chains this
@@ -37,8 +37,8 @@ from pathlib import Path
 
 from celesto.server.app import create_app
 
-# scripts/dump_openapi.py -> repo root -> ts/openapi.json
-SPEC_PATH = Path(__file__).resolve().parent.parent / "ts" / "openapi.json"
+# scripts/dump_openapi.py -> repo root -> local server schema
+SPEC_PATH = Path(__file__).resolve().parent.parent / "ts" / "celesto-local-server.openapi.json"
 
 
 def main() -> None:
