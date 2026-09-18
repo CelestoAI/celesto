@@ -39,6 +39,19 @@ Cloud creation accepts `vcpus`, `ram_mb`, `disk_size_mb`, `image`, `template_id`
 
 HTTP failures raise `CloudAPIError` with a `status_code`. Missing computers raise `VMNotFoundError`. Transport failures raise `CelestoError`: creation or command execution may have succeeded even when its response was lost. No creation or command request is automatically replayed. Inspect the cloud dashboard before retrying an operation with an unknown outcome.
 
+## Live smoke test
+
+The live test creates one billable cloud computer, runs commands, reconnects to it,
+and checks that context exit deletes it. It is skipped by default. With
+`CELESTO_API_KEY` already set, opt in explicitly:
+
+```bash
+CELESTO_LIVE_TEST=1 uv run --extra dev pytest tests/test_cloud_live.py -q -s
+```
+
+The test retries cleanup on failure but cannot guarantee cleanup if the process
+is killed or a create response is lost. Check the cloud dashboard in those cases.
+
 ## Generated client
 
 The private `celesto._generated` package contains generated requests and models. It is not a public SDK interface. The public `Computer` keeps these types out of its API and uses the ordinary command endpoint; streaming, browser, terminal, and file APIs are not exposed by this wrapper yet.
