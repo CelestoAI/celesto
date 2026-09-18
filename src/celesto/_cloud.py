@@ -187,7 +187,7 @@ class _CloudComputer:
                 if exc.status_code != 409:
                     raise
                 computer = self._get()
-                if computer.status != "deleting":
+                if computer.status not in {"deleting", "deleted"}:
                     raise
             while computer.status != "deleted":
                 self._wait(deadline, "delete")

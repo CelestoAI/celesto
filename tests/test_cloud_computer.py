@@ -1,6 +1,7 @@
 """Exercise the public facade through real generated code and mock HTTP only."""
 
 import json
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -171,6 +172,15 @@ def test_delete_timeout_keeps_handle_retryable(cloud):
     comp.delete()
 
 
+def test_delete_conflict_followed_by_completed_deletion_succeeds(cloud):
+    requests, replies = cloud
+    replies.extend([(200, computer()), (409, {}), (200, computer("deleted"))])
+    comp = Computer.get("cloud-test")
+    comp.delete()
+    comp.delete()
+    assert [r.method for r in requests] == ["GET", "DELETE", "GET"]
+
+
 def test_invalid_cloud_command_does_not_allocate(cloud):
     requests, _ = cloud
     comp = Computer()
@@ -186,7 +196,7 @@ def test_invalid_cloud_command_does_not_allocate(cloud):
     [
         "http://example.com",
         "https://example.com/v1",
-        "https://u:p@example.com",
+        "https://user@example.com",
         "https://example.com?key=x",
     ],
 )
@@ -212,3 +222,18 @@ def test_no_unbounded_wait(cloud):
     adapter = _CloudComputer(startup_timeout=1)
     with pytest.raises(CelestoError, match="in time"):
         adapter._wait(0, "start")
+
+
+def test_startup_poll_timeout_cleans_allocated_computer(cloud, monkeypatch):
+    requests, replies = cloud
+    replies.extend([(201, computer("creating")), (200, computer("deleted"))])
+    ticks = iter([0, 0, 2, 2])
+    monkeypatch.setattr(
+        "celesto._cloud.time",
+        SimpleNamespace(monotonic=lambda: next(ticks), sleep=lambda seconds: None),
+    )
+    comp = Computer(startup_timeout=1)
+    with pytest.raises(CelestoError, match="in time"):
+        comp.run("echo hi")
+    assert comp.id == "cloud-test"
+    assert [r.method for r in requests] == ["POST", "DELETE"]
