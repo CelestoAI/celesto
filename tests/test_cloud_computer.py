@@ -36,6 +36,8 @@ def cloud(monkeypatch):
         reply = replies.pop(0)
         if isinstance(reply, Exception):
             raise reply
+        if isinstance(reply, httpx.Response):
+            return reply
         code, body = reply
         return httpx.Response(code, json=body)
 
@@ -237,3 +239,69 @@ def test_startup_poll_timeout_cleans_allocated_computer(cloud, monkeypatch):
         comp.run("echo hi")
     assert comp.id == "cloud-test"
     assert [r.method for r in requests] == ["POST", "DELETE"]
+
+
+@pytest.mark.parametrize("detail", ["Unsupported image", "x" * 700])
+def test_bad_request_retains_only_bounded_detail(cloud, detail):
+    _, replies = cloud
+    replies.append((400, {"detail": detail, "unrelated": "must not escape"}))
+    with pytest.raises(CloudAPIError) as exc:
+        Computer().run("echo hi")
+    assert exc.value.status_code == 400
+    assert exc.value.details == {"detail": detail[:500]}
+    assert str(exc.value) == (
+        "Cloud API returned HTTP 400. Check the request and cloud dashboard before retrying."
+    )
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"not JSON",
+        b"[]",
+        b"null",
+        b"{}",
+        b'{"detail": {"secret": "hidden"}}',
+        b'{"detail": ["hidden"]}',
+        b'{"detail": 42}',
+        b'{"detail": null}',
+    ],
+)
+def test_bad_request_does_not_forward_arbitrary_body(cloud, body):
+    _, replies = cloud
+    replies.append(httpx.Response(400, content=body))
+    with pytest.raises(CloudAPIError) as exc:
+        Computer().run("echo hi")
+    assert exc.value.status_code == 400
+    assert exc.value.details == {}
+
+
+@pytest.mark.parametrize("status", [401, 403, 422, 500])
+def test_other_error_statuses_do_not_retain_detail(cloud, status):
+    _, replies = cloud
+    body = {
+        "detail": "Validation error" if status == 422 else "private diagnostic",
+        "errors": [],
+        "status_code": status,
+        "unrelated": "must not escape",
+    }
+    replies.append((status, body))
+    with pytest.raises(CloudAPIError) as exc:
+        Computer().run("echo hi")
+    assert exc.value.status_code == status
+    assert exc.value.details == {}
+
+
+def test_cloud_error_bounds_direct_constructor_detail():
+    assert CloudAPIError(400, detail="x" * 501).details == {"detail": "x" * 500}
+    assert CloudAPIError(500, detail="hidden").details == {}
+
+
+def test_documented_bad_request_response_retains_bounded_detail(cloud):
+    adapter = _CloudComputer()
+    response = SimpleNamespace(
+        status_code=400, content=b'{"detail": "Invalid option", "extra": "hidden"}', parsed=None
+    )
+    with pytest.raises(CloudAPIError) as exc:
+        adapter._call(lambda **kwargs: response, object)
+    assert exc.value.details == {"detail": "Invalid option"}

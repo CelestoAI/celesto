@@ -16,6 +16,8 @@
 
 from typing import Literal
 
+_MAX_CLOUD_ERROR_DETAIL_LENGTH = 500
+
 
 class CelestoError(Exception):
     """Base exception for all Celesto errors."""
@@ -29,14 +31,20 @@ class CelestoError(Exception):
 class CloudAPIError(CelestoError):
     """A cloud API request failed with an HTTP error status."""
 
-    def __init__(self, status_code: int) -> None:
+    def __init__(self, status_code: int, *, detail: str | None = None) -> None:
         self.status_code = int(status_code)
         recovery = (
             "Check your API key and organization access."
             if status_code in (401, 403)
             else "Check the request and cloud dashboard before retrying."
         )
-        super().__init__(f"Cloud API returned HTTP {status_code}. {recovery}")
+        # Only the documented bad-request detail is retained, never the raw body.
+        details = (
+            {"detail": detail[:_MAX_CLOUD_ERROR_DETAIL_LENGTH]}
+            if status_code == 400 and isinstance(detail, str)
+            else {}
+        )
+        super().__init__(f"Cloud API returned HTTP {status_code}. {recovery}", details=details)
 
 
 class ValidationError(CelestoError):

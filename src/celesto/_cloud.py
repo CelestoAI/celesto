@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import os
 import time
@@ -109,7 +110,7 @@ class _CloudComputer:
         except UnexpectedStatus as exc:
             if exc.status_code == 404 and self.vm_id is not None:
                 raise VMNotFoundError(self.vm_id) from None
-            raise CloudAPIError(exc.status_code) from None
+            raise self._api_error(exc.status_code, exc.content) from None
         except httpx.TransportError as exc:
             raise CelestoError(
                 f"Cloud request failed ({type(exc).__name__}); its outcome may be unknown. "
@@ -120,10 +121,23 @@ class _CloudComputer:
                 "Cloud returned an invalid response; check the API version before retrying."
             ) from None
         if response.status_code >= 400:
-            raise CloudAPIError(response.status_code)
+            raise self._api_error(response.status_code, response.content)
         if not isinstance(response.parsed, expected):
             raise CelestoError("Cloud returned an unexpected response; check the API version.")
         return response.parsed
+
+    @staticmethod
+    def _api_error(status_code: int, content: bytes) -> CloudAPIError:
+        detail = None
+        if status_code == 400:
+            try:
+                body = json.loads(content)
+            except (ValueError, RecursionError):
+                pass
+            else:
+                if isinstance(body, dict) and isinstance(body.get("detail"), str):
+                    detail = body["detail"]
+        return CloudAPIError(status_code, detail=detail)
 
     def _get(self) -> ComputerResponse:
         return self._call(retrieve.sync_detailed, ComputerResponse, computer_id=self.vm_id)

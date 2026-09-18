@@ -20,7 +20,11 @@ and the other cloud APIs remain deferred. See [Python cloud usage](../python-clo
 for implemented behavior and limitations; the historical proposal below is not
 a claim that those deferred features exist.
 
-## First release scope (supersedes the broader proposal below)
+## Historical first release scope (local-only)
+
+These bullets record the original local-only release, not the current cloud
+implementation described above. Its cloud failure and deferral requirements
+were superseded by the 2026-09-19 implementation update.
 
 - Keep the distribution named `smolvm`; replace its Python import namespace with `celesto` without an import shim.
 - Provide `Computer(local=True)` for local execution. `Computer()` fails with a local-only explanation until cloud support ships.
