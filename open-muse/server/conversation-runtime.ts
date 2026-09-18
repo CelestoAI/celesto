@@ -96,7 +96,8 @@ export function availableCommands(input: {
   modelReady: boolean;
 }): string[] {
   const { activity, viewerReady, modelReady } = input;
-  if (activity.kind === "stopped" || activity.kind === "stopping") return [];
+  if (activity.kind === "stopping") return [];
+  if (activity.kind === "stopped") return ["change_conversation"];
   if (activity.kind === "human_control") return ["return_control", "stop"];
   if (activity.kind === "recovering") return ["continue", "start_over", "stop"];
   if (activity.kind === "awaiting_confirmation") return ["approve", "reject", "send_message", "change_conversation", "change_model", ...(viewerReady ? ["take_control"] : []), "stop"];

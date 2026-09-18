@@ -40,7 +40,8 @@ test("stale confirmations fail closed and interruption rejects the waiter", asyn
 test("available commands are derived from the public activity", () => {
   assert.deepEqual(availableCommands({ activity: { kind: "human_control" }, viewerReady: true, modelReady: true }), ["return_control", "stop"]);
   assert.deepEqual(availableCommands({ activity: { kind: "recovering" }, viewerReady: false, modelReady: true }), ["continue", "start_over", "stop"]);
-  assert.deepEqual(availableCommands({ activity: { kind: "stopped" }, viewerReady: false, modelReady: true }), []);
+  assert.deepEqual(availableCommands({ activity: { kind: "stopped" }, viewerReady: false, modelReady: true }), ["change_conversation"]);
+  assert.deepEqual(availableCommands({ activity: { kind: "stopping" }, viewerReady: false, modelReady: true }), []);
   assert.deepEqual(
     availableCommands({ activity: { kind: "awaiting_confirmation", approvalId: "approval-one" }, viewerReady: true, modelReady: true }),
     ["approve", "reject", "send_message", "change_conversation", "change_model", "take_control", "stop"],

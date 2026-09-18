@@ -23,4 +23,9 @@ test("uses the real UI to take control, return control, and stop", async ({ page
   await page.locator(".top-actions").getByRole("button", { name: "Stop" }).click();
   await expect(page.getByText("Stopped", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Computer deleted" })).toBeVisible();
+  await page.getByText("Chats", { exact: true }).click();
+  await page.getByRole("button", { name: "+ New chat", exact: true }).click();
+  await expect(page.getByText("Ready", { exact: true })).toBeVisible();
+  await expect(page.getByPlaceholder("Message OpenMuse…")).toBeEnabled();
+  await expect(page.getByRole("heading", { name: "Computer deleted" })).not.toBeVisible();
 });
