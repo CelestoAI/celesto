@@ -1,0 +1,1299 @@
+# Copyright 2026 Celesto AI
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Core types and Pydantic models for Celesto SDK."""
+
+import re
+from datetime import datetime
+from enum import Enum
+from ipaddress import IPv4Network, collapse_addresses
+from pathlib import Path
+from typing import Annotated, Any, Literal, Protocol, TypedDict
+from urllib.parse import urlparse
+from uuid import uuid4
+
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
+
+from celesto._naming import generate_sandbox_name
+
+
+class VMState(str, Enum):
+    """VM lifecycle states."""
+
+    CREATED = "created"
+    RUNNING = "running"
+    PAUSED = "paused"
+    STOPPED = "stopped"
+    ERROR = "error"
+
+
+class BrowserSessionState(str, Enum):
+    """Browser session lifecycle states."""
+
+    CREATED = "created"
+    STARTING = "starting"
+    READY = "ready"
+    STOPPING = "stopping"
+    ERROR = "error"
+    DELETED = "deleted"
+
+
+class ComputerStartingEvent(TypedDict):
+    """A Linux computer has begun starting."""
+
+    type: Literal["computer.starting"]
+    computer_id: str
+
+
+class ComputerReadyEvent(TypedDict):
+    """A Linux computer is ready for commands and display access."""
+
+    type: Literal["computer.ready"]
+    computer_id: str
+    sandbox_id: str
+
+
+class ComputerStoppingEvent(TypedDict):
+    """A Linux computer has begun deletion."""
+
+    type: Literal["computer.stopping"]
+    computer_id: str
+    sandbox_id: str
+
+
+class ComputerDeletedEvent(TypedDict):
+    """A Linux computer and its owned resources have been deleted."""
+
+    type: Literal["computer.deleted"]
+    computer_id: str
+    sandbox_id: str
+
+
+class ComputerErrorEvent(TypedDict):
+    """A required desktop process stopped after the computer became ready."""
+
+    type: Literal["computer.error"]
+    computer_id: str
+    sandbox_id: str
+    process: str
+    message: str
+
+
+ComputerEvent = (
+    ComputerStartingEvent
+    | ComputerReadyEvent
+    | ComputerStoppingEvent
+    | ComputerDeletedEvent
+    | ComputerErrorEvent
+)
+
+
+class GuestOS(str, Enum):
+    """Supported guest operating systems for auto-configured VMs."""
+
+    ALPINE = "alpine"
+    UBUNTU = "ubuntu"
+    WINDOWS = "windows"
+    MACOS = "macos"
+
+
+RootfsFormat = Literal["raw-ext4", "qcow2"]
+QemuDiskFormat = Literal["raw", "qcow2"]
+QemuMachine = Literal["auto", "q35", "microvm"]
+
+
+def infer_rootfs_format_from_path(path: Path) -> RootfsFormat:
+    """Infer a rootfs format for legacy configs that did not declare one."""
+    return "qcow2" if path.suffix.lower() == ".qcow2" else "raw-ext4"
+
+
+def qemu_disk_format_for_rootfs_format(rootfs_format: RootfsFormat) -> QemuDiskFormat:
+    """Map Celesto's rootfs format name to QEMU's disk format name."""
+    return "qcow2" if rootfs_format == "qcow2" else "raw"
+
+
+class SnapshotType(str, Enum):
+    """How much of a VM's disk a snapshot stores.
+
+    ``FULL`` (the default) writes a complete, self-contained copy of the
+    disk, so the snapshot can be restored on its own. ``DIFF`` stores only
+    the data that changed since the shared base image, which is much smaller
+    but means the snapshot depends on that base image still being present.
+
+    ``DISK`` is like ``FULL`` (self-contained) but stores **only the disk** —
+    it does not save the guest's RAM (vmstate). Restoring a ``DISK`` snapshot
+    boots the guest fresh from that disk rather than resuming the exact running
+    state. Because it skips the RAM dump, taking a ``DISK`` snapshot is far
+    faster and uses far less disk. Whether the guest must pause while the disk
+    is captured is controlled separately by :class:`SnapshotCapturePolicy`.
+    """
+
+    FULL = "full"
+    DIFF = "diff"
+    DISK = "disk"
+
+
+class SnapshotCapturePolicy(str, Enum):
+    """Whether snapshot capture may explicitly pause a running guest."""
+
+    ALLOW_PAUSE = "allow-pause"
+    LIVE_ONLY = "live-only"
+
+
+class GuestFlushPolicy(str, Enum):
+    """How disk snapshots handle the guest filesystem flush step."""
+
+    REQUIRED = "required"
+    BEST_EFFORT = "best-effort"
+    SKIP = "skip"
+
+
+def _generate_vm_id() -> str:
+    """Generate a VM identifier compatible with VMConfig validation."""
+    return generate_sandbox_name()
+
+
+def _generate_browser_session_id() -> str:
+    """Generate a browser session identifier."""
+    return f"browser-{uuid4().hex[:8]}"
+
+
+def _generate_snapshot_id() -> str:
+    """Generate a snapshot identifier."""
+    return f"snap-{uuid4().hex[:8]}"
+
+
+_IDENTIFIER_PATTERN = r"^[a-z0-9][a-z0-9_-]{0,62}[a-z0-9]$|^[a-z0-9]$"
+
+
+def _should_validate_paths(info: ValidationInfo) -> bool:
+    """Return whether path-existence checks should run for this validation.
+
+    Storage reads (``vm_config_from_json``) pass ``validate_paths=False`` in
+    the validation context so a stale or missing host path on disk does not
+    blow up read-only commands like ``celesto sandbox list``. Defaults to ``True`` so
+    direct construction (creates, tests) keeps its safety net.
+    """
+    return bool((info.context or {}).get("validate_paths", True))
+
+
+class BrowserViewport(BaseModel):
+    """Viewport settings for browser sessions."""
+
+    width: Annotated[int, Field(ge=640, le=7680)] = 1280
+    height: Annotated[int, Field(ge=480, le=4320)] = 720
+
+    model_config = {"frozen": True}
+
+
+class PortForwardConfig(BaseModel):
+    """Host-to-guest TCP port forwarding configuration."""
+
+    host_port: Annotated[int, Field(ge=1, le=65535)]
+    guest_port: Annotated[int, Field(ge=1, le=65535)]
+    host_address: str = "127.0.0.1"
+
+    model_config = {"frozen": True}
+
+
+class VsockConfig(BaseModel):
+    """Virtio-vsock device configuration for host↔guest communication.
+
+    Vsock provides a direct, high-performance communication channel between
+    the host and guest without requiring network configuration. On the host
+    side, Firecracker exposes the vsock as a Unix domain socket (UDS). The
+    guest connects via ``AF_VSOCK`` sockets using the assigned CID.
+
+    Attributes:
+        guest_cid: Context ID for the guest. Must be ≥ 3 (0 = hypervisor,
+            1 = reserved, 2 = host). Each VM must have a unique CID.
+        uds_path: Path to the Unix domain socket on the host. If ``None``,
+            Celesto auto-generates one in the socket directory.
+    """
+
+    guest_cid: Annotated[int, Field(ge=3, le=4294967295)]
+    uds_path: str | None = None
+
+    model_config = {"frozen": True}
+
+
+class WorkspaceMount(BaseModel):
+    """Host directory to mount inside the guest via virtio-9p.
+
+    By default the host directory is exposed read-only through QEMU's
+    virtio-9p passthrough, with an overlayfs layer on top so the guest
+    can read and write freely — changes stay inside the VM and never
+    touch the host.
+
+    When ``writable`` is True the host directory is exposed read-write
+    and mounted directly at ``guest_path`` (no overlay), so writes from
+    the guest are visible on the host.
+
+    Attributes:
+        host_path: Absolute path to a directory on the host.
+        guest_path: Mount point inside the guest (default ``/workspace``).
+        mount_tag: 9p mount tag passed to QEMU.  Auto-generated when omitted.
+        writable: When True, guest writes propagate to the host directory.
+            Default False (read-only host, writable overlay in guest).
+    """
+
+    host_path: Path
+    guest_path: str = "/workspace"
+    mount_tag: str | None = None
+    writable: bool = False
+
+    @field_validator("host_path")
+    @classmethod
+    def validate_host_path(cls, v: Path, info: ValidationInfo) -> Path:
+        """Ensure the host path exists and is a directory.
+
+        Existence and directory checks are skipped when the validation
+        context has ``validate_paths=False`` so persisted configs with
+        stale mount paths still load (read-only commands surface them as
+        warnings instead of crashing).
+        """
+        v = v.resolve()
+        if not _should_validate_paths(info):
+            return v
+        if not v.exists():
+            raise ValueError(f"Workspace path does not exist: {v}")
+        if not v.is_dir():
+            raise ValueError(f"Workspace path is not a directory: {v}")
+        return v
+
+    @field_validator("guest_path")
+    @classmethod
+    def validate_guest_path(cls, v: str) -> str:
+        """Ensure the guest mount point is an absolute path."""
+        if not v.startswith("/"):
+            raise ValueError(f"guest_path must be an absolute path, got: {v!r}")
+        return v
+
+    def resolved_tag(self, index: int) -> str:
+        """Return the mount tag, falling back to ``workspace{index}``."""
+        return self.mount_tag or f"workspace{index}"
+
+    model_config = {"frozen": True}
+
+
+class MacOSMachineConfig(BaseModel):
+    """Artifacts and desktop settings for one Virtualization.framework VM.
+
+    macOS machines are bundles of coupled platform files rather than a Linux
+    root filesystem.  The base image remains in Celesto's image cache while
+    ``bundle_path`` points at the isolated per-sandbox clone.
+    """
+
+    base_image: str
+    manifest_path: Path
+    bundle_path: Path
+    guest_version: str
+    guest_build: str | None = None
+    disk_size_mib: Annotated[int, Field(ge=30 * 1024)] = 80 * 1024
+    display_width: Annotated[int, Field(ge=1024, le=7680)] = 1440
+    display_height: Annotated[int, Field(ge=768, le=4320)] = 900
+    ssh_user: str = "lume"
+    clipboard: bool = True
+
+    @field_validator("base_image", "guest_version", "ssh_user")
+    @classmethod
+    def validate_nonempty_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("value cannot be empty")
+        return normalized
+
+    model_config = {"frozen": True}
+
+
+class DesktopEndpoint(BaseModel):
+    """A loopback-only endpoint for viewing a sandbox desktop."""
+
+    protocol: Literal["vnc"] = "vnc"
+    host: str = "127.0.0.1"
+    port: Annotated[int, Field(ge=1, le=65535)]
+    width: Annotated[int, Field(ge=1)] | None = None
+    height: Annotated[int, Field(ge=1)] | None = None
+
+    @field_validator("host")
+    @classmethod
+    def validate_loopback_host(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"127.0.0.1", "localhost", "::1"}:
+            raise ValueError("desktop endpoint must use a loopback host")
+        return normalized
+
+    @property
+    def viewer_url(self) -> str:
+        host = f"[{self.host}]" if ":" in self.host else self.host
+        return f"vnc://{host}:{self.port}"
+
+    model_config = {"frozen": True}
+
+
+class InternetSettings(BaseModel):
+    """Outbound access settings for supported private networking.
+
+    QEMU supports off on macOS/Linux slirp and off/CIDRs on Linux TAP.
+    Firecracker explicit restrictions require Linux and vsock.
+
+    Legacy allowed_domains resolves names to IPv4 addresses at setup time; it
+    does not verify hostnames on connections. HTTP method filtering is unsupported.
+    """
+
+    mode: Literal["open", "off", "restricted"] | None = None
+    allowed_cidrs: tuple[str, ...] = ()
+    allowed_domains: tuple[str, ...] = ("*",)
+    allowed_http_methods: tuple[str, ...] = ("*",)
+
+    @field_validator("allowed_cidrs")
+    @classmethod
+    def normalize_cidrs(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        networks = []
+        for value in values:
+            try:
+                network = IPv4Network(value.strip())
+            except ValueError:
+                try:
+                    corrected = IPv4Network(value.strip(), strict=False)
+                except ValueError:
+                    raise ValueError(
+                        f"Invalid IPv4 address or range {value!r}; use an address such as "
+                        "'203.0.113.10' or a range such as '10.20.0.0/24'."
+                    ) from None
+                raise ValueError(
+                    f"Range {value!r} must start at its first address; "
+                    f"use '{corrected}' for the range or remove the slash and prefix "
+                    "to allow only one address."
+                ) from None
+            networks.append(network)
+        forbidden = (IPv4Network("172.16.0.0/16"), IPv4Network("169.254.0.0/16"))
+        if any(network.overlaps(block) for network in networks for block in forbidden):
+            raise ValueError(
+                "Sandbox and link-local addresses cannot be allowed; remove those ranges."
+            )
+        return tuple(str(network) for network in collapse_addresses(networks))
+
+    @model_validator(mode="after")
+    def validate_policy(self) -> "InternetSettings":
+        if self.allowed_http_methods != ("*",):
+            raise ValueError(
+                "HTTP method restrictions are unsupported; remove allowed_http_methods."
+            )
+        if self.mode is not None and self.allowed_domains != ("*",):
+            raise ValueError(
+                "Use either mode or allowed_domains, not both; remove allowed_domains."
+            )
+        if self.mode == "restricted" and not self.allowed_cidrs:
+            raise ValueError(
+                "restricted requires allowed_cidrs; use mode='off' to deny all access."
+            )
+        if self.mode != "restricted" and self.allowed_cidrs:
+            raise ValueError(
+                "allowed_cidrs requires mode='restricted'; set that mode or remove the list."
+            )
+        return self
+
+    @property
+    def has_explicit_restrictions(self) -> bool:
+        return self.mode in {"off", "restricted"}
+
+    @field_validator("allowed_domains")
+    @classmethod
+    def normalize_domains(cls, v: tuple[str, ...]) -> tuple[str, ...]:
+        """Extract and store only lowercased hostnames."""
+        normalized: list[str] = []
+        for entry in v:
+            entry = entry.strip()
+            if not entry:
+                continue
+            if entry == "*":
+                normalized.append(entry)
+                continue
+            if "://" in entry:
+                parsed = urlparse(entry)
+                if parsed.username or parsed.password:
+                    raise ValueError(
+                        f"allowed_domains entries must not contain credentials: {entry!r}"
+                    )
+                if parsed.path and parsed.path != "/":
+                    raise ValueError(
+                        f"allowed_domains entries must be hostnames, not URLs with paths: {entry!r}"
+                    )
+                if parsed.query or parsed.fragment or parsed.params:
+                    raise ValueError(
+                        f"allowed_domains entries must be hostnames, "
+                        f"not URLs with query/fragment: {entry!r}"
+                    )
+                hostname = parsed.hostname
+                if not hostname:
+                    raise ValueError(f"Could not extract hostname from: {entry!r}")
+                normalized.append(hostname.lower())
+            else:
+                # Bare hostname, possibly with a port like "example.com:8080"
+                hostname = entry.split(":")[0]
+                normalized.append(hostname.lower())
+        if not normalized:
+            raise ValueError("allowed_domains must contain at least one entry")
+        return tuple(normalized)
+
+    @field_validator("allowed_http_methods")
+    @classmethod
+    def normalize_methods(cls, v: tuple[str, ...]) -> tuple[str, ...]:
+        """Uppercase and deduplicate HTTP method entries."""
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for method in v:
+            method = method.strip().upper()
+            if not method:
+                continue
+            if method in seen:
+                continue
+            seen.add(method)
+            normalized.append(method)
+        if not normalized:
+            raise ValueError("allowed_http_methods must contain at least one entry")
+        return tuple(normalized)
+
+    @property
+    def is_allow_all_domains(self) -> bool:
+        """Whether all domains are allowed (wildcard)."""
+        return not self.has_explicit_restrictions and "*" in self.allowed_domains
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+
+class NetworkAttachmentConfig(BaseModel):
+    """Product-level network attachment mode for a VM.
+
+    Attributes:
+        mode: ``"nat"`` (default) keeps the current Celesto private network
+            with NAT, port forwarding, and domain controls. ``"bridge"``
+            connects the VM directly to an existing host bridge so it
+            appears as a regular machine on that network.
+        bridge: Name of the Linux bridge to attach to. Required when
+            ``mode="bridge"``; rejected when ``mode="nat"``.
+    """
+
+    mode: Literal["nat", "bridge"] = "nat"
+    bridge: str | None = None
+
+    @field_validator("bridge")
+    @classmethod
+    def validate_bridge_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            raise ValueError("bridge name cannot be empty or whitespace")
+        if len(v) > 15:
+            raise ValueError(f"bridge name must be 15 bytes or fewer (got {len(v)} bytes: {v!r})")
+        if not re.match(r"^[a-zA-Z0-9_.-]+$", v):
+            raise ValueError(
+                f"bridge name contains characters that are not valid in a Linux "
+                f"interface name: {v!r}"
+            )
+        return v
+
+    @model_validator(mode="after")
+    def _check_mode_bridge_consistency(self) -> "NetworkAttachmentConfig":
+        if self.mode == "bridge" and self.bridge is None:
+            raise ValueError("mode='bridge' requires a bridge name")
+        if self.mode == "nat" and self.bridge is not None:
+            raise ValueError(
+                "mode='nat' does not accept a bridge name; "
+                "use mode='bridge' with --bridge to connect to a host bridge"
+            )
+        return self
+
+    model_config = {"frozen": True}
+
+
+class VMConfig(BaseModel):
+    """Configuration for creating a microVM.
+
+    Attributes:
+        vm_id: Optional unique identifier (lowercase alphanumeric with hyphens).
+            If omitted, Celesto auto-generates one.
+        preset: Canonical name of the preset that created this sandbox, or
+            ``None`` when it was created without a preset or predates tracking.
+        vcpu_count: Number of virtual CPUs (1-32).
+        memory: Memory size in MiB (128-16384).
+        boot_mode: How the guest boots:
+
+            - ``"direct_kernel"`` (default): the hypervisor loads
+              ``kernel_path`` (and optionally ``initrd_path``) directly and
+              passes ``boot_args`` as the kernel command line. Required for
+              firecracker, libkrun, and microvm-style QEMU boots.
+            - ``"firmware"``: QEMU boots the rootfs disk via its default
+              firmware (OVMF on aarch64, SeaBIOS on x86_64). The guest kernel
+              lives inside ``rootfs_path`` (e.g. a Debian or Ubuntu cloud
+              image). ``kernel_path`` must be ``None`` in this mode, and the
+              backend must be ``"qemu"``.
+            - ``"platform"``: the platform backend boots a native machine
+              bundle instead of a kernel or rootfs image. This mode is only
+              available for macOS guests using the ``"vz"`` backend.
+
+        kernel_path: Path to the kernel image. Required when
+            ``boot_mode == "direct_kernel"``; must be ``None`` when
+            ``boot_mode == "firmware"``.
+        initrd_path: Optional path to the initrd image.
+        rootfs_path: Optional path to the root filesystem image. This is
+            ``None`` for macOS guests that boot from a platform machine bundle.
+        rootfs_format: Declared root filesystem image format. New configs
+            should set this to ``"raw-ext4"`` or ``"qcow2"``; legacy configs
+            that omit it fall back to the filename suffix.
+        extra_drives: Additional block-device image paths to attach at boot.
+        boot_args: Kernel boot arguments (ignored in firmware mode).
+        ssh_capable: Whether this boot path is expected to start guest SSH
+            without relying on ``init=/init``.
+        backend: Optional runtime backend override (``"firecracker"``,
+            ``"qemu"``, ``"libkrun"``, or macOS-only ``"vz"``).
+        qemu_network: QEMU backend networking mode — ``"slirp"`` (default,
+            userspace NAT + host port forwards) or ``"tap"`` (host TAP device
+            under the shared nftables NAT/isolation rules). Ignored by non-QEMU
+            backends.
+        qemu_machine: QEMU machine model — ``"auto"`` picks ``microvm`` for
+            Linux x86_64 direct-kernel Linux guests and the compatibility
+            machine elsewhere, ``"q35"`` forces the compatibility machine, and
+            ``"microvm"`` opts into microvm where supported. Ignored by
+            non-QEMU backends.
+        disk_mode: Disk lifecycle mode:
+            - ``"isolated"`` (default): clone rootfs per VM for sandbox isolation.
+            - ``"shared"``: boot directly from ``rootfs_path``.
+        disk_size_mib: Optional size for the isolated per-VM disk. Celesto
+            refuses to resize a shared base image.
+        grow_filesystem: Grow the guest filesystem after resizing when Celesto
+            can safely do so (raw ext4 only in this release).
+        retain_disk_on_delete: Keep isolated VM disk after delete, so a later
+            create with the same VM ID can reuse prior state.
+        env_vars: Environment variables to inject into the guest
+            after boot via SSH. Keys must be valid shell identifiers.
+        port_forwards: Optional host TCP forwards configured at VM launch.
+        comm_channel: Host↔guest control transport (``"ssh"`` or ``"vsock"``).
+            ``None`` means auto-select at runtime (vsock when the guest agent
+            answers on a supported backend, else SSH). See
+            :func:`celesto.comm.select.resolve_comm_channel`.
+        ssh_public_key: Optional OpenSSH public key (one-line ``authorized_keys``
+            format) to install in the guest's ``/root/.ssh/authorized_keys`` at
+            first boot. Passed via the kernel command line as
+            ``smolvm.authorized_key_b64=<base64>`` and read by ``/init``. Use
+            this for published pre-built images that don't bake keys at build
+            time, so each VM gets the launching user's key without rebuilding.
+        guest_managed_networking: Whether the guest image understands
+            ``smolvm.network=guest`` and can configure its own interface.
+            Required for bridge mode so older cached or custom images cannot
+            silently boot without usable networking.
+    """
+
+    vm_id: Annotated[
+        str,
+        Field(
+            default_factory=_generate_vm_id,
+            pattern=_IDENTIFIER_PATTERN,
+        ),
+    ]
+    preset: str | None = None
+    vcpu_count: Annotated[int, Field(ge=1, le=32)] = 2
+    memory: Annotated[int, Field(ge=128, le=16384)] = 512
+    guest_os: GuestOS = GuestOS.ALPINE
+    boot_mode: Literal["direct_kernel", "firmware", "platform"] = "direct_kernel"
+    kernel_path: Path | None = None
+    initrd_path: Path | None = None
+    rootfs_path: Path | None = None
+    rootfs_format: RootfsFormat | None = None
+    macos_machine: MacOSMachineConfig | None = None
+    extra_drives: list[Path] = []
+    boot_args: str = "console=ttyS0 reboot=k panic=1 pci=off"
+    ssh_capable: bool = False
+    backend: str | None = None
+    qemu_network: Literal["slirp", "tap"] = "slirp"
+    qemu_machine: QemuMachine = "auto"
+    disk_mode: Literal["isolated", "shared"] = "isolated"
+    disk_size_mib: Annotated[int, Field(ge=1)] | None = None
+    grow_filesystem: bool = False
+    retain_disk_on_delete: bool = False
+    env_vars: dict[str, str] = {}
+    network_rate_limit_mbps: Annotated[int, Field(ge=1)] | None = None
+    port_forwards: list[PortForwardConfig] = []
+    vsock: VsockConfig | None = None
+    comm_channel: Literal["ssh", "vsock"] | None = None
+    internet_settings: InternetSettings | None = None
+    workspace_mounts: list[WorkspaceMount] = []
+    ssh_public_key: str | None = None
+    guest_managed_networking: bool = False
+    network_attachment: NetworkAttachmentConfig = Field(default_factory=NetworkAttachmentConfig)
+
+    @property
+    def effective_rootfs_format(self) -> RootfsFormat:
+        """Return the declared rootfs format, falling back for legacy configs."""
+        if self.rootfs_path is None:
+            raise ValueError("this guest does not have a Linux-style root filesystem")
+        return self.rootfs_format or infer_rootfs_format_from_path(self.rootfs_path)
+
+    @property
+    def qemu_rootfs_format(self) -> QemuDiskFormat:
+        """Return the QEMU disk format for the current rootfs path."""
+        return qemu_disk_format_for_rootfs_format(self.effective_rootfs_format)
+
+    @field_validator("vm_id", mode="before")
+    @classmethod
+    def default_vm_id_when_none(cls, v: object) -> object:
+        """Generate VM ID when explicitly provided as ``None``."""
+        if v is None:
+            return _generate_vm_id()
+        return v
+
+    @field_validator("kernel_path", "rootfs_path")
+    @classmethod
+    def validate_path_exists(cls, v: Path | None, info: ValidationInfo) -> Path | None:
+        """Ensure paths exist on the filesystem."""
+        if v is None:
+            return None
+        if not _should_validate_paths(info):
+            return v
+        return cls._validate_file_path(v)
+
+    @model_validator(mode="after")
+    def _check_boot_mode_consistency(self) -> "VMConfig":
+        """Enforce guest platform and boot-artifact invariants."""
+        if self.guest_os is GuestOS.MACOS:
+            if self.backend != "vz":
+                raise ValueError("macOS guests require backend='vz'")
+            if self.boot_mode != "platform":
+                raise ValueError("macOS guests require boot_mode='platform'")
+            if self.macos_machine is None:
+                raise ValueError("macOS guests require macos_machine configuration")
+            if self.kernel_path is not None or self.initrd_path is not None:
+                raise ValueError("macOS guests do not accept kernel_path or initrd_path")
+            if self.rootfs_path is not None or self.rootfs_format is not None:
+                raise ValueError("macOS guests use a machine bundle, not rootfs_path")
+            if self.comm_channel == "vsock":
+                raise ValueError(
+                    "macOS guests do not support vsock in this release; remove comm_channel='vsock'"
+                )
+            if self.env_vars:
+                raise ValueError(
+                    "macOS guests do not support managed environment variables in this release; "
+                    "remove env_vars"
+                )
+            if self.network_attachment.mode == "bridge":
+                raise ValueError("macOS guests use NAT in this release; remove bridge networking")
+            if (
+                self.internet_settings is not None
+                and not self.internet_settings.is_allow_all_domains
+            ):
+                raise ValueError(
+                    "macOS guests do not support network restrictions in this release; "
+                    "use a Linux guest on Linux with backend='firecracker' "
+                    "and comm_channel='vsock'."
+                )
+            return self
+
+        if self.backend == "vz":
+            raise ValueError("backend='vz' is only valid for guest_os='macos'")
+        if self.macos_machine is not None:
+            raise ValueError("macos_machine is only valid for guest_os='macos'")
+        if self.rootfs_path is None:
+            raise ValueError("non-macOS guests require rootfs_path")
+        if self.boot_mode == "platform":
+            raise ValueError("boot_mode='platform' is only valid for macOS guests")
+        if self.boot_mode == "firmware":
+            if self.kernel_path is not None:
+                raise ValueError(
+                    "boot_mode='firmware' requires kernel_path=None "
+                    "(the guest kernel is inside the rootfs disk)"
+                )
+            if self.backend != "qemu":
+                raise ValueError(
+                    f"boot_mode='firmware' requires backend='qemu' "
+                    f"(got backend={self.backend!r}); firmware boot is only "
+                    "supported on the QEMU backend, so the caller must set it "
+                    "explicitly rather than relying on auto-detection"
+                )
+        elif self.kernel_path is None:
+            raise ValueError("boot_mode='direct_kernel' requires kernel_path to be set")
+        if self.guest_os is GuestOS.WINDOWS and self.boot_mode != "firmware":
+            # Windows always boots via OVMF firmware reading the qcow2's UEFI
+            # boot manager; there is no direct-kernel path. The firmware-mode
+            # invariants above then also pin backend='qemu' and kernel_path=None.
+            raise ValueError(
+                f"VM {self.vm_id!r}: guest_os='windows' requires "
+                "boot_mode='firmware' (Windows has no direct-kernel boot path)."
+            )
+        return self
+
+    @field_validator("initrd_path")
+    @classmethod
+    def validate_optional_path_exists(
+        cls,
+        v: Path | None,
+        info: ValidationInfo,
+    ) -> Path | None:
+        """Ensure optional paths exist on the filesystem."""
+        if v is None:
+            return None
+        if not _should_validate_paths(info):
+            return v
+        return cls._validate_file_path(v)
+
+    @model_validator(mode="after")
+    def _check_bridge_mode_constraints(self) -> "VMConfig":
+        """Reject feature combinations not supported by bridge mode in v1."""
+        if self.network_attachment.mode != "bridge":
+            return self
+        if not self.guest_managed_networking:
+            raise ValueError(
+                "Bridge mode requires an image that supports guest-managed networking; "
+                "use a current Celesto Alpine image or set guest_managed_networking=True "
+                "for a compatible custom image."
+            )
+        if self.comm_channel == "ssh":
+            raise ValueError(
+                "Bridge mode requires vsock for host-guest communication; "
+                "comm_channel='ssh' is not supported with bridge mode."
+            )
+        if self.workspace_mounts:
+            raise ValueError("Workspace mounts are not supported with bridge mode in this release.")
+        if self.port_forwards:
+            raise ValueError(
+                "Port forwards are not supported with bridge mode; "
+                "the VM is directly reachable on the bridged network."
+            )
+        if self.internet_settings is not None and not self.internet_settings.is_allow_all_domains:
+            raise ValueError(
+                "Network restrictions are not supported with bridge networking; "
+                "set network_attachment={'mode': 'nat'} to use private networking."
+            )
+        return self
+
+    @field_validator("extra_drives")
+    @classmethod
+    def validate_extra_drives(cls, v: list[Path], info: ValidationInfo) -> list[Path]:
+        """Ensure all extra drive paths exist and are files."""
+        if not _should_validate_paths(info):
+            return v
+        for path in v:
+            cls._validate_file_path(path)
+        return v
+
+    @staticmethod
+    def _validate_file_path(v: Path) -> Path:
+        """Validate a filesystem path points to an existing file."""
+        if not v.exists():
+            raise ValueError(f"Path does not exist: {v}")
+        if not v.is_file():
+            raise ValueError(f"Path is not a file: {v}")
+        return v
+
+    @field_validator("env_vars")
+    @classmethod
+    def validate_env_keys(cls, v: dict[str, str]) -> dict[str, str]:
+        """Ensure all env var keys are valid shell identifiers."""
+        from celesto.env import validate_env_key  # deferred to avoid circular import
+
+        for key in v:
+            validate_env_key(key)
+        return v
+
+    @field_validator("port_forwards")
+    @classmethod
+    def validate_port_forwards(cls, v: list[PortForwardConfig]) -> list[PortForwardConfig]:
+        """Ensure port-forward definitions do not reuse host or guest ports."""
+        seen_host_ports: set[int] = set()
+        seen_guest_ports: set[int] = set()
+        for forward in v:
+            if forward.host_port in seen_host_ports:
+                raise ValueError(f"Duplicate host port in port_forwards: {forward.host_port}")
+            if forward.guest_port in seen_guest_ports:
+                raise ValueError(f"Duplicate guest port in port_forwards: {forward.guest_port}")
+            seen_host_ports.add(forward.host_port)
+            seen_guest_ports.add(forward.guest_port)
+        return v
+
+    @field_validator("workspace_mounts")
+    @classmethod
+    def validate_workspace_mounts(
+        cls,
+        v: list[WorkspaceMount],
+    ) -> list[WorkspaceMount]:
+        """Ensure workspace mount tags and guest paths are unique."""
+        seen_tags: set[str] = set()
+        seen_guest_paths: set[str] = set()
+        for index, mount in enumerate(v):
+            tag = mount.resolved_tag(index)
+            if tag in seen_tags:
+                raise ValueError(f"Duplicate workspace mount tag: {tag}")
+            if mount.guest_path in seen_guest_paths:
+                raise ValueError(f"Duplicate workspace guest_path: {mount.guest_path}")
+            seen_tags.add(tag)
+            seen_guest_paths.add(mount.guest_path)
+        return v
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+
+class BrowserSessionConfig(BaseModel):
+    """Configuration for launching a browser session."""
+
+    session_id: Annotated[
+        str | None,
+        Field(default=None, pattern=_IDENTIFIER_PATTERN),
+    ] = None
+    backend: Literal["firecracker", "qemu", "libkrun", "auto"] = "auto"
+    browser: Literal["chromium"] = "chromium"
+    mode: Literal["headless", "live", "desktop", "computer"] = "headless"
+    profile_mode: Literal["ephemeral", "persistent"] = "ephemeral"
+    profile_id: Annotated[
+        str | None,
+        Field(default=None, pattern=_IDENTIFIER_PATTERN),
+    ] = None
+    timeout_minutes: Annotated[int, Field(ge=1, le=240)] = 30
+    viewport_width: Annotated[int, Field(ge=640, le=7680)] = 1280
+    viewport_height: Annotated[int, Field(ge=480, le=4320)] = 720
+    viewport: BrowserViewport | None = None
+    record_video: bool = False
+    allow_downloads: bool = True
+    internet_settings: InternetSettings | None = None
+    network_policy_id: str | None = None
+    env_vars: dict[str, str] = {}
+    workspace_mounts: list[WorkspaceMount] = []
+    mem_size_mib: Annotated[int, Field(ge=512, le=16384)] = 2048
+    disk_size_mib: Annotated[int, Field(ge=2048, le=16384)] = 4096
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_viewport(cls, raw: Any) -> Any:
+        """Allow callers to specify viewport via a nested object."""
+        if not isinstance(raw, dict):
+            return raw
+
+        data = dict(raw)
+        viewport = data.get("viewport")
+        if viewport is None:
+            data["viewport"] = {
+                "width": data.get("viewport_width", 1280),
+                "height": data.get("viewport_height", 720),
+            }
+            return data
+
+        if isinstance(viewport, BrowserViewport):
+            width = viewport.width
+            height = viewport.height
+        elif isinstance(viewport, dict):
+            width = viewport.get("width")
+            height = viewport.get("height")
+        else:
+            raise ValueError("viewport must be a mapping with width/height values")
+
+        data.setdefault("viewport_width", width)
+        data.setdefault("viewport_height", height)
+        return data
+
+    @model_validator(mode="after")
+    def validate_browser_session_config(self) -> "BrowserSessionConfig":
+        """Validate cross-field browser session constraints."""
+        if self.viewport is None:
+            raise ValueError("viewport could not be resolved")
+
+        if self.viewport.width != self.viewport_width:
+            raise ValueError("viewport.width must match viewport_width")
+        if self.viewport.height != self.viewport_height:
+            raise ValueError("viewport.height must match viewport_height")
+
+        if self.profile_mode == "persistent" and not self.profile_id:
+            raise ValueError("profile_id is required when profile_mode='persistent'")
+
+        if self.record_video and self.mode == "headless":
+            raise ValueError("record_video requires a visible browser or desktop sandbox")
+
+        if self.network_policy_id is not None and not self.network_policy_id.strip():
+            raise ValueError("network_policy_id cannot be empty")
+
+        seen_tags: set[str] = set()
+        seen_guest_paths: set[str] = set()
+        for index, mount in enumerate(self.workspace_mounts):
+            tag = mount.resolved_tag(index)
+            if tag in seen_tags:
+                raise ValueError(f"Duplicate workspace mount tag: {tag}")
+            if mount.guest_path in seen_guest_paths:
+                raise ValueError(f"Duplicate workspace guest_path: {mount.guest_path}")
+            seen_tags.add(tag)
+            seen_guest_paths.add(mount.guest_path)
+
+        return self
+
+    @field_validator("session_id", "profile_id", "network_policy_id")
+    @classmethod
+    def strip_optional_identifiers(cls, value: str | None) -> str | None:
+        """Normalize optional identifier-like strings."""
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            return None
+        return normalized
+
+    @field_validator("env_vars")
+    @classmethod
+    def validate_env_keys(cls, v: dict[str, str]) -> dict[str, str]:
+        """Ensure all env var keys are valid shell identifiers."""
+        from celesto.env import validate_env_key  # deferred to avoid circular import
+
+        for key in v:
+            validate_env_key(key)
+        return v
+
+    model_config = {"frozen": True}
+
+
+class NetworkConfig(BaseModel):
+    """Network configuration for a VM.
+
+    Attributes:
+        guest_ip: IP address assigned to the guest (None in bridge mode).
+        gateway_ip: Gateway IP, host side of TAP (None in bridge mode).
+        netmask: Network mask (None in bridge mode).
+        tap_device: Name of the TAP device.
+        guest_mac: MAC address for the guest interface.
+        ssh_host_port: Optional host TCP port forwarded to guest SSH (22).
+            None in bridge mode.
+        egress_proxy_host_port: Internal host listener used by restricted QEMU
+            user networking. It is not a public network-policy option.
+        mode: Network mode — ``"nat"`` (default) or ``"bridge"``.
+        bridge: Bridge name when mode is ``"bridge"``; None for NAT.
+    """
+
+    guest_ip: str | None = None
+    gateway_ip: str | None = None
+    netmask: str | None = None
+    tap_device: str
+    guest_mac: str
+    ssh_host_port: int | None = None
+    egress_proxy_host_port: Annotated[int | None, Field(ge=1, le=65535)] = None
+    mode: Literal["nat", "bridge"] = "nat"
+    bridge: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _fill_nat_defaults(cls, data: Any) -> Any:
+        """Fill NAT defaults for backward compatibility."""
+        if not isinstance(data, dict):
+            return data
+        mode = data.get("mode", "nat")
+        if mode == "nat":
+            if data.get("gateway_ip") is None:
+                data["gateway_ip"] = "172.16.0.1"
+            if data.get("netmask") is None:
+                data["netmask"] = "255.255.255.0"
+        return data
+
+    @model_validator(mode="after")
+    def _check_nat_bridge_consistency(self) -> "NetworkConfig":
+        if self.mode == "bridge":
+            if self.bridge is None:
+                raise ValueError("mode='bridge' requires a bridge name")
+            if self.guest_ip is not None:
+                raise ValueError(
+                    "mode='bridge' must not set guest_ip; the guest manages its own address"
+                )
+            if self.gateway_ip is not None:
+                raise ValueError(
+                    "mode='bridge' must not set gateway_ip; the guest manages its own gateway"
+                )
+            if self.netmask is not None:
+                raise ValueError(
+                    "mode='bridge' must not set netmask; the guest manages its own netmask"
+                )
+            if self.ssh_host_port is not None:
+                raise ValueError(
+                    "mode='bridge' must not set ssh_host_port; "
+                    "use vsock (celesto sandbox shell) instead"
+                )
+            if self.egress_proxy_host_port is not None:
+                raise ValueError("mode='bridge' must not set egress_proxy_host_port")
+        elif self.mode == "nat":
+            if self.bridge is not None:
+                raise ValueError("mode='nat' must not set bridge")
+            if self.guest_ip is None:
+                raise ValueError("mode='nat' requires guest_ip")
+            if self.gateway_ip is None:
+                raise ValueError("mode='nat' requires gateway_ip")
+            if self.netmask is None:
+                raise ValueError("mode='nat' requires netmask")
+        return self
+
+    model_config = {"frozen": True}
+
+
+class VMInfo(BaseModel):
+    """Runtime information about a VM.
+
+    Attributes:
+        vm_id: The VM identifier.
+        status: Current lifecycle state.
+        config: The VM configuration.
+        network: Network configuration.
+        pid: Process ID of the VM process (if running).
+        control_socket_path: Path to the runtime control socket.
+    """
+
+    vm_id: str
+    status: VMState
+    config: VMConfig
+    network: NetworkConfig | None = None
+    pid: int | None = None
+    control_socket_path: Path | None = None
+    vsock_uds_path: Path | None = None
+    display: DesktopEndpoint | None = None
+
+    model_config = {"frozen": True}
+
+
+class SnapshotArtifacts(BaseModel):
+    """Filesystem artifacts associated with a persisted VM snapshot."""
+
+    state_path: Path | None = None
+    memory_path: Path | None = None
+    disk_path: Path
+
+    model_config = {"frozen": True}
+
+
+class SnapshotInfo(BaseModel):
+    """Persisted metadata for a VM snapshot."""
+
+    snapshot_id: Annotated[
+        str,
+        Field(default_factory=_generate_snapshot_id, pattern=_IDENTIFIER_PATTERN),
+    ]
+    vm_id: Annotated[str, Field(pattern=_IDENTIFIER_PATTERN)]
+    backend: Literal["firecracker", "qemu", "libkrun"]
+    artifacts: SnapshotArtifacts
+    vm_config: VMConfig
+    network_config: NetworkConfig
+    created_at: datetime
+    snapshot_type: SnapshotType = SnapshotType.FULL
+    artifact_kind: Literal["full", "incremental"] | None = None
+    virtual_size_bytes: int | None = None
+    # Estimate sampled from QEMU immediately before incremental capture begins.
+    changed_bytes: int | None = None
+    bitmap_granularity_bytes: int | None = None
+    bitmap_name: str | None = None
+    restored: bool = False
+    restored_vm_id: str | None = None
+
+    model_config = {"frozen": True}
+
+
+class BrowserSessionInfo(BaseModel):
+    """Runtime information about a browser session."""
+
+    session_id: str
+    vm_id: str
+    status: BrowserSessionState
+    cdp_url: str | None = None
+    live_url: str | None = None
+    vnc_url: str | None = None
+    debug_port: int | None = None
+    vnc_port: int | None = None
+    profile_id: str | None = None
+    expires_at: datetime | None = None
+    artifacts_dir: Path | None = None
+
+    model_config = {"frozen": True}
+
+
+class DisplaySandboxProtocol(Protocol):
+    """Public protocol returned by browser and desktop sandbox factories."""
+
+    @property
+    def session_id(self) -> str:
+        """Stable sandbox identifier."""
+        ...
+
+    @property
+    def vm_id(self) -> str:
+        """Underlying Celesto identifier."""
+        ...
+
+    @property
+    def cdp_url(self) -> str | None:
+        """Browser automation endpoint, when the sandbox exposes one."""
+        ...
+
+    @property
+    def browser_cdp_url(self) -> str | None:
+        """Alias for the browser automation endpoint."""
+        ...
+
+    @property
+    def viewer_url(self) -> str | None:
+        """Web URL that humans can open to watch the sandbox."""
+        ...
+
+    @property
+    def display_url(self) -> str | None:
+        """VNC-compatible display endpoint for clients and agents."""
+        ...
+
+    @property
+    def artifacts_dir(self) -> Path | None:
+        """Local directory for collected sandbox artifacts."""
+        ...
+
+    @property
+    def info(self) -> BrowserSessionInfo:
+        """Current persisted sandbox info."""
+        ...
+
+    @property
+    def vm(self) -> Any:
+        """Underlying VM used for session-scoped guest commands."""
+        ...
+
+    @property
+    def status(self) -> BrowserSessionState:
+        """Current sandbox lifecycle state."""
+        ...
+
+    def start(
+        self,
+        boot_timeout: float = ...,
+        *,
+        on_progress: Any | None = ...,
+    ) -> "DisplaySandboxProtocol":
+        """Start the sandbox."""
+        ...
+
+    def stop(self) -> "DisplaySandboxProtocol":
+        """Stop the sandbox."""
+        ...
+
+    def delete(self) -> None:
+        """Delete the sandbox."""
+        ...
+
+    def close(self) -> None:
+        """Release local resources."""
+        ...
+
+    def open_viewer(self) -> bool:
+        """Open the viewer URL in the local default browser."""
+        ...
+
+    def connect_playwright(self) -> Any:
+        """Connect Playwright when browser automation is available."""
+        ...
+
+    def screenshot(
+        self,
+        destination: str | Path,
+        *,
+        full_page: bool = True,
+    ) -> Path:
+        """Capture a screenshot when browser automation is available."""
+        ...
+
+    def __enter__(self) -> "DisplaySandboxProtocol":
+        """Enter the context manager."""
+        ...
+
+    def __exit__(self, *args: object) -> None:
+        """Exit the context manager."""
+        ...
+
+
+class ComputerDisplayProtocol(Protocol):
+    """Addresses for watching or controlling a computer display."""
+
+    @property
+    def viewer_url(self) -> str: ...
+
+    @property
+    def vnc_url(self) -> str: ...
+
+
+class ComputerBrowserProtocol(Protocol):
+    """Chromium application available inside a computer."""
+
+    @property
+    def status(self) -> Literal["ready", "closed", "error"]: ...
+
+    @property
+    def cdp_url(self) -> str | None: ...
+
+    def launch(self) -> None: ...
+
+    def connect_playwright(self) -> Any: ...
+
+
+class ComputerFilesProtocol(Protocol):
+    """Files accessed as the desktop user."""
+
+    def read(self, path: str, *, max_bytes: int | None = None) -> bytes: ...
+
+    def write(self, path: str, content: str | bytes) -> None: ...
+
+
+class ComputerSandboxProtocol(DisplaySandboxProtocol, Protocol):
+    """A ready graphical computer and its included applications."""
+
+    @property
+    def computer_id(self) -> str: ...
+
+    @property
+    def sandbox_id(self) -> str: ...
+
+    @property
+    def display(self) -> ComputerDisplayProtocol: ...
+
+    @property
+    def browser(self) -> ComputerBrowserProtocol: ...
+
+    @property
+    def files(self) -> ComputerFilesProtocol: ...
+
+    def run(
+        self,
+        command: str,
+        timeout: int | float | None = ...,
+        shell: Literal["login", "raw"] = ...,
+    ) -> "CommandResult": ...
+
+
+class CommandResult(BaseModel):
+    """Result of executing a command on a guest VM.
+
+    Attributes:
+        exit_code: Exit code of the command (0 = success).
+        stdout: Standard output captured from the command.
+        stderr: Standard error captured from the command.
+    """
+
+    exit_code: int
+    stdout: str
+    stderr: str
+
+    model_config = {"frozen": True}
+
+    @property
+    def ok(self) -> bool:
+        """Whether the command succeeded (exit_code == 0)."""
+        return self.exit_code == 0
+
+    @property
+    def output(self) -> str:
+        """Convenience alias for stripped standard output."""
+        return self.stdout.strip()

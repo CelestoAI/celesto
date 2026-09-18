@@ -1,7 +1,7 @@
 """Break the ~1.5s 'time to interact' into its real sub-components.
 
 For each backend, one VM:
-  t_create   : SmolVM(config) constructor
+  t_create   : Celesto(config) constructor
   t_launch   : .start() (hypervisor process up; does NOT wait for guest)
   t_tcp_open : from launch-return until the guest's SSH port (22) accepts a
                TCP connection  = guest kernel boot + init + sshd listening
@@ -18,10 +18,10 @@ import re
 import socket
 import time
 
-from smolvm import SmolVM
-from smolvm.facade import _build_auto_config
-from smolvm.ssh import SSHClient
-from smolvm.vm import resolve_data_dir
+from celesto import Celesto
+from celesto.facade import _build_auto_config
+from celesto.ssh import SSHClient
+from celesto.vm import resolve_data_dir
 
 OS = "alpine"
 CMD = "echo hello"
@@ -46,7 +46,7 @@ def profile(backend: str) -> dict:
 
     t0 = time.perf_counter()
     config, key = _build_auto_config(vm_name=name, os=OS, backend=backend)
-    vm = SmolVM(config=config, ssh_key_path=key)
+    vm = Celesto(config=config, ssh_key_path=key)
     r["create"] = time.perf_counter() - t0
 
     client = None

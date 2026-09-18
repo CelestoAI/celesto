@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Timing helpers for the SmolVM benchmark suite."""
+"""Timing helpers for the Celesto benchmark suite."""
 
 from __future__ import annotations
 

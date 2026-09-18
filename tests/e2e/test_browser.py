@@ -23,8 +23,8 @@ from urllib.request import urlopen
 import pytest
 from _util import BOOT_TIMEOUT, require_backend_available, selected_backend
 
-from smolvm import SmolVM
-from smolvm.runtime.backends import BACKEND_QEMU
+from celesto import Celesto
+from celesto.runtime.backends import BACKEND_QEMU
 
 pytestmark = pytest.mark.e2e
 
@@ -42,7 +42,7 @@ def test_browser_headless_exposes_live_cdp(
         sandbox_name="browser-qemu",
     )
 
-    sandbox = SmolVM.browser(
+    sandbox = Celesto.browser(
         headless=True,
         backend=BACKEND_QEMU,
         boot_timeout=BOOT_TIMEOUT,

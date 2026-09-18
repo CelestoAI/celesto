@@ -144,9 +144,9 @@ def test_firecracker_request_wraps_socket_errors(tmp_path: Path) -> None:
 
 
 def test_production_code_does_not_import_private_core_extension() -> None:
-    """SmolVM production code should use public smolvm_core modules only."""
+    """Celesto production code should use public smolvm_core modules only."""
     repo_root = Path(__file__).resolve().parents[1]
-    source_root = repo_root / "src" / "smolvm"
+    source_root = repo_root / "src" / "celesto"
     forbidden = [
         "smolvm_core._ffi",
         "smolvm_core._smolvm_core",

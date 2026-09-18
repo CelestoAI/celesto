@@ -6,9 +6,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from smolvm.facade import SmolVM
-from smolvm.host.network import NetworkManager
-from smolvm.types import VMState
+from celesto.facade import Celesto
+from celesto.host.network import NetworkManager
+from celesto.types import VMState
 
 
 @pytest.fixture
@@ -16,7 +16,7 @@ def sandboxes():
     instances = []
 
     def create(name):
-        vm = object.__new__(SmolVM)
+        vm = object.__new__(Celesto)
         vm._vm_id = name
         vm._info = SimpleNamespace(
             status=VMState.RUNNING,
@@ -53,7 +53,7 @@ def test_two_sandboxes_cannot_claim_the_same_port(sandboxes):
     # does not listen, so it cannot itself make the application probe succeed.
     with socket.socket() as check, pytest.raises(OSError):
         check.bind(("127.0.0.1", port))
-    assert not SmolVM._probe_local_forward(port, timeout=0.05)
+    assert not Celesto._probe_local_forward(port, timeout=0.05)
     first.unexpose_local(port, 8080)
     assert_available(port)
     assert first.expose_local(8080, host_port=port) == port
@@ -104,7 +104,7 @@ def test_persisted_forward_prevents_reuse_after_owner_exits(sandboxes, monkeypat
                 output += f'  {expression} comment "{comment}"\n'
         return SimpleNamespace(stdout=output + " }\n}\n")
 
-    monkeypatch.setattr("smolvm.host.network.run_command", listing)
+    monkeypatch.setattr("celesto.host.network.run_command", listing)
     first, second = sandboxes("first-cli"), sandboxes("second-cli")
     second._info.network.guest_ip = "172.16.0.3"
     for vm in (first, second):
@@ -136,7 +136,7 @@ def test_persisted_forward_prevents_reuse_after_owner_exits(sandboxes, monkeypat
 
 
 def test_unknown_ownership_never_falls_back_to_ssh(sandboxes):
-    from smolvm.exceptions import NetworkError
+    from celesto.exceptions import NetworkError
 
     vm = sandboxes("unreadable")
     vm._sdk.network.setup_local_port_forward.side_effect = NetworkError("Cannot check forwards")

@@ -16,7 +16,7 @@
 
 import pytest
 
-from smolvm.dashboard.commands import CommandAction, parse_command
+from celesto.dashboard.commands import CommandAction, parse_command
 
 
 @pytest.mark.parametrize(

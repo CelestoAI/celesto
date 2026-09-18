@@ -27,9 +27,9 @@ from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
-from smolvm.dashboard import server
-from smolvm.exceptions import VMNotFoundError
-from smolvm.types import VMConfig, VMInfo, VMState
+from celesto.dashboard import server
+from celesto.exceptions import VMNotFoundError
+from celesto.types import VMConfig, VMInfo, VMState
 
 _KERNEL = Path(__file__).resolve()
 _ROOTFS = Path(__file__).resolve()
@@ -670,7 +670,7 @@ def test_execute_command_missing_vm_is_an_error_not_a_result(
 def test_open_vm_desktop_keeps_password_on_host(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from smolvm.types import DesktopEndpoint
+    from celesto.types import DesktopEndpoint
 
     bundle = tmp_path / "mac-test"
     bundle.mkdir()
@@ -682,7 +682,7 @@ def test_open_vm_desktop_keeps_password_on_host(
     monkeypatch.setattr(server, "_get_state_manager", lambda _app: _VMStateManagerStub(vm))
     opened: list[tuple[DesktopEndpoint, str | None]] = []
     monkeypatch.setattr(
-        "smolvm.macos.desktop.open_desktop",
+        "celesto.macos.desktop.open_desktop",
         lambda endpoint, *, password=None: opened.append((endpoint, password)),
     )
 
@@ -700,7 +700,7 @@ def test_open_vm_desktop_not_found_names_recovery(monkeypatch: pytest.MonkeyPatc
 
     assert exc_info.value.status_code == 404
     assert "Sandbox 'missing-mac'" in exc_info.value.detail
-    assert "smolvm sandbox list --all" in exc_info.value.detail
+    assert "celesto sandbox list --all" in exc_info.value.detail
 
 
 # ── Tests for GET /api/vms/{vm_id}/processes ──
@@ -730,7 +730,7 @@ class _VMStateManagerStub:
 
     def get_vm(self, vm_id: str) -> object:
         if self._vm is None:
-            from smolvm.exceptions import VMNotFoundError
+            from celesto.exceptions import VMNotFoundError
 
             raise VMNotFoundError(vm_id)
         return self._vm
@@ -751,7 +751,7 @@ def test_get_vm_processes_vm_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_get_vm_processes_vm_not_running(monkeypatch: pytest.MonkeyPatch) -> None:
     """Process endpoint should return 409 when the VM is stopped."""
-    from smolvm.types import VMState
+    from celesto.types import VMState
 
     vm = _DummyVMInfo(status=VMState.STOPPED, network=_DummyNetwork())
     monkeypatch.setattr(server, "_get_state_manager", lambda _app: _VMStateManagerStub(vm))
@@ -765,7 +765,7 @@ def test_get_vm_processes_vm_not_running(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_get_vm_processes_no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     """Process endpoint should return 409 when the VM has no network."""
-    from smolvm.types import VMState
+    from celesto.types import VMState
 
     vm = _DummyVMInfo(status=VMState.RUNNING, network=None)
     monkeypatch.setattr(server, "_get_state_manager", lambda _app: _VMStateManagerStub(vm))
@@ -781,7 +781,7 @@ def test_get_vm_processes_parses_ps_output(monkeypatch: pytest.MonkeyPatch) -> N
     """Process endpoint should parse structured ps output correctly."""
     from unittest.mock import MagicMock, patch
 
-    from smolvm.types import VMState
+    from celesto.types import VMState
 
     vm = _DummyVMInfo(status=VMState.RUNNING, network=_DummyNetwork())
     monkeypatch.setattr(server, "_get_state_manager", lambda _app: _VMStateManagerStub(vm))
@@ -797,7 +797,7 @@ def test_get_vm_processes_parses_ps_output(monkeypatch: pytest.MonkeyPatch) -> N
     mock_ssh = MagicMock()
     mock_ssh.run.return_value = MagicMock(exit_code=0, stdout=ps_output, stderr="")
 
-    with patch("smolvm.ssh.SSHClient", return_value=mock_ssh):
+    with patch("celesto.ssh.SSHClient", return_value=mock_ssh):
         result = asyncio.run(server.get_vm_processes("vm-test01"))
 
     assert result["vm_id"] == "vm-test01"
@@ -813,15 +813,15 @@ def test_get_vm_processes_ssh_failure_returns_502(monkeypatch: pytest.MonkeyPatc
     """Process endpoint should return 502 when SSH connection fails."""
     from unittest.mock import patch
 
-    from smolvm.exceptions import SmolVMError
-    from smolvm.types import VMState
+    from celesto.exceptions import CelestoError
+    from celesto.types import VMState
 
     vm = _DummyVMInfo(status=VMState.RUNNING, network=_DummyNetwork())
     monkeypatch.setattr(server, "_get_state_manager", lambda _app: _VMStateManagerStub(vm))
     monkeypatch.setattr(server, "_resolve_ssh_key_path", lambda: None)
 
     with (
-        patch("smolvm.ssh.SSHClient", side_effect=SmolVMError("Connection refused")),
+        patch("celesto.ssh.SSHClient", side_effect=CelestoError("Connection refused")),
         pytest.raises(HTTPException) as exc_info,
     ):
         asyncio.run(server.get_vm_processes("vm-test01"))

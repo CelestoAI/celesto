@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for SmolVM network module."""
+"""Tests for Celesto network module."""
 
 import logging
 import os
@@ -20,21 +20,21 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from smolvm.exceptions import SmolVMError
-from smolvm.host.network import NetworkManager, check_network_prerequisites
+from celesto.exceptions import CelestoError
+from celesto.host.network import NetworkManager, check_network_prerequisites
 
 
 @pytest.fixture(autouse=True)
 def _disable_native_extension():
     """Force subprocess path in all network tests (native extension may be present on Linux CI)."""
-    with patch("smolvm.host.network.HAS_NETLINK", False):
+    with patch("celesto.host.network.HAS_NETLINK", False):
         yield
 
 
 @pytest.fixture(autouse=True)
 def _reset_native_unprivileged_flag():
     """Reset the cached EPERM flag so tests don't leak state into each other."""
-    import smolvm.host.network as net
+    import celesto.host.network as net
 
     net._native_unprivileged = False
     yield
@@ -53,7 +53,7 @@ def _collect_nft_scripts(mock_run_command: MagicMock) -> str:
 class TestSSHPortForwarding:
     """Tests for SSH forwarding rule setup/cleanup."""
 
-    @patch("smolvm.host.network.run_command")
+    @patch("celesto.host.network.run_command")
     def test_setup_ssh_port_forward_adds_elements(self, mock_run_command: MagicMock) -> None:
         """Setup should add elements to DNAT maps and SNAT/forward sets."""
         mock_run_command.return_value = MagicMock(stdout="")
@@ -78,7 +78,7 @@ class TestSSHPortForwarding:
         assert "add element ip smolvm_nat snat_return { 172.16.0.2 . 22 }" in scripts
         assert "add element inet smolvm_filter fwd_allow { 172.16.0.2 . 22 }" in scripts
 
-    @patch("smolvm.host.network.run_command")
+    @patch("celesto.host.network.run_command")
     def test_cleanup_ssh_port_forward_deletes_elements_and_legacy_rules(
         self, mock_run_command: MagicMock
     ) -> None:
@@ -118,10 +118,10 @@ class TestSSHPortForwarding:
 class TestTapManagement:
     """Tests for TAP device create behavior."""
 
-    @patch("smolvm.host.network.run_command")
+    @patch("celesto.host.network.run_command")
     def test_create_tap_is_idempotent_when_existing(self, mock_run_command: MagicMock) -> None:
         """'File exists' errors should be treated as success."""
-        mock_run_command.side_effect = SmolVMError("RTNETLINK answers: File exists")
+        mock_run_command.side_effect = CelestoError("RTNETLINK answers: File exists")
 
         nm = NetworkManager()
         nm.create_tap("tap42", "alice")
@@ -130,14 +130,14 @@ class TestTapManagement:
             ["ip", "tuntap", "add", "tap42", "mode", "tap", "user", "alice"]
         )
 
-    @patch("smolvm.host.network.time.sleep")
-    @patch("smolvm.host.network.run_command")
+    @patch("celesto.host.network.time.sleep")
+    @patch("celesto.host.network.run_command")
     def test_create_tap_retries_busy_then_succeeds(
         self, mock_run_command: MagicMock, mock_sleep: MagicMock
     ) -> None:
         """Transient busy errors should be retried."""
         mock_run_command.side_effect = [
-            SmolVMError("ioctl(TUNSETIFF): Device or resource busy"),
+            CelestoError("ioctl(TUNSETIFF): Device or resource busy"),
             MagicMock(stdout=""),
         ]
 
@@ -147,26 +147,26 @@ class TestTapManagement:
         assert mock_run_command.call_count == 2
         mock_sleep.assert_called_once_with(0.1)
 
-    @patch("smolvm.host.network.time.sleep")
-    @patch("smolvm.host.network.run_command")
+    @patch("celesto.host.network.time.sleep")
+    @patch("celesto.host.network.run_command")
     def test_create_tap_raises_after_busy_retries(
         self, mock_run_command: MagicMock, mock_sleep: MagicMock
     ) -> None:
         """Persistent busy errors should still fail after retries."""
-        mock_run_command.side_effect = SmolVMError("ioctl(TUNSETIFF): Device or resource busy")
+        mock_run_command.side_effect = CelestoError("ioctl(TUNSETIFF): Device or resource busy")
 
         nm = NetworkManager()
         try:
             nm.create_tap("tap7", "alice")
-            raise AssertionError("Expected SmolVMError")
-        except SmolVMError:
+            raise AssertionError("Expected CelestoError")
+        except CelestoError:
             pass
 
         assert mock_run_command.call_count == 4
         assert mock_sleep.call_count == 3
 
-    @patch("smolvm.host.network.run_command")
-    @patch("smolvm.host.network.network_native")
+    @patch("celesto.host.network.run_command")
+    @patch("celesto.host.network.network_native")
     def test_native_can_be_forced_off_with_env_var(
         self,
         mock_network_native: MagicMock,
@@ -177,7 +177,7 @@ class TestTapManagement:
         mock_run_command.return_value = MagicMock(stdout="")
         monkeypatch.setenv("SMOLVM_DISABLE_NATIVE_NETWORKING", "yes")
 
-        with patch("smolvm.host.network.HAS_NETLINK", True):
+        with patch("celesto.host.network.HAS_NETLINK", True):
             nm = NetworkManager()
             nm.create_tap("tap2", "alice")
 
@@ -186,8 +186,8 @@ class TestTapManagement:
             ["ip", "tuntap", "add", "tap2", "mode", "tap", "user", "alice"]
         )
 
-    @patch("smolvm.host.network.run_command")
-    @patch("smolvm.host.network.network_native")
+    @patch("celesto.host.network.run_command")
+    @patch("celesto.host.network.network_native")
     def test_create_tap_falls_back_to_subprocess_on_eperm(
         self,
         mock_network_native: MagicMock,
@@ -198,8 +198,8 @@ class TestTapManagement:
         mock_network_native.create_tap.side_effect = OSError("tap2: errno 1")
         mock_run_command.return_value = MagicMock(stdout="")
 
-        caplog.set_level(logging.WARNING, logger="smolvm.host.network")
-        with patch("smolvm.host.network.HAS_NETLINK", True):
+        caplog.set_level(logging.WARNING, logger="celesto.host.network")
+        with patch("celesto.host.network.HAS_NETLINK", True):
             nm = NetworkManager()
             nm.create_tap("tap2", "alice")
 
@@ -210,11 +210,11 @@ class TestTapManagement:
         warning = caplog.text
         assert "Fast Rust networking needs permission" in warning
         assert "root or CAP_NET_ADMIN" in warning
-        assert "smolvm setup" in warning
-        assert "same SmolVM command with sudo" in warning
+        assert "celesto setup" in warning
+        assert "same Celesto command with sudo" in warning
 
-    @patch("smolvm.host.network.run_command")
-    @patch("smolvm.host.network.network_native")
+    @patch("celesto.host.network.run_command")
+    @patch("celesto.host.network.network_native")
     def test_native_unprivileged_flag_skips_subsequent_native_attempts(
         self, mock_network_native: MagicMock, mock_run_command: MagicMock
     ) -> None:
@@ -222,7 +222,7 @@ class TestTapManagement:
         mock_network_native.create_tap.side_effect = OSError("tap2: errno 1")
         mock_run_command.return_value = MagicMock(stdout="")
 
-        with patch("smolvm.host.network.HAS_NETLINK", True):
+        with patch("celesto.host.network.HAS_NETLINK", True):
             nm = NetworkManager()
             nm.create_tap("tap2", "alice")  # trips EPERM, sets flag
             nm.create_tap("tap3", "alice")  # must skip native entirely
@@ -233,9 +233,9 @@ class TestTapManagement:
         assert mock_network_native.create_tap.call_count == 1
         mock_network_native.add_route.assert_not_called()
 
-    @patch("smolvm.host.network.run_command")
-    @patch("smolvm.host.network.Path.write_text", side_effect=PermissionError)
-    @patch("smolvm.host.network.network_native")
+    @patch("celesto.host.network.run_command")
+    @patch("celesto.host.network.Path.write_text", side_effect=PermissionError)
+    @patch("celesto.host.network.network_native")
     def test_native_sysctl_eperm_disables_subsequent_native_attempts(
         self,
         mock_network_native: MagicMock,
@@ -246,7 +246,7 @@ class TestTapManagement:
         mock_network_native.write_sysctl.side_effect = OSError("Operation not permitted")
         mock_run_command.return_value = MagicMock(stdout="")
 
-        with patch("smolvm.host.network.HAS_NETLINK", True):
+        with patch("celesto.host.network.HAS_NETLINK", True):
             nm = NetworkManager()
             nm.enable_ip_forwarding()
             nm.add_route("172.16.0.5", "tap3")
@@ -262,13 +262,13 @@ class TestTapManagement:
 class TestNativeTapManagement:
     """Tests for native TAP/configure/route parity."""
 
-    @patch("smolvm.host.network.run_command")
-    @patch("smolvm.host.network.network_native")
+    @patch("celesto.host.network.run_command")
+    @patch("celesto.host.network.network_native")
     def test_prepare_tap_uses_native_composite_helper(
         self, mock_network_native: MagicMock, mock_run_command: MagicMock
     ) -> None:
         """Sync prepare should leave route_localnet to the Python sysctl path."""
-        with patch("smolvm.host.network.HAS_NETLINK", True):
+        with patch("celesto.host.network.HAS_NETLINK", True):
             nm = NetworkManager()
             nm.prepare_tap("tap9", "__missing_user__", host_ip="172.16.0.1", netmask="32")
 
@@ -283,9 +283,9 @@ class TestNativeTapManagement:
         )
         mock_run_command.assert_not_called()
 
-    @patch("smolvm.host.network.run_command", side_effect=SmolVMError("sysctl denied"))
-    @patch("smolvm.host.network.Path.write_text", side_effect=PermissionError)
-    @patch("smolvm.host.network.network_native")
+    @patch("celesto.host.network.run_command", side_effect=CelestoError("sysctl denied"))
+    @patch("celesto.host.network.Path.write_text", side_effect=PermissionError)
+    @patch("celesto.host.network.network_native")
     def test_prepare_tap_route_localnet_uses_soft_sysctl_path(
         self,
         mock_network_native: MagicMock,
@@ -295,7 +295,7 @@ class TestNativeTapManagement:
         """Native prepare sysctl failures should use the existing soft-failure path."""
         mock_network_native.write_sysctl.side_effect = OSError("sysctl denied")
 
-        with patch("smolvm.host.network.HAS_NETLINK", True):
+        with patch("celesto.host.network.HAS_NETLINK", True):
             nm = NetworkManager()
             nm.prepare_tap("tap9", "__missing_user__", host_ip="172.16.0.1", netmask="32")
 
@@ -312,14 +312,14 @@ class TestNativeTapManagement:
             use_sudo=True,
         )
 
-    @patch("smolvm.host.network.network_native")
+    @patch("celesto.host.network.network_native")
     def test_prepare_tap_falls_back_when_native_composite_missing(
         self, mock_network_native: MagicMock
     ) -> None:
         """Older smolvm-core wheels should fall back to the existing Python sequence."""
         del mock_network_native.prepare_tap
 
-        with patch("smolvm.host.network.HAS_NETLINK", True):
+        with patch("celesto.host.network.HAS_NETLINK", True):
             nm = NetworkManager()
             nm.create_tap = MagicMock()
             nm.configure_tap = MagicMock()
@@ -328,13 +328,13 @@ class TestNativeTapManagement:
         nm.create_tap.assert_called_once_with("tap9", "alice")
         nm.configure_tap.assert_called_once_with("tap9", host_ip="172.16.0.1", netmask="32")
 
-    @patch("smolvm.host.network.run_command")
-    @patch("smolvm.host.network.network_native")
+    @patch("celesto.host.network.run_command")
+    @patch("celesto.host.network.network_native")
     def test_configure_tap_uses_composite_native_helper(
         self, mock_network_native: MagicMock, mock_run_command: MagicMock
     ) -> None:
         """Sync configure should use one native helper plus the route_localnet sysctl."""
-        with patch("smolvm.host.network.HAS_NETLINK", True):
+        with patch("celesto.host.network.HAS_NETLINK", True):
             nm = NetworkManager()
             nm.configure_tap("tap9", host_ip="172.16.0.1", netmask="32")
 
@@ -348,15 +348,15 @@ class TestNativeTapManagement:
         )
         mock_run_command.assert_not_called()
 
-    @patch("smolvm.host.network.run_command")
-    @patch("smolvm.host.network.network_native")
+    @patch("celesto.host.network.run_command")
+    @patch("celesto.host.network.network_native")
     def test_default_interface_uses_native_when_available(
         self, mock_network_native: MagicMock, mock_run_command: MagicMock
     ) -> None:
         """Default interface detection should honor the same native gate."""
         mock_network_native.get_default_interface.return_value = "eth0"
 
-        with patch("smolvm.host.network.HAS_NETLINK", True):
+        with patch("celesto.host.network.HAS_NETLINK", True):
             nm = NetworkManager()
             assert nm.outbound_interface == "eth0"
 
@@ -364,15 +364,15 @@ class TestNativeTapManagement:
         mock_run_command.assert_not_called()
 
     @pytest.mark.asyncio
-    @patch("smolvm.host.network.async_run_command", new_callable=AsyncMock)
-    @patch("smolvm.host.network.network_native")
+    @patch("celesto.host.network.async_run_command", new_callable=AsyncMock)
+    @patch("celesto.host.network.network_native")
     async def test_async_prepare_tap_uses_native_composite_helper(
         self,
         mock_network_native: MagicMock,
         mock_async_run_command: AsyncMock,
     ) -> None:
         """Async prepare should leave route_localnet to the Python sysctl path."""
-        with patch("smolvm.host.network.HAS_NETLINK", True):
+        with patch("celesto.host.network.HAS_NETLINK", True):
             nm = NetworkManager()
             await nm.async_prepare_tap(
                 "tap9", "__missing_user__", host_ip="172.16.0.1", netmask="32"
@@ -390,15 +390,15 @@ class TestNativeTapManagement:
         mock_async_run_command.assert_not_called()
 
     @pytest.mark.asyncio
-    @patch("smolvm.host.network.async_run_command", new_callable=AsyncMock)
-    @patch("smolvm.host.network.network_native")
+    @patch("celesto.host.network.async_run_command", new_callable=AsyncMock)
+    @patch("celesto.host.network.network_native")
     async def test_async_tap_route_and_delete_use_native_helpers(
         self,
         mock_network_native: MagicMock,
         mock_async_run_command: AsyncMock,
     ) -> None:
         """Async TAP setup should use native helpers through to_thread when available."""
-        with patch("smolvm.host.network.HAS_NETLINK", True):
+        with patch("celesto.host.network.HAS_NETLINK", True):
             nm = NetworkManager()
             await nm.async_create_tap("tap9", "__missing_user__")
             await nm.async_configure_tap("tap9", host_ip="172.16.0.1", netmask="32")
@@ -416,8 +416,8 @@ class TestNativeTapManagement:
         mock_async_run_command.assert_not_called()
 
     @pytest.mark.asyncio
-    @patch("smolvm.host.network.async_run_command", new_callable=AsyncMock)
-    @patch("smolvm.host.network.network_native")
+    @patch("celesto.host.network.async_run_command", new_callable=AsyncMock)
+    @patch("celesto.host.network.network_native")
     async def test_async_native_eperm_falls_back_to_subprocess(
         self,
         mock_network_native: MagicMock,
@@ -427,7 +427,7 @@ class TestNativeTapManagement:
         mock_network_native.add_route.side_effect = OSError("Operation not permitted")
         mock_async_run_command.return_value = MagicMock(stdout="")
 
-        with patch("smolvm.host.network.HAS_NETLINK", True):
+        with patch("celesto.host.network.HAS_NETLINK", True):
             nm = NetworkManager()
             await nm.async_add_route("172.16.0.5", "tap9")
 
@@ -441,22 +441,22 @@ class TestEpermDetector:
     """Pin the regex so 'errno 13' (EACCES) and friends do not match EPERM."""
 
     def test_matches_bare_errno_1(self) -> None:
-        from smolvm.host.network import _is_eperm
+        from celesto.host.network import _is_eperm
 
         assert _is_eperm("tap2: errno 1")
 
     def test_matches_operation_not_permitted(self) -> None:
-        from smolvm.host.network import _is_eperm
+        from celesto.host.network import _is_eperm
 
         assert _is_eperm("Operation not permitted")
 
     def test_does_not_match_errno_13(self) -> None:
-        from smolvm.host.network import _is_eperm
+        from celesto.host.network import _is_eperm
 
         assert not _is_eperm("tap2: errno 13")
 
     def test_does_not_match_errno_100(self) -> None:
-        from smolvm.host.network import _is_eperm
+        from celesto.host.network import _is_eperm
 
         assert not _is_eperm("tap2: errno 100")
 
@@ -473,7 +473,7 @@ class TestLocalPortForwarding:
         ],
     )
     def test_conflicting_persistent_mapping_is_rejected(self, owner, target):
-        from smolvm.exceptions import NetworkError
+        from celesto.exceptions import NetworkError
 
         output = (
             "table ip smolvm_nat {\n chain output {\n"
@@ -492,7 +492,7 @@ class TestLocalPortForwarding:
         NetworkManager._check_local_port_ownership(output, "vm001", 18080, "172.16.0.2", 8080)
 
     def test_existing_ssh_map_port_is_rejected(self):
-        from smolvm.exceptions import NetworkError
+        from celesto.exceptions import NetworkError
 
         output = (
             "table ip smolvm_nat {\n map dnat_local {\n"
@@ -506,7 +506,7 @@ class TestLocalPortForwarding:
     def test_ownership_read_failure_prevents_installation(self, monkeypatch, is_async):
         import asyncio
 
-        from smolvm.exceptions import NetworkError, SmolVMError
+        from celesto.exceptions import CelestoError, NetworkError
 
         nm = NetworkManager()
         monkeypatch.setattr(nm, "enable_ip_forwarding", MagicMock())
@@ -518,11 +518,11 @@ class TestLocalPortForwarding:
         monkeypatch.setattr(nm, "_add_nft_rules_if_missing", install)
         monkeypatch.setattr(nm, "_async_add_nft_rules_if_missing", async_install)
         monkeypatch.setattr(
-            "smolvm.host.network.run_command", MagicMock(side_effect=SmolVMError("nft failed"))
+            "celesto.host.network.run_command", MagicMock(side_effect=CelestoError("nft failed"))
         )
         monkeypatch.setattr(
-            "smolvm.host.network.async_run_command",
-            AsyncMock(side_effect=SmolVMError("nft failed")),
+            "celesto.host.network.async_run_command",
+            AsyncMock(side_effect=CelestoError("nft failed")),
         )
         with pytest.raises(NetworkError, match="Cannot check"):
             if is_async:
@@ -532,7 +532,7 @@ class TestLocalPortForwarding:
         install.assert_not_called()
         async_install.assert_not_called()
 
-    @patch("smolvm.host.network.run_command")
+    @patch("celesto.host.network.run_command")
     def test_setup_local_port_forward_adds_output_and_forward(
         self,
         mock_run_command: MagicMock,
@@ -555,7 +555,7 @@ class TestLocalPortForwarding:
         assert "add rule inet smolvm_filter forward" in scripts
         assert "add rule ip smolvm_nat prerouting" not in scripts
 
-    @patch("smolvm.host.network.run_command")
+    @patch("celesto.host.network.run_command")
     def test_cleanup_local_port_forward_deletes_rules(self, mock_run_command: MagicMock) -> None:
         """Cleanup should batch-delete OUTPUT/POSTROUTING/FORWARD rules."""
 
@@ -600,7 +600,7 @@ class TestLocalPortForwarding:
         assert "delete rule ip smolvm_nat output handle 23" in scripts
         assert "delete rule inet smolvm_filter forward handle 22" in scripts
 
-    @patch("smolvm.host.network.run_command", side_effect=SmolVMError("missing rule"))
+    @patch("celesto.host.network.run_command", side_effect=CelestoError("missing rule"))
     def test_cleanup_local_port_forward_is_idempotent_when_rules_missing(
         self,
         mock_run_command: MagicMock,
@@ -616,7 +616,7 @@ class TestLocalPortForwarding:
         # One table list attempt per table (nat + filter).
         assert mock_run_command.call_count == 2
 
-    @patch("smolvm.host.network.run_command")
+    @patch("celesto.host.network.run_command")
     def test_cleanup_all_local_port_forwards_removes_matching_rules_only(
         self,
         mock_run_command: MagicMock,
@@ -674,8 +674,8 @@ class TestLocalPortForwarding:
 class TestNetworkPrerequisites:
     """Tests for runtime prerequisite checks."""
 
-    @patch("smolvm.host.network.os.geteuid", return_value=1000)
-    @patch("smolvm.host.network.run_command")
+    @patch("celesto.host.network.os.geteuid", return_value=1000)
+    @patch("celesto.host.network.run_command")
     def test_check_network_prerequisites_checks_scoped_sudo_commands(
         self,
         mock_run_command: MagicMock,
@@ -857,7 +857,7 @@ class TestEgressAllowlist:
 
 
 class TestExplicitNetworkPolicy:
-    @patch("smolvm.host.network.run_command")
+    @patch("celesto.host.network.run_command")
     def test_nat_without_blanket_permission(self, run_command) -> None:
         run_command.return_value = MagicMock(stdout="")
         nm = NetworkManager()
@@ -868,7 +868,7 @@ class TestExplicitNetworkPolicy:
         assert 'add element inet smolvm_filter allowed_taps { "tap42" }' not in scripts
 
     @pytest.mark.asyncio
-    @patch("smolvm.host.network.async_run_command")
+    @patch("celesto.host.network.async_run_command")
     async def test_async_nat_without_blanket_permission(self, run_command) -> None:
         run_command.return_value = MagicMock(stdout="")
         nm = NetworkManager()

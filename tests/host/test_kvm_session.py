@@ -21,7 +21,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smolvm.cli import _kvm_session
+from celesto.cli import _kvm_session
 
 
 @pytest.fixture(autouse=True)
@@ -49,7 +49,7 @@ def _mock_pwd_user(name: str) -> SimpleNamespace:
 class TestShouldAttemptReexec:
     """Cover every branch of the gate function."""
 
-    @patch("smolvm.cli._kvm_session.platform.system", return_value="Darwin")
+    @patch("celesto.cli._kvm_session.platform.system", return_value="Darwin")
     def test_macos_skips(self, _mock_system: MagicMock) -> None:
         # macOS users must never see this code path attempt anything — no
         # /dev/kvm, no `sg`, no `kvm` group. Returning False here is the
@@ -57,40 +57,40 @@ class TestShouldAttemptReexec:
         assert _kvm_session._should_attempt_reexec([]) is False
 
     @patch.dict(
-        "smolvm.cli._kvm_session.os.environ",
+        "celesto.cli._kvm_session.os.environ",
         {"SMOLVM_KVM_REEXEC_DONE": "1"},
         clear=False,
     )
-    @patch("smolvm.cli._kvm_session.platform.system", return_value="Linux")
+    @patch("celesto.cli._kvm_session.platform.system", return_value="Linux")
     def test_loop_guard_env_skips(self, _mock_system: MagicMock) -> None:
         assert _kvm_session._should_attempt_reexec([]) is False
 
     @patch.dict(
-        "smolvm.cli._kvm_session.os.environ",
+        "celesto.cli._kvm_session.os.environ",
         {"SMOLVM_NO_KVM_REEXEC": "1"},
         clear=False,
     )
-    @patch("smolvm.cli._kvm_session.platform.system", return_value="Linux")
+    @patch("celesto.cli._kvm_session.platform.system", return_value="Linux")
     def test_user_disable_env_skips(self, _mock_system: MagicMock) -> None:
         assert _kvm_session._should_attempt_reexec([]) is False
 
-    @patch("smolvm.cli._kvm_session.platform.system", return_value="Linux")
+    @patch("celesto.cli._kvm_session.platform.system", return_value="Linux")
     def test_doctor_subcommand_skips(self, _mock_system: MagicMock) -> None:
         # Doctor is diagnostic — silently re-execing would mask the very
         # state the user invoked it to inspect.
         assert _kvm_session._should_attempt_reexec(["doctor"]) is False
 
-    @patch("smolvm.cli._kvm_session.platform.system", return_value="Linux")
+    @patch("celesto.cli._kvm_session.platform.system", return_value="Linux")
     def test_setup_subcommand_skips(self, _mock_system: MagicMock) -> None:
         assert _kvm_session._should_attempt_reexec(["setup"]) is False
 
-    @patch("smolvm.cli._kvm_session.platform.system", return_value="Linux")
+    @patch("celesto.cli._kvm_session.platform.system", return_value="Linux")
     def test_help_short_circuits(self, _mock_system: MagicMock) -> None:
         assert _kvm_session._should_attempt_reexec(["--help"]) is False
 
-    @patch("smolvm.cli._kvm_session.platform.system", return_value="Linux")
+    @patch("celesto.cli._kvm_session.platform.system", return_value="Linux")
     def test_verb_level_help_short_circuits(self, _mock_system: MagicMock) -> None:
-        # ``smolvm sandbox create --help`` reaches ["sandbox", "create", "--help"] —
+        # ``celesto sandbox create --help`` reaches ["sandbox", "create", "--help"] —
         # this should not trigger a re-exec even though ``create`` is a
         # kvm-using verb, because no kvm work will actually run.
         assert _kvm_session._should_attempt_reexec(["sandbox", "create", "--help"]) is False
@@ -99,7 +99,7 @@ class TestShouldAttemptReexec:
             _kvm_session._should_attempt_reexec(["sandbox", "create", "--name", "x", "-V"]) is False
         )
 
-    @patch("smolvm.cli._kvm_session.platform.system", return_value="Linux")
+    @patch("celesto.cli._kvm_session.platform.system", return_value="Linux")
     def test_read_only_verbs_skip(self, _mock_system: MagicMock) -> None:
         # Read-only / VM-process-targeted verbs don't need /dev/kvm; a
         # re-exec for them would just print a confusing notice.
@@ -125,15 +125,15 @@ class TestShouldAttemptReexec:
                 f"expected {argv!r} to skip re-exec"
             )
 
-    @patch("smolvm.cli._kvm_session._KVM_DEV")
-    @patch("smolvm.cli._kvm_session.platform.system", return_value="Linux")
+    @patch("celesto.cli._kvm_session._KVM_DEV")
+    @patch("celesto.cli._kvm_session.platform.system", return_value="Linux")
     def test_no_dev_kvm_skips(self, _mock_system: MagicMock, mock_dev: MagicMock) -> None:
         mock_dev.exists.return_value = False
         assert _kvm_session._should_attempt_reexec(["sandbox", "create"]) is False
 
-    @patch("smolvm.cli._kvm_session.os.access", return_value=True)
-    @patch("smolvm.cli._kvm_session._KVM_DEV")
-    @patch("smolvm.cli._kvm_session.platform.system", return_value="Linux")
+    @patch("celesto.cli._kvm_session.os.access", return_value=True)
+    @patch("celesto.cli._kvm_session._KVM_DEV")
+    @patch("celesto.cli._kvm_session.platform.system", return_value="Linux")
     def test_already_accessible_skips(
         self,
         _mock_system: MagicMock,
@@ -143,10 +143,10 @@ class TestShouldAttemptReexec:
         mock_dev.exists.return_value = True
         assert _kvm_session._should_attempt_reexec(["sandbox", "create"]) is False
 
-    @patch("smolvm.cli._kvm_session.os.getuid", return_value=1000)
-    @patch("smolvm.cli._kvm_session.os.access", return_value=False)
-    @patch("smolvm.cli._kvm_session._KVM_DEV")
-    @patch("smolvm.cli._kvm_session.platform.system", return_value="Linux")
+    @patch("celesto.cli._kvm_session.os.getuid", return_value=1000)
+    @patch("celesto.cli._kvm_session.os.access", return_value=False)
+    @patch("celesto.cli._kvm_session._KVM_DEV")
+    @patch("celesto.cli._kvm_session.platform.system", return_value="Linux")
     def test_user_not_in_kvm_group_skips(
         self,
         _mock_system: MagicMock,
@@ -163,11 +163,11 @@ class TestShouldAttemptReexec:
         ):
             assert _kvm_session._should_attempt_reexec(["sandbox", "create"]) is False
 
-    @patch("smolvm.cli._kvm_session.os.getgroups", return_value=[999])
-    @patch("smolvm.cli._kvm_session.os.getuid", return_value=1000)
-    @patch("smolvm.cli._kvm_session.os.access", return_value=False)
-    @patch("smolvm.cli._kvm_session._KVM_DEV")
-    @patch("smolvm.cli._kvm_session.platform.system", return_value="Linux")
+    @patch("celesto.cli._kvm_session.os.getgroups", return_value=[999])
+    @patch("celesto.cli._kvm_session.os.getuid", return_value=1000)
+    @patch("celesto.cli._kvm_session.os.access", return_value=False)
+    @patch("celesto.cli._kvm_session._KVM_DEV")
+    @patch("celesto.cli._kvm_session.platform.system", return_value="Linux")
     def test_kvm_already_in_effective_groups_skips(
         self,
         _mock_system: MagicMock,
@@ -189,11 +189,11 @@ class TestShouldAttemptReexec:
         ):
             assert _kvm_session._should_attempt_reexec(["sandbox", "create"]) is False
 
-    @patch("smolvm.cli._kvm_session.os.getgroups", return_value=[1000])
-    @patch("smolvm.cli._kvm_session.os.getuid", return_value=1000)
-    @patch("smolvm.cli._kvm_session.os.access", return_value=False)
-    @patch("smolvm.cli._kvm_session._KVM_DEV")
-    @patch("smolvm.cli._kvm_session.platform.system", return_value="Linux")
+    @patch("celesto.cli._kvm_session.os.getgroups", return_value=[1000])
+    @patch("celesto.cli._kvm_session.os.getuid", return_value=1000)
+    @patch("celesto.cli._kvm_session.os.access", return_value=False)
+    @patch("celesto.cli._kvm_session._KVM_DEV")
+    @patch("celesto.cli._kvm_session.platform.system", return_value="Linux")
     def test_pending_kvm_membership_qualifies(
         self,
         _mock_system: MagicMock,
@@ -216,8 +216,8 @@ class TestShouldAttemptReexec:
 class TestMaybeReexec:
     """Cover the outer driver: skip path, missing-sg path, and exec path."""
 
-    @patch("smolvm.cli._kvm_session._should_attempt_reexec", return_value=False)
-    @patch("smolvm.cli._kvm_session.os.execvp")
+    @patch("celesto.cli._kvm_session._should_attempt_reexec", return_value=False)
+    @patch("celesto.cli._kvm_session.os.execvp")
     def test_skip_path_does_not_exec(
         self,
         mock_execvp: MagicMock,
@@ -226,9 +226,9 @@ class TestMaybeReexec:
         _kvm_session.maybe_reexec_for_kvm_group([])
         mock_execvp.assert_not_called()
 
-    @patch("smolvm.cli._kvm_session.shutil.which", return_value=None)
-    @patch("smolvm.cli._kvm_session._should_attempt_reexec", return_value=True)
-    @patch("smolvm.cli._kvm_session.os.execvp")
+    @patch("celesto.cli._kvm_session.shutil.which", return_value=None)
+    @patch("celesto.cli._kvm_session._should_attempt_reexec", return_value=True)
+    @patch("celesto.cli._kvm_session.os.execvp")
     def test_missing_sg_returns_silently(
         self,
         mock_execvp: MagicMock,
@@ -240,9 +240,9 @@ class TestMaybeReexec:
         _kvm_session.maybe_reexec_for_kvm_group([])
         mock_execvp.assert_not_called()
 
-    @patch("smolvm.cli._kvm_session.shutil.which", return_value="/usr/bin/sg")
-    @patch("smolvm.cli._kvm_session._should_attempt_reexec", return_value=True)
-    @patch("smolvm.cli._kvm_session.os.execvp")
+    @patch("celesto.cli._kvm_session.shutil.which", return_value="/usr/bin/sg")
+    @patch("celesto.cli._kvm_session._should_attempt_reexec", return_value=True)
+    @patch("celesto.cli._kvm_session.os.execvp")
     def test_exec_path_invokes_sg_kvm(
         self,
         mock_execvp: MagicMock,
@@ -262,11 +262,11 @@ class TestMaybeReexec:
         assert sys.executable in argv[3]
 
     @patch(
-        "smolvm.cli._kvm_session.os.execvp",
+        "celesto.cli._kvm_session.os.execvp",
         side_effect=OSError("sg vanished between which() and execvp()"),
     )
-    @patch("smolvm.cli._kvm_session.shutil.which", return_value="/usr/bin/sg")
-    @patch("smolvm.cli._kvm_session._should_attempt_reexec", return_value=True)
+    @patch("celesto.cli._kvm_session.shutil.which", return_value="/usr/bin/sg")
+    @patch("celesto.cli._kvm_session._should_attempt_reexec", return_value=True)
     def test_exec_failure_clears_loop_guard_and_reraises(
         self,
         _mock_should: MagicMock,

@@ -8,7 +8,7 @@ pytest.importorskip("fastapi")
 
 from pydantic import ValidationError
 
-from smolvm.server.models import (
+from celesto.server.models import (
     BrowserSessionResponse,
     CreateBrowserSessionRequest,
     CreateSandboxRequest,
@@ -18,7 +18,7 @@ from smolvm.server.models import (
     ExecResponse,
     SandboxResponse,
 )
-from smolvm.types import BrowserSessionState, VMState
+from celesto.types import BrowserSessionState, VMState
 
 
 def test_create_request_accepts_supported_options() -> None:

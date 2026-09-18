@@ -1,6 +1,6 @@
 # Minimal network policy implementation plan
 
-SmolVM should start quickly and do exactly what its network settings promise. The first release will let callers turn outbound access off or limit it to specific IP addresses, while keeping commands and file operations usable.
+Celesto should start quickly and do exactly what its network settings promise. The first release will let callers turn outbound access off or limit it to specific IP addresses, while keeping commands and file operations usable.
 
 Status: first-release implementation merged in PR #496. Controlled Linux packet tests and real KVM Firecracker lifecycle tests pass, including commands, file transfers, restart, and disk snapshot restore in off/restricted modes. Release preparation has verified actual firewall-install failures and installed-package examples. The completed open-mode performance gate passes; see the [validation report](network-policy-release-validation.md) for results and the documented reduction of the 32-destination serial case to 83 samples. This is not a published release.
 
@@ -29,12 +29,12 @@ The public contract is outbound access. `off` prevents guest-initiated IP connec
 
 ## 1. API and compatibility
 
-Extend the existing `InternetSettings` in `src/smolvm/types.py` rather than introducing a second policy object or top-level constructor argument:
+Extend the existing `InternetSettings` in `src/celesto/types.py` rather than introducing a second policy object or top-level constructor argument:
 
 ```python
-SmolVM(internet_settings={"mode": "open"})
-SmolVM(comm_channel="vsock", internet_settings={"mode": "off"})
-SmolVM(
+Celesto(internet_settings={"mode": "open"})
+Celesto(comm_channel="vsock", internet_settings={"mode": "off"})
+Celesto(
     comm_channel="vsock",
     internet_settings={
         "mode": "restricted",
@@ -55,7 +55,7 @@ Validation rules:
 - Preserve legacy domain settings on supported NAT backends, with their existing setup-time IPv4 resolution semantics. Document that they allow addresses, not verified hostnames. Do not route them through a new proxy.
 - A requested restriction on an unsupported backend is an error, replacing the current warning-and-continue behavior.
 
-Use shared policy parsing and compatibility validation at the public constructor before image preparation and again at the execution boundary. Unknown keys are rejected. Public SDK policy errors use `smolvm.ValidationError`; direct Pydantic model construction retains Pydantic errors. Policy collections are immutable tuples so caller mutation cannot change stored state. `model_copy(update=...)` bypasses model validation, so execution-boundary revalidation remains required.
+Use shared policy parsing and compatibility validation at the public constructor before image preparation and again at the execution boundary. Unknown keys are rejected. Public SDK policy errors use `celesto.ValidationError`; direct Pydantic model construction retains Pydantic errors. Policy collections are immutable tuples so caller mutation cannot change stored state. `model_copy(update=...)` bypasses model validation, so execution-boundary revalidation remains required.
 
 Keep the existing serialized VM configuration as the persistence mechanism. Test loading old configurations without the new fields. Existing objects carrying unenforced method restrictions must produce an actionable validation error rather than silently gaining enforcement claims.
 
@@ -69,7 +69,7 @@ Bridge, QEMU user-mode networking, libkrun, Windows guests, and macOS guests do 
 
 ## 2. Firewall behavior
 
-Modify `src/smolvm/host/network.py`; retain nftables and existing TAP ownership. Scope every new rule to SmolVM-managed interfaces so unrelated host traffic is unaffected.
+Modify `src/celesto/host/network.py`; retain nftables and existing TAP ownership. Scope every new rule to Celesto-managed interfaces so unrelated host traffic is unaffected.
 
 | Mode | Guest-initiated traffic | DNS | IPv6 |
 | --- | --- | --- | --- |
@@ -94,7 +94,7 @@ The existing global established-connection accept and separately removed `allowe
 
 ## 3. Lifecycle integration
 
-Update these paths in `src/smolvm/vm.py` together:
+Update these paths in `src/celesto/vm.py` together:
 
 - Synchronous and asynchronous creation.
 - `ensure_network_connectivity`, which currently calls NAT setup again.

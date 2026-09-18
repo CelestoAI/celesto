@@ -16,7 +16,7 @@
 #   6. starts sshd
 #   7. parks PID 1 in a sleep loop, signal-handling Firecracker shutdown
 #
-# Mirrors `_base_init_script()` in src/smolvm/images/builder.py — keep
+# Mirrors `_base_init_script()` in src/celesto/images/builder.py — keep
 # them in sync if either changes.
 
 set -u
@@ -87,7 +87,7 @@ log_ts "root-ready"
 # ready without waiting for SSH host-key generation or network setup. SSH-only
 # sandboxes can still boot if the agent is missing, but vsock sandboxes require
 # the Rust agent to answer.
-# Mirrors _base_init_script() in src/smolvm/images/builder.py.
+# Mirrors _base_init_script() in src/celesto/images/builder.py.
 log_ts "guest-agent-start"
 if [ -x /usr/local/bin/smolvm-guest-agent ]; then
     /usr/local/bin/smolvm-guest-agent --listen vsock://1024 >/var/log/smolvm-agent.log 2>&1 &
@@ -232,7 +232,7 @@ log_ts "ssh-authkey-inject-done"
 # periodically re-read the emulated hardware RTC — which QEMU keeps
 # pinned to host wall-clock time (-rtc clock=host) — and step the
 # system clock to match. No-ops on backends with no RTC (Firecracker).
-# Mirrors _base_init_script() in src/smolvm/images/builder.py.
+# Mirrors _base_init_script() in src/celesto/images/builder.py.
 log_ts "clock-sync-start"
 HWCLOCK=""
 for cand in hwclock /usr/sbin/hwclock /sbin/hwclock; do

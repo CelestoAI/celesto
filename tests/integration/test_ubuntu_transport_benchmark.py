@@ -100,7 +100,7 @@ def test_fresh_benchmark_attaches_boot_telemetry(monkeypatch, tmp_path: Path) ->
     log_path = tmp_path / "bench-fake.log"
     log_path.write_text(_sample_log())
 
-    monkeypatch.setattr(ubuntu_transport, "SmolVM", _FakeSmolVM)
+    monkeypatch.setattr(ubuntu_transport, "Celesto", _FakeSmolVM)
     monkeypatch.setattr(
         ubuntu_transport,
         "_config_for_variant",
@@ -136,7 +136,7 @@ def test_snapshot_benchmark_restores_with_selected_transport(monkeypatch, tmp_pa
     restored_log.write_text(_sample_log())
     logs = {"bench-fake": source_log, "restored": restored_log}
 
-    monkeypatch.setattr(ubuntu_transport, "SmolVM", _FakeSmolVM)
+    monkeypatch.setattr(ubuntu_transport, "Celesto", _FakeSmolVM)
     monkeypatch.setattr(
         ubuntu_transport,
         "_config_for_variant",

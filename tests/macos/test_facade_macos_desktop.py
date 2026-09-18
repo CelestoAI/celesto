@@ -12,9 +12,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from smolvm.exceptions import SmolVMError
-from smolvm.facade import SmolVM, _build_auto_config
-from smolvm.types import (
+from celesto.exceptions import CelestoError
+from celesto.facade import Celesto, _build_auto_config
+from celesto.types import (
     DesktopEndpoint,
     GuestOS,
     MacOSMachineConfig,
@@ -49,8 +49,8 @@ def _info(tmp_path: Path, *, status: VMState = VMState.RUNNING) -> VMInfo:
     )
 
 
-def _facade(info: VMInfo) -> SmolVM:
-    vm = SmolVM.__new__(SmolVM)
+def _facade(info: VMInfo) -> Celesto:
+    vm = Celesto.__new__(Celesto)
     vm._vm_id = info.vm_id
     vm._info = info
     vm._sdk = MagicMock()
@@ -70,8 +70,8 @@ def test_auto_config_builds_macos_platform_vm(tmp_path: Path) -> None:
     manager.machine_config.return_value = machine
 
     with (
-        patch("smolvm.facade.ensure_backend_available"),
-        patch("smolvm.macos.images.MacOSImageManager", return_value=manager),
+        patch("celesto.facade.ensure_backend_available"),
+        patch("celesto.macos.images.MacOSImageManager", return_value=manager),
     ):
         config, key_path = _build_auto_config(
             vm_name="mac-test",
@@ -90,8 +90,8 @@ def test_auto_config_rejects_macos_memory_that_bundle_cannot_apply(tmp_path: Pat
     manager = MagicMock()
     manager.get.return_value = SimpleNamespace(cpu_count=4, memory_mib=8192)
     with (
-        patch("smolvm.facade.ensure_backend_available"),
-        patch("smolvm.macos.images.MacOSImageManager", return_value=manager),
+        patch("celesto.facade.ensure_backend_available"),
+        patch("celesto.macos.images.MacOSImageManager", return_value=manager),
         pytest.raises(ValueError, match="uses 8192 MiB"),
     ):
         _build_auto_config(vm_name="mac-test", os="macos", memory=4096, data_dir=tmp_path)
@@ -100,7 +100,7 @@ def test_auto_config_rejects_macos_memory_that_bundle_cannot_apply(tmp_path: Pat
 def test_open_desktop_uses_private_password_without_returning_it(tmp_path: Path) -> None:
     vm = _facade(_info(tmp_path))
 
-    with patch("smolvm.macos.desktop.open_desktop") as opener:
+    with patch("celesto.macos.desktop.open_desktop") as opener:
         endpoint = vm.open_desktop()
 
     assert endpoint.viewer_url == "vnc://127.0.0.1:5901"
@@ -112,14 +112,14 @@ def test_open_desktop_password_read_error_names_recovery(tmp_path: Path) -> None
     assert vm.info.config.macos_machine is not None
     (vm.info.config.macos_machine.bundle_path / ".smolvm-vnc-password").unlink()
 
-    with pytest.raises(SmolVMError, match="smolvm sandbox desktop mac-test"):
+    with pytest.raises(CelestoError, match="celesto sandbox desktop mac-test"):
         vm.open_desktop()
 
 
 def test_open_desktop_stopped_error_names_recovery(tmp_path: Path) -> None:
     vm = _facade(_info(tmp_path, status=VMState.STOPPED))
 
-    with pytest.raises(SmolVMError, match="smolvm sandbox start mac-test"):
+    with pytest.raises(CelestoError, match="celesto sandbox start mac-test"):
         vm.open_desktop()
 
 

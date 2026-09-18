@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for the ``smolvm setup`` runner."""
+"""Tests for the ``celesto setup`` runner."""
 
 import subprocess
 from pathlib import Path
@@ -20,7 +20,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import smolvm.host.setup as host_setup_module
+import celesto.host.setup as host_setup_module
 
 
 def _make_asset_root(tmp_path: Path) -> Path:
@@ -33,7 +33,7 @@ def _make_asset_root(tmp_path: Path) -> Path:
 
 def _make_repo_checkout(tmp_path: Path, *, with_scripts: bool) -> Path:
     repo_root = tmp_path / "repo"
-    setup_py = repo_root / "src" / "smolvm" / "host" / "setup.py"
+    setup_py = repo_root / "src" / "celesto" / "host" / "setup.py"
     setup_py.parent.mkdir(parents=True)
     setup_py.write_text("# test fixture\n")
     if with_scripts:
@@ -351,7 +351,7 @@ class TestBuildSetupCommand:
 class TestRunSetup:
     """Tests for subprocess execution behavior."""
 
-    @patch("smolvm.host.setup.subprocess.run")
+    @patch("celesto.host.setup.subprocess.run")
     def test_child_exit_code_is_propagated(
         self,
         mock_run: MagicMock,
@@ -371,7 +371,7 @@ class TestRunSetup:
 
         assert exit_code == 7
 
-    @patch("smolvm.host.setup.subprocess.run")
+    @patch("celesto.host.setup.subprocess.run")
     def test_run_setup_inherits_stdio_and_does_not_capture_output(
         self,
         mock_run: MagicMock,

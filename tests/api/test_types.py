@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for SmolVM types module."""
+"""Tests for Celesto types module."""
 
 import re
 from datetime import UTC, datetime
@@ -21,8 +21,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from smolvm import GuestOS as PublicGuestOS
-from smolvm.types import (
+from celesto import GuestOS as PublicGuestOS
+from celesto.types import (
     BrowserSessionConfig,
     BrowserSessionState,
     BrowserViewport,

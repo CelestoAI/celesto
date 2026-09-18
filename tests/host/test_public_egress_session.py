@@ -21,15 +21,15 @@ from dataclasses import dataclass
 
 import pytest
 
-from smolvm.host._public_egress_proxy import PublicProxyEndpoint
-from smolvm.host._public_egress_session import (
+from celesto.host._public_egress_proxy import PublicProxyEndpoint
+from celesto.host._public_egress_session import (
     PublicEgressDiagnostic,
     PublicEgressSession,
     PublicEgressSessionController,
     PublicEgressSessionError,
     PublicEgressSessionState,
 )
-from smolvm.types import NetworkConfig
+from celesto.types import NetworkConfig
 
 
 @dataclass

@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from smolvm.host._public_egress import (
+from celesto.host._public_egress import (
     EgressBlockReason,
     EgressRequest,
     EgressRequestKind,

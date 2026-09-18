@@ -11,11 +11,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from smolvm.exceptions import SmolVMError
-from smolvm.macos.models import MacOSLaunchResult
-from smolvm.runtime.base import RuntimeContext, SnapshotCreateRequest
-from smolvm.runtime.vz import VzRuntimeAdapter
-from smolvm.types import (
+from celesto.exceptions import CelestoError
+from celesto.macos.models import MacOSLaunchResult
+from celesto.runtime.base import RuntimeContext, SnapshotCreateRequest
+from celesto.runtime.vz import VzRuntimeAdapter
+from celesto.types import (
     DesktopEndpoint,
     GuestOS,
     MacOSMachineConfig,
@@ -95,5 +95,5 @@ def test_vz_runtime_rejects_snapshot_with_recovery(tmp_path: Path) -> None:
         capture_policy=SnapshotCapturePolicy.ALLOW_PAUSE,
     )
 
-    with pytest.raises(SmolVMError, match="smolvm sandbox stop mac-test"):
+    with pytest.raises(CelestoError, match="celesto sandbox stop mac-test"):
         adapter.create_snapshot(request)

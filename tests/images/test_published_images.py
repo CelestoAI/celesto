@@ -24,10 +24,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smolvm.exceptions import ImageError
-from smolvm.images import published as published_module
-from smolvm.images.manager import LocalImage
-from smolvm.images.published import (
+from celesto.exceptions import ImageError
+from celesto.images import published as published_module
+from celesto.images.manager import LocalImage
+from celesto.images.published import (
     BASE_KERNELS,
     IMAGES_RELEASE_TAG,
     MANIFEST,
@@ -106,7 +106,7 @@ def sample_manifest(
 class TestNaming:
     def test_release_tag_constant_format(self) -> None:
         # Image/rootfs releases use CalVer because they are content snapshots,
-        # not SmolVM package releases.
+        # not Celesto package releases.
         assert re.fullmatch(r"images-\d{4}\.\d{2}\.\d{2}\.\d+", IMAGES_RELEASE_TAG)
 
     def test_release_url_uses_env_override_when_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -343,7 +343,7 @@ class TestEnsurePublishedImage:
         (image_dir / "vmlinux.bin").write_bytes(b"fake-kernel")
         (image_dir / "rootfs.ext4").write_bytes(b"fake-rootfs")
 
-        with patch("smolvm.images.manager.requests.get") as mock_get:
+        with patch("celesto.images.manager.requests.get") as mock_get:
             local = ensure_published_image(
                 "codex",
                 "amd64",
@@ -358,7 +358,7 @@ class TestEnsurePublishedImage:
         assert local.kernel_path == image_dir / "vmlinux.bin"
         assert local.rootfs_path == image_dir / "rootfs.ext4"
 
-    @patch("smolvm.images.manager.requests.get")
+    @patch("celesto.images.manager.requests.get")
     def test_downloads_when_missing(
         self,
         mock_get: MagicMock,
@@ -393,7 +393,7 @@ class TestEnsurePublishedImage:
         assert local.rootfs_path.read_bytes() == b"fake-rootfs"
         assert mock_get.call_count == 2
 
-    @patch("smolvm.images.manager.requests.get")
+    @patch("celesto.images.manager.requests.get")
     def test_download_progress_callback_receives_asset_labels(
         self,
         mock_get: MagicMock,
@@ -481,7 +481,7 @@ class TestEnsurePublishedImage:
                 rootfs_sha256=hashlib.sha256(b"shared-rootfs").hexdigest(),
             )
 
-        with patch("smolvm.images.manager.requests.get") as mock_get:
+        with patch("celesto.images.manager.requests.get") as mock_get:
             fc_local = ensure_published_image(
                 "codex",
                 "amd64",
@@ -540,7 +540,7 @@ class TestZstdDecompression:
         )
         return entry, kernel_bytes, rootfs_zst, rootfs_plain
 
-    @patch("smolvm.images.manager.requests.get")
+    @patch("celesto.images.manager.requests.get")
     def test_compressed_rootfs_is_decompressed_after_download(
         self,
         mock_get: MagicMock,
@@ -578,7 +578,7 @@ class TestZstdDecompression:
         # re-run on subsequent calls without re-downloading.
         assert (local.rootfs_path.parent / "rootfs.ext4.zst").is_file()
 
-    @patch("smolvm.images.manager.requests.get")
+    @patch("celesto.images.manager.requests.get")
     def test_decompression_skipped_on_subsequent_call(
         self,
         mock_get: MagicMock,
@@ -603,7 +603,7 @@ class TestZstdDecompression:
             _decompressed_rootfs_sidecar_value(entry.rootfs_sha256)
         )
 
-        with patch("smolvm.images.published._decompress_zstd") as mock_decompress:
+        with patch("celesto.images.published._decompress_zstd") as mock_decompress:
             local = ensure_published_image(
                 entry.preset,
                 entry.arch,
@@ -617,7 +617,7 @@ class TestZstdDecompression:
 
         assert local.rootfs_path.read_bytes() == rootfs_plain
 
-    @patch("smolvm.images.manager.requests.get")
+    @patch("celesto.images.manager.requests.get")
     def test_decompression_reruns_when_zst_sha_changes(
         self,
         mock_get: MagicMock,
@@ -641,7 +641,7 @@ class TestZstdDecompression:
             _decompressed_rootfs_sidecar_value("0" * 64)
         )
 
-        with patch("smolvm.images.published._decompress_zstd") as mock_decompress:
+        with patch("celesto.images.published._decompress_zstd") as mock_decompress:
             ensure_published_image(
                 entry.preset,
                 entry.arch,
@@ -657,7 +657,7 @@ class TestZstdDecompression:
             _decompressed_rootfs_sidecar_value(entry.rootfs_sha256)
         )
 
-    @patch("smolvm.images.manager.requests.get")
+    @patch("celesto.images.manager.requests.get")
     def test_decompression_reruns_when_sidecar_format_is_old(
         self,
         mock_get: MagicMock,
@@ -675,7 +675,7 @@ class TestZstdDecompression:
         (image_dir / "rootfs.ext4").write_bytes(rootfs_plain)
         (image_dir / "rootfs.ext4.from-sha256").write_text(entry.rootfs_sha256)
 
-        with patch("smolvm.images.published._decompress_zstd") as mock_decompress:
+        with patch("celesto.images.published._decompress_zstd") as mock_decompress:
             ensure_published_image(
                 entry.preset,
                 entry.arch,
@@ -691,7 +691,7 @@ class TestZstdDecompression:
             _decompressed_rootfs_sidecar_value(entry.rootfs_sha256)
         )
 
-    @patch("smolvm.images.manager.requests.get")
+    @patch("celesto.images.manager.requests.get")
     def test_uncompressed_rootfs_url_skips_decompression_path(
         self,
         mock_get: MagicMock,
@@ -714,7 +714,7 @@ class TestZstdDecompression:
 
         mock_get.side_effect = factory
 
-        with patch("smolvm.images.published._decompress_zstd") as mock_decompress:
+        with patch("celesto.images.published._decompress_zstd") as mock_decompress:
             local = ensure_published_image(
                 sample_entry.preset,
                 sample_entry.arch,
@@ -730,7 +730,7 @@ class TestZstdDecompression:
 
 
 class TestBaseKernels:
-    """Sanity checks for the SmolVM-built kernels (BASE_KERNELS).
+    """Sanity checks for the Celesto-built kernels (BASE_KERNELS).
 
     Each entry carries TWO formats — ELF for Firecracker, Image for QEMU —
     from a single source build. See :class:`BaseKernel` docstring.
@@ -782,7 +782,7 @@ class TestBaseKernels:
         (e.g. someone hand-edits a SHA), SHA verification at download
         time would fail.
         """
-        from smolvm.images.published import _kernel_format_for_vmm
+        from celesto.images.published import _kernel_format_for_vmm
 
         for key, row in MANIFEST.items():
             _preset, arch, vmm, _os = key
@@ -800,7 +800,7 @@ class TestBaseKernels:
     ) -> None:
         """ensure_base_kernel should land at base-kernel-v<version>-<arch>/vmlinux.<fmt>
         and request the right SHA per format."""
-        import smolvm.images.published as published
+        import celesto.images.published as published
 
         captured: dict[str, object] = {}
 
@@ -918,7 +918,7 @@ class TestBundledManifest:
         VMM), this assertion needs revisiting along with the "shared rootfs"
         design assumption.
         """
-        from smolvm.images.published import Os
+        from celesto.images.published import Os
 
         by_preset_arch_os: dict[tuple[Preset, Arch, Os], list[PublishedImage]] = defaultdict(list)
         for key, entry in MANIFEST.items():
@@ -953,9 +953,9 @@ class TestDecompressZstd:
             target.write_bytes(b"decompressed")
 
         with (
-            patch("smolvm.images.published.uuid4") as mock_uuid4,
+            patch("celesto.images.published.uuid4") as mock_uuid4,
             patch(
-                "smolvm.host.disk.decompress_zstd_sparse",
+                "celesto.host.disk.decompress_zstd_sparse",
                 side_effect=write_staging,
             ) as mock_decompress,
         ):
@@ -985,7 +985,7 @@ class TestDecompressZstd:
             helper_tmp.replace(target)
 
         with (
-            patch("smolvm.host.disk.decompress_zstd_sparse", side_effect=decompress),
+            patch("celesto.host.disk.decompress_zstd_sparse", side_effect=decompress),
             ThreadPoolExecutor(max_workers=callers) as executor,
         ):
             list(executor.map(lambda _: _decompress_zstd(src, dst), range(callers)))
@@ -1040,9 +1040,9 @@ class TestDecompressZstd:
         helper_tmp.write_bytes(b"partial")
 
         with (
-            patch("smolvm.images.published.uuid4") as mock_uuid4,
+            patch("celesto.images.published.uuid4") as mock_uuid4,
             patch(
-                "smolvm.host.disk.decompress_zstd_sparse",
+                "celesto.host.disk.decompress_zstd_sparse",
                 side_effect=OSError("Unknown frame descriptor"),
             ),
             pytest.raises(zstandard.ZstdError, match="Unknown frame descriptor"),
@@ -1075,7 +1075,7 @@ class TestDecompressZstd:
         for _ in range(3):
             with (
                 patch(
-                    "smolvm.host.disk.decompress_zstd_sparse",
+                    "celesto.host.disk.decompress_zstd_sparse",
                     side_effect=_fail_after_creating_staging,
                 ),
                 pytest.raises(zstandard.ZstdError),
@@ -1099,7 +1099,7 @@ class TestDecompressZstd:
             raise KeyboardInterrupt
 
         with (
-            patch("smolvm.host.disk.decompress_zstd_sparse", side_effect=_interrupt),
+            patch("celesto.host.disk.decompress_zstd_sparse", side_effect=_interrupt),
             pytest.raises(KeyboardInterrupt),
         ):
             _decompress_zstd(src, dst)

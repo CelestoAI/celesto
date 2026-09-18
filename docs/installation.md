@@ -1,6 +1,6 @@
-# Install SmolVM
+# Install Celesto
 
-Install SmolVM, prepare the machine that will run sandboxes, and confirm that it is ready. You need Python 3.11 or newer; supported host setup is Linux and macOS.
+Install Celesto, prepare the machine that will run sandboxes, and confirm that it is ready. You need Python 3.11 or newer; supported host setup is Linux and macOS.
 
 ## Install the package
 
@@ -10,53 +10,53 @@ pip install smolvm
 
 ## Prepare your machine
 
-On macOS, install QEMU first, then let SmolVM check the rest of the setup:
+On macOS, install QEMU first, then let Celesto check the rest of the setup:
 
 ```bash
 brew install qemu
-smolvm setup
-smolvm doctor
+celesto setup
+celesto doctor
 ```
 
-On Linux, `setup` installs or checks the runtime dependencies and configures what SmolVM needs to run sandboxes. It may ask for administrator permission.
+On Linux, `setup` installs or checks the runtime dependencies and configures what Celesto needs to run sandboxes. It may ask for administrator permission.
 
 ```bash
-smolvm setup
-smolvm doctor
+celesto setup
+celesto doctor
 ```
 
-`smolvm doctor` reports problems and their recovery steps. Add `--strict` when a warning should fail an automated check.
+`celesto doctor` reports problems and their recovery steps. Add `--strict` when a warning should fail an automated check.
 
 ### Choose where Firecracker is stored
 
-On Linux, Firecracker is the program that starts a sandbox. SmolVM stores it in `~/.smolvm/bin` by default, which works without changing system folders.
+On Linux, Firecracker is the program that starts a sandbox. Celesto stores it in `~/.smolvm/bin` by default, which works without changing system folders.
 
 Choose another folder for one setup run with:
 
 ```bash
-smolvm setup --firecracker-dir "$HOME/.local/bin"
+celesto setup --firecracker-dir "$HOME/.local/bin"
 ```
 
-If that folder is not already on `PATH`, set it for future SmolVM commands:
+If that folder is not already on `PATH`, set it for future Celesto commands:
 
 ```bash
 export SMOLVM_FIRECRACKER_DIR="$HOME/.local/bin"
-smolvm setup
+celesto setup
 ```
 
 This setting changes only the Firecracker location. Images still use `SMOLVM_IMAGE_DIR`, and sandbox state still uses `SMOLVM_DATA_DIR`.
 
 ### Fedora Atomic desktops
 
-Silverblue, Bluefin, and other Fedora Atomic systems can use the normal setup command when the required host tools are already installed. SmolVM does not change the rpm-ostree deployment automatically. If a tool is missing, setup prints the exact `rpm-ostree` command and asks you to reboot before retrying.
+Silverblue, Bluefin, and other Fedora Atomic systems can use the normal setup command when the required host tools are already installed. Celesto does not change the rpm-ostree deployment automatically. If a tool is missing, setup prints the exact `rpm-ostree` command and asks you to reboot before retrying.
 
 ### Prepare macOS desktop support
 
 Apple Silicon Mac users can install the separate local desktop runtime:
 
 ```bash
-smolvm setup --macos
-smolvm doctor --backend vz
+celesto setup --macos
+celesto doctor --backend vz
 ```
 
 This is only needed for macOS guests. Linux guests on a Mac continue to use QEMU.
@@ -66,13 +66,13 @@ This is only needed for macOS guests. Linux guests on a Mac continue to use QEMU
 Use this only when preparing a reusable machine image on a builder that cannot run virtualization itself:
 
 ```bash
-smolvm setup --for-bake --runtime-user ubuntu
+celesto setup --for-bake --runtime-user ubuntu
 ```
 
-After booting that image on the real runtime machine, run `smolvm doctor` before accepting work.
+After booting that image on the real runtime machine, run `celesto doctor` before accepting work.
 
-## What SmolVM selects automatically
+## What Celesto selects automatically
 
-When you do not choose a backend, SmolVM picks the best one that is actually installed on your machine. It prefers Firecracker on Linux and QEMU on macOS, but if that one is missing it falls back to another installed backend, so it never picks something your machine cannot run. If nothing suitable is installed, `smolvm sandbox create` stops right away and tells you what to install — before downloading anything. You can inspect a specific choice with `smolvm doctor --backend qemu` or `smolvm doctor --backend firecracker`.
+When you do not choose a backend, Celesto picks the best one that is actually installed on your machine. It prefers Firecracker on Linux and QEMU on macOS, but if that one is missing it falls back to another installed backend, so it never picks something your machine cannot run. If nothing suitable is installed, `celesto sandbox create` stops right away and tells you what to install — before downloading anything. You can inspect a specific choice with `celesto doctor --backend qemu` or `celesto doctor --backend firecracker`.
 
-**Implementation notes:** supported setup platforms and packaged setup scripts are defined in [`src/smolvm/host/setup.py`](../src/smolvm/host/setup.py); backend selection is in [`src/smolvm/runtime/backends.py`](../src/smolvm/runtime/backends.py) and is covered by [`tests/test_setup.py`](../tests/test_setup.py) and [`tests/test_backends.py`](../tests/test_backends.py).
+**Implementation notes:** supported setup platforms and packaged setup scripts are defined in [`src/celesto/host/setup.py`](../src/celesto/host/setup.py); backend selection is in [`src/celesto/runtime/backends.py`](../src/celesto/runtime/backends.py) and is covered by [`tests/test_setup.py`](../tests/test_setup.py) and [`tests/test_backends.py`](../tests/test_backends.py).

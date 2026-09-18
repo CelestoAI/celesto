@@ -39,7 +39,7 @@ What each runtime accepts as `-kernel` / `--kernel-image-path`:
 | **libkrun**       | ✅ required (Firecracker-API-compatible) | ❌ same as Firecracker | Same loader as Firecracker. |
 
 Bottom line: ship both formats per arch. The runtime-side mapping lives
-in [`_kernel_format_for_vmm`](../../src/smolvm/images/published.py).
+in [`_kernel_format_for_vmm`](../../src/celesto/images/published.py).
 
 ## What features each runtime actually exercises
 

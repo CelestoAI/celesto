@@ -26,8 +26,8 @@ from pathlib import Path
 
 import pytest
 
-from smolvm.exceptions import SmolVMError
-from smolvm.qmp import QMPClient, QMPDirtyBitmap
+from celesto.exceptions import CelestoError
+from celesto.qmp import QMPClient, QMPDirtyBitmap
 from tests.qemu_incremental import _materialize
 
 _VIRTUAL_SIZE = 64 * 1024 * 1024
@@ -254,7 +254,7 @@ def test_incremental_chain_materializes_and_cancelled_backup_retains_dirty_bytes
             )
             time.sleep(0.2)
             client.cancel_job("job-cancelled", force=True)
-            with pytest.raises(SmolVMError, match="QMP job failed"):
+            with pytest.raises(CelestoError, match="QMP job failed"):
                 client.wait_for_job("job-cancelled", timeout=10)
             client.blockdev_del(target_node)
             assert _bitmap(client).dirty_bytes == cancelled_bytes

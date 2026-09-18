@@ -11,9 +11,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smolvm.cli.service import CLIService
-from smolvm.cli.state import create_cli_state_manager
-from smolvm.storage import MemoryStateManager
+from celesto.cli.service import CLIService
+from celesto.cli.state import create_cli_state_manager
+from celesto.storage import MemoryStateManager
 
 
 def _run_isolated(script: str, data_dir: Path) -> subprocess.CompletedProcess[str]:
@@ -35,11 +35,11 @@ def test_sdk_uses_memory_state_without_importing_sqlite(tmp_path: Path) -> None:
         """
 import sys
 from pathlib import Path
-from smolvm.vm import SmolVMManager
-manager = SmolVMManager(backend='qemu')
+from celesto.vm import CelestoManager
+manager = CelestoManager(backend='qemu')
 assert type(manager.state).__name__ == 'MemoryStateManager'
 assert not (manager.data_dir / 'smolvm.db').exists()
-assert 'smolvm.cli._sqlite' not in sys.modules
+assert 'celesto.cli._sqlite' not in sys.modules
 manager.close()
 print('ok')
 """,
@@ -54,10 +54,10 @@ def test_http_api_does_not_import_cli_sqlite(tmp_path: Path) -> None:
         """
 import sys
 from pathlib import Path
-from smolvm.server.app import create_app
+from celesto.server.app import create_app
 create_app()
 assert not (Path(__import__('os').environ['SMOLVM_DATA_DIR']) / 'smolvm.db').exists()
-assert 'smolvm.cli._sqlite' not in sys.modules
+assert 'celesto.cli._sqlite' not in sys.modules
 print('ok')
 """,
         tmp_path / "api",
@@ -82,7 +82,7 @@ def test_memory_state_requires_a_secure_lock_directory() -> None:
 def test_cli_service_reuses_one_inventory(tmp_path: Path) -> None:
     state_manager = MagicMock()
     with patch(
-        "smolvm.cli.state.create_cli_state_manager", return_value=state_manager
+        "celesto.cli.state.create_cli_state_manager", return_value=state_manager
     ) as create_state:
         service = CLIService(tmp_path)
 

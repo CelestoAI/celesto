@@ -4,7 +4,7 @@ Instead of copying an entire virtual disk every time, this feature can save only
 
 ## Test baseline
 
-- SmolVM source: `38c962f8afd89cc0fcbada5d437b3632eeba790b`
+- Celesto source: `38c962f8afd89cc0fcbada5d437b3632eeba790b`
 - Local host: macOS arm64
 - Local QEMU and `qemu-img`: 11.0.0
 - Production image preflight: Ubuntu 24.04, QEMU 8.2.2 (`1:8.2.2+ds-0ubuntu1.17`), Linux 6.17 AWS x86_64
@@ -28,7 +28,7 @@ The production preflight found five running QEMU processes. No disk workload was
 
 - base+A boots with marker A and without marker B;
 - base+A+B boots with both markers;
-- both restores work after the source VM, managed disk, QMP socket, and SmolVM state are deleted;
+- both restores work after the source VM, managed disk, QMP socket, and Celesto state are deleted;
 - both materialized outputs are standalone qcow2 files.
 
 Local artifact allocation from the boot test:
@@ -47,13 +47,13 @@ Forced cancellation previously sent `force` to generic `job-cancel`. QEMU 11 rej
 
 ## Interrupted capture recovery
 
-If SmolVM reports a recovered artifact, first adopt it into the remote snapshot chain using the `artifact_path` and metadata in the error details. Only after that succeeds, clear the retained local file and recovery record:
+If Celesto reports a recovered artifact, first adopt it into the remote snapshot chain using the `artifact_path` and metadata in the error details. Only after that succeeds, clear the retained local file and recovery record:
 
 ```bash
-smolvm sandbox snapshot delete <recovered-snapshot-id>
+celesto sandbox snapshot delete <recovered-snapshot-id>
 ```
 
-Do not run the delete command before adoption because it removes the recovered artifact. If SmolVM reports that capture state is uncertain, discard that chain and run the fresh full-disk snapshot command included in the error.
+Do not run the delete command before adoption because it removes the recovered artifact. If Celesto reports that capture state is uncertain, discard that chain and run the fresh full-disk snapshot command included in the error.
 
 ## Commands
 

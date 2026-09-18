@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Measure SmolVM preset startup through the public CLI."""
+"""Measure Celesto preset startup through the public CLI."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ PRESET_COMMANDS = {
 
 def build_start_command(args: argparse.Namespace, sandbox_name: str) -> list[str]:
     command = [
-        "smolvm",
+        "celesto",
         PRESET_COMMANDS[args.preset],
         "start",
         "--name",
@@ -136,7 +136,7 @@ def run_iteration(args: argparse.Namespace, iteration: int) -> dict[str, Any]:
 def cleanup_plan(sandbox_name: str, *, timeout_s: float | None) -> CommandPlan:
     return CommandPlan(
         "sandbox_delete",
-        ["smolvm", "sandbox", "delete", sandbox_name, "--json"],
+        ["celesto", "sandbox", "delete", sandbox_name, "--json"],
         timeout_s=timeout_s,
     )
 

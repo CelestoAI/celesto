@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Demo: use a SmolVM computer-use agent to fetch legacy reports."""
+"""Demo: use a Celesto computer-use agent to fetch legacy reports."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 from urllib.parse import urlparse
 
-from smolvm import CommandResult, SmolVM, WorkspaceMount
+from celesto import Celesto, CommandResult, WorkspaceMount
 
 DEMO_DIR = Path(__file__).resolve().parent
 GUEST_ROOT = "/workspace/legacy_report_fetcher"
@@ -120,15 +120,15 @@ def run_with_heartbeat(
     return result
 
 
-def vm_exec(vm: SmolVM, *args: str, timeout: int = 60) -> str:
-    """Run a short shell command inside the SmolVM sandbox."""
+def vm_exec(vm: Celesto, *args: str, timeout: int = 60) -> str:
+    """Run a short shell command inside the Celesto sandbox."""
     result: CommandResult = vm.run(shlex.join(args), timeout=timeout)
     if not result.ok:
         raise RuntimeError(result.stderr.strip() or result.stdout)
     return result.stdout
 
 
-def start_legacy_app(vm: SmolVM) -> None:
+def start_legacy_app(vm: Celesto) -> None:
     """Start the mounted fake legacy app inside the sandbox."""
     output = vm_exec(
         vm,
@@ -150,7 +150,7 @@ def expected_download_filenames(report_date: str) -> list[str]:
     return [f"orders_{report_date}.csv", f"inventory_{report_date}.csv"]
 
 
-def downloads_ready(vm: SmolVM, session_id: str, report_date: str) -> bool:
+def downloads_ready(vm: Celesto, session_id: str, report_date: str) -> bool:
     """Return True when both expected downloads exist in the sandbox."""
     download_dir = guest_download_dir(session_id)
     expected = expected_download_filenames(report_date)
@@ -167,7 +167,7 @@ def downloads_ready(vm: SmolVM, session_id: str, report_date: str) -> bool:
 
 
 def wait_until_downloads_ready(
-    vm: SmolVM,
+    vm: Celesto,
     session_id: str,
     report_date: str,
     *,
@@ -190,7 +190,7 @@ def wait_until_downloads_ready(
 
 def ensure_report_downloads(
     page: Any,
-    vm: SmolVM,
+    vm: Celesto,
     session_id: str,
     report_date: str,
 ) -> None:
@@ -223,7 +223,7 @@ def ensure_report_downloads(
     wait_until_downloads_ready(vm, session_id, report_date)
 
 
-def download_reports_with_vm_shell(vm: SmolVM, session_id: str, report_date: str) -> None:
+def download_reports_with_vm_shell(vm: Celesto, session_id: str, report_date: str) -> None:
     """Fetch report files from the local portal using the sandbox shell."""
     download_dir = guest_download_dir(session_id)
     script = "\n".join(
@@ -249,7 +249,7 @@ def download_reports_with_vm_shell(vm: SmolVM, session_id: str, report_date: str
     vm_exec(vm, "python3", "-c", script, timeout=30)
 
 
-def copy_file_from_vm(vm: SmolVM, guest_path: str, host_path: Path) -> Path:
+def copy_file_from_vm(vm: Celesto, guest_path: str, host_path: Path) -> Path:
     """Copy one file from the sandbox to the host."""
     log(f"Copying {guest_path} to {host_path}")
     return Path(vm.download_file(guest_path, host_path))
@@ -264,7 +264,7 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def copy_reports_to_host(vm: SmolVM, session_id: str, report_date: str) -> Path:
+def copy_reports_to_host(vm: Celesto, session_id: str, report_date: str) -> Path:
     """List sandbox downloads, then copy reports to the host handoff folder."""
     log(list_downloads(vm, session_id).strip())
     inbox = DEMO_DIR / "artifacts" / "inbox" / "acme" / report_date
@@ -327,7 +327,7 @@ def configure_browser_downloads(browser: Any, download_dir: str) -> None:
     )
 
 
-def list_downloads(vm: SmolVM, session_id: str) -> str:
+def list_downloads(vm: Celesto, session_id: str) -> str:
     """List current browser downloads for debugging and validation."""
     return vm_exec(
         vm,
@@ -663,7 +663,7 @@ def parse_report_date(value: str) -> str:
 def parse_args() -> argparse.Namespace:
     """Parse CLI arguments."""
     parser = argparse.ArgumentParser(
-        description="Run the SmolVM legacy report fetcher computer-use demo."
+        description="Run the Celesto legacy report fetcher computer-use demo."
     )
     parser.add_argument("--mode", choices=("headless", "live"), default="live")
     parser.add_argument("--model", default=os.environ.get("COMPUTER_USE_MODEL", DEFAULT_MODEL))
@@ -672,7 +672,7 @@ def parse_args() -> argparse.Namespace:
         "--boot-timeout",
         type=float,
         default=180.0,
-        help="Seconds to wait for the SmolVM browser sandbox to boot.",
+        help="Seconds to wait for the Celesto browser sandbox to boot.",
     )
     parser.add_argument(
         "--report-date",
@@ -696,8 +696,8 @@ def main() -> int:
     session: Any | None = None
     try:
         session = run_with_heartbeat(
-            f"Starting SmolVM browser sandbox (timeout {int(args.boot_timeout)}s)",
-            lambda: SmolVM.browser(
+            f"Starting Celesto browser sandbox (timeout {int(args.boot_timeout)}s)",
+            lambda: Celesto.browser(
                 headless=args.mode == "headless",
                 record_video=args.mode == "live",
                 allow_downloads=True,
@@ -770,7 +770,7 @@ def main() -> int:
     finally:
         if session is not None:
             run_with_heartbeat(
-                "Stopping SmolVM browser sandbox",
+                "Stopping Celesto browser sandbox",
                 session.stop,
                 interval_seconds=5.0,
             )

@@ -291,7 +291,7 @@ def parse_json_output(stdout: str) -> Any:
 
 
 def cli_data(payload: Any) -> dict[str, Any]:
-    """Return the SmolVM CLI JSON `data` object when present."""
+    """Return the Celesto CLI JSON `data` object when present."""
 
     if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
         return payload["data"]

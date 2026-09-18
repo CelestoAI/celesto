@@ -22,9 +22,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smolvm.exceptions import ImageError
-from smolvm.images import builder as builder_mod
-from smolvm.images.builder import ImageBuilder
+from celesto.exceptions import ImageError
+from celesto.images import builder as builder_mod
+from celesto.images.builder import ImageBuilder
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -118,7 +118,7 @@ def test_ci_build_preset_bakes_guest_agent() -> None:
     """build-preset.sh must copy the guest agent into every published rootfs."""
     script = (_REPO_ROOT / "scripts" / "ci" / "build-preset.sh").read_text()
     assert "target/$GUEST_AGENT_TARGET/release/smolvm-guest-agent" in script
-    assert "src/smolvm/guest_agent/agent.py" not in script
+    assert "src/celesto/guest_agent/agent.py" not in script
     assert "/usr/local/bin/smolvm-guest-agent" in script
 
 
@@ -188,7 +188,7 @@ def test_e2e_uses_image_release_fallback_until_pinned_release_is_public() -> Non
     assert "Resolve image release fallback" in workflow
     assert "draft == false and .prerelease == false" in workflow
     assert "application/vnd.github.raw" in workflow
-    assert "contents/src/smolvm/images/published.py?ref=$fallback" in workflow
+    assert "contents/src/celesto/images/published.py?ref=$fallback" in workflow
     assert "using published-image catalog from $fallback" in workflow
     assert "SMOLVM_IMAGES_RELEASE_TAG=${SMOLVM_IMAGES_RELEASE_TAG:-}" in workflow
     assert "github.event_name == 'pull_request'" not in workflow
@@ -197,7 +197,7 @@ def test_e2e_uses_image_release_fallback_until_pinned_release_is_public() -> Non
 def test_smoke_published_images_uses_pinned_image_release_tag() -> None:
     """The smoke workflow should read the same image tag as build workflows."""
     workflow = (_REPO_ROOT / ".github" / "workflows" / "smoke-published-images.yml").read_text()
-    assert "src/smolvm/images/published.py" in workflow
+    assert "src/celesto/images/published.py" in workflow
     assert "IMAGES_RELEASE_TAG" in workflow
     assert "pyproject.toml" not in workflow
     assert "images-v${version}" not in workflow
@@ -452,8 +452,8 @@ def test_base_images_are_not_responsible_for_agent_runtime(
     assert "smolvm-guest-agent" not in captured["dockerfile"]
 
 
-@patch("smolvm.images.builder.subprocess.run")
-@patch("smolvm.images.builder.run_command")
+@patch("celesto.images.builder.subprocess.run")
+@patch("celesto.images.builder.run_command")
 def test_do_build_bakes_agent_into_context(
     mock_run_command: MagicMock, mock_subprocess_run: MagicMock, tmp_path: Path
 ) -> None:
@@ -490,7 +490,7 @@ def test_do_build_bakes_agent_into_context(
         ),
         patch.object(ImageBuilder, "_create_ext4_with_loopfs"),
         patch.object(ImageBuilder, "_download_kernel"),
-        patch("smolvm.images.builder._guest_agent_binary", return_value=fake_agent),
+        patch("celesto.images.builder._guest_agent_binary", return_value=fake_agent),
     ):
         builder._do_build(
             name="demo",

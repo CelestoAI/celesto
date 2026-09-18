@@ -1,8 +1,8 @@
-# Contributing to SmolVM
+# Contributing to Celesto
 
-Thanks for your interest in contributing to SmolVM.
+Thanks for your interest in contributing to Celesto.
 
-SmolVM is developed in the open at [CelestoAI/SmolVM](https://github.com/CelestoAI/SmolVM), and we welcome bug reports, fixes, tests, docs improvements, and feature work.
+Celesto is developed in the open at [CelestoAI/SmolVM](https://github.com/CelestoAI/SmolVM), and we welcome bug reports, fixes, tests, docs improvements, and feature work.
 
 ## Security First
 
@@ -46,8 +46,8 @@ Runtime prerequisites vary by platform:
 Run the setup script to install Firecracker, configure KVM permissions, and validate host prerequisites:
 
 ```bash
-uv run smolvm setup
-uv run smolvm doctor
+uv run celesto setup
+uv run celesto doctor
 ```
 
 **macOS (QEMU backend):**
@@ -56,18 +56,18 @@ Just install QEMU via Homebrew; no additional setup is needed:
 
 ```bash
 brew install qemu
-uv run smolvm doctor  # Verify QEMU and Hypervisor.framework
+uv run celesto doctor  # Verify QEMU and Hypervisor.framework
 ```
 
-In both cases, `smolvm doctor` is your validation step — it confirms that your machine is ready to run sandboxes.
+In both cases, `celesto doctor` is your validation step — it confirms that your machine is ready to run sandboxes.
 
-**Note on setup scripts:** The repo-level shell scripts in `scripts/` remain the implementation detail behind `smolvm setup`; use them directly only if you are intentionally working on the setup flow itself.
+**Note on setup scripts:** The repo-level shell scripts in `scripts/` remain the implementation detail behind `celesto setup`; use them directly only if you are intentionally working on the setup flow itself.
 
 Health check:
 
 ```bash
-uv run smolvm doctor
-uv run smolvm doctor --json --strict
+uv run celesto doctor
+uv run celesto doctor --json --strict
 ```
 
 ## Quality Checks

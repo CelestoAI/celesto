@@ -25,20 +25,20 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smolvm.exceptions import (
+from celesto.exceptions import (
+    CelestoError,
     OperationTimeoutError,
     QemuDirtyBitmapStateError,
-    SmolVMError,
     VMNotFoundError,
 )
-from smolvm.qmp import QMPDirtyBitmap, QMPJobFailedError, QMPJobTimeoutError
-from smolvm.runtime.base import QemuDirtyBitmapBackup
-from smolvm.runtime.qemu import (
+from celesto.qmp import QMPDirtyBitmap, QMPJobFailedError, QMPJobTimeoutError
+from celesto.runtime.base import QemuDirtyBitmapBackup
+from celesto.runtime.qemu import (
     _QEMU_BLOCK_NODE_NAME_MAX,
     QemuRuntimeAdapter,
     _live_backup_identifiers,
 )
-from smolvm.types import (
+from celesto.types import (
     GuestOS,
     NetworkConfig,
     SnapshotArtifacts,
@@ -50,13 +50,13 @@ from smolvm.types import (
     VMState,
     VsockConfig,
 )
-from smolvm.vm import SmolVMManager
+from celesto.vm import CelestoManager
 
 
 @pytest.fixture
-def qemu_smol_vm(tmp_path: Path) -> SmolVMManager:
+def qemu_smol_vm(tmp_path: Path) -> CelestoManager:
     """Create a QEMU-backed manager with mocked networking."""
-    sdk = SmolVMManager(
+    sdk = CelestoManager(
         data_dir=tmp_path / "data",
         socket_dir=tmp_path / "sockets",
         backend="qemu",
@@ -105,15 +105,15 @@ def _mock_qcow2_inspection_for_fake_snapshot_disks(
         yield
 
 
-def _create_qemu_vm(sdk: SmolVMManager, config: VMConfig) -> None:
-    with patch.object(SmolVMManager, "_create_qemu_overlay_disk") as mock_convert:
+def _create_qemu_vm(sdk: CelestoManager, config: VMConfig) -> None:
+    with patch.object(CelestoManager, "_create_qemu_overlay_disk") as mock_convert:
         mock_convert.side_effect = lambda source, target, **_kwargs: target.write_text(
             "managed-qcow2"
         )
         sdk.create(config)
 
 
-def _running_qemu_vm(sdk: SmolVMManager, config: VMConfig, tmp_path: Path) -> Path:
+def _running_qemu_vm(sdk: CelestoManager, config: VMConfig, tmp_path: Path) -> Path:
     _create_qemu_vm(sdk, config)
     control_socket_path = tmp_path / "sockets" / "qmp-vm001.sock"
     control_socket_path.parent.mkdir(parents=True, exist_ok=True)
@@ -135,7 +135,7 @@ def _mock_qmp_client() -> MagicMock:
 
 
 def test_qemu_dirty_bitmap_lifecycle_is_public_and_idempotent(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -167,7 +167,7 @@ def test_qemu_dirty_bitmap_lifecycle_is_public_and_idempotent(
         [],
     ]
 
-    with patch("smolvm.runtime.qemu.QMPClient", return_value=client):
+    with patch("celesto.runtime.qemu.QMPClient", return_value=client):
         status = qemu_smol_vm.get_qemu_dirty_bitmap("vm001", "celesto-chain0")
         removed = qemu_smol_vm.remove_qemu_dirty_bitmap("vm001", "celesto-chain0")
         missing = qemu_smol_vm.remove_qemu_dirty_bitmap("vm001", "celesto-chain0")
@@ -182,7 +182,7 @@ def test_qemu_dirty_bitmap_lifecycle_is_public_and_idempotent(
 
 
 def test_qemu_dirty_bitmap_removal_rejects_busy_bitmap(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -201,7 +201,7 @@ def test_qemu_dirty_bitmap_removal_rejects_busy_bitmap(
     ]
 
     with (
-        patch("smolvm.runtime.qemu.QMPClient", return_value=client),
+        patch("celesto.runtime.qemu.QMPClient", return_value=client),
         pytest.raises(QemuDirtyBitmapStateError) as exc_info,
     ):
         qemu_smol_vm.remove_qemu_dirty_bitmap("vm001", "celesto-chain0")
@@ -211,7 +211,7 @@ def test_qemu_dirty_bitmap_removal_rejects_busy_bitmap(
 
 
 def test_qemu_dirty_bitmap_removal_tolerates_already_removed_race(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -228,12 +228,12 @@ def test_qemu_dirty_bitmap_removal_tolerates_already_removed_race(
             dirty_bytes=0,
         )
     ]
-    client.remove_dirty_bitmap.side_effect = SmolVMError(
+    client.remove_dirty_bitmap.side_effect = CelestoError(
         "bitmap not found",
         {"desc": "Dirty bitmap 'celesto-chain0' not found"},
     )
 
-    with patch("smolvm.runtime.qemu.QMPClient", return_value=client):
+    with patch("celesto.runtime.qemu.QMPClient", return_value=client):
         assert qemu_smol_vm.remove_qemu_dirty_bitmap("vm001", "celesto-chain0") is False
 
     client.remove_dirty_bitmap.assert_called_once_with("rootdisk0", "celesto-chain0")
@@ -245,17 +245,17 @@ def test_dirty_bitmap_state_error_preserves_canonical_details_and_recovery() -> 
         "celesto-chain0",
         "missing",
         details={"vm_id": "wrong", "reason": "busy"},
-        recovery_command="smolvm sandbox snapshot create vm001 --snapshot-type disk",
+        recovery_command="celesto sandbox snapshot create vm001 --snapshot-type disk",
     )
 
     assert error.details["vm_id"] == "vm001"
     assert error.details["bitmap_name"] == "celesto-chain0"
     assert error.details["reason"] == "missing"
     assert error.details["recovery_command"] == (
-        "smolvm sandbox snapshot create vm001 --snapshot-type disk"
+        "celesto sandbox snapshot create vm001 --snapshot-type disk"
     )
     assert "celesto-chain0" in str(error)
-    assert "smolvm sandbox snapshot create vm001" in str(error)
+    assert "celesto sandbox snapshot create vm001" in str(error)
 
 
 def test_full_snapshot_copy_preserves_internal_snapshot_on_backed_overlay(
@@ -304,8 +304,8 @@ def test_full_snapshot_copy_requires_qemu_img(tmp_path: Path) -> None:
     source.touch()
 
     with (
-        patch("smolvm.runtime.qemu.which", return_value=None),
-        pytest.raises(SmolVMError, match="qemu-img") as exc_info,
+        patch("celesto.runtime.qemu.which", return_value=None),
+        pytest.raises(CelestoError, match="qemu-img") as exc_info,
     ):
         QemuRuntimeAdapter._copy_disk_standalone(source, dest)
 
@@ -395,14 +395,14 @@ def test_wait_for_runtime_retries_when_qmp_greeting_times_out(tmp_path: Path) ->
 
 
 def test_pause_and_resume_qemu_vm(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
     """Pause/resume should drive QMP stop/cont for QEMU VMs."""
     _running_qemu_vm(qemu_smol_vm, qemu_config, tmp_path)
 
-    with patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls:
+    with patch("celesto.runtime.qemu.QMPClient") as mock_client_cls:
         mock_client = _mock_qmp_client()
         mock_client_cls.return_value = mock_client
 
@@ -416,14 +416,14 @@ def test_pause_and_resume_qemu_vm(
 
 
 def test_create_qemu_snapshot_from_running_vm_leaves_source_paused_by_default(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
     """QEMU snapshot creation should persist backend-neutral metadata and pause the source."""
     _running_qemu_vm(qemu_smol_vm, qemu_config, tmp_path)
 
-    with patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls:
+    with patch("celesto.runtime.qemu.QMPClient") as mock_client_cls:
         mock_client = _mock_qmp_client()
         mock_client_cls.return_value = mock_client
 
@@ -443,14 +443,14 @@ def test_create_qemu_snapshot_from_running_vm_leaves_source_paused_by_default(
 
 
 def test_create_qemu_snapshot_from_running_vm_can_resume_source(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
     """QEMU snapshot creation should optionally resume the source VM after persistence."""
     _running_qemu_vm(qemu_smol_vm, qemu_config, tmp_path)
 
-    with patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls:
+    with patch("celesto.runtime.qemu.QMPClient") as mock_client_cls:
         mock_client = _mock_qmp_client()
         mock_client_cls.return_value = mock_client
 
@@ -461,7 +461,7 @@ def test_create_qemu_snapshot_from_running_vm_can_resume_source(
 
 
 def test_create_qemu_snapshot_from_paused_vm_does_not_stop_again(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
 ) -> None:
     """Snapshotting an already paused QEMU VM should skip an extra stop command."""
@@ -476,7 +476,7 @@ def test_create_qemu_snapshot_from_paused_vm_does_not_stop_again(
         control_socket_path=control_socket_path,
     )
 
-    with patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls:
+    with patch("celesto.runtime.qemu.QMPClient") as mock_client_cls:
         mock_client = _mock_qmp_client()
         mock_client_cls.return_value = mock_client
 
@@ -487,7 +487,7 @@ def test_create_qemu_snapshot_from_paused_vm_does_not_stop_again(
 
 
 def test_restore_qemu_snapshot_rehydrates_deleted_vm(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
 ) -> None:
     """Restoring a QEMU snapshot should recreate the original VM identity and managed disk."""
@@ -515,7 +515,7 @@ def test_restore_qemu_snapshot_rehydrates_deleted_vm(
 
     with (
         patch.object(qemu_smol_vm, "_start_qemu", return_value=process),
-        patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls,
+        patch("celesto.runtime.qemu.QMPClient") as mock_client_cls,
     ):
         mock_client = _mock_qmp_client()
         mock_client_cls.return_value = mock_client
@@ -532,7 +532,7 @@ def test_restore_qemu_snapshot_rehydrates_deleted_vm(
 
 
 def test_restore_validates_artifacts_before_stopping_existing_vm(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
 ) -> None:
     """A bad snapshot should not stop the active VM before failing."""
@@ -552,7 +552,7 @@ def test_restore_validates_artifacts_before_stopping_existing_vm(
 
     with (
         patch.object(qemu_smol_vm, "stop") as mock_stop,
-        pytest.raises(SmolVMError, match="disk_path"),
+        pytest.raises(CelestoError, match="disk_path"),
     ):
         qemu_smol_vm.restore_snapshot("snap-missing-disk")
 
@@ -560,7 +560,7 @@ def test_restore_validates_artifacts_before_stopping_existing_vm(
 
 
 def test_restore_qemu_snapshot_reserves_persisted_vsock_cid(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
 ) -> None:
     """Restored QEMU VMs must keep their vsock CID tracked in state."""
@@ -591,7 +591,7 @@ def test_restore_qemu_snapshot_reserves_persisted_vsock_cid(
 
     with (
         patch.object(qemu_smol_vm, "_start_qemu", return_value=process),
-        patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls,
+        patch("celesto.runtime.qemu.QMPClient") as mock_client_cls,
     ):
         mock_client = _mock_qmp_client()
         mock_client_cls.return_value = mock_client
@@ -601,7 +601,7 @@ def test_restore_qemu_snapshot_reserves_persisted_vsock_cid(
 
 
 def test_restore_qemu_snapshot_persistence_failure_removes_placeholder(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
 ) -> None:
     """If restore cannot create the VM row, the managed placeholder is removed."""
@@ -625,8 +625,8 @@ def test_restore_qemu_snapshot_persistence_failure_removes_placeholder(
     qemu_smol_vm.state.create_snapshot(snapshot)
 
     with (
-        patch.object(qemu_smol_vm.state, "create_vm", side_effect=SmolVMError("persist failed")),
-        pytest.raises(SmolVMError, match="persist failed"),
+        patch.object(qemu_smol_vm.state, "create_vm", side_effect=CelestoError("persist failed")),
+        pytest.raises(CelestoError, match="persist failed"),
     ):
         qemu_smol_vm.restore_snapshot("snap-persist-fail")
 
@@ -634,7 +634,7 @@ def test_restore_qemu_snapshot_persistence_failure_removes_placeholder(
 
 
 def test_restore_qemu_snapshot_rolls_back_new_vm_resources_on_failure(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
 ) -> None:
     """Failed QEMU restores should unwind the recreated VM record and managed disk."""
@@ -662,13 +662,13 @@ def test_restore_qemu_snapshot_rolls_back_new_vm_resources_on_failure(
 
     with (
         patch.object(qemu_smol_vm, "_start_qemu", return_value=process),
-        patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls,
+        patch("celesto.runtime.qemu.QMPClient") as mock_client_cls,
     ):
         mock_client = _mock_qmp_client()
-        mock_client.wait_for_job.side_effect = SmolVMError("load failed")
+        mock_client.wait_for_job.side_effect = CelestoError("load failed")
         mock_client_cls.return_value = mock_client
 
-        with pytest.raises(SmolVMError, match="load failed"):
+        with pytest.raises(CelestoError, match="load failed"):
             qemu_smol_vm.restore_snapshot("snap-001")
 
     with pytest.raises(VMNotFoundError):
@@ -678,7 +678,7 @@ def test_restore_qemu_snapshot_rolls_back_new_vm_resources_on_failure(
 
 
 def test_restore_qemu_snapshot_restores_backup_when_status_update_fails(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
 ) -> None:
     """Rollback should restore the original disk even if state status update fails."""
@@ -702,8 +702,8 @@ def test_restore_qemu_snapshot_restores_backup_when_status_update_fails(
     qemu_smol_vm.state.create_snapshot(snapshot)
 
     with (
-        patch.object(qemu_smol_vm.state, "update_vm", side_effect=SmolVMError("state failed")),
-        pytest.raises(SmolVMError, match="state failed"),
+        patch.object(qemu_smol_vm.state, "update_vm", side_effect=CelestoError("state failed")),
+        pytest.raises(CelestoError, match="state failed"),
     ):
         qemu_smol_vm.restore_snapshot("snap-001")
 
@@ -711,7 +711,7 @@ def test_restore_qemu_snapshot_restores_backup_when_status_update_fails(
 
 
 def test_restore_qemu_snapshot_preserves_existing_managed_disk_on_failure(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
 ) -> None:
     """Failed restores should not clobber an existing QEMU managed disk."""
@@ -740,13 +740,13 @@ def test_restore_qemu_snapshot_preserves_existing_managed_disk_on_failure(
 
     with (
         patch.object(qemu_smol_vm, "_start_qemu", return_value=process),
-        patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls,
+        patch("celesto.runtime.qemu.QMPClient") as mock_client_cls,
     ):
         mock_client = _mock_qmp_client()
-        mock_client.wait_for_job.side_effect = SmolVMError("load failed")
+        mock_client.wait_for_job.side_effect = CelestoError("load failed")
         mock_client_cls.return_value = mock_client
 
-        with pytest.raises(SmolVMError, match="load failed"):
+        with pytest.raises(CelestoError, match="load failed"):
             qemu_smol_vm.restore_snapshot("snap-001")
 
     assert managed_disk.read_text() == "original-managed-qcow2"
@@ -754,7 +754,7 @@ def test_restore_qemu_snapshot_preserves_existing_managed_disk_on_failure(
 
 
 def test_restore_qemu_snapshot_removes_replaced_disk_sidecars(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -812,7 +812,7 @@ def test_restore_qemu_snapshot_removes_replaced_disk_sidecars(
 
     with (
         patch.object(qemu_smol_vm, "_start_qemu", return_value=process),
-        patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls,
+        patch("celesto.runtime.qemu.QMPClient") as mock_client_cls,
     ):
         mock_client = _mock_qmp_client()
         mock_client_cls.return_value = mock_client
@@ -822,7 +822,7 @@ def test_restore_qemu_snapshot_removes_replaced_disk_sidecars(
 
 
 def test_delete_qemu_snapshot_rejects_active_restored_vm(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
 ) -> None:
     """QEMU snapshots should not be deleted while their restored VM is active."""
@@ -850,17 +850,17 @@ def test_delete_qemu_snapshot_rejects_active_restored_vm(
 
     with (
         patch.object(qemu_smol_vm, "_start_qemu", return_value=process),
-        patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls,
+        patch("celesto.runtime.qemu.QMPClient") as mock_client_cls,
     ):
         mock_client = _mock_qmp_client()
         mock_client_cls.return_value = mock_client
         qemu_smol_vm.restore_snapshot("snap-001", resume_vm=True)
 
-    with pytest.raises(SmolVMError, match="active"):
+    with pytest.raises(CelestoError, match="active"):
         qemu_smol_vm.delete_snapshot("snap-001")
 
 
-def test_snapshot_rejected_for_windows_guests(qemu_smol_vm: SmolVMManager, tmp_path: Path) -> None:
+def test_snapshot_rejected_for_windows_guests(qemu_smol_vm: CelestoManager, tmp_path: Path) -> None:
     """Windows snapshot/restore is locked out in Phase 1 with a clear message."""
     rootfs = tmp_path / "win11.qcow2"
     rootfs.touch()
@@ -884,13 +884,13 @@ def test_snapshot_rejected_for_windows_guests(qemu_smol_vm: SmolVMManager, tmp_p
             ssh_host_port=2202,
         ),
     )
-    with pytest.raises(SmolVMError, match="Windows guests"):
+    with pytest.raises(CelestoError, match="Windows guests"):
         qemu_smol_vm._ensure_snapshot_supported(vm_info)
 
 
 @pytest.mark.asyncio
 async def test_async_delete_qemu_vm_removes_restored_backing_sidecars(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     tmp_path: Path,
 ) -> None:
     """async_delete should mirror sync cleanup for restored backing sidecars."""
@@ -933,7 +933,7 @@ async def test_async_delete_qemu_vm_removes_restored_backing_sidecars(
 
 
 def test_delete_qemu_vm_removes_restored_backing_sidecars(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     tmp_path: Path,
 ) -> None:
     """Deleting a restored full snapshot should remove local backing sidecars too."""
@@ -976,7 +976,7 @@ def test_delete_qemu_vm_removes_restored_backing_sidecars(
 
 
 def test_snapshot_rejected_for_raw_qemu_disks(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     tmp_path: Path,
 ) -> None:
     """QEMU snapshot code only supports qcow2 managed disks today."""
@@ -1003,19 +1003,19 @@ def test_snapshot_rejected_for_raw_qemu_disks(
         ),
     )
 
-    with pytest.raises(SmolVMError, match="raw QEMU disks"):
+    with pytest.raises(CelestoError, match="raw QEMU disks"):
         qemu_smol_vm._ensure_snapshot_supported(vm_info)
 
 
 def test_create_qemu_snapshot_defaults_to_full_type(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
     """QEMU snapshots default to full for self-contained restore."""
     _running_qemu_vm(qemu_smol_vm, qemu_config, tmp_path)
 
-    with patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls:
+    with patch("celesto.runtime.qemu.QMPClient") as mock_client_cls:
         mock_client = _mock_qmp_client()
         mock_client_cls.return_value = mock_client
         snapshot = qemu_smol_vm.create_snapshot("vm001", snapshot_id="snap-full")
@@ -1025,7 +1025,7 @@ def test_create_qemu_snapshot_defaults_to_full_type(
 
 
 def test_create_qemu_disk_snapshot_uses_internal_sync_not_vmstate(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -1036,7 +1036,7 @@ def test_create_qemu_disk_snapshot_uses_internal_sync_not_vmstate(
     """
     _running_qemu_vm(qemu_smol_vm, qemu_config, tmp_path)
 
-    with patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls:
+    with patch("celesto.runtime.qemu.QMPClient") as mock_client_cls:
         mock_client = _mock_qmp_client()
         mock_client_cls.return_value = mock_client
         snapshot = qemu_smol_vm.create_snapshot(
@@ -1097,13 +1097,13 @@ def test_qemu_dirty_bitmap_backup_rejects_empty_name() -> None:
 
 
 def test_qemu_dirty_bitmap_backup_requires_live_only_capture(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
     _running_qemu_vm(qemu_smol_vm, qemu_config, tmp_path)
 
-    with pytest.raises(SmolVMError, match="live-only") as exc_info:
+    with pytest.raises(CelestoError, match="live-only") as exc_info:
         qemu_smol_vm.create_snapshot(
             "vm001",
             snapshot_id="snap-bitmap-pausing",
@@ -1116,13 +1116,13 @@ def test_qemu_dirty_bitmap_backup_requires_live_only_capture(
         )
 
     assert exc_info.value.details["recovery_command"] == (
-        "smolvm sandbox snapshot create vm001 --snapshot-id snap-bitmap-pausing "
+        "celesto sandbox snapshot create vm001 --snapshot-id snap-bitmap-pausing "
         "--snapshot-type disk --resume-source --live-only"
     )
 
 
 def test_qemu_live_disk_snapshot_never_pauses_and_publishes_atomically(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -1130,7 +1130,7 @@ def test_qemu_live_disk_snapshot_never_pauses_and_publishes_atomically(
     _running_qemu_vm(qemu_smol_vm, qemu_config, tmp_path)
 
     with (
-        patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls,
+        patch("celesto.runtime.qemu.QMPClient") as mock_client_cls,
         patch.object(
             QemuRuntimeAdapter,
             "_qemu_img_virtual_size",
@@ -1138,7 +1138,7 @@ def test_qemu_live_disk_snapshot_never_pauses_and_publishes_atomically(
         ),
         patch.object(QemuRuntimeAdapter, "_require_live_backup_space"),
         patch.object(QemuRuntimeAdapter, "_validate_live_backup_artifact"),
-        patch("smolvm.runtime.qemu.subprocess.run", side_effect=_fake_qemu_img_create),
+        patch("celesto.runtime.qemu.subprocess.run", side_effect=_fake_qemu_img_create),
     ):
         client = _mock_qmp_client()
         client.query_commands.return_value = _live_backup_commands()
@@ -1171,7 +1171,7 @@ def test_qemu_live_disk_snapshot_never_pauses_and_publishes_atomically(
 
 
 def test_qemu_dirty_bitmap_new_base_returns_capture_metadata(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -1188,7 +1188,7 @@ def test_qemu_dirty_bitmap_new_base_returns_capture_metadata(
     )
 
     with (
-        patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls,
+        patch("celesto.runtime.qemu.QMPClient") as mock_client_cls,
         patch.object(
             QemuRuntimeAdapter,
             "_qemu_img_virtual_size",
@@ -1196,7 +1196,7 @@ def test_qemu_dirty_bitmap_new_base_returns_capture_metadata(
         ),
         patch.object(QemuRuntimeAdapter, "_require_live_backup_space"),
         patch.object(QemuRuntimeAdapter, "_validate_live_backup_artifact"),
-        patch("smolvm.runtime.qemu.subprocess.run", side_effect=_fake_qemu_img_create),
+        patch("celesto.runtime.qemu.subprocess.run", side_effect=_fake_qemu_img_create),
     ):
         client = _mock_qmp_client()
         client.query_commands.return_value = _live_backup_commands()
@@ -1228,7 +1228,7 @@ def test_qemu_dirty_bitmap_new_base_returns_capture_metadata(
 
 
 def test_qemu_dirty_bitmap_increment_returns_sparse_capture_metadata(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -1245,7 +1245,7 @@ def test_qemu_dirty_bitmap_increment_returns_sparse_capture_metadata(
     )
 
     with (
-        patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls,
+        patch("celesto.runtime.qemu.QMPClient") as mock_client_cls,
         patch.object(
             QemuRuntimeAdapter,
             "_qemu_img_virtual_size",
@@ -1253,7 +1253,7 @@ def test_qemu_dirty_bitmap_increment_returns_sparse_capture_metadata(
         ),
         patch.object(QemuRuntimeAdapter, "_require_live_backup_space") as require_live_backup_space,
         patch.object(QemuRuntimeAdapter, "_validate_live_backup_artifact"),
-        patch("smolvm.runtime.qemu.subprocess.run", side_effect=_fake_qemu_img_create),
+        patch("celesto.runtime.qemu.subprocess.run", side_effect=_fake_qemu_img_create),
     ):
         client = _mock_qmp_client()
         client.query_commands.return_value = _live_backup_commands()
@@ -1286,7 +1286,7 @@ def test_qemu_dirty_bitmap_increment_returns_sparse_capture_metadata(
 
 
 def test_qemu_dirty_bitmap_increment_failure_keeps_bitmap(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -1303,14 +1303,14 @@ def test_qemu_dirty_bitmap_increment_failure_keeps_bitmap(
     )
 
     with (
-        patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls,
+        patch("celesto.runtime.qemu.QMPClient") as mock_client_cls,
         patch.object(
             QemuRuntimeAdapter,
             "_qemu_img_virtual_size",
             return_value=(Path("/usr/bin/qemu-img"), 10 * 1024 * 1024),
         ),
         patch.object(QemuRuntimeAdapter, "_require_live_backup_space"),
-        patch("smolvm.runtime.qemu.subprocess.run", side_effect=_fake_qemu_img_create),
+        patch("celesto.runtime.qemu.subprocess.run", side_effect=_fake_qemu_img_create),
     ):
         client = _mock_qmp_client()
         client.query_commands.return_value = _live_backup_commands()
@@ -1326,7 +1326,7 @@ def test_qemu_dirty_bitmap_increment_failure_keeps_bitmap(
         )
         mock_client_cls.return_value = client
 
-        with pytest.raises(SmolVMError, match="could not complete"):
+        with pytest.raises(CelestoError, match="could not complete"):
             qemu_smol_vm.create_snapshot(
                 "vm001",
                 snapshot_id="snap-bitmap-failed",
@@ -1344,7 +1344,7 @@ def test_qemu_dirty_bitmap_increment_failure_keeps_bitmap(
 
 
 def test_qemu_dirty_bitmap_new_base_failure_removes_new_bitmap(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -1352,14 +1352,14 @@ def test_qemu_dirty_bitmap_new_base_failure_removes_new_bitmap(
     _running_qemu_vm(qemu_smol_vm, qemu_config, tmp_path)
 
     with (
-        patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls,
+        patch("celesto.runtime.qemu.QMPClient") as mock_client_cls,
         patch.object(
             QemuRuntimeAdapter,
             "_qemu_img_virtual_size",
             return_value=(Path("/usr/bin/qemu-img"), 10 * 1024 * 1024),
         ),
         patch.object(QemuRuntimeAdapter, "_require_live_backup_space"),
-        patch("smolvm.runtime.qemu.subprocess.run", side_effect=_fake_qemu_img_create),
+        patch("celesto.runtime.qemu.subprocess.run", side_effect=_fake_qemu_img_create),
     ):
         client = _mock_qmp_client()
         client.query_commands.return_value = _live_backup_commands()
@@ -1375,7 +1375,7 @@ def test_qemu_dirty_bitmap_new_base_failure_removes_new_bitmap(
         )
         mock_client_cls.return_value = client
 
-        with pytest.raises(SmolVMError, match="could not complete"):
+        with pytest.raises(CelestoError, match="could not complete"):
             qemu_smol_vm.create_snapshot(
                 "vm001",
                 snapshot_id="snap-bitmap-base-failed",
@@ -1393,7 +1393,7 @@ def test_qemu_dirty_bitmap_new_base_failure_removes_new_bitmap(
 
 
 def test_qemu_live_disk_snapshot_timeout_cancels_without_resuming(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -1401,14 +1401,14 @@ def test_qemu_live_disk_snapshot_timeout_cancels_without_resuming(
     _running_qemu_vm(qemu_smol_vm, qemu_config, tmp_path)
 
     with (
-        patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls,
+        patch("celesto.runtime.qemu.QMPClient") as mock_client_cls,
         patch.object(
             QemuRuntimeAdapter,
             "_qemu_img_virtual_size",
             return_value=(Path("/usr/bin/qemu-img"), 10 * 1024 * 1024),
         ),
         patch.object(QemuRuntimeAdapter, "_require_live_backup_space"),
-        patch("smolvm.runtime.qemu.subprocess.run", side_effect=_fake_qemu_img_create),
+        patch("celesto.runtime.qemu.subprocess.run", side_effect=_fake_qemu_img_create),
     ):
         client = _mock_qmp_client()
         client.query_commands.return_value = _live_backup_commands()
@@ -1453,7 +1453,7 @@ def test_qemu_live_disk_snapshot_timeout_cancels_without_resuming(
 
 
 def test_qemu_live_snapshot_shares_timeout_across_qemu_img_phases(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -1474,14 +1474,14 @@ def test_qemu_live_snapshot_shares_timeout_across_qemu_img_phases(
         return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
 
     with (
-        patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls,
-        patch("smolvm.runtime.qemu.which", return_value=Path("/usr/bin/qemu-img")),
-        patch("smolvm.runtime.qemu.subprocess.run", side_effect=run_qemu_img),
+        patch("celesto.runtime.qemu.QMPClient") as mock_client_cls,
+        patch("celesto.runtime.qemu.which", return_value=Path("/usr/bin/qemu-img")),
+        patch("celesto.runtime.qemu.subprocess.run", side_effect=run_qemu_img),
         patch(
-            "smolvm.runtime.qemu.shutil.disk_usage",
+            "celesto.runtime.qemu.shutil.disk_usage",
             return_value=SimpleNamespace(free=1 << 40),
         ),
-        patch("smolvm.runtime.qemu.time.monotonic", side_effect=range(20)),
+        patch("celesto.runtime.qemu.time.monotonic", side_effect=range(20)),
     ):
         client = _mock_qmp_client()
         client.query_commands.return_value = _live_backup_commands()
@@ -1503,7 +1503,7 @@ def test_qemu_live_snapshot_shares_timeout_across_qemu_img_phases(
 
 
 def test_qemu_live_snapshot_subprocess_timeout_names_fallback_command(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -1511,10 +1511,10 @@ def test_qemu_live_snapshot_subprocess_timeout_names_fallback_command(
     _running_qemu_vm(qemu_smol_vm, qemu_config, tmp_path)
 
     with (
-        patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls,
-        patch("smolvm.runtime.qemu.which", return_value=Path("/usr/bin/qemu-img")),
+        patch("celesto.runtime.qemu.QMPClient") as mock_client_cls,
+        patch("celesto.runtime.qemu.which", return_value=Path("/usr/bin/qemu-img")),
         patch(
-            "smolvm.runtime.qemu.subprocess.run",
+            "celesto.runtime.qemu.subprocess.run",
             side_effect=subprocess.TimeoutExpired(["qemu-img", "info"], 0.1),
         ),
     ):
@@ -1533,21 +1533,21 @@ def test_qemu_live_snapshot_subprocess_timeout_names_fallback_command(
             )
 
     assert exc_info.value.details["recovery_command"] == (
-        "smolvm sandbox snapshot create vm001 --snapshot-id snap-prep-timeout "
+        "celesto sandbox snapshot create vm001 --snapshot-id snap-prep-timeout "
         "--snapshot-type disk --resume-source"
     )
     assert not (qemu_smol_vm.snapshot_dir / "snap-prep-timeout").exists()
 
 
 def test_qemu_live_only_rejects_conflicting_final_state_before_qmp(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
     """LIVE_ONLY cannot also request that a running source end paused."""
     _running_qemu_vm(qemu_smol_vm, qemu_config, tmp_path)
 
-    with pytest.raises(SmolVMError, match="--resume-source"):
+    with pytest.raises(CelestoError, match="--resume-source"):
         qemu_smol_vm.create_snapshot(
             "vm001",
             snapshot_id="snap-conflict",
@@ -1559,7 +1559,7 @@ def test_qemu_live_only_rejects_conflicting_final_state_before_qmp(
 
 
 def test_qemu_bitmap_reconciliation_preserves_completed_unpublished_capture(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -1589,13 +1589,13 @@ def test_qemu_bitmap_reconciliation_preserves_completed_unpublished_capture(
         )
     )
 
-    with patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls:
+    with patch("celesto.runtime.qemu.QMPClient") as mock_client_cls:
         client = _mock_qmp_client()
         client.query_jobs.return_value = []
         client.query_named_block_nodes.return_value = []
         mock_client_cls.return_value = client
 
-        with pytest.raises(SmolVMError) as exc_info:
+        with pytest.raises(CelestoError) as exc_info:
             qemu_smol_vm.create_snapshot(
                 "vm001",
                 snapshot_id="snap-next",
@@ -1607,7 +1607,7 @@ def test_qemu_bitmap_reconciliation_preserves_completed_unpublished_capture(
     assert exc_info.value.details["capture_recovery_pending"] is True
     assert exc_info.value.details["artifact_path"] == str(final_path)
     assert exc_info.value.details["recovery_command"] == (
-        "smolvm sandbox snapshot delete snap-pending-increment"
+        "celesto sandbox snapshot delete snap-pending-increment"
     )
     assert "vm001" in str(exc_info.value)
     assert final_path.read_text() == "captured-delta"
@@ -1616,7 +1616,7 @@ def test_qemu_bitmap_reconciliation_preserves_completed_unpublished_capture(
 
 
 def test_delete_snapshot_clears_adopted_bitmap_recovery_artifact(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
 ) -> None:
     """The documented delete command should clear an adopted recovery record."""
     snapshot_id = "snap-adopted-increment"
@@ -1643,7 +1643,7 @@ def test_delete_snapshot_clears_adopted_bitmap_recovery_artifact(
 
 
 def test_qemu_bitmap_reconciliation_recovers_concluded_job_before_phase_write(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -1682,9 +1682,9 @@ def test_qemu_bitmap_reconciliation_recovers_concluded_job_before_phase_write(
         return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
 
     with (
-        patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls,
-        patch("smolvm.runtime.qemu.which", return_value="/usr/bin/qemu-img"),
-        patch("smolvm.runtime.qemu.subprocess.run", side_effect=qemu_img_result),
+        patch("celesto.runtime.qemu.QMPClient") as mock_client_cls,
+        patch("celesto.runtime.qemu.which", return_value="/usr/bin/qemu-img"),
+        patch("celesto.runtime.qemu.subprocess.run", side_effect=qemu_img_result),
     ):
         client = _mock_qmp_client()
         client.query_jobs.return_value = [
@@ -1693,7 +1693,7 @@ def test_qemu_bitmap_reconciliation_recovers_concluded_job_before_phase_write(
         client.query_named_block_nodes.return_value = [{"node-name": target_node}]
         mock_client_cls.return_value = client
 
-        with pytest.raises(SmolVMError) as exc_info:
+        with pytest.raises(CelestoError) as exc_info:
             qemu_smol_vm.create_snapshot(
                 "vm001",
                 snapshot_id="snap-next",
@@ -1711,7 +1711,7 @@ def test_qemu_bitmap_reconciliation_recovers_concluded_job_before_phase_write(
 
 
 def test_qemu_bitmap_recovery_timeout_keeps_pending_artifact(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -1743,10 +1743,10 @@ def test_qemu_bitmap_recovery_timeout_keeps_pending_artifact(
     )
 
     with (
-        patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls,
-        patch("smolvm.runtime.qemu.which", return_value="/usr/bin/qemu-img"),
+        patch("celesto.runtime.qemu.QMPClient") as mock_client_cls,
+        patch("celesto.runtime.qemu.which", return_value="/usr/bin/qemu-img"),
         patch(
-            "smolvm.runtime.qemu.subprocess.run",
+            "celesto.runtime.qemu.subprocess.run",
             side_effect=subprocess.TimeoutExpired(["qemu-img", "check"], 1),
         ),
     ):
@@ -1755,7 +1755,7 @@ def test_qemu_bitmap_recovery_timeout_keeps_pending_artifact(
         client.query_named_block_nodes.return_value = []
         mock_client_cls.return_value = client
 
-        with pytest.raises(SmolVMError) as exc_info:
+        with pytest.raises(CelestoError) as exc_info:
             qemu_smol_vm.create_snapshot(
                 "vm001",
                 snapshot_id="snap-retry-after-timeout",
@@ -1767,13 +1767,13 @@ def test_qemu_bitmap_recovery_timeout_keeps_pending_artifact(
 
     assert exc_info.value.details["capture_recovery_pending"] is True
     assert "vm001" in str(exc_info.value)
-    assert "smolvm sandbox snapshot create vm001" in exc_info.value.details["recovery_command"]
+    assert "celesto sandbox snapshot create vm001" in exc_info.value.details["recovery_command"]
     assert partial_path.read_text() == "completed-delta"
     assert manifest_path.exists()
 
 
 def test_qemu_bitmap_reconciliation_rejects_ambiguous_missing_job(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -1803,13 +1803,13 @@ def test_qemu_bitmap_reconciliation_rejects_ambiguous_missing_job(
         )
     )
 
-    with patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls:
+    with patch("celesto.runtime.qemu.QMPClient") as mock_client_cls:
         client = _mock_qmp_client()
         client.query_jobs.return_value = []
         client.query_named_block_nodes.return_value = []
         mock_client_cls.return_value = client
 
-        with pytest.raises(SmolVMError) as exc_info:
+        with pytest.raises(CelestoError) as exc_info:
             qemu_smol_vm.create_snapshot(
                 "vm001",
                 snapshot_id="snap-next",
@@ -1825,7 +1825,7 @@ def test_qemu_bitmap_reconciliation_rejects_ambiguous_missing_job(
 
 
 def test_qemu_live_snapshot_reconciles_interrupted_backup(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -1852,7 +1852,7 @@ def test_qemu_live_snapshot_reconciles_interrupted_backup(
     )
 
     with (
-        patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls,
+        patch("celesto.runtime.qemu.QMPClient") as mock_client_cls,
         patch.object(
             QemuRuntimeAdapter,
             "_qemu_img_virtual_size",
@@ -1860,7 +1860,7 @@ def test_qemu_live_snapshot_reconciles_interrupted_backup(
         ),
         patch.object(QemuRuntimeAdapter, "_require_live_backup_space"),
         patch.object(QemuRuntimeAdapter, "_validate_live_backup_artifact"),
-        patch("smolvm.runtime.qemu.subprocess.run", side_effect=_fake_qemu_img_create),
+        patch("celesto.runtime.qemu.subprocess.run", side_effect=_fake_qemu_img_create),
     ):
         client = _mock_qmp_client()
         jobs = {old_job}
@@ -1894,7 +1894,7 @@ def test_qemu_live_snapshot_reconciles_interrupted_backup(
 
 
 def test_qemu_live_snapshot_removes_corrupt_same_id_journal(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -1908,7 +1908,7 @@ def test_qemu_live_snapshot_removes_corrupt_same_id_journal(
     manifest_path.write_bytes(b"\xff")
 
     with (
-        patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls,
+        patch("celesto.runtime.qemu.QMPClient") as mock_client_cls,
         patch.object(
             QemuRuntimeAdapter,
             "_qemu_img_virtual_size",
@@ -1916,7 +1916,7 @@ def test_qemu_live_snapshot_removes_corrupt_same_id_journal(
         ),
         patch.object(QemuRuntimeAdapter, "_require_live_backup_space"),
         patch.object(QemuRuntimeAdapter, "_validate_live_backup_artifact"),
-        patch("smolvm.runtime.qemu.subprocess.run", side_effect=_fake_qemu_img_create),
+        patch("celesto.runtime.qemu.subprocess.run", side_effect=_fake_qemu_img_create),
     ):
         client = _mock_qmp_client()
         client.query_commands.return_value = _live_backup_commands()
@@ -1938,7 +1938,7 @@ def test_qemu_live_snapshot_removes_corrupt_same_id_journal(
 
 
 def test_qemu_live_snapshot_rejects_untrusted_journal_cleanup_targets(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -1967,7 +1967,7 @@ def test_qemu_live_snapshot_rejects_untrusted_journal_cleanup_targets(
     )
 
     with (
-        patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls,
+        patch("celesto.runtime.qemu.QMPClient") as mock_client_cls,
         patch.object(
             QemuRuntimeAdapter,
             "_qemu_img_virtual_size",
@@ -1975,7 +1975,7 @@ def test_qemu_live_snapshot_rejects_untrusted_journal_cleanup_targets(
         ),
         patch.object(QemuRuntimeAdapter, "_require_live_backup_space"),
         patch.object(QemuRuntimeAdapter, "_validate_live_backup_artifact"),
-        patch("smolvm.runtime.qemu.subprocess.run", side_effect=_fake_qemu_img_create),
+        patch("celesto.runtime.qemu.subprocess.run", side_effect=_fake_qemu_img_create),
     ):
         client = _mock_qmp_client()
         client.query_commands.return_value = _live_backup_commands()
@@ -2000,7 +2000,7 @@ def test_qemu_live_snapshot_rejects_untrusted_journal_cleanup_targets(
 
 
 def test_qemu_live_snapshot_reclaims_unpersisted_published_artifact(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -2027,7 +2027,7 @@ def test_qemu_live_snapshot_reclaims_unpersisted_published_artifact(
     )
 
     with (
-        patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls,
+        patch("celesto.runtime.qemu.QMPClient") as mock_client_cls,
         patch.object(
             QemuRuntimeAdapter,
             "_qemu_img_virtual_size",
@@ -2035,7 +2035,7 @@ def test_qemu_live_snapshot_reclaims_unpersisted_published_artifact(
         ),
         patch.object(QemuRuntimeAdapter, "_require_live_backup_space"),
         patch.object(QemuRuntimeAdapter, "_validate_live_backup_artifact"),
-        patch("smolvm.runtime.qemu.subprocess.run", side_effect=_fake_qemu_img_create),
+        patch("celesto.runtime.qemu.subprocess.run", side_effect=_fake_qemu_img_create),
     ):
         client = _mock_qmp_client()
         client.query_commands.return_value = _live_backup_commands()
@@ -2057,7 +2057,7 @@ def test_qemu_live_snapshot_reclaims_unpersisted_published_artifact(
 
 
 def test_qemu_live_snapshot_preserves_persisted_published_artifact(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -2095,13 +2095,13 @@ def test_qemu_live_snapshot_preserves_persisted_published_artifact(
         )
     )
 
-    with patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls:
+    with patch("celesto.runtime.qemu.QMPClient") as mock_client_cls:
         client = _mock_qmp_client()
         client.query_jobs.return_value = []
         client.query_named_block_nodes.return_value = []
         mock_client_cls.return_value = client
 
-        with pytest.raises(SmolVMError, match="already exists"):
+        with pytest.raises(CelestoError, match="already exists"):
             qemu_smol_vm.create_snapshot(
                 "vm001",
                 snapshot_id="snap-persisted",
@@ -2129,8 +2129,8 @@ def test_snapshot_operation_locks_serialize_vm_and_snapshot_id(
     second_snapshot: str,
 ) -> None:
     """Concurrent requests must not reconcile another active snapshot."""
-    first = SmolVMManager(data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets")
-    second = SmolVMManager(data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets")
+    first = CelestoManager(data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets")
+    second = CelestoManager(data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets")
     acquired = threading.Event()
 
     def acquire_second() -> None:
@@ -2148,7 +2148,7 @@ def test_snapshot_operation_locks_serialize_vm_and_snapshot_id(
 
 
 def test_restore_qemu_disk_snapshot_boots_fresh_without_loading_vmstate(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
 ) -> None:
     """Restoring a disk-only snapshot boots fresh: no snapshot-load of RAM."""
@@ -2177,7 +2177,7 @@ def test_restore_qemu_disk_snapshot_boots_fresh_without_loading_vmstate(
 
     with (
         patch.object(qemu_smol_vm, "_start_qemu", return_value=process),
-        patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls,
+        patch("celesto.runtime.qemu.QMPClient") as mock_client_cls,
     ):
         mock_client = _mock_qmp_client()
         mock_client_cls.return_value = mock_client
@@ -2192,7 +2192,7 @@ def test_restore_qemu_disk_snapshot_boots_fresh_without_loading_vmstate(
 
 
 def test_create_qemu_diff_snapshot_records_type(
-    qemu_smol_vm: SmolVMManager,
+    qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -2200,7 +2200,7 @@ def test_create_qemu_diff_snapshot_records_type(
     _running_qemu_vm(qemu_smol_vm, qemu_config, tmp_path)
 
     with (
-        patch("smolvm.runtime.qemu.QMPClient") as mock_client_cls,
+        patch("celesto.runtime.qemu.QMPClient") as mock_client_cls,
         patch.object(
             QemuRuntimeAdapter,
             "_copy_disk_overlay",

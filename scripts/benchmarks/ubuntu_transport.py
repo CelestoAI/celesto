@@ -46,10 +46,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from boot_telemetry import collect_boot_telemetry, summarize_boot_telemetry  # noqa: E402
 
-from smolvm.facade import SmolVM, _build_auto_config  # noqa: E402
-from smolvm.images.published import _images_release_tag  # noqa: E402
-from smolvm.types import SnapshotType  # noqa: E402
-from smolvm.vm import SmolVMManager, resolve_data_dir  # noqa: E402
+from celesto.facade import Celesto, _build_auto_config  # noqa: E402
+from celesto.images.published import _images_release_tag  # noqa: E402
+from celesto.types import SnapshotType  # noqa: E402
+from celesto.vm import CelestoManager, resolve_data_dir  # noqa: E402
 
 logger = logging.getLogger("smolvm.bench.ubuntu_transport")
 
@@ -113,7 +113,7 @@ def _stats(values: list[float]) -> dict[str, Any]:
     }
 
 
-def _safe_teardown(vm: SmolVM | None) -> None:
+def _safe_teardown(vm: Celesto | None) -> None:
     if vm is None:
         return
     with suppress(Exception):
@@ -123,11 +123,11 @@ def _safe_teardown(vm: SmolVM | None) -> None:
 
 
 def _safe_delete_snapshot(snapshot_id: str) -> None:
-    with suppress(Exception), SmolVMManager() as sdk:
+    with suppress(Exception), CelestoManager() as sdk:
         sdk.delete_snapshot(snapshot_id)
 
 
-def _vm_log_path(vm: SmolVM | None) -> Path | None:
+def _vm_log_path(vm: Celesto | None) -> Path | None:
     """Return the runtime log path for a benchmark VM."""
     vm_id = getattr(vm, "_vm_id", None)
     if not vm_id:
@@ -214,7 +214,7 @@ def _run_one(
 ) -> dict[str, Any]:
     vm_name = f"bench-{backend[:2]}-{transport[:2]}-{uuid.uuid4().hex[:8]}"
     record: dict[str, Any] = {"iter": iteration, "vm_id": vm_name, "warmup": warmup}
-    vm: SmolVM | None = None
+    vm: Celesto | None = None
     log_path: Path | None = None
     try:
         started = time.perf_counter()
@@ -223,7 +223,7 @@ def _run_one(
             vm_name=vm_name,
             rootfs_source=rootfs_source,
         )
-        vm = SmolVM(config=config, ssh_key_path=ssh_key_path, comm_channel=transport)
+        vm = Celesto(config=config, ssh_key_path=ssh_key_path, comm_channel=transport)
         log_path = _vm_log_path(vm)
         record["host_create_ms"] = round((time.perf_counter() - started) * 1000, 1)
         record["create_ms"] = record["host_create_ms"]
@@ -438,8 +438,8 @@ def _run_snapshot_one(
         "snapshot_type": snapshot_type.value,
         "warmup": warmup,
     }
-    source_vm: SmolVM | None = None
-    restored_vm: SmolVM | None = None
+    source_vm: Celesto | None = None
+    restored_vm: Celesto | None = None
     source_log_path: Path | None = None
     restored_log_path: Path | None = None
     try:
@@ -449,7 +449,7 @@ def _run_snapshot_one(
             vm_name=vm_name,
             rootfs_source=rootfs_source,
         )
-        source_vm = SmolVM(config=config, ssh_key_path=ssh_key_path, comm_channel=transport)
+        source_vm = Celesto(config=config, ssh_key_path=ssh_key_path, comm_channel=transport)
         source_log_path = _vm_log_path(source_vm)
         record["snapshot_source_host_create_ms"] = round((time.perf_counter() - started) * 1000, 1)
         record["published_rootfs_path"] = str(published_rootfs)
@@ -485,7 +485,7 @@ def _run_snapshot_one(
         source_vm = None
 
         started = time.perf_counter()
-        restored_vm = SmolVM.from_snapshot(
+        restored_vm = Celesto.from_snapshot(
             snapshot_id,
             backend=backend,
             resume_vm=True,

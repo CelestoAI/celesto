@@ -12,15 +12,15 @@ from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
-from smolvm.cli.commands.app import build_cli
-from smolvm.cli.image import _build_macos_image_with_progress
-from smolvm.cli.main import _run_desktop
-from smolvm.macos.models import MacOSInstallProgress
-from smolvm.types import DesktopEndpoint, VMState
+from celesto.cli.commands.app import build_cli
+from celesto.cli.image import _build_macos_image_with_progress
+from celesto.cli.main import _run_desktop
+from celesto.macos.models import MacOSInstallProgress
+from celesto.types import DesktopEndpoint, VMState
 
 
 def test_desktop_command_forwards_start_and_json_options() -> None:
-    with patch("smolvm.cli.main._run_desktop", return_value=0) as handler:
+    with patch("celesto.cli.main._run_desktop", return_value=0) as handler:
         result = CliRunner().invoke(
             build_cli(),
             ["sandbox", "desktop", "mac-test", "--start", "--json"],
@@ -36,7 +36,7 @@ def test_desktop_command_forwards_start_and_json_options() -> None:
 
 def test_setup_macos_installs_pinned_runtime(tmp_path) -> None:  # type: ignore[no-untyped-def]
     binary = tmp_path / "lume"
-    with patch("smolvm.host.lume.install_pinned_lume", return_value=binary) as install:
+    with patch("celesto.host.lume.install_pinned_lume", return_value=binary) as install:
         result = CliRunner().invoke(build_cli(), ["setup", "--macos"])
 
     assert result.exit_code == 0
@@ -45,7 +45,7 @@ def test_setup_macos_installs_pinned_runtime(tmp_path) -> None:  # type: ignore[
 
 
 def test_image_build_routes_macos_to_local_ipsw_builder() -> None:
-    with patch("smolvm.cli.image.run_macos_image_build", return_value=0) as build:
+    with patch("celesto.cli.image.run_macos_image_build", return_value=0) as build:
         result = CliRunner().invoke(
             build_cli(),
             ["image", "build", "--os", "macos", "--ipsw", "latest", "-t", "macos-latest"],
@@ -59,7 +59,7 @@ def test_image_build_routes_macos_to_local_ipsw_builder() -> None:
 
 def test_macos_image_build_rejects_explicit_linux_options() -> None:
     for option in (["--size-mb", "512"], ["--size-mb", "1024"], ["--backend", "auto"]):
-        with patch("smolvm.cli.image.run_macos_image_build", return_value=0) as build:
+        with patch("celesto.cli.image.run_macos_image_build", return_value=0) as build:
             result = CliRunner().invoke(
                 build_cli(),
                 [
@@ -77,14 +77,14 @@ def test_macos_image_build_rejects_explicit_linux_options() -> None:
 
         assert result.exit_code == 2
         assert option[0] in result.output
-        assert "smolvm image build --os macos" in result.output
+        assert "celesto image build --os macos" in result.output
         build.assert_not_called()
 
 
 def test_macos_image_build_retry_preserves_supported_options(tmp_path: Path) -> None:
     ipsw = tmp_path / "Apple Restore.ipsw"
     image_dir = tmp_path / "image cache"
-    with patch("smolvm.cli.image.run_macos_image_build", return_value=0) as build:
+    with patch("celesto.cli.image.run_macos_image_build", return_value=0) as build:
         result = CliRunner().invoke(
             build_cli(),
             [
@@ -110,7 +110,7 @@ def test_macos_image_build_retry_preserves_supported_options(tmp_path: Path) -> 
     assert result.exit_code == 2
     assert "--size-mb and --backend are not available" in result.output
     assert (
-        "smolvm image build --os macos "
+        "celesto image build --os macos "
         f"--ipsw '{ipsw}' -t macos-latest --image-dir '{image_dir}' --json"
     ) in result.output
     assert "without them" in result.output
@@ -143,7 +143,7 @@ def test_desktop_handler_json_returns_sanitized_endpoint(capsys) -> None:  # typ
     vm.status = VMState.RUNNING
     vm.desktop_endpoint = DesktopEndpoint(port=5901)
 
-    with patch("smolvm.facade.SmolVM.from_id", return_value=vm):
+    with patch("celesto.facade.Celesto.from_id", return_value=vm):
         result = _run_desktop(
             SimpleNamespace(
                 command_name="sandbox.desktop",

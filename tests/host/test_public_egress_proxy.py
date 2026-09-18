@@ -22,7 +22,7 @@ from collections.abc import Callable, Sequence
 
 import pytest
 
-from smolvm.host._public_egress_proxy import PublicEgressProxy
+from celesto.host._public_egress_proxy import PublicEgressProxy
 
 
 class StaticResolver:

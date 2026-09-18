@@ -1,10 +1,10 @@
-# SmolVM Context
+# Celesto Context
 
-SmolVM gives AI agents their own disposable computer. Each sandbox is a lightweight virtual machine that boots in seconds, runs any code or command you throw at it, and disappears when you're done — nothing touches the host.
+Celesto gives AI agents their own disposable computer. Each sandbox is a lightweight virtual machine that boots in seconds, runs any code or command you throw at it, and disappears when you're done — nothing touches the host.
 
 ## 🚀 Project Overview
 
-SmolVM is specifically designed to provide a secure "sandbox" for AI agents to execute code, browse the web, or perform system-level tasks safely.
+Celesto is specifically designed to provide a secure "sandbox" for AI agents to execute code, browse the web, or perform system-level tasks safely.
 
 
 ## 🧪 Development
@@ -16,34 +16,34 @@ SmolVM is specifically designed to provide a secure "sandbox" for AI agents to e
 ### Release checklist
 
 - For guest-agent or published-image changes, build and smoke the new image
-  release before tagging the SmolVM package release.
-- Update `src/smolvm/images/published.py` with the new `IMAGES_RELEASE_TAG`
+  release before tagging the Celesto package release.
+- Update `src/celesto/images/published.py` with the new `IMAGES_RELEASE_TAG`
   and rootfs SHA pins before the PyPI tag is pushed.
-- Also update `src/smolvm/images/builder.py::_GUEST_AGENT_RELEASE_SHA256`
+- Also update `src/celesto/images/builder.py::_GUEST_AGENT_RELEASE_SHA256`
   from the `smolvm-guest-agent-linux-<arch>.sha256` release assets. This is a
   separate pin from the rootfs manifest.
 - Verify both paths: `uv run smolvm ...` from a source checkout may build or use
   the local guest-agent binary, while `smolvm ...` from `uv tool` uses the
   installed wheel and downloads the standalone guest-agent release binary.
-- Only tag the SmolVM package release after the image manifest, guest-agent
+- Only tag the Celesto package release after the image manifest, guest-agent
   binary SHA pins, image smoke, and focused tests are complete.
 
 ### CLI design
 
 - New CLI commands follow a **NOUN-VERB** structure: `smolvm <noun> <verb>`,
-  e.g. `smolvm codex start`, not `smolvm start codex`.
+  e.g. `celesto codex start`, not `smolvm start codex`.
 - The noun names the resource (a sandbox, a harness, a browser session); the
   verb names the action on it (`start`, `stop`, `ssh`).
-- This scales naturally as actions grow: `smolvm codex start`, then later
-  `smolvm codex logs`, `smolvm codex status`, etc.
+- This scales naturally as actions grow: `celesto codex start`, then later
+  `celesto codex logs`, `celesto codex status`, etc.
 - When adding a new harness or resource, register it as a top-level
   subcommand and put its actions underneath, instead of overloading a
   global verb.
-- Documented exceptions: the top-level `smolvm prune` and `smolvm images`
+- Documented exceptions: the top-level `celesto prune` and `smolvm images`
   aliases exist for muscle memory (`images` mirrors `docker images`); both
   delegate to their NOUN-VERB homes (`image prune`, `image list`). Do not
   add further top-level aliases without discussion.
-- `smolvm completion <shell>` is an accepted top-level meta-command (like
+- `celesto completion <shell>` is an accepted top-level meta-command (like
   `git`/`gh` completion): it acts on the CLI itself rather than a sandbox
   resource, so it sits outside the NOUN-VERB rule by design.
 
@@ -62,7 +62,7 @@ SmolVM is specifically designed to provide a secure "sandbox" for AI agents to e
 ### User-facing errors and warnings
 
 Error and warning messages are UX, not stack traces. The reader may
-be a first-time user with no idea how SmolVM works internally — they
+be a first-time user with no idea how Celesto works internally — they
 must still be able to act on the message. Every user-facing message
 (CLI output, panels, JSON `error` payloads, JSON `warnings` entries)
 should:
@@ -101,7 +101,7 @@ into right now:
 This sandbox was set up to share the folder '...' with you, but that
 folder no longer exists on your machine. The sandbox cannot start
 until you put the folder back, or delete the sandbox with
-'smolvm sandbox delete sbx-einstein'.
+'celesto sandbox delete sbx-einstein'.
 ```
 
 **Good** — one sentence, true in every state, names the recovery:
@@ -109,7 +109,7 @@ until you put the folder back, or delete the sandbox with
 ```
 Shared folder is missing on your machine:
 '/Users/aniket/conductor/workspaces/SmolVM/lome'. Restore it, or run
-'smolvm sandbox delete sbx-einstein' to remove the sandbox.
+'celesto sandbox delete sbx-einstein' to remove the sandbox.
 ```
 
 ## Skill routing

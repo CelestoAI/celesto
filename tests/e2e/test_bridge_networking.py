@@ -34,11 +34,11 @@ from _util import (
     selected_backend,
 )
 
-from smolvm import SmolVM
-from smolvm.comm import host_supports_vsock
-from smolvm.facade import _build_auto_config
-from smolvm.runtime.backends import BACKEND_FIRECRACKER
-from smolvm.types import NetworkAttachmentConfig, SnapshotType, VMState
+from celesto import Celesto
+from celesto.comm import host_supports_vsock
+from celesto.facade import _build_auto_config
+from celesto.runtime.backends import BACKEND_FIRECRACKER
+from celesto.types import NetworkAttachmentConfig, SnapshotType, VMState
 
 pytestmark = pytest.mark.e2e
 
@@ -127,7 +127,7 @@ def bridge_lab() -> _BridgeLab:
         _run_privileged("ip", "link", "del", lab.uplink, check=False)
 
 
-def _wait_for_guest_network_init(sandbox: SmolVM, *, timeout: float = 30.0) -> None:
+def _wait_for_guest_network_init(sandbox: Celesto, *, timeout: float = 30.0) -> None:
     """Wait until PID 1 finishes its initial DHCP/static-network attempt."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -197,8 +197,8 @@ def test_bridge_connectivity_restart_restore_and_delete(
         }
     )
 
-    sandbox = SmolVM(config, ssh_key_path=ssh_key_path, comm_channel="vsock")
-    restored: SmolVM | None = None
+    sandbox = Celesto(config, ssh_key_path=ssh_key_path, comm_channel="vsock")
+    restored: Celesto | None = None
     tap_name: str | None = None
     try:
         sandbox.start(boot_timeout=BOOT_TIMEOUT)
@@ -241,7 +241,7 @@ def test_bridge_connectivity_restart_restore_and_delete(
         sandbox.delete()
         assert _run_privileged("ip", "link", "show", tap_name, check=False).returncode != 0
 
-        restored = SmolVM.from_snapshot(snapshot.snapshot_id, backend=backend, resume_vm=True)
+        restored = Celesto.from_snapshot(snapshot.snapshot_id, backend=backend, resume_vm=True)
         assert restored.run("echo restored-over-vsock").stdout.strip() == "restored-over-vsock"
         _assert_namespace_can_ping(bridge_lab)
     finally:

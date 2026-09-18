@@ -9,8 +9,8 @@
 A user can run:
 
 ```bash
-smolvm sandbox create --os macos --name test-mac --mount "$PWD"
-smolvm sandbox desktop test-mac
+celesto sandbox create --os macos --name test-mac --mount "$PWD"
+celesto sandbox desktop test-mac
 ```
 
 SmolVM opens a normal, logged-in macOS desktop. Finder shows the shared folder, the user can double-click a `.dmg`, drag the app into Applications, launch it, and interact with it normally. Deleting the sandbox removes all guest changes while leaving the host unchanged except for SmolVM's local image cache and any explicitly writable shared files.
@@ -27,7 +27,7 @@ The feature is a **general disposable Mac desktop**. The runtime, CLI, and API m
 4. **Lume-backed first implementation.** Put Lume behind a SmolVM-owned driver interface and pin a tested MIT-licensed release. This gets an end-to-end preview working without making Lume's CLI or storage model part of SmolVM's public API. A native `smolvm-vz` helper can replace it later without changing the SDK or CLI.
 5. **Local images only.** Download a compatible IPSW from Apple and install it locally. Do not publish, push, save, or load preinstalled macOS images in the preview.
 6. **Clean clone per sandbox.** Build one reusable base machine and create an APFS copy-on-write clone for each sandbox.
-7. **Desktop is first-class.** Every macOS sandbox starts with a loopback-only VNC display. `smolvm sandbox desktop` opens that display with the host's VNC client. Closing the viewer does not stop the sandbox.
+7. **Desktop is first-class.** Every macOS sandbox starts with a loopback-only VNC display. `celesto sandbox desktop` opens that display with the host's VNC client. Closing the viewer does not stop the sandbox.
 8. **Ordinary macOS security remains enabled.** Do not disable SIP, Gatekeeper, notarization checks, or normal permission prompts.
 9. **Shares are general and safe by default.** Map existing `--mount` inputs to VirtioFS. Keep host directories read-only unless `--writable-mounts` is explicit.
 10. **Guest commands are deferred.** Shell, exec, file upload/download, and port tunnels remain unavailable until SmolVM can provision secure per-sandbox credentials. Desktop readiness never depends on SSH.
@@ -48,7 +48,7 @@ The feature is a **general disposable Mac desktop**. The runtime, CLI, and API m
 - APFS clone-based create/delete
 - Start, stop, restart, list, info, and logs
 - Loopback-only VNC desktop
-- `smolvm sandbox desktop SANDBOX`
+- `celesto sandbox desktop SANDBOX`
 - Read-only and explicitly writable VirtioFS shares
 - Desktop interaction and Finder-based shared-folder access
 - Normal NAT internet access
@@ -60,7 +60,7 @@ The feature is a **general disposable Mac desktop**. The runtime, CLI, and API m
 - Hosted or multi-tenant macOS
 - Intel Macs or x86 macOS guests
 - Published macOS images
-- `smolvm image save/load` for macOS images
+- `celesto image save/load` for macOS images
 - Live or durable macOS snapshots
 - Pause/resume or saved-memory restore in the first preview
 - Domain allow-lists or other egress guarantees
@@ -77,7 +77,7 @@ The feature is a **general disposable Mac desktop**. The runtime, CLI, and API m
 ### First macOS sandbox
 
 ```bash
-smolvm sandbox create --os macos --name test-mac --mount "$PWD"
+celesto sandbox create --os macos --name test-mac --mount "$PWD"
 ```
 
 If no base image exists, interactive output must state the download size estimate, storage requirement, expected installation time, Apple license link, and the local-only nature of the image. Ask for confirmation before downloading. `--yes` skips the prompt. `--json` never prompts; without `--yes`, it returns a structured `confirmation_required` error containing the exact retry command.
@@ -97,17 +97,17 @@ After installation, SmolVM clones the base, starts the sandbox, and reports:
 
 ```text
 Sandbox 'test-mac' is running.
-Open its desktop with 'smolvm sandbox desktop test-mac'.
+Open its desktop with 'celesto sandbox desktop test-mac'.
 ```
 
 ### Open the desktop
 
 ```bash
-smolvm sandbox desktop test-mac
+celesto sandbox desktop test-mac
 ```
 
 - If running, open the loopback VNC URL with macOS Screen Sharing.
-- If stopped, fail with: `Sandbox 'test-mac' is stopped; run 'smolvm sandbox start test-mac', then 'smolvm sandbox desktop test-mac'.`
+- If stopped, fail with: `Sandbox 'test-mac' is stopped; run 'celesto sandbox start test-mac', then 'celesto sandbox desktop test-mac'.`
 - Add `--start` as an explicit convenience to start a stopped sandbox first.
 - With `--json`, return the display endpoint and do not launch a host application.
 
@@ -116,7 +116,7 @@ smolvm sandbox desktop test-mac
 Preferred visual path:
 
 ```bash
-smolvm sandbox create --os macos --name test-mac --mount "$PWD"
+celesto sandbox create --os macos --name test-mac --mount "$PWD"
 ```
 
 Finder shows the share under a stable `SmolVM Shared` location. Shell, exec, and file-transfer commands are deferred until secure guest credential provisioning is available.
@@ -124,9 +124,9 @@ Finder shows the share under a stable `SmolVM Shared` location. Shell, exec, and
 ### Reuse or discard
 
 ```bash
-smolvm sandbox stop test-mac
-smolvm sandbox start test-mac
-smolvm sandbox delete test-mac
+celesto sandbox stop test-mac
+celesto sandbox start test-mac
+celesto sandbox delete test-mac
 ```
 
 Stop/start preserves the cloned machine. Delete removes the clone and all guest changes.
@@ -136,10 +136,10 @@ Stop/start preserves the cloned machine. Delete removes the clone and all guest 
 Extend the existing image resource rather than adding a macOS-specific top-level command:
 
 ```bash
-smolvm image build --os macos --ipsw latest -t macos-latest
-smolvm image list
-smolvm image inspect macos-latest
-smolvm image rm macos-latest
+celesto image build --os macos --ipsw latest -t macos-latest
+celesto image list
+celesto image inspect macos-latest
+celesto image rm macos-latest
 ```
 
 The current Dockerfile build remains unchanged when `--os macos` is absent. Reject Docker-only flags in macOS mode and reject macOS-only flags in Docker mode.
@@ -167,17 +167,17 @@ CLI / Python SDK / HTTP API / Dashboard
 ### New modules
 
 ```text
-src/smolvm/macos/__init__.py
-src/smolvm/macos/models.py       # image manifests, bundle metadata, display endpoint
-src/smolvm/macos/images.py       # IPSW/base-image preparation and cache locking
-src/smolvm/macos/driver.py       # MacOSRuntimeDriver protocol
-src/smolvm/macos/lume.py         # subprocess adapter and JSON parsing
-src/smolvm/macos/desktop.py      # loopback endpoint validation and host viewer opening
-src/smolvm/runtime/vz.py         # RuntimeAdapter implementation
-src/smolvm/host/lume.py          # pinned binary discovery/download/version/SHA checks
+src/celesto/macos/__init__.py
+src/celesto/macos/models.py       # image manifests, bundle metadata, display endpoint
+src/celesto/macos/images.py       # IPSW/base-image preparation and cache locking
+src/celesto/macos/driver.py       # MacOSRuntimeDriver protocol
+src/celesto/macos/lume.py         # subprocess adapter and JSON parsing
+src/celesto/macos/desktop.py      # loopback endpoint validation and host viewer opening
+src/celesto/runtime/vz.py         # RuntimeAdapter implementation
+src/celesto/host/lume.py          # pinned binary discovery/download/version/SHA checks
 ```
 
-Keep every Lume command, output parser, and artifact-layout assumption inside `src/smolvm/macos/lume.py`. The rest of SmolVM speaks only SmolVM-owned request/result models.
+Keep every Lume command, output parser, and artifact-layout assumption inside `src/celesto/macos/lume.py`. The rest of SmolVM speaks only SmolVM-owned request/result models.
 
 ### Driver interface
 
@@ -200,7 +200,7 @@ Do not expose Lume names or raw JSON through public models.
 
 - `VzRuntimeAdapter.start()` launches one long-lived backend process per sandbox and tracks its PID through the existing manager.
 - Start VNC on a randomly allocated loopback port. Never bind the desktop to `0.0.0.0`.
-- Capture backend stdout/stderr in the normal sandbox log file so `smolvm sandbox logs` works.
+- Capture backend stdout/stderr in the normal sandbox log file so `celesto sandbox logs` works.
 - Store the backend control socket/path when available.
 - Verify display readiness by connecting to the local VNC port; do not require SSH for desktop readiness.
 - Closing Screen Sharing must not terminate the backend process.
@@ -212,7 +212,7 @@ Do not expose Lume names or raw JSON through public models.
 
 ### Guest and backend
 
-In `src/smolvm/types.py` and `src/smolvm/runtime/backends.py`:
+In `src/celesto/types.py` and `src/celesto/runtime/backends.py`:
 
 - Add `GuestOS.MACOS = "macos"`.
 - Add `BACKEND_VZ = "vz"` and include it in supported backend literals.
@@ -282,10 +282,10 @@ Add a general `DesktopEndpoint` model:
 
 Add `display: DesktopEndpoint | None` to `VMInfo` and `RuntimeLaunch`. Persist it as a nullable JSON `display` column in both SQLite and Postgres `vms` tables. Update:
 
-- `src/smolvm/storage/_protocol.py`
-- `src/smolvm/storage/_base.py`
-- `src/smolvm/storage/_sqlite.py`
-- `src/smolvm/storage/_postgres.py`
+- `src/celesto/storage/_protocol.py`
+- `src/celesto/storage/_base.py`
+- `src/celesto/storage/_sqlite.py`
+- `src/celesto/storage/_postgres.py`
 
 Migrations must be additive and old databases must continue to open.
 
@@ -356,11 +356,11 @@ Deliver the spike findings in `docs/contributing/macos-spike.md`, including the 
 
 ## Phase 2 — Host setup and pinned driver
 
-- [ ] Add Lume discovery and version probing under `src/smolvm/host/lume.py`.
-- [ ] Decide during the spike whether `smolvm setup --backend vz` downloads a pinned standalone binary or provides a pinned Homebrew command. Prefer a SmolVM-managed checksum-verified binary under `~/.smolvm/bin` if upstream packaging supports it.
+- [ ] Add Lume discovery and version probing under `src/celesto/host/lume.py`.
+- [ ] Decide during the spike whether `celesto setup --backend vz` downloads a pinned standalone binary or provides a pinned Homebrew command. Prefer a SmolVM-managed checksum-verified binary under `~/.smolvm/bin` if upstream packaging supports it.
 - [ ] Include the Lume MIT notice in the source distribution and generated wheel notices when bundling/downloading it.
 - [ ] Add `vz_status()`, availability messages, and actionable recovery commands to `runtime/backends.py`.
-- [ ] Add `smolvm doctor --backend vz` checks for:
+- [ ] Add `celesto doctor --backend vz` checks for:
   - Apple Silicon
   - Supported host macOS version
   - Virtualization support/entitlement
@@ -376,7 +376,7 @@ Deliver the spike findings in `docs/contributing/macos-spike.md`, including the 
 ## Phase 3 — Local macOS image management
 
 - [ ] Implement `MacOSImageManager` with build locks, interrupted-install cleanup, manifest validation, disk-space checks, and progress callbacks.
-- [ ] Extend `smolvm image build` with mutually exclusive macOS mode:
+- [ ] Extend `celesto image build` with mutually exclusive macOS mode:
   - `--os macos`
   - `--ipsw latest|PATH`
   - `-t/--tag`
@@ -412,7 +412,7 @@ Deliver the spike findings in `docs/contributing/macos-spike.md`, including the 
 
 - [ ] Implement loopback-only endpoint validation in `macos/desktop.py` before invoking any URL opener.
 - [ ] Add `SmolVM.open_desktop()` and `SmolVM.desktop_endpoint`; do not change the existing `SmolVM.desktop()` class factory used for Linux desktop sessions.
-- [ ] Add `smolvm sandbox desktop SANDBOX [--start] [--json]` to `src/smolvm/cli/commands/app.py` and its handler to `src/smolvm/cli/main.py`.
+- [ ] Add `celesto sandbox desktop SANDBOX [--start] [--json]` to `src/celesto/cli/commands/app.py` and its handler to `src/celesto/cli/main.py`.
 - [ ] Open `vnc://...` through the host only after checking the sandbox and endpoint state.
 - [ ] Map each `WorkspaceMount` to a uniquely named VirtioFS share. Sanitize names and reject collisions.
 - [ ] Make shares visible in Finder under a stable `SmolVM Shared` naming convention.
@@ -427,7 +427,7 @@ Deliver the spike findings in `docs/contributing/macos-spike.md`, including the 
 
 ## Phase 6 — HTTP API and dashboard
 
-- [ ] Add `macos` and `vz` to the sanitized API request models in `src/smolvm/server/models.py`.
+- [ ] Add `macos` and `vz` to the sanitized API request models in `src/celesto/server/models.py`.
 - [ ] Add a sanitized desktop endpoint to `SandboxResponse` or a dedicated `DesktopResponse`.
 - [ ] Add `GET /vms/{id}/desktop` and an optional local-only `POST /vms/{id}/desktop/open`; remote API callers receive the endpoint but must not cause arbitrary URL opening on the server host.
 - [ ] Update OpenAPI, regenerate `ts/openapi.json`, and update the TypeScript client.
@@ -463,7 +463,7 @@ Deliver the spike findings in `docs/contributing/macos-spike.md`, including the 
   - third-party notices and release notes
 - [ ] Document supported host/guest versions, resource requirements, two-VM limit, local-only scope, Apple license link, APFS requirement, unsupported features, and how to remove all local macOS data.
 - [ ] Label the feature experimental and require an explicit compatibility matrix in release notes.
-- [ ] Do not add macOS artifacts to `src/smolvm/images/published.py` or the published-image release workflow.
+- [ ] Do not add macOS artifacts to `src/celesto/images/published.py` or the published-image release workflow.
 
 **Release gate:** the real-machine acceptance journey passes on every declared supported host version, secure credentials are in place, license notices are included, unsupported security controls fail closed, and Linux/Windows behavior is unchanged.
 

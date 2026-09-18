@@ -20,9 +20,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smolvm.exceptions import ImageError
-from smolvm.images import BootImage, DirectKernelBoot, DockerRootfsBuilder, FirmwareBoot
-from smolvm.kernels import ensure_base_kernel_for_backend
+from celesto.exceptions import ImageError
+from celesto.images import BootImage, DirectKernelBoot, DockerRootfsBuilder, FirmwareBoot
+from celesto.kernels import ensure_base_kernel_for_backend
 
 
 def _tokens(args: str) -> set[str]:
@@ -239,10 +239,10 @@ class TestBootImage:
             )
 
     def test_top_level_exports(self) -> None:
-        from smolvm import BootImage as TopLevelBootImage
-        from smolvm import FirmwareBoot as TopLevelFirmwareBoot
-        from smolvm.images import BootImage as ImagesBootImage
-        from smolvm.images import FirmwareBoot as ImagesFirmwareBoot
+        from celesto import BootImage as TopLevelBootImage
+        from celesto import FirmwareBoot as TopLevelFirmwareBoot
+        from celesto.images import BootImage as ImagesBootImage
+        from celesto.images import FirmwareBoot as ImagesFirmwareBoot
 
         assert TopLevelBootImage is BootImage
         assert TopLevelFirmwareBoot is FirmwareBoot
@@ -259,8 +259,8 @@ class TestDockerRootfsBuilder:
         assert isinstance(rootfs_path, Path)
         rootfs_path.write_bytes(b"ext4")
 
-    @patch("smolvm.images.builder.ensure_base_kernel_for_backend")
-    @patch("smolvm.images.builder.ImageBuilder.check_docker", return_value=True)
+    @patch("celesto.images.builder.ensure_base_kernel_for_backend")
+    @patch("celesto.images.builder.ImageBuilder.check_docker", return_value=True)
     def test_build_boot_image_builds_rootfs_and_returns_boot_image(
         self,
         _mock_check_docker: MagicMock,
@@ -300,8 +300,8 @@ class TestDockerRootfsBuilder:
         assert image.rootfs_path.parent.parent.name == "celesto-scratch"
         mock_kernel.assert_called_once_with("qemu", arch="amd64", cache_dir=cache_dir)
 
-    @patch("smolvm.images.builder.ensure_base_kernel_for_backend")
-    @patch("smolvm.images.builder.ImageBuilder.check_docker", return_value=True)
+    @patch("celesto.images.builder.ensure_base_kernel_for_backend")
+    @patch("celesto.images.builder.ImageBuilder.check_docker", return_value=True)
     def test_build_boot_image_uses_ext4_suffixed_temp_rootfs(
         self,
         _mock_check_docker: MagicMock,
@@ -344,8 +344,8 @@ class TestDockerRootfsBuilder:
         assert temp_rootfs != image.rootfs_path
         assert not temp_rootfs.exists()
 
-    @patch("smolvm.images.builder.ensure_base_kernel_for_backend")
-    @patch("smolvm.images.builder.ImageBuilder.check_docker", return_value=True)
+    @patch("celesto.images.builder.ensure_base_kernel_for_backend")
+    @patch("celesto.images.builder.ImageBuilder.check_docker", return_value=True)
     def test_ensure_remains_backward_compatible(
         self,
         _mock_check_docker: MagicMock,
@@ -375,8 +375,8 @@ class TestDockerRootfsBuilder:
         assert image.name == "ensure-alias"
         assert image.rootfs_path.name == "rootfs.ext4"
 
-    @patch("smolvm.images.builder.ensure_base_kernel_for_backend")
-    @patch("smolvm.images.builder.ImageBuilder.check_docker", return_value=True)
+    @patch("celesto.images.builder.ensure_base_kernel_for_backend")
+    @patch("celesto.images.builder.ImageBuilder.check_docker", return_value=True)
     def test_cached_rootfs_is_reused_across_backends(
         self,
         _mock_check_docker: MagicMock,
@@ -469,7 +469,7 @@ class TestDockerRootfsBuilder:
 
         with (
             patch(
-                "smolvm.images.builder.subprocess.run",
+                "celesto.images.builder.subprocess.run",
                 side_effect=subprocess.CalledProcessError(
                     7,
                     ["docker", "build"],
@@ -495,7 +495,7 @@ class TestDockerRootfsBuilder:
 
         with (
             patch(
-                "smolvm.images.builder.subprocess.run",
+                "celesto.images.builder.subprocess.run",
                 side_effect=[
                     subprocess.CompletedProcess(["docker", "build"], 0),
                     subprocess.CalledProcessError(
@@ -524,7 +524,7 @@ class TestDockerRootfsBuilder:
 
         with (
             patch(
-                "smolvm.images.builder.subprocess.run",
+                "celesto.images.builder.subprocess.run",
                 side_effect=[
                     subprocess.CompletedProcess(["docker", "build"], 0),
                     subprocess.CompletedProcess(["docker", "create"], 0, stdout="container\n"),
@@ -547,8 +547,8 @@ class TestDockerRootfsBuilder:
             )
 
     def test_top_level_builder_export(self) -> None:
-        from smolvm import DockerRootfsBuilder as TopLevelDockerRootfsBuilder
-        from smolvm.images import DockerRootfsBuilder as ImagesDockerRootfsBuilder
+        from celesto import DockerRootfsBuilder as TopLevelDockerRootfsBuilder
+        from celesto.images import DockerRootfsBuilder as ImagesDockerRootfsBuilder
 
         assert TopLevelDockerRootfsBuilder is DockerRootfsBuilder
         assert ImagesDockerRootfsBuilder is DockerRootfsBuilder
@@ -557,7 +557,7 @@ class TestDockerRootfsBuilder:
 class TestEnsureBaseKernelForBackend:
     """Kernel resolution hides published asset format details."""
 
-    @patch("smolvm.images.published.ensure_base_kernel")
+    @patch("celesto.images.published.ensure_base_kernel")
     def test_qemu_selects_image_kernel(self, mock_ensure: MagicMock) -> None:
         kernel = Path("sentinels/vmlinux.image")
         mock_ensure.return_value = kernel
@@ -565,7 +565,7 @@ class TestEnsureBaseKernelForBackend:
         assert ensure_base_kernel_for_backend("qemu", arch="amd64") == kernel
         mock_ensure.assert_called_once_with("amd64", "image", cache_dir=None)
 
-    @patch("smolvm.images.published.ensure_base_kernel")
+    @patch("celesto.images.published.ensure_base_kernel")
     def test_firecracker_selects_elf_kernel(self, mock_ensure: MagicMock) -> None:
         kernel = Path("sentinels/vmlinux.elf")
         mock_ensure.return_value = kernel
@@ -573,7 +573,7 @@ class TestEnsureBaseKernelForBackend:
         assert ensure_base_kernel_for_backend("firecracker", arch="arm64") == kernel
         mock_ensure.assert_called_once_with("arm64", "elf", cache_dir=None)
 
-    @patch("smolvm.images.published.ensure_base_kernel")
+    @patch("celesto.images.published.ensure_base_kernel")
     def test_libkrun_selects_elf_kernel_on_linux(
         self, mock_ensure: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -585,7 +585,7 @@ class TestEnsureBaseKernelForBackend:
         assert ensure_base_kernel_for_backend("libkrun", arch="x86_64") == kernel
         mock_ensure.assert_called_once_with("amd64", "elf", cache_dir=None)
 
-    @patch("smolvm.images.published.ensure_base_kernel")
+    @patch("celesto.images.published.ensure_base_kernel")
     def test_libkrun_selects_image_kernel_on_darwin(
         self, mock_ensure: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -598,7 +598,7 @@ class TestEnsureBaseKernelForBackend:
         assert ensure_base_kernel_for_backend("libkrun", arch="arm64") == kernel
         mock_ensure.assert_called_once_with("arm64", "image", cache_dir=None)
 
-    @patch("smolvm.images.published.ensure_base_kernel")
+    @patch("celesto.images.published.ensure_base_kernel")
     def test_host_arch_is_normalized(
         self,
         mock_ensure: MagicMock,
@@ -606,7 +606,7 @@ class TestEnsureBaseKernelForBackend:
     ) -> None:
         kernel = Path("sentinels/vmlinux.image")
         mock_ensure.return_value = kernel
-        monkeypatch.setattr("smolvm.kernels.platform.machine", lambda: "aarch64")
+        monkeypatch.setattr("celesto.kernels.platform.machine", lambda: "aarch64")
 
         assert ensure_base_kernel_for_backend("qemu", arch="host") == kernel
         mock_ensure.assert_called_once_with("arm64", "image", cache_dir=None)

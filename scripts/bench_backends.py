@@ -1,8 +1,8 @@
-"""Benchmark SmolVM QEMU vs Firecracker backends.
+"""Benchmark Celesto QEMU vs Firecracker backends.
 
 Same guest OS (Alpine) on both backends to isolate the hypervisor.
 Per backend, over N timed iterations, measures (seconds):
-  create     : build config + SmolVM(config=...) (registers VM, materializes rootfs overlay)
+  create     : build config + Celesto(config=...) (registers VM, materializes rootfs overlay)
   boot       : .start() until the VM is running
   first_cmd  : first vm.run() — includes waiting for SSH = "time to interact"
   warm_cmd   : mean latency of subsequent vm.run() calls in the same VM
@@ -20,8 +20,8 @@ import statistics as st
 import time
 import traceback
 
-from smolvm import SmolVM
-from smolvm.facade import _build_auto_config
+from celesto import Celesto
+from celesto.facade import _build_auto_config
 
 OS = "alpine"
 ITERS = 5
@@ -45,7 +45,7 @@ def time_one(backend: str) -> dict:
         name = _unique_name(backend)
         t0 = time.perf_counter()
         config, key = _build_auto_config(vm_name=name, os=OS, backend=backend)
-        vm = SmolVM(config=config, ssh_key_path=key)
+        vm = Celesto(config=config, ssh_key_path=key)
         rec["create"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()

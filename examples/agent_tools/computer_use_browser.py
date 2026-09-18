@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Run an autonomous browser task with SmolVM and OpenAI computer use.
+"""Run an autonomous browser task with Celesto and OpenAI computer use.
 
 Install:
     pip install smolvm openai playwright
@@ -27,7 +27,7 @@ Optional environment:
     export SMOLVM_BROWSER_MODE=live
 
 Before running:
-    smolvm doctor
+    celesto doctor
 
 Examples:
     python examples/agent_tools/computer_use_browser.py
@@ -47,7 +47,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
 
-from smolvm import SmolVM, SmolVMError
+from celesto import Celesto, CelestoError
 
 if TYPE_CHECKING:
     from openai.types.responses import ResponseComputerToolCall
@@ -431,7 +431,7 @@ def _run_task(config: ComputerUseConfig) -> ComputerUseResult:
     openai_client_cls = _require_dependency("openai:OpenAI", "pip install openai")
     client = openai_client_cls()
 
-    with SmolVM.browser(
+    with Celesto.browser(
         headless=config.browser_mode == "headless",
         viewport={"width": config.viewport_width, "height": config.viewport_height},
     ) as session:
@@ -440,7 +440,7 @@ def _run_task(config: ComputerUseConfig) -> ComputerUseResult:
             f"start_url={config.start_url}"
         )
         if session.cdp_url is None:
-            raise SmolVMError(
+            raise CelestoError(
                 "The browser sandbox failed to provide a connection address needed to "
                 "control the browser; please try again or report this problem."
             )
@@ -528,7 +528,7 @@ def _run_task(config: ComputerUseConfig) -> ComputerUseResult:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run an autonomous browser task in a disposable SmolVM session."
+        description="Run an autonomous browser task in a disposable Celesto session."
     )
     parser.add_argument("--task", default=DEFAULT_TASK, help="Natural-language task to perform.")
     parser.add_argument(

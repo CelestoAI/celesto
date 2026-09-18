@@ -1,14 +1,14 @@
-# SmolVM documentation
+# Celesto documentation
 
-SmolVM gives an AI agent a disposable computer for running code, using a browser, and doing work without changing your machine. Start with installation, then choose the workflow you need.
+Celesto gives an AI agent a disposable computer for running code, using a browser, and doing work without changing your machine. Start with installation, then choose the workflow you need.
 
 ## Get started
 
-- [Install SmolVM](installation.md) — prepare your machine and check it is ready.
+- [Install Celesto](installation.md) — prepare your machine and check it is ready.
 - [Run a sandbox](guides/sandboxes.md) — create, use, and remove an isolated computer.
 - [CLI reference](reference/cli.md) — scan every current command and its purpose.
 - [OpenMuse example](../open-muse/README.md) — chat with a Pi agent while watching its disposable browser.
-- [OpenMuse Research example](../examples/open-muse-research/README.md) — run a structured TypeScript research workflow inside a temporary SmolVM.
+- [OpenMuse Research example](../examples/open-muse-research/README.md) — run a structured TypeScript research workflow inside a temporary Celesto.
 
 ## Guides
 
@@ -28,4 +28,4 @@ SmolVM gives an AI agent a disposable computer for running code, using a browser
 - [macOS runtime spike](contributing/macos-spike.md) — see verified behavior and release blockers for the desktop preview.
 - [Native core](contributing/native-core.md) — work on the optional Rust acceleration package.
 
-Pages link to the implementation and relevant tests when they make a claim about current behavior. Those links are evidence for maintainers, not prerequisites for using SmolVM.
+Pages link to the implementation and relevant tests when they make a claim about current behavior. Those links are evidence for maintainers, not prerequisites for using Celesto.

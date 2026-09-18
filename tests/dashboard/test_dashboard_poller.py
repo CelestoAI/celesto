@@ -10,8 +10,8 @@ import pytest
 
 pytest.importorskip("fastapi")
 
-from smolvm.dashboard.poller import poll_vm_state
-from smolvm.types import VMState
+from celesto.dashboard.poller import poll_vm_state
+from celesto.types import VMState
 
 
 class FakeStateManager:
@@ -49,7 +49,7 @@ def test_poller_broadcasts_created_updated_and_deleted_vms(
         if calls == 2:
             raise asyncio.CancelledError
 
-    monkeypatch.setattr("smolvm.dashboard.poller.asyncio.sleep", stop_after_two_polls)
+    monkeypatch.setattr("celesto.dashboard.poller.asyncio.sleep", stop_after_two_polls)
 
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(poll_vm_state(state, connections, interval=0))
@@ -81,7 +81,7 @@ def test_poller_logs_state_errors_and_continues(monkeypatch: pytest.MonkeyPatch)
         sleep_calls += 1
         raise asyncio.CancelledError
 
-    monkeypatch.setattr("smolvm.dashboard.poller.asyncio.sleep", stop_after_error)
+    monkeypatch.setattr("celesto.dashboard.poller.asyncio.sleep", stop_after_error)
 
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(poll_vm_state(BrokenState(), connections, interval=0))

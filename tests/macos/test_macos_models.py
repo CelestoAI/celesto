@@ -11,8 +11,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from smolvm.macos.models import MacOSInstallRequest, MacOSRunRequest
-from smolvm.types import (
+from celesto.macos.models import MacOSInstallRequest, MacOSRunRequest
+from celesto.types import (
     DesktopEndpoint,
     GuestOS,
     InternetSettings,

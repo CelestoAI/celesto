@@ -1,0 +1,945 @@
+"""Browser-session orchestration on top of Celesto guests."""
+
+from __future__ import annotations
+
+import hashlib
+import logging
+import platform
+import shlex
+import socket
+import time
+import urllib.error
+import urllib.request
+import uuid
+import webbrowser
+from collections.abc import Callable
+from contextlib import suppress
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+from celesto.exceptions import BrowserSessionNotFoundError, CelestoError
+from celesto.facade import Celesto
+from celesto.host._public_egress import (
+    QEMU_PUBLIC_PROXY_GUEST_IP,
+    QEMU_PUBLIC_PROXY_GUEST_PORT,
+)
+from celesto.runtime.backends import (
+    BACKEND_AUTO,
+    BACKEND_FIRECRACKER,
+    BACKEND_LIBKRUN,
+    BACKEND_QEMU,
+    resolve_backend,
+)
+from celesto.runtime.boot_profiles import (
+    KernelBootProfile,
+    get_boot_profile_spec,
+)
+from celesto.storage import MemoryStateManager, StateManagerProtocol
+from celesto.types import (
+    BrowserSessionConfig,
+    BrowserSessionInfo,
+    BrowserSessionState,
+    PortForwardConfig,
+    VMConfig,
+    VMInfo,
+    VMState,
+)
+from celesto.vm import resolve_data_dir
+
+logger = logging.getLogger(__name__)
+
+_BROWSER_DEBUG_PORT = 9222
+_BROWSER_LIVE_PORT = 6080
+_BROWSER_VNC_PORT = 5900
+_DEFAULT_BROWSER_BOOT_TIMEOUT = 90.0
+_BROWSER_GUEST_ROOT = "/opt/smolvm-browser"
+_BROWSER_GUEST_PROFILE_ROOT = f"{_BROWSER_GUEST_ROOT}/profiles"
+_BROWSER_GUEST_DOWNLOAD_ROOT = f"{_BROWSER_GUEST_ROOT}/downloads"
+_BROWSER_GUEST_ARTIFACT_ROOT = f"{_BROWSER_GUEST_ROOT}/artifacts"
+_BROWSER_GUEST_LOG_ROOT = "/var/log/smolvm-browser"
+_BROWSER_KERNEL_PROFILE = KernelBootProfile.MICROVM_DIRECT
+_PUBLISHED_COMPUTER_DISK_SIZE_MIB = 8192
+_LOCAL_HTTP_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def _generate_browser_session_id() -> str:
+    """Generate a browser sandbox identifier."""
+    return f"browser-{uuid.uuid4().hex[:8]}"
+
+
+def _browser_state_manager(data_dir: Path) -> StateManagerProtocol:
+    """Return process-local browser state with no database side effects."""
+    return MemoryStateManager(data_dir)
+
+
+def _stable_browser_vm_id(profile_id: str) -> str:
+    """Derive a stable VM identifier for a persistent profile."""
+    normalized = "".join(
+        char if char.isalnum() or char in {"-", "_"} else "-" for char in profile_id
+    )
+    normalized = normalized.strip("-_").lower() or "profile"
+    digest = hashlib.sha1(profile_id.encode("utf-8")).hexdigest()[:8]
+    max_slug_len = 63 - len("browser-prof--") - len(digest)
+    slug = normalized[:max_slug_len]
+    return f"browser-prof-{slug}-{digest}"
+
+
+def _browser_vm_id(session_id: str, config: BrowserSessionConfig) -> str:
+    """Resolve the underlying VM identifier for a browser sandbox."""
+    if config.profile_mode == "persistent":
+        assert config.profile_id is not None
+        return _stable_browser_vm_id(config.profile_id)
+    return session_id
+
+
+def _allocate_browser_host_port(exclude: set[int] | None = None) -> int:
+    """Allocate an available localhost TCP port for browser forwarding."""
+    excluded = set(exclude or ())
+    for _ in range(20):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = int(sock.getsockname()[1])
+        if port not in excluded:
+            return port
+    raise CelestoError("Failed to allocate a localhost port for browser forwarding.")
+
+
+def _qemu_browser_port_forwards(config: BrowserSessionConfig) -> list[PortForwardConfig]:
+    """Return stable QEMU host forwards for browser endpoints."""
+    reserved: set[int] = set()
+    debug_port = _allocate_browser_host_port(reserved)
+    reserved.add(debug_port)
+    forwards = [PortForwardConfig(host_port=debug_port, guest_port=_BROWSER_DEBUG_PORT)]
+    if config.mode in {"live", "desktop", "computer"}:
+        live_port = _allocate_browser_host_port(reserved)
+        reserved.add(live_port)
+        vnc_port = _allocate_browser_host_port(reserved)
+        forwards.append(PortForwardConfig(host_port=live_port, guest_port=_BROWSER_LIVE_PORT))
+        forwards.append(PortForwardConfig(host_port=vnc_port, guest_port=_BROWSER_VNC_PORT))
+    return forwards
+
+
+def _browser_boot_args_for_backend(backend: str) -> str:
+    """Return backend-specific kernel boot arguments for browser images."""
+    arch = platform.machine().lower()
+    profile = get_boot_profile_spec(_BROWSER_KERNEL_PROFILE)
+    return profile.base_boot_args_for_backend(backend, arch)
+
+
+def _guest_browser_proxy_endpoint(vm_info: VMInfo) -> str | None:
+    """Return the private proxy URL already wired into a VM network."""
+    network = vm_info.network
+    if network is None or network.egress_proxy_host_port is None:
+        return None
+    if vm_info.config.backend == BACKEND_QEMU and vm_info.config.qemu_network == "slirp":
+        return f"http://{QEMU_PUBLIC_PROXY_GUEST_IP}:{QEMU_PUBLIC_PROXY_GUEST_PORT}"
+    if network.gateway_ip is None:
+        return None
+    host = f"[{network.gateway_ip}]" if ":" in network.gateway_ip else network.gateway_ip
+    return f"http://{host}:{network.egress_proxy_host_port}"
+
+
+def _guest_browser_session_command(
+    action: str,
+    arguments: list[str],
+    *,
+    proxy_endpoint: str | None = None,
+) -> str:
+    """Build a quoted guest launcher command with an optional proxy argument."""
+    parts = ["/usr/local/bin/smolvm-browser-session", action, *arguments]
+    if proxy_endpoint is not None:
+        parts.append(proxy_endpoint)
+    return " ".join(shlex.quote(part) for part in parts)
+
+
+def _build_browser_vm_config(
+    *,
+    session_id: str,
+    browser_config: BrowserSessionConfig,
+    ssh_key_path: str | None = None,
+    on_progress: Callable[[str], None] | None = None,
+) -> tuple[VMConfig, str | None]:
+    """Build the underlying VM config for a browser sandbox."""
+    from celesto.images.builder import ImageBuilder
+    from celesto.utils import ensure_ssh_key
+
+    requested_backend = (
+        BACKEND_QEMU
+        if browser_config.backend == BACKEND_AUTO and browser_config.workspace_mounts
+        else browser_config.backend
+    )
+    resolved_backend = resolve_backend(requested_backend)
+    private_key, default_public_key = ensure_ssh_key()
+    if ssh_key_path is None:
+        resolved_ssh_key_path = str(private_key)
+        resolved_public_key = default_public_key
+    else:
+        resolved_ssh_key_path = ssh_key_path
+        resolved_public_key = Path(f"{ssh_key_path}.pub")
+    try:
+        public_key_text = resolved_public_key.read_text().strip()
+    except OSError as exc:
+        private_arg = shlex.quote(resolved_ssh_key_path)
+        public_arg = shlex.quote(str(resolved_public_key))
+        raise CelestoError(
+            "Browser SSH key is missing its matching public key at "
+            f"'{resolved_public_key}'; create it with "
+            f"`ssh-keygen -y -f {private_arg} > {public_arg}`."
+        ) from exc
+
+    # TODO: Make the browser runtime pluggable so BrowserSessionConfig.browser
+    # can select alternative engines (for example Lightpanda) without changing
+    # the surrounding session lifecycle or backend abstractions.
+    image_arch = "aarch64" if platform.machine().lower() in {"arm64", "aarch64"} else "x86_64"
+    is_computer = browser_config.mode == "computer"
+    if is_computer and browser_config.disk_size_mib < _PUBLISHED_COMPUTER_DISK_SIZE_MIB:
+        raise ValueError(
+            f"Linux computer '{session_id}' needs at least 8192 MiB of disk; run "
+            f"'celesto computer start --name {session_id} --disk-size 8192'."
+        )
+    port_forwards: list[PortForwardConfig] = []
+    if resolved_backend == BACKEND_QEMU:
+        port_forwards = _qemu_browser_port_forwards(browser_config)
+
+    grow_filesystem = False
+    if is_computer:
+        from celesto.images.published import Arch, Vmm, ensure_published_image
+
+        vmm_by_backend: dict[str, Vmm] = {
+            BACKEND_FIRECRACKER: "firecracker",
+            BACKEND_QEMU: "qemu",
+            BACKEND_LIBKRUN: "libkrun",
+        }
+        vmm = vmm_by_backend[resolved_backend]
+        published_arch: Arch = "arm64" if image_arch == "aarch64" else "amd64"
+        if on_progress is not None:
+            on_progress("Preparing the Linux desktop image...")
+
+        def report_download(_name: str, downloaded: int, total: int | None) -> None:
+            """Report image download progress in whole MiB."""
+            if on_progress is None:
+                return
+            downloaded_mib = downloaded // (1024 * 1024)
+            if total is None:
+                on_progress(f"Downloading the Linux desktop image: {downloaded_mib} MiB.")
+            else:
+                total_mib = total // (1024 * 1024)
+                on_progress(
+                    f"Downloading the Linux desktop image: {downloaded_mib} of {total_mib} MiB."
+                )
+
+        local_image = ensure_published_image(
+            "linux-desktop",
+            published_arch,
+            vmm,
+            on_download=report_download if on_progress is not None else None,
+        )
+        if on_progress is not None:
+            on_progress("The Linux desktop image is ready.")
+        kernel, rootfs = local_image.kernel_path, local_image.rootfs_path
+        grow_filesystem = browser_config.disk_size_mib > _PUBLISHED_COMPUTER_DISK_SIZE_MIB
+    else:
+        builder = ImageBuilder()
+        kernel_url = (
+            builder.qemu_kernel_url_for_host() if resolved_backend == BACKEND_QEMU else None
+        )
+        image_name = f"browser-chromium-{image_arch}"
+        if resolved_backend == BACKEND_QEMU:
+            image_name = f"{image_name}-qemu"
+        if browser_config.disk_size_mib != 4096:
+            image_name = f"{image_name}-{browser_config.disk_size_mib}m"
+        kernel, rootfs = builder.build_browser_rootfs(
+            public_key_text,
+            name=image_name,
+            rootfs_size_mb=browser_config.disk_size_mib,
+            kernel_profile=_BROWSER_KERNEL_PROFILE,
+            kernel_url=kernel_url,
+            desktop=False,
+        )
+
+    config = VMConfig(
+        vm_id=_browser_vm_id(session_id, browser_config),
+        vcpu_count=2 if is_computer else 1,
+        memory=browser_config.mem_size_mib,
+        kernel_path=kernel,
+        rootfs_path=rootfs,
+        boot_args=_browser_boot_args_for_backend(resolved_backend),
+        backend=resolved_backend,
+        retain_disk_on_delete=browser_config.profile_mode == "persistent",
+        env_vars=browser_config.env_vars,
+        port_forwards=port_forwards,
+        workspace_mounts=browser_config.workspace_mounts,
+        internet_settings=browser_config.internet_settings,
+        ssh_public_key=public_key_text,
+        disk_size_mib=browser_config.disk_size_mib if is_computer else None,
+        grow_filesystem=grow_filesystem,
+    )
+    return config, resolved_ssh_key_path
+
+
+class _BrowserSandbox:
+    """Disposable browser sandbox running inside a Celesto guest."""
+
+    def __init__(
+        self,
+        config: BrowserSessionConfig | None = None,
+        *,
+        session_id: str | None = None,
+        data_dir: Path | None = None,
+        socket_dir: Path | None = None,
+        ssh_key_path: str | None = None,
+        state_manager: StateManagerProtocol | None = None,
+        on_progress: Callable[[str], None] | None = None,
+    ) -> None:
+        if config is not None and session_id is not None:
+            raise ValueError("Provide either config or session_id, not both.")
+        if session_id is not None and state_manager is None:
+            raise ValueError(
+                "Reconnecting by session_id requires an explicit state_manager; "
+                "retain the original browser sandbox handle for SDK use."
+            )
+
+        self._data_dir = resolve_data_dir(data_dir)
+        self._socket_dir = socket_dir
+        self._ssh_key_path = ssh_key_path
+        self._state = state_manager or _browser_state_manager(self._data_dir)
+        self._owns_session = False
+        self._vm: Celesto | None = None
+        self._playwright_runtime: Any | None = None
+
+        if config is None and session_id is None:
+            config = BrowserSessionConfig()
+
+        if config is not None:
+            self._init_new_session(config, on_progress=on_progress)
+        else:
+            assert session_id is not None
+            self._attach_existing_session(session_id)
+
+    @classmethod
+    def from_id(
+        cls,
+        session_id: str,
+        *,
+        data_dir: Path | None = None,
+        socket_dir: Path | None = None,
+        ssh_key_path: str | None = None,
+        state_manager: StateManagerProtocol | None = None,
+    ) -> _BrowserSandbox:
+        """Reconnect to an existing browser sandbox by ID."""
+        return cls(
+            session_id=session_id,
+            data_dir=data_dir,
+            socket_dir=socket_dir,
+            ssh_key_path=ssh_key_path,
+            state_manager=state_manager,
+        )
+
+    def _init_new_session(
+        self,
+        config: BrowserSessionConfig,
+        *,
+        on_progress: Callable[[str], None] | None = None,
+    ) -> None:
+        """Create an isolated VM and save its new browser session."""
+        session_id = config.session_id or _generate_browser_session_id()
+        session_config = (
+            config if config.session_id else config.model_copy(update={"session_id": session_id})
+        )
+        artifacts_dir = self._session_artifacts_dir(session_id)
+        expires_at = datetime.now(UTC) + timedelta(minutes=session_config.timeout_minutes)
+
+        vm: Celesto | None = None
+        try:
+            vm_config, resolved_ssh_key_path = _build_browser_vm_config(
+                session_id=session_id,
+                browser_config=session_config,
+                ssh_key_path=self._ssh_key_path,
+                on_progress=on_progress,
+            )
+            self._ssh_key_path = resolved_ssh_key_path
+            vm = Celesto(
+                vm_config,
+                data_dir=self._data_dir,
+                socket_dir=self._socket_dir,
+                ssh_key_path=self._ssh_key_path,
+                state_manager=self._state,
+            )
+            info = BrowserSessionInfo(
+                session_id=session_id,
+                vm_id=vm.vm_id,
+                status=BrowserSessionState.CREATED,
+                profile_id=session_config.profile_id,
+                expires_at=expires_at,
+                artifacts_dir=artifacts_dir,
+            )
+            self._state.create_browser_session(info, session_config)
+        except Exception:
+            if vm is not None:
+                with suppress(Exception):
+                    vm.delete()
+                with suppress(Exception):
+                    vm.close()
+            raise
+
+        self._session_config = session_config
+        self._info = info
+        self._vm = vm
+        self._owns_session = True
+
+    def _attach_existing_session(self, session_id: str) -> None:
+        self._info = self._state.get_browser_session(session_id)
+        self._session_config = self._state.get_browser_session_config(session_id)
+
+        try:
+            self._vm = Celesto.from_id(
+                self._info.vm_id,
+                data_dir=self._data_dir,
+                socket_dir=self._socket_dir,
+                ssh_key_path=self._ssh_key_path,
+                state_manager=self._state,
+            )
+        except Exception:
+            logger.warning(
+                "Browser sandbox %s could not attach to VM %s",
+                session_id,
+                self._info.vm_id,
+                exc_info=True,
+            )
+            self._vm = None
+
+    @property
+    def session_id(self) -> str:
+        """Stable browser sandbox identifier."""
+        return self._info.session_id
+
+    @property
+    def vm_id(self) -> str:
+        """Underlying Celesto identifier."""
+        return self._info.vm_id
+
+    @property
+    def vm(self) -> Celesto:
+        """Underlying Celesto instance for shell commands and file transfer."""
+        if self._vm is None:
+            raise CelestoError("Browser sandbox VM is unavailable.")
+        return self._vm
+
+    @property
+    def info(self) -> BrowserSessionInfo:
+        """Current browser sandbox info."""
+        return self._info
+
+    @property
+    def status(self) -> BrowserSessionState:
+        """Current browser sandbox status."""
+        return self._info.status
+
+    @property
+    def cdp_url(self) -> str | None:
+        """HTTP CDP endpoint exposed on localhost."""
+        return self._info.cdp_url
+
+    @property
+    def browser_cdp_url(self) -> str | None:
+        """Browser automation endpoint exposed on localhost."""
+        return self._info.cdp_url
+
+    @property
+    def viewer_url(self) -> str | None:
+        """Optional human-viewable web URL exposed on localhost."""
+        return self._info.live_url
+
+    @property
+    def display_url(self) -> str | None:
+        """Optional display-control endpoint exposed on localhost."""
+        return self._info.vnc_url
+
+    @property
+    def artifacts_dir(self) -> Path | None:
+        """Local host directory for collected session artifacts."""
+        return self._info.artifacts_dir
+
+    @property
+    def config(self) -> BrowserSessionConfig:
+        """Resolved browser sandbox configuration."""
+        return self._session_config
+
+    @property
+    def data_dir(self) -> Path:
+        """Celesto data directory used by this session."""
+        return self._data_dir
+
+    def refresh(self) -> _BrowserSandbox:
+        """Refresh session info from persisted state."""
+        self._info = self._state.get_browser_session(self._info.session_id)
+        return self
+
+    def start(
+        self,
+        boot_timeout: float = _DEFAULT_BROWSER_BOOT_TIMEOUT,
+        *,
+        on_progress: Callable[[str], None] | None = None,
+    ) -> _BrowserSandbox:
+        """Start the browser sandbox and expose its endpoints."""
+        if self._session_config.network_policy_id is not None:
+            raise CelestoError(
+                "network_policy_id is reserved for future host-side policy enforcement "
+                "and is not implemented yet."
+            )
+        if self._vm is None:
+            raise CelestoError(
+                f"Browser sandbox '{self.session_id}' cannot be started because "
+                "its VM is unavailable."
+            )
+
+        self._info = self._state.update_browser_session(
+            self.session_id,
+            status=BrowserSessionState.STARTING,
+        )
+
+        try:
+            if self._vm.status in {VMState.CREATED, VMState.STOPPED}:
+                self._vm.start(boot_timeout=boot_timeout, on_progress=on_progress)
+            self._vm.wait_for_ready(timeout=boot_timeout)
+
+            expects_browser = self._session_config.mode != "desktop"
+            expects_display = self._session_config.mode in {"live", "desktop", "computer"}
+            debug_ready = (
+                self._wait_for_guest_port(_BROWSER_DEBUG_PORT, timeout=1.0)
+                if expects_browser
+                else True
+            )
+            live_ready = (
+                self._wait_for_guest_port(_BROWSER_LIVE_PORT, timeout=1.0)
+                and self._wait_for_guest_port(_BROWSER_VNC_PORT, timeout=1.0)
+                if expects_display
+                else True
+            )
+            if not debug_ready or not live_ready:
+                self._start_guest_browser()
+
+            debug_host_port: int | None = None
+            cdp_url: str | None = None
+            if expects_browser:
+                if not self._wait_for_guest_port(_BROWSER_DEBUG_PORT, timeout=boot_timeout):
+                    raise CelestoError(
+                        f"Browser sandbox '{self.session_id}' did not expose a CDP port in time."
+                    )
+                debug_host_port = self._resolve_browser_host_port(
+                    _BROWSER_DEBUG_PORT,
+                    guest_loopback=False,
+                )
+                cdp_url = f"http://127.0.0.1:{debug_host_port}"
+                if not self._wait_for_cdp_http(cdp_url, timeout=boot_timeout):
+                    raise CelestoError(
+                        f"Browser sandbox '{self.session_id}' did not start in time; "
+                        f"to inspect logs, run: celesto browser logs {self.session_id}."
+                    )
+
+            live_url: str | None = None
+            vnc_url: str | None = None
+            vnc_host_port: int | None = None
+            if expects_display:
+                if not self._wait_for_guest_port(_BROWSER_VNC_PORT, timeout=boot_timeout):
+                    raise CelestoError(
+                        f"Browser sandbox '{self.session_id}' did not expose VNC in time."
+                    )
+                if not self._wait_for_guest_port(_BROWSER_LIVE_PORT, timeout=boot_timeout):
+                    raise CelestoError(
+                        f"Browser sandbox '{self.session_id}' did not expose a viewer in time."
+                    )
+                live_host_port = self._resolve_browser_host_port(
+                    _BROWSER_LIVE_PORT,
+                    guest_loopback=False,
+                )
+                live_url = f"http://127.0.0.1:{live_host_port}/vnc.html?autoconnect=1&resize=scale"
+                vnc_host_port = self._resolve_browser_host_port(
+                    _BROWSER_VNC_PORT,
+                    guest_loopback=True,
+                )
+                vnc_url = f"vnc://127.0.0.1:{vnc_host_port}"
+
+            if self._session_config.mode == "computer":
+                desktop_probe = self._vm.run(
+                    "runuser -u agent -- sh -c "
+                    + shlex.quote(
+                        "set -eu; export DISPLAY=:99; "
+                        "pgrep -x Xvfb >/dev/null && "
+                        "pgrep -x openbox >/dev/null && "
+                        "pgrep -x tint2 >/dev/null && "
+                        "pgrep -x chromium >/dev/null && "
+                        "xdotool search --onlyvisible --classname tint2 >/dev/null && "
+                        "xdotool search --onlyvisible --class chromium >/dev/null; "
+                        "probe=/workspace/.smolvm-ready-$$; "
+                        "trap 'rm -f \"$probe\"' EXIT; "
+                        'printf ready >"$probe"; '
+                        'test "$(cat "$probe")" = ready'
+                    ),
+                    timeout=30,
+                    shell="raw",
+                )
+                if not desktop_probe.ok:
+                    raise CelestoError(
+                        f"Computer '{self.session_id}' did not finish starting; "
+                        f"inspect it with 'celesto computer logs {self.session_id}'."
+                    )
+
+            self._info = self._state.update_browser_session(
+                self.session_id,
+                status=BrowserSessionState.READY,
+                cdp_url=cdp_url,
+                live_url=live_url,
+                vnc_url=vnc_url,
+                debug_port=debug_host_port,
+                vnc_port=vnc_host_port,
+                profile_id=self._session_config.profile_id,
+                expires_at=self._info.expires_at,
+                artifacts_dir=self._session_artifacts_dir(self.session_id),
+                config=self._session_config,
+            )
+            return self
+        except Exception:
+            self._info = self._state.update_browser_session(
+                self.session_id,
+                status=BrowserSessionState.ERROR,
+            )
+            raise
+
+    def stop(self) -> _BrowserSandbox:
+        """Stop the browser sandbox and tear down its VM."""
+        with suppress(BrowserSessionNotFoundError):
+            self._info = self._state.update_browser_session(
+                self.session_id,
+                status=BrowserSessionState.STOPPING,
+            )
+
+        if self._vm is not None:
+            if self._vm.status == VMState.RUNNING:
+                with suppress(Exception):
+                    self._vm.run("/usr/local/bin/smolvm-browser-session stop", timeout=30)
+                with suppress(Exception):
+                    self.collect_artifacts()
+            with suppress(Exception):
+                self._vm.delete()
+
+        with suppress(BrowserSessionNotFoundError):
+            self._state.delete_browser_session(self.session_id)
+
+        self.close()
+        return self
+
+    def delete(self) -> None:
+        """Alias for stop() to match the VM facade naming."""
+        self.stop()
+
+    def connect_playwright(self) -> Any:
+        """Connect Playwright to the browser sandbox over CDP."""
+        if self._info.cdp_url is None:
+            raise CelestoError("Browser sandbox is not ready; start it before connecting.")
+
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError as e:
+            raise CelestoError(
+                "Playwright is not installed. Install it with: pip install playwright"
+            ) from e
+
+        if self._playwright_runtime is None:
+            self._playwright_runtime = sync_playwright().start()
+
+        return self._playwright_runtime.chromium.connect_over_cdp(self._info.cdp_url)
+
+    def screenshot(
+        self,
+        destination: str | Path,
+        *,
+        full_page: bool = True,
+    ) -> Path:
+        """Capture a screenshot via Playwright and save it locally."""
+        browser = self.connect_playwright()
+        contexts = browser.contexts
+        context = contexts[0] if contexts else browser.new_context()
+
+        pages = context.pages
+        page = pages[0] if pages else context.new_page()
+
+        output_path = Path(destination)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        page.screenshot(path=str(output_path), full_page=full_page)
+        return output_path
+
+    def open_viewer(self) -> bool:
+        """Open the viewer URL in the local default browser."""
+        if self._info.live_url is None:
+            raise CelestoError("This browser sandbox does not expose a viewer_url.")
+        return webbrowser.open(self._info.live_url)
+
+    def push_file(self, local_path: str | Path, guest_path: str) -> None:
+        """Upload a file into the guest using the sandbox control channel."""
+        if self._vm is None:
+            raise CelestoError("Browser sandbox VM is unavailable.")
+        self._vm.upload_file(local_path, guest_path)
+
+    def pull_file(self, guest_path: str, local_path: str | Path) -> Path:
+        """Download a file from the guest using the sandbox control channel."""
+        if self._vm is None:
+            raise CelestoError("Browser sandbox VM is unavailable.")
+        return Path(self._vm.download_file(guest_path, local_path))
+
+    def collect_artifacts(self) -> Path | None:
+        """Collect guest logs/downloads/recordings into the local artifacts dir."""
+        if self._vm is None or self._vm.status != VMState.RUNNING:
+            return None
+
+        artifacts_dir = self._session_artifacts_dir(self.session_id)
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+        remote_archive = f"/tmp/{self.session_id}-artifacts.tar.gz"
+        guest_artifacts = self._guest_artifacts_dir()
+        guest_downloads = self._guest_download_dir()
+        quoted_archive = shlex.quote(remote_archive)
+        artifact_target = shlex.quote(guest_artifacts)
+        download_target = shlex.quote(guest_downloads)
+        log_target = shlex.quote(_BROWSER_GUEST_LOG_ROOT)
+        command = (
+            f"ARCHIVE={quoted_archive}; "
+            'TARGETS=""; '
+            f'[ -d {artifact_target} ] && TARGETS="$TARGETS {artifact_target}"; '
+            f'[ -d {download_target} ] && TARGETS="$TARGETS {download_target}"; '
+            f'[ -d {log_target} ] && TARGETS="$TARGETS {log_target}"; '
+            'rm -f "$ARCHIVE"; '
+            'if [ -z "$TARGETS" ]; then exit 0; fi; '
+            'tar -czf "$ARCHIVE" $TARGETS'
+        )
+        result = self._vm.run(command, timeout=180)
+        if not result.ok:
+            raise CelestoError(
+                "Failed to collect browser sandbox artifacts: "
+                f"{result.stderr.strip() or result.stdout}"
+            )
+
+        archive_path = artifacts_dir / "guest-artifacts.tar.gz"
+        return Path(self._vm.download_file(remote_archive, archive_path))
+
+    def logs(self, tail: int = 100) -> str:
+        """Return combined host/guest logs for the browser sandbox."""
+        chunks: list[str] = []
+
+        host_log = self.data_dir / f"{self.vm_id}.log"
+        if host_log.exists():
+            chunks.append(f"== {host_log} ==\n{self._tail_local_file(host_log, tail)}")
+
+        if self._vm is not None and self._vm.status == VMState.RUNNING:
+            command = (
+                "for file in /var/log/smolvm-browser/*.log; do "
+                '[ -f "$file" ] || continue; '
+                f'echo "== $file =="; tail -n {tail} "$file"; '
+                "echo; "
+                "done"
+            )
+            result = self._vm.run(command, timeout=60)
+            if result.stdout.strip():
+                chunks.append(result.stdout.strip())
+
+        return "\n\n".join(chunks).strip()
+
+    def close(self) -> None:
+        """Release local resources without changing the remote sandbox state."""
+        if self._playwright_runtime is not None:
+            with suppress(Exception):
+                self._playwright_runtime.stop()
+            self._playwright_runtime = None
+
+        if self._vm is not None:
+            self._vm.close()
+            self._vm = None
+
+    def __enter__(self) -> _BrowserSandbox:
+        if self._owns_session and self._info.status != BrowserSessionState.READY:
+            self.start()
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        if self._owns_session:
+            with suppress(Exception):
+                self.stop()
+        self.close()
+
+    def _start_guest_browser(self) -> None:
+        if self._vm is None:
+            raise CelestoError("Browser sandbox VM is unavailable.")
+
+        vm_info = self._vm.info
+        proxy_endpoint = (
+            _guest_browser_proxy_endpoint(vm_info) if isinstance(vm_info, VMInfo) else None
+        )
+        command = _guest_browser_session_command(
+            "start",
+            [
+                self._session_config.mode,
+                str(self._session_config.viewport_width),
+                str(self._session_config.viewport_height),
+                str(_BROWSER_DEBUG_PORT),
+                str(_BROWSER_LIVE_PORT),
+                self._guest_profile_dir(),
+                self._guest_download_dir(),
+                "1" if self._session_config.record_video else "0",
+                "1" if self._session_config.allow_downloads else "0",
+                self._guest_artifacts_dir(),
+            ],
+            proxy_endpoint=proxy_endpoint,
+        )
+        result = self._vm.run(command, timeout=60)
+        if not result.ok:
+            raise CelestoError(
+                f"Failed to launch guest browser: {result.stderr.strip() or result.stdout}"
+            )
+
+    def _launch_guest_browser(self) -> None:
+        """Launch only Chromium, preserving the running graphical desktop."""
+        if self._vm is None:
+            raise CelestoError("Browser sandbox VM is unavailable.")
+        vm_info = self._vm.info
+        proxy_endpoint = (
+            _guest_browser_proxy_endpoint(vm_info) if isinstance(vm_info, VMInfo) else None
+        )
+        command = _guest_browser_session_command(
+            "launch-browser",
+            [
+                self._session_config.mode,
+                str(self._session_config.viewport_width),
+                str(self._session_config.viewport_height),
+                str(_BROWSER_DEBUG_PORT),
+                self._guest_profile_dir(),
+                self._guest_download_dir(),
+                "1" if self._session_config.allow_downloads else "0",
+            ],
+            proxy_endpoint=proxy_endpoint,
+        )
+        result = self._vm.run(command, timeout=60)
+        if not result.ok:
+            resource = "computer" if self._session_config.mode == "computer" else "browser"
+            raise CelestoError(
+                f"Chromium did not open in {resource} '{self.session_id}'; "
+                f"run 'celesto {resource} logs {self.session_id}', then retry."
+            )
+
+    def _resolve_browser_host_port(self, guest_port: int, *, guest_loopback: bool) -> int:
+        """Return a localhost port that exposes a browser guest port.
+
+        Prefer QEMU forwards created with the VM. When no configured forward
+        is available, route through ``expose_local()`` using the caller's
+        loopback policy for that browser endpoint.
+        """
+        if self._vm is None:
+            raise CelestoError("Browser sandbox VM is unavailable.")
+
+        configured = self._configured_browser_host_port(guest_port)
+        if configured is not None and self._probe_local_port(configured):
+            return configured
+
+        return self._vm.expose_local(
+            guest_port=guest_port,
+            guest_loopback=guest_loopback,
+        )
+
+    def _wait_for_guest_port(self, port: int, *, timeout: float) -> bool:
+        if self._vm is None:
+            raise CelestoError("Browser sandbox VM is unavailable.")
+
+        control_wait_result = self._vm.wait_for_guest_tcp_ports(
+            [port],
+            timeout=timeout,
+            host="127.0.0.1",
+        )
+        if control_wait_result is not None:
+            return control_wait_result
+
+        command = f"/usr/local/bin/smolvm-browser-wait-port {port} {timeout}"
+        result = self._vm.run(command, timeout=max(5, int(timeout) + 5))
+        return result.ok
+
+    def _configured_browser_host_port(self, guest_port: int) -> int | None:
+        if self._vm is None:
+            return None
+        for forward in self._vm.info.config.port_forwards:
+            if forward.guest_port == guest_port and forward.host_address == "127.0.0.1":
+                return forward.host_port
+        return None
+
+    @staticmethod
+    def _probe_local_port(port: int) -> bool:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(0.25)
+            return sock.connect_ex(("127.0.0.1", port)) == 0
+
+    @staticmethod
+    def _wait_for_cdp_http(cdp_url: str, *, timeout: float) -> bool:
+        url = cdp_url.rstrip("/") + "/json/version"
+        deadline = time.monotonic() + timeout
+
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                request_timeout = min(1.0, max(0.1, remaining))
+                with _LOCAL_HTTP_OPENER.open(url, timeout=request_timeout) as response:
+                    if 200 <= getattr(response, "status", 200) < 300:
+                        return True
+            except (OSError, urllib.error.URLError):
+                # CDP may not be ready yet; retry until the startup deadline.
+                pass
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(0.2, remaining))
+
+        return False
+
+    def _session_artifacts_dir(self, session_id: str) -> Path:
+        return self._data_dir / "browser-sessions" / session_id
+
+    def _guest_profile_dir(self) -> str:
+        key = self._session_config.profile_id or self.session_id
+        return f"{_BROWSER_GUEST_PROFILE_ROOT}/{key}"
+
+    def _guest_download_dir(self) -> str:
+        return f"{_BROWSER_GUEST_DOWNLOAD_ROOT}/{self.session_id}"
+
+    def _guest_artifacts_dir(self) -> str:
+        return f"{_BROWSER_GUEST_ARTIFACT_ROOT}/{self.session_id}"
+
+    @staticmethod
+    def _tail_local_file(path: Path, line_count: int) -> str:
+        from celesto.utils import tail_file
+
+        try:
+            lines, _, _ = tail_file(path, line_count)
+        except OSError as e:
+            return f"<failed to read {path}: {e}>"
+        return "\n".join(lines)
+
+
+class _DesktopSandbox(_BrowserSandbox):
+    """Visible desktop sandbox backed by the current live display stack."""
+
+    @property
+    def cdp_url(self) -> None:
+        """Desktop sandboxes do not expose browser automation."""
+        return None
+
+    @property
+    def browser_cdp_url(self) -> None:
+        """Desktop sandboxes do not expose browser automation."""
+        return None
+
+    def connect_playwright(self) -> Any:
+        """Desktop sandboxes do not expose Playwright automation."""
+        raise CelestoError(
+            "Desktop sandboxes do not support Playwright or browser automation; "
+            "use Celesto.browser() when you need a browser connection address."
+        )

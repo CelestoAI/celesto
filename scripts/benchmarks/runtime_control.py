@@ -48,7 +48,7 @@ OPERATIONS = ("info", "pause", "resume", "stop", "start")
 
 def create_command(args: argparse.Namespace, sandbox_name: str) -> list[str]:
     command = [
-        "smolvm",
+        "celesto",
         "sandbox",
         "create",
         "--name",
@@ -83,14 +83,14 @@ def operation_plan(
     command_timeout: float,
 ) -> CommandPlan:
     if operation == "info":
-        command = ["smolvm", "sandbox", "info", sandbox_name, "--json"]
+        command = ["celesto", "sandbox", "info", sandbox_name, "--json"]
     elif operation == "pause":
-        command = ["smolvm", "sandbox", "pause", sandbox_name, "--json"]
+        command = ["celesto", "sandbox", "pause", sandbox_name, "--json"]
     elif operation == "resume":
-        command = ["smolvm", "sandbox", "resume", sandbox_name, "--json"]
+        command = ["celesto", "sandbox", "resume", sandbox_name, "--json"]
     elif operation == "stop":
         command = [
-            "smolvm",
+            "celesto",
             "sandbox",
             "stop",
             sandbox_name,
@@ -100,7 +100,7 @@ def operation_plan(
         ]
     elif operation == "start":
         command = [
-            "smolvm",
+            "celesto",
             "sandbox",
             "start",
             sandbox_name,
@@ -116,7 +116,7 @@ def operation_plan(
 def cleanup_plan(sandbox_name: str, *, timeout_s: float | None) -> CommandPlan:
     return CommandPlan(
         "sandbox_delete",
-        ["smolvm", "sandbox", "delete", sandbox_name, "--json"],
+        ["celesto", "sandbox", "delete", sandbox_name, "--json"],
         timeout_s=timeout_s,
     )
 

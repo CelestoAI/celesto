@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from smolvm.runtime import _libkrun_launcher as launcher
+from celesto.runtime import _libkrun_launcher as launcher
 
 
 def test_main_requires_a_config_path(capsys: pytest.CaptureFixture[str]) -> None:

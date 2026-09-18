@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from smolvm.host.paths import (
+from celesto.host.paths import (
     SMOLVM_FIRECRACKER_DIR_ENV,
     directory_is_on_path,
     find_firecracker,
@@ -59,7 +59,7 @@ def test_empty_environment_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     message = str(exc_info.value)
     assert "SMOLVM_FIRECRACKER_DIR is empty" in message
     assert "unset SMOLVM_FIRECRACKER_DIR" in message
-    assert "smolvm setup" in message
+    assert "celesto setup" in message
 
 
 def test_relative_explicit_directory_becomes_absolute(

@@ -7,19 +7,19 @@ A snapshot saves a supported sandbox so you can bring it back later. Create the 
 Create a named snapshot from a sandbox:
 
 ```bash
-smolvm sandbox snapshot create demo --snapshot-id demo-before-change
+celesto sandbox snapshot create demo --snapshot-id demo-before-change
 ```
 
 List saved snapshots:
 
 ```bash
-smolvm sandbox snapshot list --vm-id demo
+celesto sandbox snapshot list --vm-id demo
 ```
 
 Restore the snapshot when you need it:
 
 ```bash
-smolvm sandbox snapshot restore demo-before-change
+celesto sandbox snapshot restore demo-before-change
 ```
 
 ## Choose a snapshot type
@@ -27,20 +27,20 @@ smolvm sandbox snapshot restore demo-before-change
 `full` is the default and saves disk plus running-state information. `diff` stores only changes from the base image, so it needs that base image to remain available. `disk` saves a self-contained disk without RAM, so restore starts the guest from disk rather than resuming it.
 
 ```bash
-smolvm sandbox snapshot create demo --snapshot-type disk
+celesto sandbox snapshot create demo --snapshot-type disk
 ```
 
 A live snapshot leaves a running QEMU sandbox available, but it must be a disk snapshot:
 
 ```bash
-smolvm sandbox snapshot create demo --snapshot-type disk --resume-source --live-only
+celesto sandbox snapshot create demo --snapshot-type disk --resume-source --live-only
 ```
 
 ## Current limits
 
 Snapshots do not support Windows guests, workspace mounts, extra drives, shared disks, or raw QEMU disks. Snapshot creation can pause a sandbox unless you use the live-only command above.
 
-**Implementation notes:** snapshot types and their meanings are defined in [`src/smolvm/types.py`](../../src/smolvm/types.py); support checks and restore behavior are in [`src/smolvm/vm.py`](../../src/smolvm/vm.py); the facade flushes a guest before a disk snapshot in [`src/smolvm/facade.py`](../../src/smolvm/facade.py). See [`tests/test_snapshot.py`](../../tests/test_snapshot.py) and [`tests/test_snapshot_qemu.py`](../../tests/test_snapshot_qemu.py).
+**Implementation notes:** snapshot types and their meanings are defined in [`src/celesto/types.py`](../../src/celesto/types.py); support checks and restore behavior are in [`src/celesto/vm.py`](../../src/celesto/vm.py); the facade flushes a guest before a disk snapshot in [`src/celesto/facade.py`](../../src/celesto/facade.py). See [`tests/test_snapshot.py`](../../tests/test_snapshot.py) and [`tests/test_snapshot_qemu.py`](../../tests/test_snapshot_qemu.py).
 
 ## Save and restore from Python
 
@@ -52,13 +52,13 @@ This Linux Firecracker example saves and restores a sandbox with outbound access
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from smolvm import SmolVM
-from smolvm.storage import MemoryStateManager
+from celesto import Celesto
+from celesto.storage import MemoryStateManager
 
 with TemporaryDirectory() as directory:
     workdir = Path(directory)
     inventory = MemoryStateManager(workdir)
-    with SmolVM(
+    with Celesto(
         backend="firecracker",
         comm_channel="vsock",
         internet_settings={"mode": "off"},
@@ -67,7 +67,7 @@ with TemporaryDirectory() as directory:
     ) as vm:
         snapshot = vm.snapshot(snapshot_type="disk")
 
-    with SmolVM.from_snapshot(
+    with Celesto.from_snapshot(
         snapshot.snapshot_id,
         backend="firecracker",
         data_dir=workdir,

@@ -21,8 +21,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smolvm.exceptions import SmolVMError, VMNotFoundError
-from smolvm.types import (
+from celesto.exceptions import CelestoError, VMNotFoundError
+from celesto.types import (
     InternetSettings,
     SnapshotArtifacts,
     SnapshotInfo,
@@ -31,13 +31,13 @@ from smolvm.types import (
     VMState,
     VsockConfig,
 )
-from smolvm.vm import SmolVMManager
+from celesto.vm import CelestoManager
 
 
 @pytest.fixture
-def smol_vm(tmp_path: Path) -> SmolVMManager:
-    """Create a SmolVM instance with temporary directories."""
-    sdk = SmolVMManager(
+def smol_vm(tmp_path: Path) -> CelestoManager:
+    """Create a Celesto instance with temporary directories."""
+    sdk = CelestoManager(
         data_dir=tmp_path / "data",
         socket_dir=tmp_path / "sockets",
         backend="firecracker",
@@ -65,7 +65,7 @@ def sample_config(tmp_path: Path) -> VMConfig:
     )
 
 
-def _running_vm(smol_vm: SmolVMManager, config: VMConfig, tmp_path: Path) -> Path:
+def _running_vm(smol_vm: CelestoManager, config: VMConfig, tmp_path: Path) -> Path:
     vm_info = smol_vm.create(config)
     socket_path = tmp_path / "sockets" / "fc-vm001.sock"
     socket_path.parent.mkdir(parents=True, exist_ok=True)
@@ -81,7 +81,7 @@ def _running_vm(smol_vm: SmolVMManager, config: VMConfig, tmp_path: Path) -> Pat
 
 @pytest.mark.parametrize("timeout_seconds", [0.0, -1.0, float("inf"), float("nan")])
 def test_create_snapshot_rejects_invalid_timeout(
-    smol_vm: SmolVMManager,
+    smol_vm: CelestoManager,
     timeout_seconds: float,
 ) -> None:
     """The public manager should reject unusable live-backup timeouts."""
@@ -89,21 +89,21 @@ def test_create_snapshot_rejects_invalid_timeout(
         smol_vm.create_snapshot("vm001", timeout_seconds=timeout_seconds)
 
 
-def test_create_snapshot_rejects_invalid_bandwidth_limit(smol_vm: SmolVMManager) -> None:
+def test_create_snapshot_rejects_invalid_bandwidth_limit(smol_vm: CelestoManager) -> None:
     """The public manager should reject non-positive live-backup limits."""
     with pytest.raises(ValueError, match="max_bytes_per_second"):
         smol_vm.create_snapshot("vm001", max_bytes_per_second=0)
 
 
 def test_pause_and_resume_firecracker_vm(
-    smol_vm: SmolVMManager,
+    smol_vm: CelestoManager,
     sample_config: VMConfig,
     tmp_path: Path,
 ) -> None:
     """Pause/resume should transition the persisted VM state."""
     _running_vm(smol_vm, sample_config, tmp_path)
 
-    with patch("smolvm.runtime.firecracker.FirecrackerClient") as mock_client_cls:
+    with patch("celesto.runtime.firecracker.FirecrackerClient") as mock_client_cls:
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
 
@@ -117,7 +117,7 @@ def test_pause_and_resume_firecracker_vm(
 
 
 def test_pause_and_resume_support_shared_disk_firecracker_vm(
-    smol_vm: SmolVMManager,
+    smol_vm: CelestoManager,
     sample_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -125,7 +125,7 @@ def test_pause_and_resume_support_shared_disk_firecracker_vm(
     shared_config = sample_config.model_copy(update={"disk_mode": "shared"})
     _running_vm(smol_vm, shared_config, tmp_path)
 
-    with patch("smolvm.runtime.firecracker.FirecrackerClient") as mock_client_cls:
+    with patch("celesto.runtime.firecracker.FirecrackerClient") as mock_client_cls:
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
 
@@ -139,7 +139,7 @@ def test_pause_and_resume_support_shared_disk_firecracker_vm(
 
 
 def test_create_snapshot_pauses_vm_and_persists_metadata(
-    smol_vm: SmolVMManager,
+    smol_vm: CelestoManager,
     sample_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -153,7 +153,7 @@ def test_create_snapshot_pauses_vm_and_persists_metadata(
         snapshot_path.write_text("vmstate")
         mem_path.write_text("memory")
 
-    with patch("smolvm.runtime.firecracker.FirecrackerClient") as mock_client_cls:
+    with patch("celesto.runtime.firecracker.FirecrackerClient") as mock_client_cls:
         mock_client = MagicMock()
         mock_client.create_snapshot.side_effect = _write_snapshot
         mock_client_cls.return_value = mock_client
@@ -172,7 +172,7 @@ def test_create_snapshot_pauses_vm_and_persists_metadata(
 
 
 def test_create_snapshot_preserves_metadata_on_resume_failure(
-    smol_vm: SmolVMManager,
+    smol_vm: CelestoManager,
     sample_config: VMConfig,
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
@@ -186,10 +186,10 @@ def test_create_snapshot_preserves_metadata_on_resume_failure(
         snapshot_path.write_text("vmstate")
         mem_path.write_text("memory")
 
-    with patch("smolvm.runtime.firecracker.FirecrackerClient") as mock_client_cls:
+    with patch("celesto.runtime.firecracker.FirecrackerClient") as mock_client_cls:
         mock_client = MagicMock()
         mock_client.create_snapshot.side_effect = _write_snapshot
-        mock_client.resume_vm.side_effect = SmolVMError("resume failed")
+        mock_client.resume_vm.side_effect = CelestoError("resume failed")
         mock_client_cls.return_value = mock_client
 
         snapshot = smol_vm.create_snapshot("vm001", snapshot_id="snap-001", resume_source=True)
@@ -203,7 +203,7 @@ def test_create_snapshot_preserves_metadata_on_resume_failure(
 
 
 def test_create_snapshot_does_not_create_dir_when_client_lookup_fails(
-    smol_vm: SmolVMManager,
+    smol_vm: CelestoManager,
     sample_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -211,14 +211,14 @@ def test_create_snapshot_does_not_create_dir_when_client_lookup_fails(
     socket_path = _running_vm(smol_vm, sample_config, tmp_path)
     socket_path.unlink()
 
-    with pytest.raises(SmolVMError, match="socket"):
+    with pytest.raises(CelestoError, match="socket"):
         smol_vm.create_snapshot("vm001", snapshot_id="snap-001")
 
     assert not (smol_vm.snapshot_dir / "snap-001").exists()
 
 
 def test_resume_failure_does_not_enter_snapshot_rollback(
-    smol_vm: SmolVMManager,
+    smol_vm: CelestoManager,
     sample_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -231,13 +231,13 @@ def test_resume_failure_does_not_enter_snapshot_rollback(
         snapshot_path.write_text("vmstate")
         mem_path.write_text("memory")
 
-    with patch("smolvm.runtime.firecracker.FirecrackerClient") as mock_client_cls:
+    with patch("celesto.runtime.firecracker.FirecrackerClient") as mock_client_cls:
         mock_client = MagicMock()
         mock_client.create_snapshot.side_effect = _write_snapshot
-        mock_client.resume_vm.side_effect = SmolVMError("resume failed")
+        mock_client.resume_vm.side_effect = CelestoError("resume failed")
         mock_client_cls.return_value = mock_client
 
-        with patch("smolvm.vm.shutil.rmtree") as mock_rmtree:
+        with patch("celesto.vm.shutil.rmtree") as mock_rmtree:
             snapshot = smol_vm.create_snapshot("vm001", snapshot_id="snap-001", resume_source=True)
 
     assert snapshot.snapshot_id == "snap-001"
@@ -249,7 +249,7 @@ def test_resume_failure_does_not_enter_snapshot_rollback(
 
 @pytest.mark.parametrize("snapshot_id", ["/tmp/escape", "../escape", r"..\escape", "snap/001"])
 def test_create_snapshot_rejects_unsafe_snapshot_id(
-    smol_vm: SmolVMManager,
+    smol_vm: CelestoManager,
     sample_config: VMConfig,
     tmp_path: Path,
     snapshot_id: str,
@@ -264,7 +264,7 @@ def test_create_snapshot_rejects_unsafe_snapshot_id(
 
 
 def test_restore_snapshot_rehydrates_deleted_vm(
-    smol_vm: SmolVMManager,
+    smol_vm: CelestoManager,
     sample_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -301,7 +301,7 @@ def test_restore_snapshot_rehydrates_deleted_vm(
 
     with (
         patch.object(smol_vm, "_start_firecracker", return_value=SimpleNamespace(pid=98765)),
-        patch("smolvm.runtime.firecracker.FirecrackerClient") as mock_client_cls,
+        patch("celesto.runtime.firecracker.FirecrackerClient") as mock_client_cls,
     ):
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
@@ -322,7 +322,7 @@ def test_restore_snapshot_rehydrates_deleted_vm(
 
 
 def test_restore_firecracker_full_snapshot_returns_vsock_uds_path(
-    smol_vm: SmolVMManager,
+    smol_vm: CelestoManager,
     sample_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -359,7 +359,7 @@ def test_restore_firecracker_full_snapshot_returns_vsock_uds_path(
 
     with (
         patch.object(smol_vm, "_start_firecracker", return_value=SimpleNamespace(pid=98765)),
-        patch("smolvm.runtime.firecracker.FirecrackerClient") as mock_client_cls,
+        patch("celesto.runtime.firecracker.FirecrackerClient") as mock_client_cls,
     ):
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
@@ -371,7 +371,7 @@ def test_restore_firecracker_full_snapshot_returns_vsock_uds_path(
 
 
 def test_restore_snapshot_rolls_back_new_vm_resources_on_failure(
-    smol_vm: SmolVMManager,
+    smol_vm: CelestoManager,
     sample_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -407,13 +407,13 @@ def test_restore_snapshot_rolls_back_new_vm_resources_on_failure(
 
     with (
         patch.object(smol_vm, "_start_firecracker", return_value=SimpleNamespace(pid=98765)),
-        patch("smolvm.runtime.firecracker.FirecrackerClient") as mock_client_cls,
+        patch("celesto.runtime.firecracker.FirecrackerClient") as mock_client_cls,
     ):
         mock_client = MagicMock()
-        mock_client.load_snapshot.side_effect = SmolVMError("load failed")
+        mock_client.load_snapshot.side_effect = CelestoError("load failed")
         mock_client_cls.return_value = mock_client
 
-        with pytest.raises(SmolVMError, match="load failed"):
+        with pytest.raises(CelestoError, match="load failed"):
             smol_vm.restore_snapshot("snap-001")
 
     with pytest.raises(VMNotFoundError):
@@ -427,7 +427,7 @@ def test_restore_snapshot_rolls_back_new_vm_resources_on_failure(
 
 
 def test_restore_snapshot_preserves_existing_managed_disk_on_failure(
-    smol_vm: SmolVMManager,
+    smol_vm: CelestoManager,
     sample_config: VMConfig,
 ) -> None:
     """Failed restores should not clobber an existing Firecracker managed disk."""
@@ -458,13 +458,13 @@ def test_restore_snapshot_preserves_existing_managed_disk_on_failure(
 
     with (
         patch.object(smol_vm, "_start_firecracker", return_value=SimpleNamespace(pid=98765)),
-        patch("smolvm.runtime.firecracker.FirecrackerClient") as mock_client_cls,
+        patch("celesto.runtime.firecracker.FirecrackerClient") as mock_client_cls,
     ):
         mock_client = MagicMock()
-        mock_client.load_snapshot.side_effect = SmolVMError("load failed")
+        mock_client.load_snapshot.side_effect = CelestoError("load failed")
         mock_client_cls.return_value = mock_client
 
-        with pytest.raises(SmolVMError, match="load failed"):
+        with pytest.raises(CelestoError, match="load failed"):
             smol_vm.restore_snapshot("snap-001")
 
     assert managed_disk.read_text() == "original-managed-disk"
@@ -472,7 +472,7 @@ def test_restore_snapshot_preserves_existing_managed_disk_on_failure(
 
 
 def test_delete_snapshot_rejects_active_restored_vm(
-    smol_vm: SmolVMManager,
+    smol_vm: CelestoManager,
     sample_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -485,7 +485,7 @@ def test_delete_snapshot_rejects_active_restored_vm(
         snapshot_path.write_text("vmstate")
         mem_path.write_text("memory")
 
-    with patch("smolvm.runtime.firecracker.FirecrackerClient") as mock_client_cls:
+    with patch("celesto.runtime.firecracker.FirecrackerClient") as mock_client_cls:
         mock_client = MagicMock()
         mock_client.create_snapshot.side_effect = _write_snapshot
         mock_client_cls.return_value = mock_client
@@ -493,18 +493,18 @@ def test_delete_snapshot_rejects_active_restored_vm(
 
     with (
         patch.object(smol_vm, "_start_firecracker", return_value=SimpleNamespace(pid=98765)),
-        patch("smolvm.runtime.firecracker.FirecrackerClient") as mock_client_cls,
+        patch("celesto.runtime.firecracker.FirecrackerClient") as mock_client_cls,
     ):
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
         smol_vm.restore_snapshot("snap-001")
 
-    with pytest.raises(SmolVMError, match="active"):
+    with pytest.raises(CelestoError, match="active"):
         smol_vm.delete_snapshot("snap-001")
 
 
 def test_delete_snapshot_preserves_metadata_when_disk_cleanup_fails(
-    smol_vm: SmolVMManager,
+    smol_vm: CelestoManager,
     sample_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -530,7 +530,7 @@ def test_delete_snapshot_preserves_metadata_when_disk_cleanup_fails(
     smol_vm.state.create_snapshot(snapshot)
 
     with (
-        patch("smolvm.vm.shutil.rmtree", side_effect=PermissionError("denied")),
+        patch("celesto.vm.shutil.rmtree", side_effect=PermissionError("denied")),
         pytest.raises(PermissionError, match="denied"),
     ):
         smol_vm.delete_snapshot("snap-001")
@@ -540,7 +540,7 @@ def test_delete_snapshot_preserves_metadata_when_disk_cleanup_fails(
 
 @pytest.mark.parametrize("snapshot_id", ["/tmp/escape", "../escape", r"..\escape", "snap/001"])
 def test_delete_snapshot_rejects_unsafe_snapshot_id(
-    smol_vm: SmolVMManager,
+    smol_vm: CelestoManager,
     snapshot_id: str,
 ) -> None:
     """Snapshot deletion should reject IDs that could escape the snapshot directory."""
@@ -554,7 +554,7 @@ def _stub_fc_snapshot(snapshot_path: Path, mem_path: Path, snapshot_type: str = 
 
 
 def test_create_snapshot_defaults_to_full_type(
-    smol_vm: SmolVMManager,
+    smol_vm: CelestoManager,
     sample_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -562,7 +562,7 @@ def test_create_snapshot_defaults_to_full_type(
     _running_vm(smol_vm, sample_config, tmp_path)
     (smol_vm.data_dir / "disks" / "vm001.ext4").write_text("managed-disk")
 
-    with patch("smolvm.runtime.firecracker.FirecrackerClient") as mock_client_cls:
+    with patch("celesto.runtime.firecracker.FirecrackerClient") as mock_client_cls:
         mock_client = MagicMock()
         mock_client.create_snapshot.side_effect = _stub_fc_snapshot
         mock_client_cls.return_value = mock_client
@@ -573,7 +573,7 @@ def test_create_snapshot_defaults_to_full_type(
 
 
 def test_create_diff_snapshot_records_type_and_copies_disk(
-    smol_vm: SmolVMManager,
+    smol_vm: CelestoManager,
     sample_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -587,9 +587,9 @@ def test_create_diff_snapshot_records_type_and_copies_disk(
     (smol_vm.data_dir / "disks" / "vm001.ext4").write_text("managed-disk")
 
     with (
-        patch("smolvm.runtime.firecracker.FirecrackerClient") as mock_client_cls,
+        patch("celesto.runtime.firecracker.FirecrackerClient") as mock_client_cls,
         patch(
-            "smolvm.runtime.firecracker.clone_or_sparse_copy",
+            "celesto.runtime.firecracker.clone_or_sparse_copy",
             side_effect=lambda source, dest: dest.write_text(Path(source).read_text()),
         ) as mock_copy,
     ):
@@ -608,7 +608,7 @@ def test_create_diff_snapshot_records_type_and_copies_disk(
 
 
 def test_create_firecracker_disk_snapshot_skips_vmstate(
-    smol_vm: SmolVMManager,
+    smol_vm: CelestoManager,
     sample_config: VMConfig,
     tmp_path: Path,
 ) -> None:
@@ -616,7 +616,7 @@ def test_create_firecracker_disk_snapshot_skips_vmstate(
     _running_vm(smol_vm, sample_config, tmp_path)
     (smol_vm.data_dir / "disks" / "vm001.ext4").write_text("managed-disk")
 
-    with patch("smolvm.runtime.firecracker.FirecrackerClient") as mock_client_cls:
+    with patch("celesto.runtime.firecracker.FirecrackerClient") as mock_client_cls:
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
         snapshot = smol_vm.create_snapshot(
@@ -634,7 +634,7 @@ def test_create_firecracker_disk_snapshot_skips_vmstate(
 
 
 def test_restore_firecracker_disk_snapshot_boots_fresh_without_loading_vmstate(
-    smol_vm: SmolVMManager,
+    smol_vm: CelestoManager,
     sample_config: VMConfig,
 ) -> None:
     """A Firecracker disk snapshot restores by booting from the copied disk."""
@@ -666,7 +666,7 @@ def test_restore_firecracker_disk_snapshot_boots_fresh_without_loading_vmstate(
 
     with (
         patch.object(smol_vm, "_start_firecracker", return_value=SimpleNamespace(pid=98765)),
-        patch("smolvm.runtime.firecracker.FirecrackerClient") as mock_client_cls,
+        patch("celesto.runtime.firecracker.FirecrackerClient") as mock_client_cls,
     ):
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
@@ -687,8 +687,8 @@ def test_restore_policy_failure_prevents_guest_execution(
     monkeypatch.setattr(
         smol_vm, "_find_qemu_img_binary", lambda: pytest.fail("Unit test invoked qemu-img")
     )
-    monkeypatch.setattr("smolvm.vm.sys.platform", "linux")
-    monkeypatch.setattr("smolvm.comm.select.platform.system", lambda: "Linux")
+    monkeypatch.setattr("celesto.vm.sys.platform", "linux")
+    monkeypatch.setattr("celesto.comm.select.platform.system", lambda: "Linux")
     settings = InternetSettings(
         mode=mode, allowed_cidrs=["203.0.113.7"] if mode == "restricted" else []
     )
@@ -724,10 +724,10 @@ def test_restore_policy_failure_prevents_guest_execution(
         path.write_text("snapshot")
     smol_vm.state.create_snapshot(snapshot)
     smol_vm.delete(info.vm_id)
-    smol_vm.network.apply_network_policy.side_effect = SmolVMError("policy install failed")
+    smol_vm.network.apply_network_policy.side_effect = CelestoError("policy install failed")
     adapter = MagicMock()
     monkeypatch.setattr(smol_vm, "_runtime_adapter_for_snapshot", lambda _: adapter)
-    with pytest.raises(SmolVMError, match="policy install failed"):
+    with pytest.raises(CelestoError, match="policy install failed"):
         smol_vm.restore_snapshot(snapshot.snapshot_id, resume_vm=True)
     adapter.restore_snapshot.assert_not_called()
     with pytest.raises(VMNotFoundError):

@@ -41,7 +41,7 @@ Full-memory restore on QEMU 11/macOS HVF hit the same `cpu_pre_load` assertion o
 ## Reproducing the checks
 
 Use an idle disposable Linux machine with QEMU/KVM, Docker, `nft`, and passwordless
-sudo configured for SmolVM networking. On macOS, use QEMU/HVF and a running Docker
+sudo configured for Celesto networking. On macOS, use QEMU/HVF and a running Docker
 daemon; the recipe selects slirp instead of TAP. Run from this repository's root
 with `uv` installed. Do not run privileged packet tests on production machines.
 
@@ -57,8 +57,8 @@ uv run python - <<'PY'
 import os
 import sys
 from pathlib import Path
-from smolvm import DockerRootfsBuilder, VMConfig
-from smolvm.images import DirectKernelBoot
+from celesto import DockerRootfsBuilder, VMConfig
+from celesto.images import DirectKernelBoot
 
 directory = Path(os.environ["POLICY_BENCH_DIR"])
 assets = Path("tests/e2e/assets").resolve()

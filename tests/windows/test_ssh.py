@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for SmolVM SSH module."""
+"""Tests for Celesto SSH module."""
 
 import base64
 import errno
@@ -22,25 +22,25 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smolvm.exceptions import OperationTimeoutError, SmolVMError
-from smolvm.ssh import SSHClient, _pwsh_encoded_command
-from smolvm.types import CommandResult
+from celesto.exceptions import CelestoError, OperationTimeoutError
+from celesto.ssh import SSHClient, _pwsh_encoded_command
+from celesto.types import CommandResult
 
 
 class TestParamikoLoggerSilenced:
-    """Importing smolvm.ssh must silence paramiko's transport logger.
+    """Importing celesto.ssh must silence paramiko's transport logger.
 
     Rationale: during ``wait_for_ssh`` retries, paramiko's Transport thread
     logs ``Exception (client): Error reading SSH protocol banner`` at ERROR
-    level when sshd is briefly unavailable. SmolVM catches the SSHException
+    level when sshd is briefly unavailable. Celesto catches the SSHException
     and retries successfully, so the stderr noise from the failed attempt is
     misleading. The fix sets the ``paramiko.transport`` logger to CRITICAL
     so per-retry races stay quiet; smolvm still surfaces real errors via
-    SmolVMError with the original exception chained.
+    CelestoError with the original exception chained.
     """
 
     def test_paramiko_transport_logger_is_silenced_on_import(self) -> None:
-        # The top-level ``from smolvm.ssh import SSHClient`` above has
+        # The top-level ``from celesto.ssh import SSHClient`` above has
         # already triggered the module-level ``setLevel`` call as a side
         # effect of import. We just verify the resulting state here.
         level = logging.getLogger("paramiko.transport").getEffectiveLevel()
@@ -51,13 +51,13 @@ class TestParamikoLoggerSilenced:
 
     def test_smolvm_ssh_logger_is_not_silenced(self) -> None:
         """Silencing paramiko.transport must not affect smolvm's own logger."""
-        # smolvm.ssh.logger should remain at its default (NOTSET / inherited),
+        # celesto.ssh.logger should remain at its default (NOTSET / inherited),
         # so smolvm's own info/debug messages are still surfaced.
-        smolvm_level = logging.getLogger("smolvm.ssh").getEffectiveLevel()
+        smolvm_level = logging.getLogger("celesto.ssh").getEffectiveLevel()
         # Anything strictly below CRITICAL means we didn't accidentally
         # blanket-silence the smolvm namespace.
         assert smolvm_level < logging.CRITICAL, (
-            f"smolvm.ssh logger level is {smolvm_level}; the paramiko "
+            f"celesto.ssh logger level is {smolvm_level}; the paramiko "
             "silencer must not affect smolvm's own loggers"
         )
 
@@ -118,7 +118,7 @@ def _mock_exec_result(
 class TestSSHClientWarningPolicy:
     """Tests that _connect uses WarningPolicy (not AutoAddPolicy)."""
 
-    @patch("smolvm.ssh.paramiko.SSHClient")
+    @patch("celesto.ssh.paramiko.SSHClient")
     def test_connect_uses_warning_policy(self, mock_ssh_client_cls: MagicMock) -> None:
         """Verify set_missing_host_key_policy is called with WarningPolicy."""
         import paramiko
@@ -137,12 +137,12 @@ class TestSSHClientWarningPolicy:
             "unknown key, which is safer for ephemeral VMs."
         )
 
-    @patch("smolvm.ssh.paramiko.SSHClient")
+    @patch("celesto.ssh.paramiko.SSHClient")
     def test_connect_suppresses_paramiko_unknown_host_key_warning(
         self,
         mock_ssh_client_cls: MagicMock,
     ) -> None:
-        """The policy stays WarningPolicy, but SmolVM should not print probe noise."""
+        """The policy stays WarningPolicy, but Celesto should not print probe noise."""
         mock_client = MagicMock()
         mock_client.connect.side_effect = lambda **_: warnings.warn(
             "Unknown ssh-ed25519 host key for [127.0.0.1]:2200: b'abc'",
@@ -223,11 +223,11 @@ class TestSSHClientRun:
 
     @patch.object(SSHClient, "_ensure_connected")
     def test_run_connection_failure_raises(self, mock_connected: MagicMock) -> None:
-        """Test connection errors raise SmolVMError."""
-        mock_connected.side_effect = SmolVMError("SSH connection failed: boom")
+        """Test connection errors raise CelestoError."""
+        mock_connected.side_effect = CelestoError("SSH connection failed: boom")
 
         client = SSHClient("172.16.0.2")
-        with pytest.raises(SmolVMError, match="SSH connection failed"):
+        with pytest.raises(CelestoError, match="SSH connection failed"):
             client.run("echo test")
 
     @patch.object(SSHClient, "_ensure_connected")
@@ -281,7 +281,7 @@ class TestSSHClientRun:
         mock_connected.return_value = mock_client
 
         client = SSHClient("172.16.0.2")
-        with pytest.raises(SmolVMError, match="sync failed"):
+        with pytest.raises(CelestoError, match="sync failed"):
             client.sync()
 
 
@@ -297,7 +297,7 @@ class TestSSHClientWaitForSSH:
         client = SSHClient("172.16.0.2")
         client.wait_for_ssh(timeout=5)  # Should not raise
 
-    @patch("smolvm.ssh.time.sleep", return_value=None)
+    @patch("celesto.ssh.time.sleep", return_value=None)
     @patch.object(SSHClient, "_tcp_port_open", return_value=False)
     def test_wait_timeout_raises(self, _: MagicMock, __: MagicMock) -> None:
         """Test wait_for_ssh raises on timeout."""
@@ -325,14 +325,14 @@ class TestSSHClientWaitForSSH:
         in-loop deadline check masked it.
         """
         now = [0.0]
-        monkeypatch.setattr("smolvm.ssh.time.monotonic", lambda: now[0])
+        monkeypatch.setattr("celesto.ssh.time.monotonic", lambda: now[0])
 
         def _advance(seconds: float) -> None:
             """Stand in for time.sleep by moving the fake clock forward."""
             assert seconds >= 0
             now[0] += seconds
 
-        monkeypatch.setattr("smolvm.ssh.time.sleep", _advance)
+        monkeypatch.setattr("celesto.ssh.time.sleep", _advance)
         monkeypatch.setattr(SSHClient, "_tcp_port_open", lambda self, timeout=0.1: False)
         monkeypatch.setattr(
             SSHClient, "_connect", lambda self: pytest.fail("phase 2 must not be reached")
@@ -365,17 +365,17 @@ class TestSSHClientWaitForSSH:
         start, so a fast-booting guest is noticed within tens of ms rather than
         waiting a fixed 200ms.
         """
-        from smolvm.ssh import _WAIT_BACKOFF_START
+        from celesto.ssh import _WAIT_BACKOFF_START
 
         sleeps: list[float] = []
-        monkeypatch.setattr("smolvm.ssh.time.sleep", lambda s: sleeps.append(s))
+        monkeypatch.setattr("celesto.ssh.time.sleep", lambda s: sleeps.append(s))
 
         calls = {"n": 0}
 
         def _connect_then_succeed(self):
             calls["n"] += 1
             if calls["n"] == 1:
-                raise SmolVMError("sshd not ready yet")
+                raise CelestoError("sshd not ready yet")
             return MagicMock()
 
         monkeypatch.setattr(SSHClient, "_connect", _connect_then_succeed)
@@ -485,7 +485,7 @@ class TestPwshEncodedCommand:
 class TestPutFileDirectoryDestination:
     """``put_file`` resolves a directory destination to a file inside it.
 
-    Regression for ``smolvm sandbox file upload <vm> ./f /root`` failing with the
+    Regression for ``celesto sandbox file upload <vm> ./f /root`` failing with the
     opaque SFTP ``Failure`` because ``/root`` is a directory: SFTP ``put``
     cannot overwrite a directory with a regular file. ``put_file`` now stats
     the destination on the already-open SFTP channel and, when it is a
@@ -572,7 +572,7 @@ class TestGetFileLimit:
         sftp.stat.return_value = MagicMock(st_size=5)
         client = self._client_with_sftp(sftp)
 
-        with pytest.raises(SmolVMError, match="exceeded 4 bytes"):
+        with pytest.raises(CelestoError, match="exceeded 4 bytes"):
             client.get_file("/tmp/source.bin", destination, max_bytes=4)
 
         assert not destination.exists()
@@ -592,7 +592,7 @@ class TestGetFileLimit:
         sftp.getfo.side_effect = transfer
         client = self._client_with_sftp(sftp)
 
-        with pytest.raises(SmolVMError, match="exceeded 4 bytes"):
+        with pytest.raises(CelestoError, match="exceeded 4 bytes"):
             client.get_file("/tmp/source.bin", destination, max_bytes=4)
 
         assert not destination.exists()

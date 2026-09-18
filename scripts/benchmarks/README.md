@@ -3,7 +3,7 @@
 Measure the lifecycle timings AI agents actually feel when using SmolVM:
 **cold start**, **time-to-interactive**, **pause/resume**, and **snapshot create/restore**.
 
-The suite drives the public Python SDK (`smolvm.facade.SmolVM`) — what it measures
+The suite drives the public Python SDK (`celesto.facade.SmolVM`) — what it measures
 is what users get.
 
 ## Backends per platform
@@ -17,10 +17,10 @@ Firecracker on macOS errors out at startup.
 
 ## Prerequisites
 
-1. SmolVM installed and `smolvm setup` completed for your platform.
-2. The default image is already pulled (`smolvm doctor` will tell you, or run
-   `smolvm sandbox create --name probe` once and `smolvm sandbox delete probe`).
-3. Linux only: `smolvm setup` configured the host networking and your user can
+1. SmolVM installed and `celesto setup` completed for your platform.
+2. The default image is already pulled (`celesto doctor` will tell you, or run
+   `celesto sandbox create --name probe` once and `celesto sandbox delete probe`).
+3. Linux only: `celesto setup` configured the host networking and your user can
    talk to Firecracker.
 
 The lifecycle benchmark never escalates with `sudo`. Set things up first.
@@ -77,7 +77,7 @@ want preset startup numbers for a specific control path. `browser_ready.py`
 starts a browser sandbox, then polls the CDP endpoint, which is the local
 browser debugging URL, when it is available.
 `runtime_control.py` measures public lifecycle commands such as
-`smolvm sandbox pause`, `resume`, `stop`, and `start`.
+`celesto sandbox pause`, `resume`, `stop`, and `start`.
 
 Use the benchmark bundle below when validating Rust migration work after a
 merge. The first command does not start a VM. The others create short-lived
@@ -120,7 +120,7 @@ helpers when direct TAP privileges are available; rerun the benchmark with
 `forced-off` sets `SMOLVM_DISABLE_NATIVE_NETWORKING=1`, and
 `unprivileged-fallback` is skipped unless native can be attempted without
 direct TAP privileges and the existing sudo fallback is available. Run
-`smolvm setup` first if the sudo fallback is missing.
+`celesto setup` first if the sudo fallback is missing.
 
 ## Ubuntu Transport Comparison
 
@@ -250,5 +250,5 @@ becomes `{"status": "unsupported", "backend": "...", "reason": "..."}`.
 - **Cleanup**: every benchmark wraps work in `try/finally` and stops/deletes its VMs
   even on error. The teardown chain is `vm.delete()` → `SmolVMManager.delete()` →
   direct SIGKILL + DB row removal, so flaky QEMU shutdown paths on macOS don't
-  leak VMs. If a run is killed mid-flight, run `smolvm sandbox list` to spot leftovers.
+  leak VMs. If a run is killed mid-flight, run `celesto sandbox list` to spot leftovers.
 - **CI**: not currently wired in. Run locally on each platform.

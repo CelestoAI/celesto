@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for SmolVM storage module."""
+"""Tests for Celesto storage module."""
 
 import json
 import os
@@ -22,15 +22,15 @@ from pathlib import Path
 
 import pytest
 
-from smolvm.cli.state import SQLiteStateManager as StateManager
-from smolvm.exceptions import (
+from celesto.cli.state import SQLiteStateManager as StateManager
+from celesto.exceptions import (
     BrowserSessionNotFoundError,
     SnapshotNotFoundError,
     VMAlreadyExistsError,
     VMNotFoundError,
 )
-from smolvm.storage import SSH_PORT_END
-from smolvm.types import (
+from celesto.storage import SSH_PORT_END
+from celesto.types import (
     BrowserSessionConfig,
     BrowserSessionInfo,
     BrowserSessionState,
@@ -438,7 +438,7 @@ class TestSSHPortAllocation:
         state_manager: StateManager,
         sample_config: VMConfig,
     ) -> None:
-        """Port reservation can skip ports that are busy outside SmolVM state."""
+        """Port reservation can skip ports that are busy outside Celesto state."""
         state_manager.create_vm(sample_config)
 
         port = state_manager.reserve_ssh_port("vm001", excluded_host_ports={2200, 2201})

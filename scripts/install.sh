@@ -24,9 +24,9 @@
 # What it does:
 #   1. Installs uv (Python package manager) if not present
 #   2. Installs smolvm into an isolated tool environment via uv
-#   3. Runs `smolvm setup` to configure the host
+#   3. Runs `celesto setup` to configure the host
 #
-# Options (forwarded to `smolvm setup`):
+# Options (forwarded to `celesto setup`):
 #   --skip-deps              Skip operating-system package installation
 #   --with-docker            Also install Docker for SSH image support
 #   --firecracker-dir <dir>  Install Firecracker in a specific folder
@@ -50,7 +50,7 @@ warn()  { printf "${BOLD}${YELLOW}warning:${RESET} %s\n" "$*"; }
 error() { printf "${BOLD}${RED}error:${RESET} %s\n" "$*" >&2; }
 die()   { error "$@"; exit 1; }
 
-# Collect extra flags to forward to `smolvm setup`. Remember the Firecracker
+# Collect extra flags to forward to `celesto setup`. Remember the Firecracker
 # folder so the final doctor check uses the same location.
 SETUP_ARGS=()
 FIRECRACKER_DIR_ARG=""
@@ -149,15 +149,15 @@ install_smolvm() {
 }
 
 # ---------------------------------------------------------------------------
-# Step 3 — Run smolvm setup
+# Step 3 — Run celesto setup
 # ---------------------------------------------------------------------------
 
 run_setup() {
-    info "Running smolvm setup …"
+    info "Running celesto setup …"
     if ((${#SETUP_ARGS[@]})); then
-        smolvm setup --skip-deps "${SETUP_ARGS[@]}"
+        celesto setup --skip-deps "${SETUP_ARGS[@]}"
     else
-        smolvm setup --skip-deps
+        celesto setup --skip-deps
     fi
 }
 
@@ -208,7 +208,7 @@ BANNER
 
     printf "\n"
     info "Verifying installation …"
-    smolvm doctor
+    celesto doctor
     printf "\n"
     info "Done! SmolVM is ready to use."
     printf "\n"

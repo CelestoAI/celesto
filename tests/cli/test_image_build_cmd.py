@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for `smolvm image build` (Docker is always mocked)."""
+"""Tests for `celesto image build` (Docker is always mocked)."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smolvm.cli.main import main
+from celesto.cli.main import main
 
 
 def _fake_build_rootfs(**kwargs: Any) -> None:
@@ -42,9 +42,9 @@ def build_ctx(tmp_path: Path) -> Path:
 
 
 class TestImageBuild:
-    @patch("smolvm.images.builder.DockerRootfsBuilder._build_rootfs")
-    @patch("smolvm.images.builder.ensure_base_kernel_for_backend")
-    @patch("smolvm.images.builder.ImageBuilder.check_docker", return_value=True)
+    @patch("celesto.images.builder.DockerRootfsBuilder._build_rootfs")
+    @patch("celesto.images.builder.ensure_base_kernel_for_backend")
+    @patch("celesto.images.builder.ImageBuilder.check_docker", return_value=True)
     def test_build_json_payload(
         self,
         _mock_docker: MagicMock,
@@ -89,9 +89,9 @@ class TestImageBuild:
         # The build landed in the custom namespace of the chosen image dir.
         assert str(tmp_path / "cache" / "custom" / "myimg") in data["rootfs_path"]
 
-    @patch("smolvm.images.builder.DockerRootfsBuilder._build_rootfs")
-    @patch("smolvm.images.builder.ensure_base_kernel_for_backend")
-    @patch("smolvm.images.builder.ImageBuilder.check_docker", return_value=True)
+    @patch("celesto.images.builder.DockerRootfsBuilder._build_rootfs")
+    @patch("celesto.images.builder.ensure_base_kernel_for_backend")
+    @patch("celesto.images.builder.ImageBuilder.check_docker", return_value=True)
     def test_second_build_reports_cached(
         self,
         _mock_docker: MagicMock,
@@ -127,9 +127,9 @@ class TestImageBuild:
         assert payload["data"]["cached"] is True
         assert mock_build.call_count == 1  # cache hit skipped Docker entirely
 
-    @patch("smolvm.images.builder.DockerRootfsBuilder._build_rootfs")
-    @patch("smolvm.images.builder.ensure_base_kernel_for_backend")
-    @patch("smolvm.images.builder.ImageBuilder.check_docker", return_value=True)
+    @patch("celesto.images.builder.DockerRootfsBuilder._build_rootfs")
+    @patch("celesto.images.builder.ensure_base_kernel_for_backend")
+    @patch("celesto.images.builder.ImageBuilder.check_docker", return_value=True)
     def test_built_image_appears_in_list_and_rm(
         self,
         _mock_docker: MagicMock,
@@ -195,7 +195,7 @@ class TestImageBuild:
         payload = json.loads(capsys.readouterr().out)
         assert "KEY=VALUE" in payload["error"]["recovery"]
 
-    @patch("smolvm.images.builder.ImageBuilder.check_docker", return_value=False)
+    @patch("celesto.images.builder.ImageBuilder.check_docker", return_value=False)
     def test_docker_unavailable_error_envelope(
         self,
         _mock_docker: MagicMock,
@@ -220,11 +220,11 @@ class TestImageBuild:
         payload = json.loads(capsys.readouterr().out)
         assert payload["ok"] is False
         assert "Docker" in payload["error"]["message"]
-        assert "smolvm image build" in payload["error"]["recovery"]
+        assert "celesto image build" in payload["error"]["recovery"]
 
-    @patch("smolvm.images.builder.DockerRootfsBuilder._build_rootfs")
-    @patch("smolvm.images.builder.ensure_base_kernel_for_backend")
-    @patch("smolvm.images.builder.ImageBuilder.check_docker", return_value=True)
+    @patch("celesto.images.builder.DockerRootfsBuilder._build_rootfs")
+    @patch("celesto.images.builder.ensure_base_kernel_for_backend")
+    @patch("celesto.images.builder.ImageBuilder.check_docker", return_value=True)
     def test_nested_dockerfiles_are_skipped(
         self,
         _mock_docker: MagicMock,
@@ -264,9 +264,9 @@ class TestImageBuild:
         assert ret == 0
         json.loads(capsys.readouterr().out)
 
-    @patch("smolvm.images.builder.DockerRootfsBuilder._build_rootfs")
-    @patch("smolvm.images.builder.ensure_base_kernel_for_backend")
-    @patch("smolvm.images.builder.ImageBuilder.check_docker", return_value=True)
+    @patch("celesto.images.builder.DockerRootfsBuilder._build_rootfs")
+    @patch("celesto.images.builder.ensure_base_kernel_for_backend")
+    @patch("celesto.images.builder.ImageBuilder.check_docker", return_value=True)
     def test_human_output_names_sdk_boot_path(
         self,
         _mock_docker: MagicMock,
@@ -299,8 +299,8 @@ class TestImageBuild:
 
         assert ret == 0
         out = capsys.readouterr().out
-        assert "SmolVM.from_image" in out
-        assert "smolvm image rm custom/myimg" in out
+        assert "Celesto.from_image" in out
+        assert "celesto image rm custom/myimg" in out
 
 
 class TestBuildValidation:
@@ -374,9 +374,9 @@ class TestBuildValidation:
         payload = json.loads(capsys.readouterr().out)
         assert "not a folder" in payload["error"]["message"]
 
-    @patch("smolvm.images.builder.DockerRootfsBuilder._build_rootfs")
-    @patch("smolvm.images.builder.ensure_base_kernel_for_backend")
-    @patch("smolvm.images.builder.ImageBuilder.check_docker", return_value=True)
+    @patch("celesto.images.builder.DockerRootfsBuilder._build_rootfs")
+    @patch("celesto.images.builder.ensure_base_kernel_for_backend")
+    @patch("celesto.images.builder.ImageBuilder.check_docker", return_value=True)
     def test_skipped_dockerfiles_reach_json_warnings(
         self,
         _mock_docker: MagicMock,
@@ -441,9 +441,9 @@ class TestUpstreamReviewRegressions:
         payload = json.loads(capsys.readouterr().out)
         assert payload["error"]["code"] == "invalid_input"
 
-    @patch("smolvm.images.builder.DockerRootfsBuilder._build_rootfs")
-    @patch("smolvm.images.builder.ensure_base_kernel_for_backend")
-    @patch("smolvm.images.builder.ImageBuilder.check_docker", return_value=True)
+    @patch("celesto.images.builder.DockerRootfsBuilder._build_rootfs")
+    @patch("celesto.images.builder.ensure_base_kernel_for_backend")
+    @patch("celesto.images.builder.ImageBuilder.check_docker", return_value=True)
     def test_snippet_paths_are_repr_escaped(
         self,
         _mock_docker: MagicMock,

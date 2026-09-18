@@ -6,7 +6,7 @@
 #
 #     http://www.apache.org/licenses/LICENSE-2.0
 
-"""Tests for the SmolVM CLI PyPI version check."""
+"""Tests for the Celesto CLI PyPI version check."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 import pytest
 
-from smolvm.cli import version_check
+from celesto.cli import version_check
 
 
 @pytest.fixture

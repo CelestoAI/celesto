@@ -22,7 +22,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smolvm.exceptions import HostError
+from celesto.exceptions import HostError
 
 # ---------------------------------------------------------------------------
 # The dashboard server module has heavy top-level imports (fastapi, uvicorn,
@@ -41,9 +41,9 @@ _DASHBOARD_STUB_MODULES: list[str] = [
     "fastapi.staticfiles",
     "uvicorn",
     "websockets",
-    "smolvm.dashboard.commands",
-    "smolvm.dashboard.connection_manager",
-    "smolvm.dashboard.poller",
+    "celesto.dashboard.commands",
+    "celesto.dashboard.connection_manager",
+    "celesto.dashboard.poller",
 ]
 
 
@@ -120,11 +120,11 @@ class TestHostManagerTarExtraction:
 
     def test_rejects_dotdot_in_member_name(self, tmp_path: Path) -> None:
         """Member names containing '..' must be rejected."""
-        from smolvm.host.manager import HostManager
+        from celesto.host.manager import HostManager
 
         tarball_bytes = _make_tarball_with_member("foo/../../etc/passwd")
         mock_get = patch(
-            "smolvm.host.manager.requests.get",
+            "celesto.host.manager.requests.get",
             return_value=_mock_response(tarball_bytes),
         )
 
@@ -140,11 +140,11 @@ class TestHostManagerTarExtraction:
 
     def test_rejects_absolute_member_name(self, tmp_path: Path) -> None:
         """Member names starting with '/' must be rejected."""
-        from smolvm.host.manager import HostManager
+        from celesto.host.manager import HostManager
 
         tarball_bytes = _make_tarball_with_member("/etc/passwd")
         mock_get = patch(
-            "smolvm.host.manager.requests.get",
+            "celesto.host.manager.requests.get",
             return_value=_mock_response(tarball_bytes),
         )
 
@@ -160,11 +160,11 @@ class TestHostManagerTarExtraction:
 
     def test_rejects_dotdot_at_start(self, tmp_path: Path) -> None:
         """Member name starting with '..' (no slash prefix) must be rejected."""
-        from smolvm.host.manager import HostManager
+        from celesto.host.manager import HostManager
 
         tarball_bytes = _make_tarball_with_member("../../etc/shadow")
         mock_get = patch(
-            "smolvm.host.manager.requests.get",
+            "celesto.host.manager.requests.get",
             return_value=_mock_response(tarball_bytes),
         )
 
@@ -180,7 +180,7 @@ class TestHostManagerTarExtraction:
 
     def test_accepts_valid_member_name(self, tmp_path: Path) -> None:
         """Legitimate member names should extract without error."""
-        from smolvm.host.manager import HostManager
+        from celesto.host.manager import HostManager
 
         version = "v1.13.0"
         arch = "x86_64"
@@ -198,7 +198,7 @@ class TestHostManagerTarExtraction:
             tar.add(inner_path, arcname=inner_dir)
 
         mock_get = patch(
-            "smolvm.host.manager.requests.get",
+            "celesto.host.manager.requests.get",
             return_value=_mock_response(tarball_path.read_bytes()),
         )
 
@@ -217,7 +217,7 @@ class TestHostManagerTarExtraction:
 
     def test_uses_data_filter_when_available(self, tmp_path: Path) -> None:
         """When tarfile.data_filter exists, extractall(filter='data') is called."""
-        from smolvm.host.manager import HostManager
+        from celesto.host.manager import HostManager
 
         version = "v1.13.0"
         arch = "x86_64"
@@ -234,7 +234,7 @@ class TestHostManagerTarExtraction:
             tar.add(inner_path, arcname=inner_dir)
 
         mock_get = patch(
-            "smolvm.host.manager.requests.get",
+            "celesto.host.manager.requests.get",
             return_value=_mock_response(tarball_path.read_bytes()),
         )
 
@@ -245,7 +245,7 @@ class TestHostManagerTarExtraction:
         extractall_calls: list[dict] = []
         spying_open = _make_spying_tar_open(tarfile.open, extractall_calls)
 
-        with mock_get, patch("smolvm.host.manager.tarfile.open", side_effect=spying_open):
+        with mock_get, patch("celesto.host.manager.tarfile.open", side_effect=spying_open):
             hm._download_and_extract(
                 url="http://example.com/fc.tgz",
                 dest=dest,
@@ -269,7 +269,7 @@ class TestDashboardExtractDist:
 
     def test_rejects_dotdot_in_member(self, tmp_path: Path) -> None:
         """Member names containing '..' path parts must be rejected."""
-        from smolvm.dashboard.server import _extract_dashboard_dist
+        from celesto.dashboard.server import _extract_dashboard_dist
 
         tarball_bytes = _make_tarball_with_member("dist/../../../etc/passwd")
         archive = tmp_path / "archive.tar.gz"
@@ -280,7 +280,7 @@ class TestDashboardExtractDist:
 
     def test_rejects_absolute_member(self, tmp_path: Path) -> None:
         """Member names starting with '/' must be rejected."""
-        from smolvm.dashboard.server import _extract_dashboard_dist
+        from celesto.dashboard.server import _extract_dashboard_dist
 
         tarball_bytes = _make_tarball_with_member("/etc/passwd")
         archive = tmp_path / "archive.tar.gz"
@@ -291,7 +291,7 @@ class TestDashboardExtractDist:
 
     def test_extracts_valid_archive(self, tmp_path: Path) -> None:
         """A clean archive with dist/index.html extracts and returns dist dir."""
-        from smolvm.dashboard.server import _extract_dashboard_dist
+        from celesto.dashboard.server import _extract_dashboard_dist
 
         # Create a real tarball with dist/index.html
         content = tmp_path / "staging"
@@ -312,7 +312,7 @@ class TestDashboardExtractDist:
 
     def test_uses_data_filter_guard(self, tmp_path: Path) -> None:
         """_extract_dashboard_dist uses hasattr guard for data_filter."""
-        from smolvm.dashboard.server import _extract_dashboard_dist
+        from celesto.dashboard.server import _extract_dashboard_dist
 
         content = tmp_path / "staging"
         content.mkdir()
@@ -327,7 +327,7 @@ class TestDashboardExtractDist:
         extractall_calls: list[dict] = []
         spying_open = _make_spying_tar_open(tarfile.open, extractall_calls)
 
-        with patch("smolvm.dashboard.server.tarfile.open", side_effect=spying_open):
+        with patch("celesto.dashboard.server.tarfile.open", side_effect=spying_open):
             result = _extract_dashboard_dist(archive, tmp_path / "extract")
 
         assert result.is_dir()
@@ -368,13 +368,13 @@ class TestGuestTarModeBits:
 
         ``stat.S_IMODE`` keeps 0o7777 — setuid, setgid and sticky included —
         and this archive is produced inside the sandbox and unpacked on the
-        host, often under ``sudo`` because SmolVM needs root for host
+        host, often under ``sudo`` because Celesto needs root for host
         networking. Honouring those bits turned a directory download into a
         privilege-escalation primitive.
         """
         import stat as stat_module
 
-        from smolvm.comm.rust_http_vsock_channel import _safe_extract_tar
+        from celesto.comm.rust_http_vsock_channel import _safe_extract_tar
 
         destination = tmp_path / "downloaded"
         _safe_extract_tar(self._guest_tarball(), destination)
@@ -387,7 +387,7 @@ class TestGuestTarModeBits:
         """Stripping the dangerous bits must not flatten normal permissions."""
         import stat as stat_module
 
-        from smolvm.comm.rust_http_vsock_channel import _safe_extract_tar
+        from celesto.comm.rust_http_vsock_channel import _safe_extract_tar
 
         destination = tmp_path / "downloaded"
         _safe_extract_tar(self._guest_tarball(), destination)
@@ -414,11 +414,11 @@ class TestLinkMembersRejected:
         like ``link -> /etc`` — a later member written "through" that link
         lands outside the temporary directory entirely.
         """
-        from smolvm.host.manager import HostManager
+        from celesto.host.manager import HostManager
 
         tarball_bytes = _make_tarball_with_symlink("release/link", "/etc")
         mock_get = patch(
-            "smolvm.host.manager.requests.get",
+            "celesto.host.manager.requests.get",
             return_value=_mock_response(tarball_bytes),
         )
 
@@ -434,7 +434,7 @@ class TestLinkMembersRejected:
     def test_dashboard_rejects_symlink_member(self, tmp_path: Path) -> None:
         """Same guard on the dashboard archive."""
         _ensure_dashboard_importable()
-        from smolvm.dashboard.server import _extract_dashboard_dist
+        from celesto.dashboard.server import _extract_dashboard_dist
 
         archive = tmp_path / "dash.tar.gz"
         archive.write_bytes(_make_tarball_with_symlink("dist/link", "/etc"))
@@ -453,7 +453,7 @@ class TestGuestFileModeHeader:
         bug, one function away, and it would have survived a fix that only
         looked at directory downloads.
         """
-        from smolvm.comm.rust_http_vsock_channel import _parse_mode_header
+        from celesto.comm.rust_http_vsock_channel import _parse_mode_header
 
         assert _parse_mode_header("0o4755") == 0o755
         assert _parse_mode_header("2755") == 0o755
@@ -461,7 +461,7 @@ class TestGuestFileModeHeader:
 
     def test_ordinary_modes_survive(self) -> None:
         """Masking must not disturb normal permissions."""
-        from smolvm.comm.rust_http_vsock_channel import _parse_mode_header
+        from celesto.comm.rust_http_vsock_channel import _parse_mode_header
 
         assert _parse_mode_header("644") == 0o644
         assert _parse_mode_header("0o600") == 0o600
@@ -469,8 +469,8 @@ class TestGuestFileModeHeader:
     @pytest.mark.parametrize("value", ["not-octal", "-1", ""])
     def test_malformed_mode_raises_a_smolvm_error(self, value: str) -> None:
         """A malformed header is a protocol error, not a bare ValueError."""
-        from smolvm.comm.rust_http_vsock_channel import _parse_mode_header
-        from smolvm.exceptions import SmolVMError
+        from celesto.comm.rust_http_vsock_channel import _parse_mode_header
+        from celesto.exceptions import CelestoError
 
-        with pytest.raises(SmolVMError, match="file mode"):
+        with pytest.raises(CelestoError, match="file mode"):
             _parse_mode_header(value)

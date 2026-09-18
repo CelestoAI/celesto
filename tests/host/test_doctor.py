@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for SmolVM doctor diagnostics."""
+"""Tests for Celesto doctor diagnostics."""
 
 import json
 import shlex
@@ -22,8 +22,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smolvm.exceptions import SmolVMError
-from smolvm.host.doctor import (
+from celesto.exceptions import CelestoError
+from celesto.host.doctor import (
     DoctorCheck,
     DoctorReport,
     WorkerNodeSecurityError,
@@ -40,18 +40,21 @@ def _pass(name: str) -> DoctorCheck:
 class TestDoctorFirecracker:
     """Firecracker backend diagnostic tests."""
 
-    @patch("smolvm.host.doctor._check_kvm_runtime", new=lambda: _pass("kvm"))
-    @patch("smolvm.host.doctor._check_kvm_permissions", new=lambda: _pass("worker:kvm-permissions"))
+    @patch("celesto.host.doctor._check_kvm_runtime", new=lambda: _pass("kvm"))
     @patch(
-        "smolvm.host.doctor._check_kvm_nx_huge_pages", new=lambda: _pass("worker:kvm-nx-huge-pages")
+        "celesto.host.doctor._check_kvm_permissions", new=lambda: _pass("worker:kvm-permissions")
     )
-    @patch("smolvm.host.doctor._check_thp_disabled", new=lambda: _pass("worker:thp-disabled"))
-    @patch("smolvm.host.doctor._check_ksm_disabled", new=lambda: _pass("worker:ksm-disabled"))
-    @patch("smolvm.host.doctor._check_swap_disabled", new=lambda: _pass("worker:swap-disabled"))
-    @patch("smolvm.host.doctor.run_command")
-    @patch("smolvm.host.doctor.check_network_prerequisites", return_value=[])
-    @patch("smolvm.host.doctor.which")
-    @patch("smolvm.host.doctor.HostManager")
+    @patch(
+        "celesto.host.doctor._check_kvm_nx_huge_pages",
+        new=lambda: _pass("worker:kvm-nx-huge-pages"),
+    )
+    @patch("celesto.host.doctor._check_thp_disabled", new=lambda: _pass("worker:thp-disabled"))
+    @patch("celesto.host.doctor._check_ksm_disabled", new=lambda: _pass("worker:ksm-disabled"))
+    @patch("celesto.host.doctor._check_swap_disabled", new=lambda: _pass("worker:swap-disabled"))
+    @patch("celesto.host.doctor.run_command")
+    @patch("celesto.host.doctor.check_network_prerequisites", return_value=[])
+    @patch("celesto.host.doctor.which")
+    @patch("celesto.host.doctor.HostManager")
     def test_generate_report_firecracker_ok(
         self,
         mock_host_cls: MagicMock,
@@ -91,34 +94,34 @@ class TestDoctorFirecracker:
         mock_host.find_firecracker.return_value = None
 
         with (
-            patch("smolvm.host.doctor.HostManager", return_value=mock_host),
-            patch("smolvm.host.doctor._check_kvm_runtime", return_value=_pass("kvm")),
+            patch("celesto.host.doctor.HostManager", return_value=mock_host),
+            patch("celesto.host.doctor._check_kvm_runtime", return_value=_pass("kvm")),
             patch(
-                "smolvm.host.doctor._check_kvm_permissions",
+                "celesto.host.doctor._check_kvm_permissions",
                 return_value=_pass("worker:kvm-permissions"),
             ),
             patch(
-                "smolvm.host.doctor._check_kvm_nx_huge_pages",
+                "celesto.host.doctor._check_kvm_nx_huge_pages",
                 return_value=_pass("worker:kvm-nx-huge-pages"),
             ),
             patch(
-                "smolvm.host.doctor._check_thp_disabled",
+                "celesto.host.doctor._check_thp_disabled",
                 return_value=_pass("worker:thp-disabled"),
             ),
             patch(
-                "smolvm.host.doctor._check_ksm_disabled",
+                "celesto.host.doctor._check_ksm_disabled",
                 return_value=_pass("worker:ksm-disabled"),
             ),
             patch(
-                "smolvm.host.doctor._check_swap_disabled",
+                "celesto.host.doctor._check_swap_disabled",
                 return_value=_pass("worker:swap-disabled"),
             ),
-            patch("smolvm.host.doctor.check_network_prerequisites", return_value=[]),
+            patch("celesto.host.doctor.check_network_prerequisites", return_value=[]),
             patch(
-                "smolvm.host.doctor.which",
+                "celesto.host.doctor.which",
                 side_effect=lambda binary: Path(f"/usr/bin/{binary}"),
             ),
-            patch("smolvm.host.doctor.run_command", return_value=MagicMock(stdout="")),
+            patch("celesto.host.doctor.run_command", return_value=MagicMock(stdout="")),
         ):
             report = generate_doctor_report(backend="firecracker")
 
@@ -126,16 +129,19 @@ class TestDoctorFirecracker:
         assert firecracker.status == "fail"
         assert str(configured / "firecracker") in firecracker.detail
         assert firecracker.fix == (
-            f"Run smolvm setup --firecracker-dir {shlex.quote(str(configured))}."
+            f"Run celesto setup --firecracker-dir {shlex.quote(str(configured))}."
         )
 
-    @patch("smolvm.host.doctor._check_kvm_runtime", new=lambda: _pass("kvm"))
-    @patch("smolvm.host.doctor._check_kvm_permissions", new=lambda: _pass("worker:kvm-permissions"))
+    @patch("celesto.host.doctor._check_kvm_runtime", new=lambda: _pass("kvm"))
     @patch(
-        "smolvm.host.doctor._check_kvm_nx_huge_pages", new=lambda: _pass("worker:kvm-nx-huge-pages")
+        "celesto.host.doctor._check_kvm_permissions", new=lambda: _pass("worker:kvm-permissions")
     )
     @patch(
-        "smolvm.host.doctor._check_thp_disabled",
+        "celesto.host.doctor._check_kvm_nx_huge_pages",
+        new=lambda: _pass("worker:kvm-nx-huge-pages"),
+    )
+    @patch(
+        "celesto.host.doctor._check_thp_disabled",
         new=lambda: DoctorCheck(
             name="worker:thp-disabled",
             status="fail",
@@ -143,9 +149,9 @@ class TestDoctorFirecracker:
             fix="sudo sh -c 'echo never > /sys/kernel/mm/transparent_hugepage/enabled'",
         ),
     )
-    @patch("smolvm.host.doctor._check_ksm_disabled", new=lambda: _pass("worker:ksm-disabled"))
+    @patch("celesto.host.doctor._check_ksm_disabled", new=lambda: _pass("worker:ksm-disabled"))
     @patch(
-        "smolvm.host.doctor._check_swap_disabled",
+        "celesto.host.doctor._check_swap_disabled",
         new=lambda: DoctorCheck(
             name="worker:swap-disabled",
             status="fail",
@@ -153,10 +159,10 @@ class TestDoctorFirecracker:
             fix="sudo swapoff -a",
         ),
     )
-    @patch("smolvm.host.doctor.run_command")
-    @patch("smolvm.host.doctor.check_network_prerequisites", return_value=[])
-    @patch("smolvm.host.doctor.which")
-    @patch("smolvm.host.doctor.HostManager")
+    @patch("celesto.host.doctor.run_command")
+    @patch("celesto.host.doctor.check_network_prerequisites", return_value=[])
+    @patch("celesto.host.doctor.which")
+    @patch("celesto.host.doctor.HostManager")
     def test_generate_report_firecracker_warns_for_worker_hardening_gaps(
         self,
         mock_host_cls: MagicMock,
@@ -189,18 +195,21 @@ class TestDoctorFirecracker:
             "worker:thp-disabled",
         }
 
-    @patch("smolvm.host.doctor._check_kvm_runtime", new=lambda: _pass("kvm"))
-    @patch("smolvm.host.doctor._check_kvm_permissions", new=lambda: _pass("worker:kvm-permissions"))
+    @patch("celesto.host.doctor._check_kvm_runtime", new=lambda: _pass("kvm"))
     @patch(
-        "smolvm.host.doctor._check_kvm_nx_huge_pages", new=lambda: _pass("worker:kvm-nx-huge-pages")
+        "celesto.host.doctor._check_kvm_permissions", new=lambda: _pass("worker:kvm-permissions")
     )
-    @patch("smolvm.host.doctor._check_thp_disabled", new=lambda: _pass("worker:thp-disabled"))
-    @patch("smolvm.host.doctor._check_ksm_disabled", new=lambda: _pass("worker:ksm-disabled"))
-    @patch("smolvm.host.doctor._check_swap_disabled", new=lambda: _pass("worker:swap-disabled"))
-    @patch("smolvm.host.doctor.run_command", side_effect=SmolVMError("No such file or directory"))
-    @patch("smolvm.host.doctor.check_network_prerequisites", return_value=[])
-    @patch("smolvm.host.doctor.which")
-    @patch("smolvm.host.doctor.HostManager")
+    @patch(
+        "celesto.host.doctor._check_kvm_nx_huge_pages",
+        new=lambda: _pass("worker:kvm-nx-huge-pages"),
+    )
+    @patch("celesto.host.doctor._check_thp_disabled", new=lambda: _pass("worker:thp-disabled"))
+    @patch("celesto.host.doctor._check_ksm_disabled", new=lambda: _pass("worker:ksm-disabled"))
+    @patch("celesto.host.doctor._check_swap_disabled", new=lambda: _pass("worker:swap-disabled"))
+    @patch("celesto.host.doctor.run_command", side_effect=CelestoError("No such file or directory"))
+    @patch("celesto.host.doctor.check_network_prerequisites", return_value=[])
+    @patch("celesto.host.doctor.which")
+    @patch("celesto.host.doctor.HostManager")
     def test_run_doctor_strict_fails_on_warnings(
         self,
         mock_host_cls: MagicMock,
@@ -228,37 +237,40 @@ class TestDoctorFirecracker:
         assert ret_normal == 0
         assert ret_strict == 1
         output = capsys.readouterr().out
-        assert "SmolVM Doctor" in output
+        assert "Celesto Doctor" in output
         assert "Checks" in output
         assert "strict mode treats warnings as failures" in output
         assert "\033[" not in output
 
-    @patch("smolvm.host.doctor._check_kvm_runtime", new=lambda: _pass("kvm"))
-    @patch("smolvm.host.doctor._check_kvm_permissions", new=lambda: _pass("worker:kvm-permissions"))
+    @patch("celesto.host.doctor._check_kvm_runtime", new=lambda: _pass("kvm"))
     @patch(
-        "smolvm.host.doctor._check_kvm_nx_huge_pages", new=lambda: _pass("worker:kvm-nx-huge-pages")
+        "celesto.host.doctor._check_kvm_permissions", new=lambda: _pass("worker:kvm-permissions")
     )
     @patch(
-        "smolvm.host.doctor._check_thp_disabled",
+        "celesto.host.doctor._check_kvm_nx_huge_pages",
+        new=lambda: _pass("worker:kvm-nx-huge-pages"),
+    )
+    @patch(
+        "celesto.host.doctor._check_thp_disabled",
         new=lambda: DoctorCheck(
             name="worker:thp-disabled",
             status="fail",
             detail="Active ('madvise')",
         ),
     )
-    @patch("smolvm.host.doctor._check_ksm_disabled", new=lambda: _pass("worker:ksm-disabled"))
+    @patch("celesto.host.doctor._check_ksm_disabled", new=lambda: _pass("worker:ksm-disabled"))
     @patch(
-        "smolvm.host.doctor._check_swap_disabled",
+        "celesto.host.doctor._check_swap_disabled",
         new=lambda: DoctorCheck(
             name="worker:swap-disabled",
             status="fail",
             detail="Active (8388604 kB)",
         ),
     )
-    @patch("smolvm.host.doctor.run_command")
-    @patch("smolvm.host.doctor.check_network_prerequisites", return_value=[])
-    @patch("smolvm.host.doctor.which")
-    @patch("smolvm.host.doctor.HostManager")
+    @patch("celesto.host.doctor.run_command")
+    @patch("celesto.host.doctor.check_network_prerequisites", return_value=[])
+    @patch("celesto.host.doctor.which")
+    @patch("celesto.host.doctor.HostManager")
     def test_run_doctor_strict_fails_on_worker_hardening_warnings(
         self,
         mock_host_cls: MagicMock,
@@ -293,7 +305,7 @@ class TestDoctorFirecracker:
             checks=[DoctorCheck(name="qemu", status="pass", detail="/usr/bin/qemu")],
         )
 
-        with patch("smolvm.host.doctor.generate_doctor_report", return_value=report):
+        with patch("celesto.host.doctor.generate_doctor_report", return_value=report):
             ret = run_doctor(json_output=True, strict=False)
 
         assert ret == 0
@@ -308,8 +320,8 @@ class TestDoctorFirecracker:
 class TestDoctorQemu:
     """QEMU backend diagnostic tests."""
 
-    @patch("smolvm.host.doctor._find_qemu_binary", return_value=None)
-    @patch("smolvm.host.doctor.which", return_value=Path("/usr/bin/ssh"))
+    @patch("celesto.host.doctor._find_qemu_binary", return_value=None)
+    @patch("celesto.host.doctor.which", return_value=Path("/usr/bin/ssh"))
     def test_generate_report_qemu_missing_binary(
         self,
         mock_which: MagicMock,
@@ -321,11 +333,11 @@ class TestDoctorQemu:
         assert report.backend_resolved == "qemu"
         assert any(check.name == "qemu" and check.status == "fail" for check in report.checks)
 
-    @patch("smolvm.host.doctor.platform.system", return_value="Linux")
-    @patch("smolvm.host.doctor.subprocess.run")
-    @patch("smolvm.host.doctor.which")
+    @patch("celesto.host.doctor.platform.system", return_value="Linux")
+    @patch("celesto.host.doctor.subprocess.run")
+    @patch("celesto.host.doctor.which")
     @patch(
-        "smolvm.host.doctor._find_qemu_binary",
+        "celesto.host.doctor._find_qemu_binary",
         return_value=("qemu-system-x86_64", Path("/usr/bin/qemu-system-x86_64")),
     )
     def test_generate_report_qemu_ok_with_qemu_img_and_supported_version(
@@ -346,10 +358,10 @@ class TestDoctorQemu:
         assert checks["command:qemu-img"].status == "pass"
         assert mock_run.call_args.kwargs["timeout"] == 15
 
-    @patch("smolvm.host.doctor.subprocess.run")
+    @patch("celesto.host.doctor.subprocess.run")
     def test_qemu_version_timeout_has_actionable_warning(self, mock_run: MagicMock) -> None:
         """A slow QEMU first launch should explain how to retry the check."""
-        from smolvm.host.doctor import _check_qemu_version
+        from celesto.host.doctor import _check_qemu_version
 
         mock_run.side_effect = subprocess.TimeoutExpired("qemu-system-aarch64", 15)
 
@@ -357,14 +369,14 @@ class TestDoctorQemu:
 
         assert check.status == "warn"
         assert check.detail == (
-            "QEMU did not report its version within 15 seconds. Run 'smolvm doctor' again."
+            "QEMU did not report its version within 15 seconds. Run 'celesto doctor' again."
         )
 
-    @patch("smolvm.host.doctor.platform.system", return_value="Linux")
-    @patch("smolvm.host.doctor.subprocess.run")
-    @patch("smolvm.host.doctor.which")
+    @patch("celesto.host.doctor.platform.system", return_value="Linux")
+    @patch("celesto.host.doctor.subprocess.run")
+    @patch("celesto.host.doctor.which")
     @patch(
-        "smolvm.host.doctor._find_qemu_binary",
+        "celesto.host.doctor._find_qemu_binary",
         return_value=("qemu-system-x86_64", Path("/usr/bin/qemu-system-x86_64")),
     )
     def test_generate_report_qemu_fails_for_missing_qemu_img_and_old_version(
@@ -384,11 +396,11 @@ class TestDoctorQemu:
         assert checks["qemu-version"].status == "fail"
         assert checks["command:qemu-img"].status == "fail"
 
-    @patch("smolvm.host.doctor.platform.system", return_value="Linux")
-    @patch("smolvm.host.doctor.subprocess.run", side_effect=OSError("probe failed"))
-    @patch("smolvm.host.doctor.which")
+    @patch("celesto.host.doctor.platform.system", return_value="Linux")
+    @patch("celesto.host.doctor.subprocess.run", side_effect=OSError("probe failed"))
+    @patch("celesto.host.doctor.which")
     @patch(
-        "smolvm.host.doctor._find_qemu_binary",
+        "celesto.host.doctor._find_qemu_binary",
         return_value=("qemu-system-x86_64", Path("/usr/bin/qemu-system-x86_64")),
     )
     def test_generate_report_qemu_warns_when_version_probe_fails(
@@ -407,11 +419,11 @@ class TestDoctorQemu:
         assert checks["qemu-version"].status == "warn"
         assert "probe failed" in checks["qemu-version"].detail
 
-    @patch("smolvm.host.doctor.platform.system", return_value="Linux")
-    @patch("smolvm.host.doctor.subprocess.run", side_effect=RuntimeError("boom"))
-    @patch("smolvm.host.doctor.which")
+    @patch("celesto.host.doctor.platform.system", return_value="Linux")
+    @patch("celesto.host.doctor.subprocess.run", side_effect=RuntimeError("boom"))
+    @patch("celesto.host.doctor.which")
     @patch(
-        "smolvm.host.doctor._find_qemu_binary",
+        "celesto.host.doctor._find_qemu_binary",
         return_value=("qemu-system-x86_64", Path("/usr/bin/qemu-system-x86_64")),
     )
     def test_generate_report_qemu_propagates_unexpected_probe_errors(
@@ -431,9 +443,9 @@ class TestDoctorQemu:
 class TestKvmRuntimeCheck:
     """Tests for the user-facing kvm doctor row."""
 
-    @patch("smolvm.host.doctor._KVM_DEV")
+    @patch("celesto.host.doctor._KVM_DEV")
     def test_missing_dev_kvm_fails_with_kvm_host_fix(self, mock_dev: MagicMock) -> None:
-        from smolvm.host.doctor import _check_kvm_runtime
+        from celesto.host.doctor import _check_kvm_runtime
 
         mock_dev.exists.return_value = False
         result = _check_kvm_runtime()
@@ -442,16 +454,16 @@ class TestKvmRuntimeCheck:
         assert "not found" in result.detail
         assert result.fix is not None and "hardware virtualization" in result.fix
 
-    @patch("smolvm.host.doctor._user_is_pending_kvm_group", return_value=False)
-    @patch("smolvm.host.doctor.os.access", return_value=False)
-    @patch("smolvm.host.doctor._KVM_DEV")
+    @patch("celesto.host.doctor._user_is_pending_kvm_group", return_value=False)
+    @patch("celesto.host.doctor.os.access", return_value=False)
+    @patch("celesto.host.doctor._KVM_DEV")
     def test_inaccessible_dev_kvm_fails_with_usermod_fix(
         self,
         mock_dev: MagicMock,
         _mock_access: MagicMock,
         _mock_pending: MagicMock,
     ) -> None:
-        from smolvm.host.doctor import _check_kvm_runtime
+        from celesto.host.doctor import _check_kvm_runtime
 
         mock_dev.exists.return_value = True
         result = _check_kvm_runtime()
@@ -462,9 +474,9 @@ class TestKvmRuntimeCheck:
         assert "usermod -aG kvm" in result.fix
         assert "newgrp kvm" in result.fix
 
-    @patch("smolvm.host.doctor._user_is_pending_kvm_group", return_value=True)
-    @patch("smolvm.host.doctor.os.access", return_value=False)
-    @patch("smolvm.host.doctor._KVM_DEV")
+    @patch("celesto.host.doctor._user_is_pending_kvm_group", return_value=True)
+    @patch("celesto.host.doctor.os.access", return_value=False)
+    @patch("celesto.host.doctor._KVM_DEV")
     def test_pending_kvm_group_session_fails_with_relog_fix(
         self,
         mock_dev: MagicMock,
@@ -472,7 +484,7 @@ class TestKvmRuntimeCheck:
         _mock_pending: MagicMock,
     ) -> None:
         """User added to kvm group but current shell hasn't picked it up."""
-        from smolvm.host.doctor import _check_kvm_runtime
+        from celesto.host.doctor import _check_kvm_runtime
 
         mock_dev.exists.return_value = True
         result = _check_kvm_runtime()
@@ -484,14 +496,14 @@ class TestKvmRuntimeCheck:
         assert "Log out" in result.fix
         assert "sg kvm" in result.fix
 
-    @patch("smolvm.host.doctor.os.access", return_value=True)
-    @patch("smolvm.host.doctor._KVM_DEV")
+    @patch("celesto.host.doctor.os.access", return_value=True)
+    @patch("celesto.host.doctor._KVM_DEV")
     def test_accessible_dev_kvm_passes(
         self,
         mock_dev: MagicMock,
         _mock_access: MagicMock,
     ) -> None:
-        from smolvm.host.doctor import _check_kvm_runtime
+        from celesto.host.doctor import _check_kvm_runtime
 
         mock_dev.exists.return_value = True
         result = _check_kvm_runtime()
@@ -502,18 +514,20 @@ class TestKvmRuntimeCheck:
 class TestWorkerNodeSecurityChecks:
     """Tests for strict worker-node startup guard behavior."""
 
-    @patch("smolvm.host.doctor._check_kvm_permissions", new=lambda: _pass("worker:kvm-permissions"))
     @patch(
-        "smolvm.host.doctor._check_kvm_nx_huge_pages",
+        "celesto.host.doctor._check_kvm_permissions", new=lambda: _pass("worker:kvm-permissions")
+    )
+    @patch(
+        "celesto.host.doctor._check_kvm_nx_huge_pages",
         new=lambda: DoctorCheck(
             name="worker:kvm-nx-huge-pages",
             status="warn",
             detail="kvm module not loaded",
         ),
     )
-    @patch("smolvm.host.doctor._check_thp_disabled", new=lambda: _pass("worker:thp-disabled"))
-    @patch("smolvm.host.doctor._check_ksm_disabled", new=lambda: _pass("worker:ksm-disabled"))
-    @patch("smolvm.host.doctor._check_swap_disabled", new=lambda: _pass("worker:swap-disabled"))
+    @patch("celesto.host.doctor._check_thp_disabled", new=lambda: _pass("worker:thp-disabled"))
+    @patch("celesto.host.doctor._check_ksm_disabled", new=lambda: _pass("worker:ksm-disabled"))
+    @patch("celesto.host.doctor._check_swap_disabled", new=lambda: _pass("worker:swap-disabled"))
     def test_check_worker_node_security_raises_on_warn(self) -> None:
         """Startup guard should reject non-pass security checks, including warnings."""
         with pytest.raises(WorkerNodeSecurityError, match=r"worker:kvm-nx-huge-pages \(warn\)"):

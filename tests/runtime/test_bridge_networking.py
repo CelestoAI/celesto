@@ -9,7 +9,7 @@ from unittest.mock import ANY, MagicMock, patch
 import pytest
 from pydantic import ValidationError
 
-from smolvm.types import (
+from celesto.types import (
     NetworkAttachmentConfig,
     NetworkConfig,
     VMConfig,
@@ -246,7 +246,7 @@ class TestVMConfigBridgeMode:
             )
 
     def test_bridge_mode_rejects_port_forwards(self, tmp_path: Path) -> None:
-        from smolvm.types import PortForwardConfig
+        from celesto.types import PortForwardConfig
 
         with pytest.raises(Exception, match="Port forwards are not supported"):
             _make_vm_config_skip_paths(
@@ -255,7 +255,7 @@ class TestVMConfigBridgeMode:
             )
 
     def test_bridge_mode_rejects_domain_allowlist(self, tmp_path: Path) -> None:
-        from smolvm.types import InternetSettings
+        from celesto.types import InternetSettings
 
         with pytest.raises(Exception, match="Network restrictions are not supported"):
             _make_vm_config_skip_paths(
@@ -272,7 +272,7 @@ class TestBridgeInspection:
     """Tests for BridgeInspection and inspect_bridge."""
 
     def test_bridge_inspection_dataclass(self) -> None:
-        from smolvm.host.network import BridgeInspection
+        from celesto.host.network import BridgeInspection
 
         ok = BridgeInspection(bridge_name="br10", ok=True)
         assert ok.ok is True
@@ -283,7 +283,7 @@ class TestBridgeInspection:
         assert bad.reason == "not a bridge"
 
     def test_inspect_bridge_non_linux(self) -> None:
-        from smolvm.host.network import NetworkManager
+        from celesto.host.network import NetworkManager
 
         nm = NetworkManager()
         with patch("platform.system", return_value="Darwin"):
@@ -292,15 +292,15 @@ class TestBridgeInspection:
         assert "Linux" in result.reason
 
     def test_inspect_bridge_missing(self) -> None:
-        from smolvm.exceptions import SmolVMError
-        from smolvm.host.network import NetworkManager
+        from celesto.exceptions import CelestoError
+        from celesto.host.network import NetworkManager
 
         nm = NetworkManager()
         with (
             patch("platform.system", return_value="Linux"),
             patch(
-                "smolvm.host.network.run_command",
-                side_effect=SmolVMError('Device "br10" does not exist.'),
+                "celesto.host.network.run_command",
+                side_effect=CelestoError('Device "br10" does not exist.'),
             ),
         ):
             result = nm.inspect_bridge("br10")
@@ -308,23 +308,23 @@ class TestBridgeInspection:
         assert "does not exist" in result.reason
 
     def test_inspect_bridge_propagates_link_probe_failure(self) -> None:
-        from smolvm.exceptions import SmolVMError
-        from smolvm.host.network import NetworkManager
+        from celesto.exceptions import CelestoError
+        from celesto.host.network import NetworkManager
 
         nm = NetworkManager()
         with (
             patch("platform.system", return_value="Linux"),
             patch(
-                "smolvm.host.network.run_command",
-                side_effect=SmolVMError("ip command timed out"),
+                "celesto.host.network.run_command",
+                side_effect=CelestoError("ip command timed out"),
             ),
-            pytest.raises(SmolVMError, match="timed out"),
+            pytest.raises(CelestoError, match="timed out"),
         ):
             nm.inspect_bridge("br10")
 
     def test_inspect_bridge_propagates_member_probe_failure(self) -> None:
-        from smolvm.exceptions import SmolVMError
-        from smolvm.host.network import NetworkManager
+        from celesto.exceptions import CelestoError
+        from celesto.host.network import NetworkManager
 
         nm = NetworkManager()
         bridge = MagicMock()
@@ -332,16 +332,16 @@ class TestBridgeInspection:
         with (
             patch("platform.system", return_value="Linux"),
             patch(
-                "smolvm.host.network.run_command",
-                side_effect=[bridge, SmolVMError("member probe failed")],
+                "celesto.host.network.run_command",
+                side_effect=[bridge, CelestoError("member probe failed")],
             ),
-            pytest.raises(SmolVMError, match="member probe failed"),
+            pytest.raises(CelestoError, match="member probe failed"),
         ):
             nm.inspect_bridge("br10")
 
     def test_inspect_bridge_propagates_address_probe_failure(self) -> None:
-        from smolvm.exceptions import SmolVMError
-        from smolvm.host.network import NetworkManager
+        from celesto.exceptions import CelestoError
+        from celesto.host.network import NetworkManager
 
         nm = NetworkManager()
         bridge = MagicMock()
@@ -351,15 +351,15 @@ class TestBridgeInspection:
         with (
             patch("platform.system", return_value="Linux"),
             patch(
-                "smolvm.host.network.run_command",
-                side_effect=[bridge, members, SmolVMError("address probe failed")],
+                "celesto.host.network.run_command",
+                side_effect=[bridge, members, CelestoError("address probe failed")],
             ),
-            pytest.raises(SmolVMError, match="address probe failed"),
+            pytest.raises(CelestoError, match="address probe failed"),
         ):
             nm.inspect_bridge("br10")
 
     def test_inspect_bridge_wrong_type(self) -> None:
-        from smolvm.host.network import NetworkManager
+        from celesto.host.network import NetworkManager
 
         nm = NetworkManager()
         mock_response = MagicMock()
@@ -368,14 +368,14 @@ class TestBridgeInspection:
         )
         with (
             patch("platform.system", return_value="Linux"),
-            patch("smolvm.host.network.run_command", return_value=mock_response),
+            patch("celesto.host.network.run_command", return_value=mock_response),
         ):
             result = nm.inspect_bridge("eno1.10")
         assert result.ok is False
         assert "not a bridge" in result.reason
 
     def test_inspect_bridge_not_up(self) -> None:
-        from smolvm.host.network import NetworkManager
+        from celesto.host.network import NetworkManager
 
         nm = NetworkManager()
         mock_response = MagicMock()
@@ -384,14 +384,14 @@ class TestBridgeInspection:
         )
         with (
             patch("platform.system", return_value="Linux"),
-            patch("smolvm.host.network.run_command", return_value=mock_response),
+            patch("celesto.host.network.run_command", return_value=mock_response),
         ):
             result = nm.inspect_bridge("br10")
         assert result.ok is False
         assert "not active" in result.reason
 
     def test_inspect_bridge_no_members(self) -> None:
-        from smolvm.host.network import NetworkManager
+        from celesto.host.network import NetworkManager
 
         nm = NetworkManager()
         link_response = MagicMock()
@@ -409,7 +409,7 @@ class TestBridgeInspection:
         with (
             patch("platform.system", return_value="Linux"),
             patch(
-                "smolvm.host.network.run_command",
+                "celesto.host.network.run_command",
                 side_effect=[link_response, members_response],
             ),
         ):
@@ -418,7 +418,7 @@ class TestBridgeInspection:
         assert "not connected" in result.reason.lower()
 
     def test_inspect_bridge_does_not_trust_tap_name_prefix(self) -> None:
-        from smolvm.host.network import NetworkManager
+        from celesto.host.network import NetworkManager
 
         nm = NetworkManager()
         bridge_info = {
@@ -440,7 +440,7 @@ class TestBridgeInspection:
         assert result.ok is True
 
     def test_inspect_bridge_does_not_count_owned_tap_as_external_member(self) -> None:
-        from smolvm.host.network import NetworkManager
+        from celesto.host.network import NetworkManager
 
         nm = NetworkManager()
         bridge_info = {
@@ -463,7 +463,7 @@ class TestBridgeInspection:
         assert "not connected" in result.reason
 
     def test_inspect_bridge_valid(self) -> None:
-        from smolvm.host.network import NetworkManager
+        from celesto.host.network import NetworkManager
 
         nm = NetworkManager()
         link_response = MagicMock()
@@ -483,7 +483,7 @@ class TestBridgeInspection:
         with (
             patch("platform.system", return_value="Linux"),
             patch(
-                "smolvm.host.network.run_command",
+                "celesto.host.network.run_command",
                 side_effect=[link_response, members_response, empty_addr, empty_addr],
             ) as run_command,
         ):
@@ -493,7 +493,7 @@ class TestBridgeInspection:
         assert all("show" in call.args[0] for call in run_command.call_args_list)
 
     def test_inspect_bridge_with_host_address(self) -> None:
-        from smolvm.host.network import NetworkManager
+        from celesto.host.network import NetworkManager
 
         nm = NetworkManager()
         link_response = MagicMock()
@@ -515,7 +515,7 @@ class TestBridgeInspection:
         with (
             patch("platform.system", return_value="Linux"),
             patch(
-                "smolvm.host.network.run_command",
+                "celesto.host.network.run_command",
                 side_effect=[link_response, members_response, addr_response],
             ),
         ):
@@ -525,7 +525,7 @@ class TestBridgeInspection:
         assert "addr flush" not in result.reason
 
     def test_inspect_bridge_rejects_ipv6_link_local_address(self) -> None:
-        from smolvm.host.network import NetworkManager
+        from celesto.host.network import NetworkManager
 
         nm = NetworkManager()
         link_response = MagicMock()
@@ -547,7 +547,7 @@ class TestBridgeInspection:
         with (
             patch("platform.system", return_value="Linux"),
             patch(
-                "smolvm.host.network.run_command",
+                "celesto.host.network.run_command",
                 side_effect=[link_response, members_response, address_response],
             ),
         ):
@@ -572,7 +572,7 @@ class TestBridgedTapOwnership:
         return info
 
     def test_prepare_new_tap_marks_ownership_before_attaching(self) -> None:
-        from smolvm.host.network import BridgeInspection, NetworkManager
+        from celesto.host.network import BridgeInspection, NetworkManager
 
         nm = NetworkManager()
         with (
@@ -592,7 +592,7 @@ class TestBridgedTapOwnership:
                 ],
             ),
             patch.object(nm, "_set_tap_master") as set_master,
-            patch("smolvm.host.network.run_command") as run_command,
+            patch("celesto.host.network.run_command") as run_command,
         ):
             nm.prepare_bridged_tap("svmb1234", "br10", "vm001", user="alice")
 
@@ -608,8 +608,8 @@ class TestBridgedTapOwnership:
         ]
 
     def test_prepare_refuses_existing_foreign_interface(self) -> None:
-        from smolvm.exceptions import NetworkError
-        from smolvm.host.network import BridgeInspection, NetworkManager
+        from celesto.exceptions import NetworkError
+        from celesto.host.network import BridgeInspection, NetworkManager
 
         nm = NetworkManager()
         with (
@@ -635,7 +635,7 @@ class TestBridgedTapOwnership:
         cleanup_tap.assert_not_called()
 
     def test_prepare_reuses_existing_owned_tap_without_recreating(self) -> None:
-        from smolvm.host.network import BridgeInspection, NetworkManager
+        from celesto.host.network import BridgeInspection, NetworkManager
 
         nm = NetworkManager()
         owned = self._tap_info(alias="smolvm-bridge:vm001", master="br10")
@@ -648,7 +648,7 @@ class TestBridgedTapOwnership:
             patch.object(nm, "create_tap") as create_tap,
             patch.object(nm, "_get_link_info", return_value=owned),
             patch.object(nm, "_set_tap_master") as set_master,
-            patch("smolvm.host.network.run_command"),
+            patch("celesto.host.network.run_command"),
         ):
             nm.prepare_bridged_tap("svmb1234", "br10", "vm001", user="alice")
 
@@ -656,7 +656,7 @@ class TestBridgedTapOwnership:
         set_master.assert_called_once_with("svmb1234", "br10")
 
     def test_cleanup_retries_until_owned_tap_disappears(self) -> None:
-        from smolvm.host.network import NetworkManager
+        from celesto.host.network import NetworkManager
 
         nm = NetworkManager()
         owned = self._tap_info(alias="smolvm-bridge:vm001")
@@ -667,7 +667,7 @@ class TestBridgedTapOwnership:
                 side_effect=[owned, owned, owned, owned, owned, None],
             ),
             patch.object(nm, "cleanup_tap") as cleanup_tap,
-            patch("smolvm.host.network.time.sleep") as sleep,
+            patch("celesto.host.network.time.sleep") as sleep,
         ):
             nm.cleanup_bridged_tap("svmb1234", "vm001")
 
@@ -675,8 +675,8 @@ class TestBridgedTapOwnership:
         sleep.assert_called_once()
 
     def test_cleanup_refuses_foreign_interface(self) -> None:
-        from smolvm.exceptions import NetworkError
-        from smolvm.host.network import NetworkManager
+        from celesto.exceptions import NetworkError
+        from celesto.host.network import NetworkManager
 
         nm = NetworkManager()
         with (
@@ -697,7 +697,7 @@ class TestBridgeMacGeneration:
     """Tests for bridge MAC address generation."""
 
     def test_generate_bridge_mac_format(self) -> None:
-        from smolvm.host.network import NetworkManager
+        from celesto.host.network import NetworkManager
 
         nm = NetworkManager()
         mac = nm.generate_bridge_mac()
@@ -707,14 +707,14 @@ class TestBridgeMacGeneration:
         assert parts[0].upper() == "02"
 
     def test_generate_bridge_mac_unique(self) -> None:
-        from smolvm.host.network import NetworkManager
+        from celesto.host.network import NetworkManager
 
         nm = NetworkManager()
         macs = {nm.generate_bridge_mac() for _ in range(100)}
         assert len(macs) == 100
 
     def test_reserved_tap_suffix_maps_to_collision_free_mac(self) -> None:
-        from smolvm.host.network import NetworkManager
+        from celesto.host.network import NetworkManager
 
         nm = NetworkManager()
         assert nm.generate_bridge_mac("svmb01020304") == "02:53:01:02:03:04"
@@ -725,7 +725,7 @@ class TestTapAllocation:
     """Tests for TAP name reservation in storage."""
 
     def test_reserve_tap_name_bridge(self, tmp_path: Path) -> None:
-        from smolvm.cli._sqlite import SQLiteStateManager
+        from celesto.cli._sqlite import SQLiteStateManager
 
         manager = SQLiteStateManager(tmp_path / "test.db")
         config = _make_vm_config(tmp_path, vm_id="test-vm-1")
@@ -735,7 +735,7 @@ class TestTapAllocation:
         assert len(tap) <= 15
 
     def test_reserve_tap_name_idempotent(self, tmp_path: Path) -> None:
-        from smolvm.cli._sqlite import SQLiteStateManager
+        from celesto.cli._sqlite import SQLiteStateManager
 
         manager = SQLiteStateManager(tmp_path / "test.db")
         config = _make_vm_config(tmp_path, vm_id="test-vm-2")
@@ -745,8 +745,8 @@ class TestTapAllocation:
         assert tap1 == tap2
 
     def test_reserve_tap_name_rejects_changed_attachment(self, tmp_path: Path) -> None:
-        from smolvm.cli._sqlite import SQLiteStateManager
-        from smolvm.exceptions import NetworkError
+        from celesto.cli._sqlite import SQLiteStateManager
+        from celesto.exceptions import NetworkError
 
         manager = SQLiteStateManager(tmp_path / "test.db")
         config = _make_vm_config(tmp_path, vm_id="test-vm-mismatch")
@@ -767,7 +767,7 @@ class TestTapAllocation:
             )
 
     def test_get_tap_allocation(self, tmp_path: Path) -> None:
-        from smolvm.cli._sqlite import SQLiteStateManager
+        from celesto.cli._sqlite import SQLiteStateManager
 
         manager = SQLiteStateManager(tmp_path / "test.db")
         config = _make_vm_config(tmp_path, vm_id="test-vm-3")
@@ -779,13 +779,13 @@ class TestTapAllocation:
         assert alloc[2] == "br10"
 
     def test_get_tap_allocation_none(self, tmp_path: Path) -> None:
-        from smolvm.cli._sqlite import SQLiteStateManager
+        from celesto.cli._sqlite import SQLiteStateManager
 
         manager = SQLiteStateManager(tmp_path / "test.db")
         assert manager.get_tap_allocation("nonexistent") is None
 
     def test_release_tap_name(self, tmp_path: Path) -> None:
-        from smolvm.cli._sqlite import SQLiteStateManager
+        from celesto.cli._sqlite import SQLiteStateManager
 
         manager = SQLiteStateManager(tmp_path / "test.db")
         config = _make_vm_config(tmp_path, vm_id="test-vm-4")
@@ -795,7 +795,7 @@ class TestTapAllocation:
         assert manager.get_tap_allocation("test-vm-4") is None
 
     def test_reserve_tap_name_requested(self, tmp_path: Path) -> None:
-        from smolvm.cli._sqlite import SQLiteStateManager
+        from celesto.cli._sqlite import SQLiteStateManager
 
         manager = SQLiteStateManager(tmp_path / "test.db")
         config = _make_vm_config(tmp_path, vm_id="test-vm-5")
@@ -806,8 +806,8 @@ class TestTapAllocation:
         assert tap == "svmb9999"
 
     def test_reserve_tap_name_conflict(self, tmp_path: Path) -> None:
-        from smolvm.cli._sqlite import SQLiteStateManager
-        from smolvm.exceptions import NetworkError
+        from celesto.cli._sqlite import SQLiteStateManager
+        from celesto.exceptions import NetworkError
 
         manager = SQLiteStateManager(tmp_path / "test.db")
         config1 = _make_vm_config(tmp_path, vm_id="test-vm-6")
@@ -824,10 +824,10 @@ class TestBridgeLifecycle:
 
     @staticmethod
     def _manager(tmp_path: Path):
-        from smolvm.host.network import BridgeInspection
-        from smolvm.vm import SmolVMManager
+        from celesto.host.network import BridgeInspection
+        from celesto.vm import CelestoManager
 
-        manager = SmolVMManager(
+        manager = CelestoManager(
             data_dir=tmp_path / "data",
             socket_dir=tmp_path / "sockets",
             backend="qemu",
@@ -851,8 +851,8 @@ class TestBridgeLifecycle:
         self,
         tmp_path: Path,
     ) -> None:
-        from smolvm.comm.select import ChannelResolution
-        from smolvm.exceptions import SmolVMError
+        from celesto.comm.select import ChannelResolution
+        from celesto.exceptions import CelestoError
 
         manager, network = self._manager(tmp_path)
         config = self._config(tmp_path, comm_channel="vsock").model_copy(
@@ -865,15 +865,15 @@ class TestBridgeLifecycle:
                 "_resolve_control_channel_for_config",
                 return_value=ChannelResolution(kind="vsock"),
             ),
-            pytest.raises(SmolVMError, match="cannot configure bridged networking"),
+            pytest.raises(CelestoError, match="cannot configure bridged networking"),
         ):
             manager.create(config)
 
         network.prepare_bridged_tap.assert_not_called()
 
     def test_create_requires_resolved_vsock_before_network_mutation(self, tmp_path: Path) -> None:
-        from smolvm.comm.select import ChannelResolution
-        from smolvm.exceptions import SmolVMError
+        from celesto.comm.select import ChannelResolution
+        from celesto.exceptions import CelestoError
 
         manager, network = self._manager(tmp_path)
         config = self._config(tmp_path)
@@ -884,7 +884,7 @@ class TestBridgeLifecycle:
                 "_resolve_control_channel_for_config",
                 return_value=ChannelResolution(kind="ssh"),
             ),
-            pytest.raises(SmolVMError, match="needs fast shell support"),
+            pytest.raises(CelestoError, match="needs fast shell support"),
         ):
             manager.create(config)
 
@@ -892,7 +892,7 @@ class TestBridgeLifecycle:
         assert manager.state.get_tap_allocation(config.vm_id) is None
 
     def test_create_persists_network_before_preparing_owned_tap(self, tmp_path: Path) -> None:
-        from smolvm.comm.select import ChannelResolution
+        from celesto.comm.select import ChannelResolution
 
         manager, network = self._manager(tmp_path)
         config = self._config(tmp_path, comm_channel="vsock")
@@ -918,7 +918,7 @@ class TestBridgeLifecycle:
         )
 
     def test_create_failure_cleans_reserved_owned_tap(self, tmp_path: Path) -> None:
-        from smolvm.comm.select import ChannelResolution
+        from celesto.comm.select import ChannelResolution
 
         manager, network = self._manager(tmp_path)
         config = self._config(tmp_path, comm_channel="vsock")
@@ -951,7 +951,7 @@ class TestBridgeLifecycle:
             guest_mac="02:00:00:00:00:01",
         )
 
-        from smolvm.comm.select import ChannelResolution
+        from celesto.comm.select import ChannelResolution
 
         with (
             patch("platform.system", return_value="Linux"),
@@ -984,7 +984,7 @@ class TestBridgeLifecycle:
         self,
         tmp_path: Path,
     ) -> None:
-        from smolvm.exceptions import SmolVMError
+        from celesto.exceptions import CelestoError
 
         manager, network = self._manager(tmp_path)
         config = self._config(tmp_path, comm_channel="vsock")
@@ -999,7 +999,7 @@ class TestBridgeLifecycle:
             ),
         )
 
-        with pytest.raises(SmolVMError, match="inconsistent bridge settings"):
+        with pytest.raises(CelestoError, match="inconsistent bridge settings"):
             manager.start(config.vm_id)
 
         network.prepare_bridged_tap.assert_not_called()
@@ -1008,7 +1008,7 @@ class TestBridgeLifecycle:
         self,
         tmp_path: Path,
     ) -> None:
-        from smolvm.exceptions import BridgeTapOwnershipError
+        from celesto.exceptions import BridgeTapOwnershipError
 
         manager, network = self._manager(tmp_path)
         config = self._config(tmp_path, comm_channel="vsock")
@@ -1038,7 +1038,7 @@ class TestBridgeLifecycle:
         self,
         tmp_path: Path,
     ) -> None:
-        from smolvm.exceptions import NetworkError
+        from celesto.exceptions import NetworkError
 
         manager, network = self._manager(tmp_path)
         config = self._config(tmp_path, comm_channel="vsock")
@@ -1074,7 +1074,7 @@ class TestBridgeLifecycle:
         self,
         tmp_path: Path,
     ) -> None:
-        from smolvm.exceptions import NetworkError
+        from celesto.exceptions import NetworkError
 
         manager, network = self._manager(tmp_path)
         config = self._config(tmp_path, comm_channel="vsock")
@@ -1105,9 +1105,9 @@ class TestBridgeLifecycle:
         )
 
     def test_manager_rejects_mount_added_after_model_validation(self, tmp_path: Path) -> None:
-        from smolvm.comm.select import ChannelResolution
-        from smolvm.exceptions import SmolVMError
-        from smolvm.types import WorkspaceMount
+        from celesto.comm.select import ChannelResolution
+        from celesto.exceptions import CelestoError
+        from celesto.types import WorkspaceMount
 
         manager, network = self._manager(tmp_path)
         config = self._config(tmp_path, comm_channel="vsock")
@@ -1123,7 +1123,7 @@ class TestBridgeLifecycle:
                 "_resolve_control_channel_for_config",
                 return_value=ChannelResolution(kind="vsock"),
             ),
-            pytest.raises(SmolVMError, match="cannot share host folders"),
+            pytest.raises(CelestoError, match="cannot share host folders"),
         ):
             manager.create(config)
 
@@ -1135,8 +1135,8 @@ class TestBridgeUnsupportedOperations:
 
     @staticmethod
     def _facade(tmp_path: Path):
-        from smolvm.facade import SmolVM
-        from smolvm.types import VMInfo, VMState
+        from celesto.facade import Celesto
+        from celesto.types import VMInfo, VMState
 
         config = _make_vm_config(
             tmp_path,
@@ -1150,7 +1150,7 @@ class TestBridgeUnsupportedOperations:
             tap_device="svmbops",
             guest_mac="02:00:00:00:00:02",
         )
-        vm = object.__new__(SmolVM)
+        vm = object.__new__(Celesto)
         vm._vm_id = config.vm_id
         vm._info = VMInfo(
             vm_id=config.vm_id,
@@ -1164,17 +1164,17 @@ class TestBridgeUnsupportedOperations:
         return vm
 
     def test_ssh_endpoint_recommends_shell(self, tmp_path: Path) -> None:
-        from smolvm.exceptions import SmolVMError
+        from celesto.exceptions import CelestoError
 
         vm = self._facade(tmp_path)
-        with pytest.raises(SmolVMError, match="sandbox shell"):
+        with pytest.raises(CelestoError, match="sandbox shell"):
             vm._ssh_endpoints()
 
     def test_port_exposure_rejects_bridge_before_host_mutation(self, tmp_path: Path) -> None:
-        from smolvm.exceptions import SmolVMError
+        from celesto.exceptions import CelestoError
 
         vm = self._facade(tmp_path)
-        with pytest.raises(SmolVMError, match="already connected directly"):
+        with pytest.raises(CelestoError, match="already connected directly"):
             vm.expose_local(8080)
 
         vm._sdk.ensure_network_connectivity.assert_not_called()
@@ -1185,9 +1185,9 @@ class TestQemuArgsBridgeMode:
 
     def test_bridge_mode_selects_tap_transport(self, tmp_path: Path) -> None:
         """QEMU should use TAP transport for bridge mode even with qemu_network='slirp'."""
-        from smolvm.runtime.guest_platforms import _LINUX_SPEC
-        from smolvm.runtime.qemu_args import build_qemu_argv
-        from smolvm.types import VMInfo, VMState
+        from celesto.runtime.guest_platforms import _LINUX_SPEC
+        from celesto.runtime.qemu_args import build_qemu_argv
+        from celesto.types import VMInfo, VMState
 
         config = _make_vm_config(
             tmp_path,

@@ -52,7 +52,7 @@ smolvm create --os debian --name my-debian-sandbox
 When a command prints a value the user needs (an ID, a URL, a status), show it. The reader should never have to run the command to find out what it returns.
 
 ```bash
-smolvm browser start --live
+celesto browser start --live
 # Session: sess_a1b2c3
 # Live view: http://localhost:6080
 ```

@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""SmolVM benchmark suite — drives the public SDK and measures real lifecycle timings.
+"""Celesto benchmark suite — drives the public SDK and measures real lifecycle timings.
 
 Benchmarks:
     cold-start    Fresh guest readiness split into host, VMM, guest, and command phases.
@@ -65,7 +65,7 @@ ALL_BENCHMARKS = ("cold-start", "tti", "pause-resume", "snapshot")
 
 def _resolve_and_validate_backend(requested: str) -> str:
     """Resolve the backend and reject mismatches with the host platform."""
-    from smolvm.runtime.backends import (
+    from celesto.runtime.backends import (
         BACKEND_FIRECRACKER,
         BACKEND_QEMU,
         resolve_backend,
@@ -90,9 +90,9 @@ def _resolve_and_validate_backend(requested: str) -> str:
 
 def _new_vm(backend: str):
     """Construct an auto-configured SSH-capable VM bound to the given backend."""
-    from smolvm.facade import SmolVM
+    from celesto.facade import Celesto
 
-    return SmolVM(backend=backend)
+    return Celesto(backend=backend)
 
 
 def _safe_teardown(vm) -> None:
@@ -100,7 +100,7 @@ def _safe_teardown(vm) -> None:
 
     Cleanup chain:
       1. vm.stop(timeout=15) + vm.delete()
-      2. on failure: SmolVMManager().delete(vm_id) (reloads fresh state)
+      2. on failure: CelestoManager().delete(vm_id) (reloads fresh state)
       3. on failure: SIGKILL the PID directly + delete DB row.
 
     QEMU's stop path on macOS occasionally reports the process as still alive
@@ -117,19 +117,19 @@ def _safe_teardown(vm) -> None:
         vm.delete()
         return
     except Exception as e:  # noqa: BLE001
-        logger.warning("vm.delete() failed (%s); retrying via SmolVMManager", e)
+        logger.warning("vm.delete() failed (%s); retrying via CelestoManager", e)
 
     if not vm_id:
         return
 
-    from smolvm.vm import SmolVMManager
+    from celesto.vm import CelestoManager
 
     try:
-        with SmolVMManager() as sdk:
+        with CelestoManager() as sdk:
             sdk.delete(vm_id)
         return
     except Exception as e:  # noqa: BLE001
-        logger.warning("SmolVMManager.delete failed (%s); forcing cleanup", e)
+        logger.warning("CelestoManager.delete failed (%s); forcing cleanup", e)
 
     _force_cleanup(vm_id)
 
@@ -141,9 +141,9 @@ def _force_cleanup(vm_id: str) -> None:
     import os
     import signal
 
-    from smolvm.vm import SmolVMManager
+    from celesto.vm import CelestoManager
 
-    with suppress(Exception), SmolVMManager() as sdk:
+    with suppress(Exception), CelestoManager() as sdk:
         try:
             info = sdk.get(vm_id)
         except Exception:  # noqa: BLE001
@@ -164,17 +164,17 @@ def _force_cleanup(vm_id: str) -> None:
 
 
 def _safe_delete_snapshot(snapshot_id: str) -> None:
-    """Best-effort snapshot delete via SmolVMManager."""
-    from smolvm.vm import SmolVMManager
+    """Best-effort snapshot delete via CelestoManager."""
+    from celesto.vm import CelestoManager
 
-    with suppress(Exception), SmolVMManager() as sdk:
+    with suppress(Exception), CelestoManager() as sdk:
         sdk.delete_snapshot(snapshot_id)
 
 
 def _is_unsupported_error(exc: BaseException) -> bool:
     """Detect 'this backend does not support X' errors from the SDK.
 
-    The runtime adapters (libkrun in particular) raise SmolVMError with messages
+    The runtime adapters (libkrun in particular) raise CelestoError with messages
     like 'libkrun backend does not support snapshots yet'. NotImplementedError
     can also surface here from future adapters.
     """
@@ -189,7 +189,7 @@ def _vm_log_path(vm) -> Path | None:
     if not vm_id:
         return None
 
-    from smolvm.vm import resolve_data_dir
+    from celesto.vm import resolve_data_dir
 
     return resolve_data_dir() / f"{vm_id}.log"
 
@@ -199,7 +199,7 @@ def _vm_log_path(vm) -> Path | None:
 
 def _bench_boot(backend: str, iterations: int, label: str) -> dict[str, Any]:
     """Shared implementation for cold-start and tti — they differ only in cache state."""
-    from smolvm.facade import SmolVM
+    from celesto.facade import Celesto
 
     host_create: list[float] = []
     vmm_start: list[float] = []
@@ -211,7 +211,7 @@ def _bench_boot(backend: str, iterations: int, label: str) -> dict[str, Any]:
 
     for i in range(iterations):
         logger.info("[%s] iter %d/%d", label, i + 1, iterations)
-        vm: SmolVM | None = None
+        vm: Celesto | None = None
         record: dict[str, Any] = {"iter": i}
         log_path: Path | None = None
         try:
@@ -282,7 +282,7 @@ def _bench_boot(backend: str, iterations: int, label: str) -> dict[str, Any]:
 
 def bench_cold_start(backend: str, iterations: int) -> dict[str, Any]:
     """First VM boot in this process. Image is assumed already pulled to disk;
-    'cold' here means 'no warm SmolVM caches in memory, no per-VM disk overlay yet'."""
+    'cold' here means 'no warm Celesto caches in memory, no per-VM disk overlay yet'."""
     return _bench_boot(backend, iterations, "cold-start")
 
 
@@ -345,7 +345,7 @@ def bench_pause_resume(backend: str, iterations: int) -> dict[str, Any]:
 
 def bench_snapshot(backend: str, iterations: int) -> dict[str, Any]:
     """Snapshot create + restore. Each iteration uses a fresh source VM."""
-    from smolvm.facade import SmolVM
+    from celesto.facade import Celesto
 
     create: list[float] = []
     restore: list[float] = []
@@ -356,8 +356,8 @@ def bench_snapshot(backend: str, iterations: int) -> dict[str, Any]:
         logger.info("[snapshot] iter %d/%d", i + 1, iterations)
         snapshot_id = f"bench-snap-{uuid.uuid4().hex[:8]}"
         record: dict[str, Any] = {"iter": i, "snapshot_id": snapshot_id}
-        source_vm: SmolVM | None = None
-        restored_vm: SmolVM | None = None
+        source_vm: Celesto | None = None
+        restored_vm: Celesto | None = None
         try:
             source_vm = _new_vm(backend)
             source_vm.start()
@@ -373,7 +373,7 @@ def bench_snapshot(backend: str, iterations: int) -> dict[str, Any]:
             source_vm = None
 
             with Phase() as p_restore:
-                restored_vm = SmolVM.from_snapshot(snapshot_id, resume_vm=True)
+                restored_vm = Celesto.from_snapshot(snapshot_id, resume_vm=True)
             record["snapshot_restore_ms"] = round(p_restore.elapsed_ms, 1)
             restore.append(record["snapshot_restore_ms"])
 
@@ -416,7 +416,7 @@ BENCHMARKS: dict[str, Callable[[str, int], dict[str, Any]]] = {
 
 def _print_human(report: dict[str, Any]) -> None:
     print("=" * 72)
-    print("SmolVM Benchmark Report")
+    print("Celesto Benchmark Report")
     print("=" * 72)
     print(f"smolvm   : {report['smolvm_version']}")
     print(f"platform : {report['platform']['system']} {report['platform']['machine']}")
@@ -466,7 +466,7 @@ def _smolvm_version() -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Benchmark SmolVM lifecycle through the public SDK.",
+        description="Benchmark Celesto lifecycle through the public SDK.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )

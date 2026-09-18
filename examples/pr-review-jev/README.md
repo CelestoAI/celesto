@@ -16,7 +16,7 @@ Local, from this example directory in the Celesto source checkout:
 uv run --env-file .env python app.py
 ```
 
-The demo resolves SmolVM from the parent Celesto checkout automatically. Run `uv run smolvm doctor` first to check the local virtualization setup.
+The demo resolves Celesto from the parent Celesto checkout automatically. Run `uv run celesto doctor` first to check the local virtualization setup.
 
 The 16 GB review disks also need `e2fsprogs`. On macOS, install it with `brew install e2fsprogs`; the demo discovers its Homebrew tools without changing your shell configuration. On Debian/Ubuntu, use `sudo apt-get install e2fsprogs`.
 

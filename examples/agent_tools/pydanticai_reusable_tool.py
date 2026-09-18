@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Use SmolVM as a reusable PydanticAI tool-backed sandbox.
+"""Use Celesto as a reusable PydanticAI tool-backed sandbox.
 
 Install:
     pip install smolvm pydantic-ai
@@ -26,7 +26,7 @@ Optional environment:
     export PYDANTICAI_MODEL=openai:gpt-4.1
 
 Before running:
-    smolvm doctor
+    celesto doctor
 
 Example:
     python examples/agent_tools/pydanticai_reusable_tool.py
@@ -38,7 +38,7 @@ import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from smolvm import SmolVM
+from celesto import Celesto
 
 try:
     from pydantic_ai import RunContext
@@ -58,9 +58,9 @@ DEFAULT_MODEL = "openai:gpt-4.1"
 
 @dataclass
 class SandboxDeps:
-    """Host-side dependency container for a reusable SmolVM instance."""
+    """Host-side dependency container for a reusable Celesto instance."""
 
-    vm: SmolVM | None = None
+    vm: Celesto | None = None
 
 
 def _require_dependency(import_path: str, install_hint: str) -> Any:
@@ -84,15 +84,15 @@ def _format_command_result(exit_code: int, stdout: str, stderr: str) -> str:
     )
 
 
-def _connect_vm(deps: SandboxDeps) -> SmolVM:
+def _connect_vm(deps: SandboxDeps) -> Celesto:
     """Return the active sandbox, creating it on first use."""
     if deps.vm is None:
-        deps.vm = SmolVM()
+        deps.vm = Celesto()
         deps.vm.start()
     return deps.vm
 
 
-def _cleanup_vm(vm: SmolVM | None) -> None:
+def _cleanup_vm(vm: Celesto | None) -> None:
     """Delete the reusable sandbox if one was created."""
     if vm is None:
         return
@@ -108,7 +108,7 @@ def run_in_reusable_smolvm(
     command: str,
     timeout: int = 30,
 ) -> str:
-    """Run a shell command inside a reusable SmolVM sandbox.
+    """Run a shell command inside a reusable Celesto sandbox.
 
     Args:
         command: Shell command to execute inside the sandbox guest.
@@ -125,7 +125,7 @@ def _build_agent() -> Any:
         os.environ.get("PYDANTICAI_MODEL", DEFAULT_MODEL),
         deps_type=SandboxDeps,
         instructions=(
-            "You are a coding assistant with access to a reusable SmolVM sandbox. "
+            "You are a coding assistant with access to a reusable Celesto sandbox. "
             "For shell and file-system tasks, call run_in_reusable_smolvm exactly "
             "once and then summarize the result."
         ),
@@ -137,13 +137,13 @@ def _build_agent() -> Any:
 
 
 def main() -> None:
-    """Run two turns against the same SmolVM-backed sandbox."""
+    """Run two turns against the same Celesto-backed sandbox."""
     agent = _build_agent()
     deps = SandboxDeps()
     try:
         first_prompt = (
             "Use run_in_reusable_smolvm to run this exact command inside the sandbox: "
-            "`printf 'persistent state from SmolVM\\n' > /tmp/agent-note.txt && "
+            "`printf 'persistent state from Celesto\\n' > /tmp/agent-note.txt && "
             "cat /tmp/agent-note.txt`. Then summarize what happened."
         )
         first_result = agent.run_sync(first_prompt, deps=deps)

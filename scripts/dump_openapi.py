@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Dump the SmolVM HTTP API's OpenAPI spec to ``ts/openapi.json``.
+"""Dump the Celesto HTTP API's OpenAPI spec to ``ts/openapi.json``.
 
 ``ts/openapi.json`` is the committed contract the TypeScript client is
 generated from. The Python server is its source of truth, so this script
@@ -35,7 +35,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from smolvm.server.app import create_app
+from celesto.server.app import create_app
 
 # scripts/dump_openapi.py -> repo root -> ts/openapi.json
 SPEC_PATH = Path(__file__).resolve().parent.parent / "ts" / "openapi.json"

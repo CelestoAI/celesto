@@ -30,9 +30,9 @@ from typing import Any
 
 import pytest
 
-import smolvm.comm.rust_http_vsock_channel as vsock_channel
-from smolvm.comm.base import CommChannel
-from smolvm.comm.rust_http_vsock_channel import (
+import celesto.comm.rust_http_vsock_channel as vsock_channel
+from celesto.comm.base import CommChannel
+from celesto.comm.rust_http_vsock_channel import (
     SMOLVM_TERMINAL_PORT,
     ControlCapabilities,
     RustHttpVsockChannel,
@@ -43,7 +43,7 @@ from smolvm.comm.rust_http_vsock_channel import (
     _vsock_family,
     _vsock_unavailable_message,
 )
-from smolvm.exceptions import OperationTimeoutError, SmolVMError
+from celesto.exceptions import CelestoError, OperationTimeoutError
 
 Handler = Callable[[str, str, bytes], Any]
 
@@ -78,13 +78,13 @@ def test_feature_required_error_names_recreate_commands() -> None:
         limits={},
     )
 
-    with pytest.raises(SmolVMError) as exc_info:
+    with pytest.raises(CelestoError) as exc_info:
         channel.attach_terminal()
 
     message = str(exc_info.value)
     assert "Sandbox sbx-riemann was created from an older image" in message
-    assert "smolvm sandbox delete sbx-riemann" in message
-    assert "smolvm sandbox create --name sbx-riemann" in message
+    assert "celesto sandbox delete sbx-riemann" in message
+    assert "celesto sandbox create --name sbx-riemann" in message
 
 
 class FakeRustChannel(RustHttpVsockChannel):
@@ -194,7 +194,7 @@ def test_rust_http_channel_satisfies_comm_channel() -> None:
 
 def test_vsock_family_falls_back_to_linux_abi_value(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delattr(socket, "AF_VSOCK", raising=False)
-    monkeypatch.setattr("smolvm.comm.rust_http_vsock_channel.sys.platform", "linux")
+    monkeypatch.setattr("celesto.comm.rust_http_vsock_channel.sys.platform", "linux")
 
     assert _vsock_family() == 40
 
@@ -213,7 +213,7 @@ def test_open_vsock_uses_raw_connect_when_python_lacks_af_vsock(
 
     fake = FakeSocket()
     monkeypatch.delattr(socket, "AF_VSOCK", raising=False)
-    monkeypatch.setattr("smolvm.comm.rust_http_vsock_channel.sys.platform", "linux")
+    monkeypatch.setattr("celesto.comm.rust_http_vsock_channel.sys.platform", "linux")
     monkeypatch.setattr(
         socket,
         "socket",
@@ -248,8 +248,8 @@ def test_vsock_unavailable_message_names_ssh_recovery_command() -> None:
 
     assert "AF_VSOCK" not in message
     assert "vhost_vsock" not in message
-    assert "smolvm sandbox delete sbx-pauling" in message
-    assert "smolvm sandbox create --name sbx-pauling --comm-channel ssh" in message
+    assert "celesto sandbox delete sbx-pauling" in message
+    assert "celesto sandbox create --name sbx-pauling --comm-channel ssh" in message
 
 
 def test_wait_ready_uses_health() -> None:
@@ -271,7 +271,7 @@ def test_wait_ready_polls_quickly_during_early_boot(monkeypatch: pytest.MonkeyPa
     )
     sleeps: list[float] = []
     monkeypatch.setattr(
-        "smolvm.comm.rust_http_vsock_channel.time.sleep",
+        "celesto.comm.rust_http_vsock_channel.time.sleep",
         lambda duration: sleeps.append(duration),
     )
 
@@ -307,7 +307,7 @@ def test_from_uds_closes_socket_when_connect_rejected() -> None:
     thread.start()
     try:
         channel = RustHttpVsockChannel.from_uds(uds)
-        with pytest.raises(SmolVMError, match="CONNECT handshake failed"):
+        with pytest.raises(CelestoError, match="CONNECT handshake failed"):
             channel._open_uds()
         assert closed.get(timeout=2) == b""
     finally:
@@ -380,8 +380,8 @@ def test_attach_terminal_streams_stdin_stdout_and_exit(
             return self.fd
 
     output = io.BytesIO()
-    monkeypatch.setattr("smolvm.comm.rust_http_vsock_channel.sys.stdin", _PipeInput(read_fd))
-    monkeypatch.setattr("smolvm.comm.rust_http_vsock_channel.sys.stdout", output)
+    monkeypatch.setattr("celesto.comm.rust_http_vsock_channel.sys.stdin", _PipeInput(read_fd))
+    monkeypatch.setattr("celesto.comm.rust_http_vsock_channel.sys.stdout", output)
     monkeypatch.setenv("TERM", "xterm-test")
 
     channel = FakeTerminalChannel([_capabilities({"terminal": True})])
@@ -400,7 +400,7 @@ def test_attach_terminal_streams_stdin_stdout_and_exit(
 def test_attach_terminal_requires_terminal_capability() -> None:
     channel = FakeRustChannel([_capabilities({})])
 
-    with pytest.raises(SmolVMError, match="fast shell access"):
+    with pytest.raises(CelestoError, match="fast shell access"):
         channel.attach_terminal()
 
 
@@ -436,14 +436,14 @@ def test_sync_error_maps_to_smolvm_error() -> None:
         [_capabilities({"sync": True}), lambda method, path, body: {"ok": False, "error": "busy"}]
     )
 
-    with pytest.raises(SmolVMError, match="busy"):
+    with pytest.raises(CelestoError, match="busy"):
         channel.sync()
 
 
 def test_sync_requires_sync_capability() -> None:
     channel = FakeRustChannel([_capabilities({})])
 
-    with pytest.raises(SmolVMError, match="saving files before shutdown"):
+    with pytest.raises(CelestoError, match="saving files before shutdown"):
         channel.sync(timeout=10)
 
 
@@ -452,7 +452,7 @@ def test_put_file_requires_streaming_capability(tmp_path: Path) -> None:
     source.write_text("payload")
 
     channel = FakeRustChannel([_capabilities({})])
-    with pytest.raises(SmolVMError, match="fast file transfer"):
+    with pytest.raises(CelestoError, match="fast file transfer"):
         channel.put_file(source, "/tmp/source.txt")
 
 
@@ -501,7 +501,7 @@ def test_put_file_does_not_fallback_when_raw_endpoint_missing(tmp_path: Path) ->
         return (404, "")
 
     channel = FakeRustChannel([_capabilities({"file_raw": True}), _missing_raw])
-    with pytest.raises(SmolVMError, match="guest agent HTTP 404"):
+    with pytest.raises(CelestoError, match="guest agent HTTP 404"):
         channel.put_file(source, "/tmp/source.txt")
 
 
@@ -522,7 +522,7 @@ def test_put_file_rejects_local_size_over_cap_before_upload(tmp_path: Path) -> N
         ]
     )
 
-    with pytest.raises(SmolVMError, match="up to 4 bytes"):
+    with pytest.raises(CelestoError, match="up to 4 bytes"):
         channel.put_file(source, "/tmp/source.txt")
     assert [request[:2] for request in channel.requests] == [("GET", "/capabilities")]
 
@@ -541,7 +541,7 @@ def test_get_directory_rejects_unsafe_tar_entries(tmp_path: Path) -> None:
         return (200, archive.getvalue(), {"Content-Type": "application/x-tar"})
 
     channel = FakeRustChannel([_capabilities({"dir_tar": True}), _tar_get])
-    with pytest.raises(SmolVMError, match="outside destination"):
+    with pytest.raises(CelestoError, match="outside destination"):
         channel.get_directory("/tmp/data", tmp_path / "download")
     assert not (tmp_path / "escape.txt").exists()
 
@@ -565,7 +565,7 @@ def test_raw_file_download_rejects_declared_size_over_cap(tmp_path: Path) -> Non
         ]
     )
 
-    with pytest.raises(SmolVMError, match="exceeded 4 bytes"):
+    with pytest.raises(CelestoError, match="exceeded 4 bytes"):
         channel.get_file("/tmp/source.txt", destination)
 
 
@@ -588,7 +588,7 @@ def test_get_file_honors_a_lower_caller_receive_limit(tmp_path: Path) -> None:
         ]
     )
 
-    with pytest.raises(SmolVMError, match="exceeded 4 bytes"):
+    with pytest.raises(CelestoError, match="exceeded 4 bytes"):
         channel.get_file("/tmp/source.txt", destination, max_bytes=4)
 
     assert not destination.exists()
@@ -600,7 +600,7 @@ def test_directory_transfer_requires_tar_capability(tmp_path: Path) -> None:
     (source / "note.txt").write_text("hello")
     channel = FakeRustChannel([_capabilities({})])
 
-    with pytest.raises(SmolVMError, match="directory transfer"):
+    with pytest.raises(CelestoError, match="directory transfer"):
         channel.put_directory(source, "/tmp/target")
 
 
@@ -630,7 +630,7 @@ def test_directory_tar_wraps_ustar_path_limit_errors(tmp_path: Path) -> None:
     long_name = "a" * 120
     (source / long_name).write_text("too long for ustar")
 
-    with pytest.raises(SmolVMError, match="file path is too long"):
+    with pytest.raises(CelestoError, match="file path is too long"):
         _directory_to_tar(source)
 
 
@@ -662,7 +662,7 @@ def test_env_helpers_use_v2_env_endpoint() -> None:
 def test_env_helpers_require_managed_env_capability() -> None:
     channel = FakeRustChannel([_capabilities({})])
 
-    with pytest.raises(SmolVMError, match="managed environment variables"):
+    with pytest.raises(CelestoError, match="managed environment variables"):
         channel.set_managed_env({"FOO": "bar"})
 
 
@@ -704,7 +704,7 @@ def test_wait_for_ports_preserves_guest_validation_errors() -> None:
 
     channel = FakeRustChannel([_ports])
 
-    with pytest.raises(SmolVMError, match="invalid host"):
+    with pytest.raises(CelestoError, match="invalid host"):
         channel.wait_for_ports([3000])
 
 
@@ -716,7 +716,7 @@ def test_wait_for_ports_preserves_guest_timeout_validation_errors() -> None:
 
     channel = FakeRustChannel([_ports])
 
-    with pytest.raises(SmolVMError, match="timeout_ms must be at most"):
+    with pytest.raises(CelestoError, match="timeout_ms must be at most"):
         channel.wait_for_ports([3000])
 
 

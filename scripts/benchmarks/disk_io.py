@@ -176,7 +176,7 @@ def dry_run_records(
 
 
 def run_records(args: argparse.Namespace, sizes: list[int], operations: list[str]) -> list[dict]:
-    from smolvm.host import disk as disk_helpers
+    from celesto.host import disk as disk_helpers
 
     base_dir = args.work_dir or Path(tempfile.mkdtemp(prefix="smolvm-disk-bench-"))
     base_dir = base_dir.expanduser()

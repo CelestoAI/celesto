@@ -2,12 +2,12 @@
 
 This demo shows an agent using a browser to get reports from an old web app and hand those reports to a normal data pipeline.
 
-The workflow runs in a SmolVM browser sandbox. The fake Acme portal starts inside the sandbox, the agent uses the browser, the sandbox checks the files, and the final reports are copied back to your machine for the pipeline.
+The workflow runs in a Celesto browser sandbox. The fake Acme portal starts inside the sandbox, the agent uses the browser, the sandbox checks the files, and the final reports are copied back to your machine for the pipeline.
 
 ## What it demonstrates
 
 - An agent can use a legacy web app when there is no API.
-- SmolVM gives the agent an isolated computer with a live browser you can watch.
+- Celesto gives the agent an isolated computer with a live browser you can watch.
 - The workflow does not trust the agent saying “done”; it checks that the files exist.
 - The sandbox shell can list and recover report files when browser downloads are unreliable.
 - The harness copies verified files from the sandbox to the host before running the pipeline.
@@ -42,7 +42,7 @@ Optional flags:
 The script prints progress as it moves through the workflow:
 
 ```txt
-Starting SmolVM browser sandbox...
+Starting Celesto browser sandbox...
 Starting Acme legacy portal inside the sandbox...
 Starting OpenAI computer-use browser task...
 Listing sandbox downloads and copying reports to the host...
@@ -76,7 +76,7 @@ examples/cua/legacy_report_fetcher/artifacts/
     02-after-downloads.png
 ```
 
-Browser sandbox logs and video are collected in the SmolVM browser artifacts directory printed by the script.
+Browser sandbox logs and video are collected in the Celesto browser artifacts directory printed by the script.
 
 ## Fake portal credentials
 
@@ -102,6 +102,6 @@ The browser opens the portal at:
 http://127.0.0.1:8000
 ```
 
-That server runs inside the SmolVM sandbox, not on the host laptop.
+That server runs inside the Celesto sandbox, not on the host laptop.
 
 The important reliability step is after the agent finishes. The harness lists the sandbox download folder, recovers files if needed, copies the verified CSVs to the host, writes `manifest.json`, and then runs the pipeline.

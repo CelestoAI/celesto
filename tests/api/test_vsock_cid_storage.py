@@ -18,9 +18,9 @@ from pathlib import Path
 
 import pytest
 
-from smolvm.cli.state import SQLiteStateManager as StateManager
-from smolvm.storage._base import VSOCK_CID_START
-from smolvm.types import GuestOS, VMConfig
+from celesto.cli.state import SQLiteStateManager as StateManager
+from celesto.storage._base import VSOCK_CID_START
+from celesto.types import GuestOS, VMConfig
 
 
 def _make_config(tmp_path: Path, vm_id: str) -> VMConfig:

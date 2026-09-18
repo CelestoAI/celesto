@@ -40,12 +40,12 @@ def test_installed_examples_and_performance(policy_lab, tmp_path):  # noqa: F811
     examples = [
         block.replace("203.0.113.10", allowed)
         for block in re.findall(r"```python\n(.*?)```", guide, re.DOTALL)
-        if "with SmolVM(" in block and '"mode":' in block and 'backend="firecracker"' in block
+        if "with Celesto(" in block and '"mode":' in block and 'backend="firecracker"' in block
     ]
     assert len(examples) == 2
     examples.insert(
         0,
-        'from smolvm import SmolVM\nwith SmolVM(backend="firecracker", '
+        'from celesto import Celesto\nwith Celesto(backend="firecracker", '
         'comm_channel="vsock") as vm:\n    print(vm.run("echo hello").stdout)\n',
     )
     with (results / "installed-examples.log").open("w") as log:
@@ -62,9 +62,9 @@ def test_installed_examples_and_performance(policy_lab, tmp_path):  # noqa: F811
                     f'http://{denied}:18080/example-denied").exit_code != 0\n'
                 )
             code = (
-                "import smolvm\nfrom pathlib import Path\n"
-                'assert "site-packages" in str(Path(smolvm.__file__).resolve())\n'
-                "print(smolvm.__file__, flush=True)\n" + code
+                "import celesto\nfrom pathlib import Path\n"
+                'assert "site-packages" in str(Path(celesto.__file__).resolve())\n'
+                "print(celesto.__file__, flush=True)\n" + code
             )
             log.write(f"\n{mode}\n")
             log.flush()

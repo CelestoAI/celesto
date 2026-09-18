@@ -16,16 +16,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smolvm.exceptions import SmolVMError
-from smolvm.macos.desktop import open_desktop
-from smolvm.macos.lume import LumeDriver
-from smolvm.macos.models import (
+from celesto.exceptions import CelestoError
+from celesto.macos.desktop import open_desktop
+from celesto.macos.lume import LumeDriver
+from celesto.macos.models import (
     LumeVMDetails,
     MacOSInstallProgress,
     MacOSInstallRequest,
     MacOSRunRequest,
 )
-from smolvm.types import DesktopEndpoint, WorkspaceMount
+from celesto.types import DesktopEndpoint, WorkspaceMount
 
 
 @pytest.fixture
@@ -79,7 +79,7 @@ def test_lume_install_uses_explicit_resource_defaults(fake_lume: Path, tmp_path:
     process.stdout = io.BytesIO(b"")
     process.wait.return_value = 0
     updates: list[MacOSInstallProgress] = []
-    with patch("smolvm.macos.lume.subprocess.Popen", return_value=process) as popen:
+    with patch("celesto.macos.lume.subprocess.Popen", return_value=process) as popen:
         driver.install_base_image(
             MacOSInstallRequest(name="macos-latest", storage_path=tmp_path),
             log_path=tmp_path / "build.log",
@@ -179,7 +179,7 @@ def test_lume_install_reports_progress_before_the_runtime_exits(tmp_path: Path) 
     def install() -> None:
         # Killing the child below makes the install fail; that is the teardown,
         # not the thing under test.
-        with pytest.raises(SmolVMError):
+        with pytest.raises(CelestoError):
             driver.install_base_image(
                 MacOSInstallRequest(name="macos-latest", storage_path=tmp_path),
                 log_path=tmp_path / "build.log",
@@ -218,7 +218,7 @@ def _recorded_run_command(request: MacOSRunRequest, tmp_path: Path, binary: Path
         return real_popen(command, *args, **kwargs)  # type: ignore[arg-type]
 
     driver = LumeDriver(binary)
-    with patch("smolvm.macos.lume.subprocess.Popen", side_effect=record):
+    with patch("celesto.macos.lume.subprocess.Popen", side_effect=record):
         process, _ = driver.start(request, log_path=tmp_path / "run.log", timeout=10)
     process.terminate()
     process.wait(timeout=5)
@@ -319,14 +319,14 @@ def test_lume_share_arguments_are_read_only_by_default(tmp_path: Path) -> None:
 
 
 def test_lume_share_error_names_pasteable_create_command() -> None:
-    with pytest.raises(SmolVMError) as exc_info:
+    with pytest.raises(CelestoError) as exc_info:
         LumeDriver._share_argument(
             Path("/tmp/shared:folder"),
             writable=False,
             sandbox_name="mac-test",
         )
 
-    assert "smolvm sandbox create --os macos --name mac-test" in str(exc_info.value)
+    assert "celesto sandbox create --os macos --name mac-test" in str(exc_info.value)
     assert "--mount /tmp/shared-folder" in str(exc_info.value)
 
 
@@ -344,11 +344,11 @@ def test_lume_poll_timeout_includes_last_inspect_error(tmp_path: Path) -> None:
     process.wait.return_value = 0
 
     with (
-        patch("smolvm.macos.lume.subprocess.Popen", return_value=process),
-        patch.object(driver, "inspect", side_effect=SmolVMError("inspect failed")),
-        patch("smolvm.macos.lume.time.monotonic", side_effect=[0.0, 0.0, 2.0]),
-        patch("smolvm.macos.lume.time.sleep"),
-        pytest.raises(SmolVMError, match="Last runtime error: inspect failed"),
+        patch("celesto.macos.lume.subprocess.Popen", return_value=process),
+        patch.object(driver, "inspect", side_effect=CelestoError("inspect failed")),
+        patch("celesto.macos.lume.time.monotonic", side_effect=[0.0, 0.0, 2.0]),
+        patch("celesto.macos.lume.time.sleep"),
+        pytest.raises(CelestoError, match="Last runtime error: inspect failed"),
     ):
         driver.start(
             MacOSRunRequest(name="mac-test", storage_path=tmp_path),
@@ -367,9 +367,9 @@ def test_lume_start_interrupt_terminates_process(tmp_path: Path) -> None:
     process.wait.return_value = 0
 
     with (
-        patch("smolvm.macos.lume.subprocess.Popen", return_value=process),
+        patch("celesto.macos.lume.subprocess.Popen", return_value=process),
         patch.object(driver, "inspect", side_effect=KeyboardInterrupt),
-        patch("smolvm.macos.lume.time.monotonic", side_effect=[0.0, 0.0]),
+        patch("celesto.macos.lume.time.monotonic", side_effect=[0.0, 0.0]),
         pytest.raises(KeyboardInterrupt),
     ):
         driver.start(
@@ -384,10 +384,10 @@ def test_lume_start_interrupt_terminates_process(tmp_path: Path) -> None:
 def test_lume_run_timeout_names_sandbox_logs(tmp_path: Path) -> None:
     with (
         patch(
-            "smolvm.macos.lume.subprocess.run",
+            "celesto.macos.lume.subprocess.run",
             side_effect=subprocess.TimeoutExpired(["lume"], 15),
         ),
-        pytest.raises(SmolVMError, match="smolvm sandbox logs mac-test"),
+        pytest.raises(CelestoError, match="celesto sandbox logs mac-test"),
     ):
         LumeDriver(tmp_path / "lume").inspect("mac-test", storage_path=tmp_path)
 
@@ -397,7 +397,7 @@ def test_lume_driver_redacts_vnc_password_from_errors(tmp_path: Path) -> None:
     binary.write_text("#!/bin/sh\necho 'failed vnc://:private@127.0.0.1:5901' >&2\nexit 1\n")
     binary.chmod(0o755)
 
-    with pytest.raises(SmolVMError) as exc_info:
+    with pytest.raises(CelestoError) as exc_info:
         LumeDriver(binary).inspect("mac-test", storage_path=tmp_path)
 
     assert "private" not in str(exc_info.value)
@@ -409,15 +409,15 @@ def test_lume_driver_rejects_non_json_details(tmp_path: Path) -> None:
     binary.write_text("#!/bin/sh\necho not-json\n")
     binary.chmod(0o755)
 
-    with pytest.raises(SmolVMError, match="could not read"):
+    with pytest.raises(CelestoError, match="could not read"):
         LumeDriver(binary).inspect("mac-test", storage_path=tmp_path)
 
 
 def test_open_desktop_uses_argument_vector_only() -> None:
     endpoint = DesktopEndpoint(port=5901)
     with (
-        patch("smolvm.macos.desktop.platform.system", return_value="Darwin"),
-        patch("smolvm.macos.desktop.subprocess.run") as run,
+        patch("celesto.macos.desktop.platform.system", return_value="Darwin"),
+        patch("celesto.macos.desktop.subprocess.run") as run,
     ):
         run.return_value.returncode = 0
         open_desktop(endpoint)
@@ -428,8 +428,8 @@ def test_open_desktop_uses_argument_vector_only() -> None:
 def test_open_desktop_keeps_password_out_of_process_arguments() -> None:
     endpoint = DesktopEndpoint(port=5901)
     with (
-        patch("smolvm.macos.desktop.platform.system", return_value="Darwin"),
-        patch("smolvm.macos.desktop.subprocess.run") as run,
+        patch("celesto.macos.desktop.platform.system", return_value="Darwin"),
+        patch("celesto.macos.desktop.subprocess.run") as run,
     ):
         run.return_value.returncode = 0
         open_desktop(endpoint, password="private secret")

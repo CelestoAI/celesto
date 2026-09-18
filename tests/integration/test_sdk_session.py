@@ -20,7 +20,7 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("uvicorn")
 
-from smolvm.server.session import _read_handshake
+from celesto.server.session import _read_handshake
 
 
 def _read_json_line(process: subprocess.Popen[str], *, timeout: float = 10) -> dict:
@@ -58,7 +58,7 @@ def test_sdk_session_authenticates_and_exits_when_control_pipe_closes() -> None:
         sys.executable,
         "-c",
         (
-            "from smolvm.server.session import run_sdk_session; "
+            "from celesto.server.session import run_sdk_session; "
             f"raise SystemExit(run_sdk_session(control_fd={read_fd}))"
         ),
     ]
@@ -117,7 +117,7 @@ import time
 read_fd, write_fd = os.pipe()
 child = subprocess.Popen(
     [sys.executable, "-c", (
-        "from smolvm.server.session import run_sdk_session; "
+        "from celesto.server.session import run_sdk_session; "
         f"raise SystemExit(run_sdk_session(control_fd={read_fd}))"
     )],
     pass_fds=(read_fd,),

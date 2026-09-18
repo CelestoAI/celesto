@@ -11,9 +11,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smolvm.exceptions import SmolVMError
-from smolvm.runtime.base import RuntimeLaunch
-from smolvm.types import (
+from celesto.exceptions import CelestoError
+from celesto.runtime.base import RuntimeLaunch
+from celesto.types import (
     DesktopEndpoint,
     GuestOS,
     MacOSMachineConfig,
@@ -22,7 +22,7 @@ from smolvm.types import (
     VMState,
     WorkspaceMount,
 )
-from smolvm.vm import SmolVMManager
+from celesto.vm import CelestoManager
 
 
 def _config(tmp_path: Path) -> VMConfig:
@@ -45,7 +45,7 @@ def _config(tmp_path: Path) -> VMConfig:
 
 
 def test_manager_create_macos_skips_linux_disk_and_network(tmp_path: Path) -> None:
-    manager = SmolVMManager(
+    manager = CelestoManager(
         data_dir=tmp_path / "data",
         socket_dir=tmp_path / "sockets",
         backend="vz",
@@ -66,7 +66,7 @@ def test_manager_create_macos_skips_linux_disk_and_network(tmp_path: Path) -> No
 
 
 def test_manager_rejects_unmanaged_macos_parent_before_creating_it(tmp_path: Path) -> None:
-    manager = SmolVMManager(
+    manager = CelestoManager(
         data_dir=tmp_path / "data",
         socket_dir=tmp_path / "sockets",
         backend="vz",
@@ -82,14 +82,14 @@ def test_manager_rejects_unmanaged_macos_parent_before_creating_it(tmp_path: Pat
         }
     )
 
-    with pytest.raises(SmolVMError, match="must stay"):
+    with pytest.raises(CelestoError, match="must stay"):
         manager._materialize_macos_bundle(config)
 
     assert not outside.exists()
 
 
 def test_manager_materializes_macos_bundle_with_driver_clone(tmp_path: Path) -> None:
-    manager = SmolVMManager(
+    manager = CelestoManager(
         data_dir=tmp_path / "data",
         socket_dir=tmp_path / "sockets",
         backend="vz",
@@ -103,9 +103,9 @@ def test_manager_materializes_macos_bundle_with_driver_clone(tmp_path: Path) -> 
 
     driver.clone.side_effect = create_bundle
     with (
-        patch("smolvm.host.lume.find_lume_binary", return_value=Path("/tmp/lume")),
-        patch("smolvm.host.lume.pinned_lume_ready", return_value=True),
-        patch("smolvm.macos.lume.LumeDriver", return_value=driver),
+        patch("celesto.host.lume.find_lume_binary", return_value=Path("/tmp/lume")),
+        patch("celesto.host.lume.pinned_lume_ready", return_value=True),
+        patch("celesto.macos.lume.LumeDriver", return_value=driver),
     ):
         manager._materialize_macos_bundle(config)
 
@@ -116,7 +116,7 @@ def test_manager_materializes_macos_bundle_with_driver_clone(tmp_path: Path) -> 
 
 @pytest.mark.asyncio
 async def test_manager_async_create_macos_skips_linux_network(tmp_path: Path) -> None:
-    manager = SmolVMManager(
+    manager = CelestoManager(
         data_dir=tmp_path / "data",
         socket_dir=tmp_path / "sockets",
         backend="vz",
@@ -132,7 +132,7 @@ async def test_manager_async_create_macos_skips_linux_network(tmp_path: Path) ->
 
 
 def test_manager_start_and_stop_persist_macos_desktop(tmp_path: Path) -> None:
-    manager = SmolVMManager(
+    manager = CelestoManager(
         data_dir=tmp_path / "data",
         socket_dir=tmp_path / "sockets",
         backend="vz",
@@ -160,7 +160,7 @@ def test_manager_start_and_stop_persist_macos_desktop(tmp_path: Path) -> None:
 
 
 def test_manager_refuses_third_running_macos_guest(tmp_path: Path) -> None:
-    manager = SmolVMManager(
+    manager = CelestoManager(
         data_dir=tmp_path / "data",
         socket_dir=tmp_path / "sockets",
         backend="vz",
@@ -180,12 +180,12 @@ def test_manager_refuses_third_running_macos_guest(tmp_path: Path) -> None:
     manager.state.update_vm("mac-one", status=VMState.RUNNING, pid=1)
     manager.state.update_vm("mac-two", status=VMState.RUNNING, pid=2)
 
-    with pytest.raises(SmolVMError, match="sandbox stop mac-one"):
+    with pytest.raises(CelestoError, match="sandbox stop mac-one"):
         manager.start("mac-three")
 
 
 def test_managed_disk_helper_skips_macos_without_rootfs(tmp_path: Path) -> None:
-    manager = SmolVMManager(
+    manager = CelestoManager(
         data_dir=tmp_path / "data",
         socket_dir=tmp_path / "sockets",
         backend="vz",
@@ -196,7 +196,7 @@ def test_managed_disk_helper_skips_macos_without_rootfs(tmp_path: Path) -> None:
 
 
 def test_manager_delete_removes_macos_bundle(tmp_path: Path) -> None:
-    manager = SmolVMManager(
+    manager = CelestoManager(
         data_dir=tmp_path / "data",
         socket_dir=tmp_path / "sockets",
         backend="vz",
@@ -213,9 +213,9 @@ def test_manager_delete_removes_macos_bundle(tmp_path: Path) -> None:
     driver.delete.side_effect = lambda *args, **kwargs: bundle.rmdir()
 
     with (
-        patch("smolvm.host.lume.find_lume_binary", return_value=Path("/tmp/lume")),
-        patch("smolvm.host.lume.pinned_lume_ready", return_value=True),
-        patch("smolvm.macos.lume.LumeDriver", return_value=driver),
+        patch("celesto.host.lume.find_lume_binary", return_value=Path("/tmp/lume")),
+        patch("celesto.host.lume.pinned_lume_ready", return_value=True),
+        patch("celesto.macos.lume.LumeDriver", return_value=driver),
     ):
         manager.delete("mac-test")
 

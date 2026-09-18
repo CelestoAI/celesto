@@ -14,7 +14,7 @@
 
 """Shared fixtures for the real-KVM end-to-end suite.
 
-These tests boot actual micro-VMs through the public ``SmolVM`` API (unlike
+These tests boot actual micro-VMs through the public ``Celesto`` API (unlike
 the unit suite, which mocks the hypervisor). They run in CI on GitHub
 ``ubuntu-latest`` runners, which expose ``/dev/kvm``.
 
@@ -38,10 +38,10 @@ from _util import (
     selected_backend,
 )
 
-from smolvm import SmolVM
-from smolvm.comm import host_supports_vsock
-from smolvm.runtime.backends import BACKEND_QEMU
-from smolvm.types import VMState
+from celesto import Celesto
+from celesto.comm import host_supports_vsock
+from celesto.runtime.backends import BACKEND_QEMU
+from celesto.types import VMState
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -72,7 +72,7 @@ def e2e_variant(request: pytest.FixtureRequest) -> E2EVariant:
 def vm(e2e_variant: E2EVariant):
     """A single running sandbox, shared across the lifecycle tests.
 
-    Yields one started ``SmolVM`` per backend/transport variant. Teardown is
+    Yields one started ``Celesto`` per backend/transport variant. Teardown is
     best-effort: ``test_stop_and_cleanup`` deletes the sandbox as its final
     assertion, so the ``stop``/``delete`` here are just a safety net for
     earlier failures.
@@ -91,7 +91,7 @@ def vm(e2e_variant: E2EVariant):
     # ImageBuilder path, with the agent and SSH key injected through /init.
     # Published Ubuntu has separate e2e coverage so this fixture stays stable
     # when the default OS image changes.
-    sandbox = SmolVM(
+    sandbox = Celesto(
         backend=e2e_variant.backend,
         os="alpine",
         comm_channel=e2e_variant.transport,

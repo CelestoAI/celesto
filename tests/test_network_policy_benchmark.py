@@ -9,7 +9,24 @@ from types import SimpleNamespace
 
 import pytest
 
-import smolvm
+import celesto
+
+
+def test_benchmark_supports_pre_rebrand_baseline(monkeypatch):
+    import importlib.util
+
+    legacy = SimpleNamespace(SmolVM=object(), facade=object())
+    storage = SimpleNamespace(MemoryStateManager=object())
+    types = SimpleNamespace(SnapshotType=object(), VMConfig=object())
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setitem(sys.modules, "smolvm", legacy)
+    monkeypatch.setitem(sys.modules, "smolvm.storage", storage)
+    monkeypatch.setitem(sys.modules, "smolvm.types", types)
+    script = Path(__file__).resolve().parents[1] / "scripts/benchmark-network-policy.py"
+    module = runpy.run_path(str(script))
+    assert module["Celesto"] is legacy.SmolVM
+    assert module["_facade"] is legacy.facade
+    assert module["MemoryStateManager"] is storage.MemoryStateManager
 
 
 def test_forward_claim_survives_probe_socket_close(monkeypatch):
@@ -58,7 +75,9 @@ def test_slirp_benchmark_retries_only_bind_conflicts(monkeypatch, tmp_path, bind
     globals_ = module["main"].__globals__
     ports = iter(range(18080, 18100))
     created, deleted = [], []
-    monkeypatch.setattr(smolvm.facade, "generate_sandbox_name", smolvm.facade.generate_sandbox_name)
+    monkeypatch.setattr(
+        celesto.facade, "generate_sandbox_name", celesto.facade.generate_sandbox_name
+    )
 
     class Sandbox:
         def __init__(self, **kwargs):
@@ -78,7 +97,7 @@ def test_slirp_benchmark_retries_only_bind_conflicts(monkeypatch, tmp_path, bind
             assert self not in deleted
             deleted.append(self)
 
-    monkeypatch.setitem(globals_, "SmolVM", Sandbox)
+    monkeypatch.setitem(globals_, "Celesto", Sandbox)
     monkeypatch.setitem(globals_, "VMConfig", SimpleNamespace(model_validate=lambda config: config))
     monkeypatch.setitem(globals_, "claim_forward_port", lambda *_: next(ports))
     monkeypatch.setitem(globals_, "wait_for_application", lambda *_: None)
@@ -116,8 +135,8 @@ def test_slirp_benchmark_retries_only_bind_conflicts(monkeypatch, tmp_path, bind
 def test_documented_image_recipe_generates_valid_config(monkeypatch, tmp_path):
     import re
 
-    from smolvm.images import BootImage
-    from smolvm.types import VMConfig
+    from celesto.images import BootImage
+    from celesto.types import VMConfig
 
     root = Path(__file__).resolve().parents[1]
     document = (root / "docs/deep-dive/qemu-network-policy-validation.md").read_text()
@@ -142,7 +161,7 @@ def test_documented_image_recipe_generates_valid_config(monkeypatch, tmp_path):
                 boot=kwargs["boot"],
             )
 
-    monkeypatch.setattr(smolvm, "DockerRootfsBuilder", Builder)
+    monkeypatch.setattr(celesto, "DockerRootfsBuilder", Builder)
     monkeypatch.setenv("POLICY_BENCH_DIR", str(tmp_path))
     monkeypatch.chdir(root)
     exec(compile(recipe, "documented-image-recipe", "exec"), {})
@@ -154,17 +173,19 @@ def test_documented_image_recipe_generates_valid_config(monkeypatch, tmp_path):
 
 @pytest.mark.parametrize("fail_restore", [False, True])
 def test_benchmark_batches_restore_and_preserves_errors(monkeypatch, tmp_path, fail_restore):
-    signature = inspect.signature(smolvm.SmolVM)
-    restore_signature = inspect.signature(smolvm.SmolVM.from_snapshot)
+    signature = inspect.signature(celesto.Celesto)
+    restore_signature = inspect.signature(celesto.Celesto.from_snapshot)
     events = []
     snapshots = {}
     # Keep the benchmark's temporary naming override local to this test.
-    monkeypatch.setattr(smolvm.facade, "generate_sandbox_name", smolvm.facade.generate_sandbox_name)
+    monkeypatch.setattr(
+        celesto.facade, "generate_sandbox_name", celesto.facade.generate_sandbox_name
+    )
 
     class Sandbox:
         def __init__(self, **kwargs):
             signature.bind(**kwargs)
-            self.name = smolvm.facade.generate_sandbox_name(set())
+            self.name = celesto.facade.generate_sandbox_name(set())
             self.inventory = kwargs["state_manager"]
             self.deleted = False
             self._sdk = SimpleNamespace(delete_snapshot=lambda key: snapshots.pop(key))
@@ -203,7 +224,7 @@ def test_benchmark_batches_restore_and_preserves_errors(monkeypatch, tmp_path, f
             events.append(("restore", key))
             return restored
 
-    monkeypatch.setattr(smolvm, "SmolVM", Sandbox)
+    monkeypatch.setattr(celesto, "Celesto", Sandbox)
     output = tmp_path / "timings.jsonl"
     script = Path(__file__).resolve().parents[1] / "scripts/benchmark-network-policy.py"
     monkeypatch.setattr(

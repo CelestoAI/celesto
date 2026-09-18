@@ -68,9 +68,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          source_tag=$(awk -F'"' '/^IMAGES_RELEASE_TAG[[:space:]]*=/{print $2; exit}' src/smolvm/images/published.py)
+          source_tag=$(awk -F'"' '/^IMAGES_RELEASE_TAG[[:space:]]*=/{print $2; exit}' src/celesto/images/published.py)
           if [ -z "$source_tag" ]; then
-            echo "ERROR: IMAGES_RELEASE_TAG could not be parsed from src/smolvm/images/published.py" >&2
+            echo "ERROR: IMAGES_RELEASE_TAG could not be parsed from src/celesto/images/published.py" >&2
             exit 1
           fi
 
@@ -95,8 +95,11 @@ jobs:
           fi
           gh api \
             -H "Accept: application/vnd.github.raw" \
+            "/repos/${{ github.repository }}/contents/src/celesto/images/published.py?ref=$fallback" \
+            > src/celesto/images/published.py || gh api \
+            -H "Accept: application/vnd.github.raw" \
             "/repos/${{ github.repository }}/contents/src/smolvm/images/published.py?ref=$fallback" \
-            > src/smolvm/images/published.py
+            > src/celesto/images/published.py
           echo "tag=" >> "$GITHUB_OUTPUT"
           echo "Pinned image release $source_tag is not public yet; using published-image catalog from $fallback"
 
@@ -191,7 +194,7 @@ jobs:
           # catalog are used on both versions on this same disposable runner.
           git fetch origin 685b7bd52d0de8efb1c88fe8cf053d0d3b64d171
           git worktree add --detach "$RUNNER_TEMP/policy-baseline" FETCH_HEAD
-          cp src/smolvm/images/published.py "$RUNNER_TEMP/policy-baseline/src/smolvm/images/published.py"
+          cp src/celesto/images/published.py "$RUNNER_TEMP/policy-baseline/src/smolvm/images/published.py"
           uv build --wheel --out-dir "$RUNNER_TEMP/policy-wheels/baseline" "$RUNNER_TEMP/policy-baseline"
           uv build --wheel --out-dir "$RUNNER_TEMP/policy-wheels/candidate"
           for version in baseline candidate; do
@@ -212,7 +215,7 @@ jobs:
           git rev-parse HEAD > "$SMOLVM_POLICY_RESULTS/candidate-sha.txt"
           git -C "$RUNNER_TEMP/policy-baseline" rev-parse HEAD > "$SMOLVM_POLICY_RESULTS/baseline-sha.txt"
           lscpu > "$SMOLVM_POLICY_RESULTS/runner.txt"
-          cp src/smolvm/images/published.py "$SMOLVM_POLICY_RESULTS/image-catalog.py"
+          cp src/celesto/images/published.py "$SMOLVM_POLICY_RESULTS/image-catalog.py"
           uv pip freeze --python "$SMOLVM_POLICY_CANDIDATE_PYTHON" > "$SMOLVM_POLICY_RESULTS/candidate-packages.txt"
           uv pip freeze --python "$SMOLVM_POLICY_BASELINE_PYTHON" > "$SMOLVM_POLICY_RESULTS/baseline-packages.txt"
           sudo -n -E -u "$USER" -g kvm -- env "PATH=$PATH" "$(command -v uv)" run \

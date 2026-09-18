@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for the SmolVM HTTP API server.
+"""Tests for the Celesto HTTP API server.
 
 The handlers are closures created inside :func:`create_app`, so the
 tests reach them through ``app.routes`` (each ``APIRoute`` exposes its
-``.endpoint``) and call them directly. The :class:`smolvm.SmolVM` facade
+``.endpoint``) and call them directly. The :class:`celesto.Celesto` facade
 is replaced by a stub, so the tests cover the HTTP layer (registry,
 error mapping, response shapes) without booting real VMs. This mirrors
 ``test_dashboard_server.py`` and keeps the suite free of an httpx
@@ -39,10 +39,10 @@ pytest.importorskip("fastapi")
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.routing import APIRoute
 
-from smolvm import server as server_pkg
-from smolvm.exceptions import OperationTimeoutError, SmolVMError, VMNotFoundError
-from smolvm.server.app import _DownloadProgressEvents, create_app
-from smolvm.server.models import (
+from celesto import server as server_pkg
+from celesto.exceptions import CelestoError, OperationTimeoutError, VMNotFoundError
+from celesto.server.app import _DownloadProgressEvents, create_app
+from celesto.server.models import (
     BrowserSessionResponse,
     ComputerResponse,
     CreateBrowserSessionRequest,
@@ -52,7 +52,7 @@ from smolvm.server.models import (
     ExecRequest,
     SandboxResponse,
 )
-from smolvm.types import BrowserSessionState, CommandResult, DesktopEndpoint, VMState
+from celesto.types import BrowserSessionState, CommandResult, DesktopEndpoint, VMState
 
 
 class FakeBrowserSession:
@@ -165,7 +165,7 @@ class FakeComputer:
 
 
 class FakeSmolVM:
-    """Minimal stand-in for the SmolVM facade."""
+    """Minimal stand-in for the Celesto facade."""
 
     last_kwargs: dict | None = None
     start_error: Exception | None = None
@@ -281,7 +281,7 @@ def _handler(app: FastAPI, path: str, method: str) -> Callable:
 
 @pytest.fixture
 def app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
-    """A fresh app with the SmolVM facade stubbed out."""
+    """A fresh app with the Celesto facade stubbed out."""
     FakeSmolVM.last_kwargs = None
     FakeSmolVM.start_error = None
     FakeSmolVM.existing_ids = set()
@@ -303,7 +303,7 @@ def app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
     FakeBrowserSession.close_calls = 0
     FakeComputer.delete_calls = 0
     FakeComputer.close_calls = 0
-    monkeypatch.setattr("smolvm.server.app.SmolVM", FakeSmolVM)
+    monkeypatch.setattr("celesto.server.app.Celesto", FakeSmolVM)
     return create_app()
 
 
@@ -386,7 +386,7 @@ def test_failed_computer_delete_keeps_live_handle_for_retry(app: FastAPI) -> Non
     create = _handler(app, "/computers", "POST")
     delete = _handler(app, "/computers/{computer_id}", "DELETE")
     create(CreateComputerRequest(computer_id="computer-demo"))
-    FakeSmolVM.delete_error = SmolVMError("busy")
+    FakeSmolVM.delete_error = CelestoError("busy")
 
     with pytest.raises(HTTPException) as exc_info:
         delete("computer-demo")
@@ -518,7 +518,7 @@ def test_computer_timeout_keeps_cleanup_retryable_when_delete_fails(app: FastAPI
     execute = _handler(app, "/computers/{computer_id}/exec", "POST")
     create(CreateComputerRequest(computer_id="computer-demo"))
     FakeSmolVM.run_error = OperationTimeoutError("command", 1)
-    FakeSmolVM.delete_error = SmolVMError("disk is busy")
+    FakeSmolVM.delete_error = CelestoError("disk is busy")
 
     with pytest.raises(HTTPException) as exc_info:
         execute("computer-demo", ExecRequest(command="sleep 60", timeout=1))
@@ -574,7 +574,7 @@ def test_computer_command_transport_failure_is_mapped_to_409(app: FastAPI) -> No
     create = _handler(app, "/computers", "POST")
     execute = _handler(app, "/computers/{computer_id}/exec", "POST")
     create(CreateComputerRequest(computer_id="computer-demo"))
-    FakeSmolVM.run_error = SmolVMError("control channel unavailable")
+    FakeSmolVM.run_error = CelestoError("control channel unavailable")
 
     with pytest.raises(HTTPException) as exc_info:
         execute("computer-demo", ExecRequest(command="echo hi"))
@@ -591,7 +591,7 @@ def test_failed_computer_response_releases_the_unregistered_computer(
     class BrokenDisplay:
         @property
         def viewer_url(self) -> str:
-            raise SmolVMError("viewer unavailable")
+            raise CelestoError("viewer unavailable")
 
         vnc_url = "vnc://127.0.0.1:5901"
 
@@ -688,7 +688,7 @@ def test_computer_browser_launch_maps_failure_and_can_be_retried(app: FastAPI) -
     launch = _handler(app, "/computers/{computer_id}/browser/launch", "POST")
     create(CreateComputerRequest(computer_id="computer-demo"))
     computer = app.state.computer_sessions["computer-demo"]
-    computer.browser.launch = MagicMock(side_effect=SmolVMError("Chromium failed"))
+    computer.browser.launch = MagicMock(side_effect=CelestoError("Chromium failed"))
 
     with pytest.raises(HTTPException) as exc_info:
         launch("computer-demo")
@@ -769,7 +769,7 @@ def test_browser_command_timeout_retains_session_when_delete_fails(app: FastAPI)
     create = _handler(app, "/browser-sessions", "POST")
     execute = _handler(app, "/browser-sessions/{session_id}/exec", "POST")
     FakeSmolVM.run_error = OperationTimeoutError("command", 1)
-    FakeSmolVM.delete_error = SmolVMError("disk is busy")
+    FakeSmolVM.delete_error = CelestoError("disk is busy")
     create(CreateBrowserSessionRequest(session_id="browser-demo"))
 
     with pytest.raises(HTTPException) as exc_info:
@@ -788,7 +788,7 @@ def test_browser_command_timeout_retains_session_when_delete_fails(app: FastAPI)
 def test_browser_command_maps_transport_failure_to_409(app: FastAPI) -> None:
     create = _handler(app, "/browser-sessions", "POST")
     execute = _handler(app, "/browser-sessions/{session_id}/exec", "POST")
-    FakeSmolVM.run_error = SmolVMError("control channel unavailable")
+    FakeSmolVM.run_error = CelestoError("control channel unavailable")
     create(CreateBrowserSessionRequest(session_id="browser-demo"))
 
     with pytest.raises(HTTPException) as exc_info:
@@ -923,7 +923,7 @@ def test_create_forwards_restricted_network_policy(app: FastAPI) -> None:
 
 
 def test_create_sandbox_maps_facade_error_to_400(app: FastAPI) -> None:
-    FakeSmolVM.start_error = SmolVMError("image does not support SSH")
+    FakeSmolVM.start_error = CelestoError("image does not support SSH")
     create = _handler(app, "/sandboxes", "POST")
 
     with pytest.raises(HTTPException) as exc_info:
@@ -956,7 +956,7 @@ def test_get_sandbox_does_not_read_host_inventory(app: FastAPI) -> None:
 
 
 def test_get_sandbox_does_not_attempt_reconnect(app: FastAPI) -> None:
-    FakeSmolVM.from_id_error = SmolVMError("control channel unreachable")
+    FakeSmolVM.from_id_error = CelestoError("control channel unreachable")
     get = _handler(app, "/sandboxes/{sandbox_id}", "GET")
 
     with pytest.raises(HTTPException) as exc_info:
@@ -1024,7 +1024,7 @@ def test_delete_maps_delete_failure_to_409(app: FastAPI) -> None:
     # not an unhandled 500.
     create = _handler(app, "/sandboxes", "POST")
     delete = _handler(app, "/sandboxes/{sandbox_id}", "DELETE")
-    FakeSmolVM.delete_error = SmolVMError("disk is busy")
+    FakeSmolVM.delete_error = CelestoError("disk is busy")
 
     created = create(CreateSandboxRequest())
     with pytest.raises(HTTPException) as exc_info:
@@ -1114,7 +1114,7 @@ async def test_file_content_endpoints_stream_bytes_without_host_paths(app: FastA
 def test_exec_command_maps_run_failure_to_409(app: FastAPI) -> None:
     create = _handler(app, "/sandboxes", "POST")
     exec_cmd = _handler(app, "/sandboxes/{sandbox_id}/exec", "POST")
-    FakeSmolVM.run_error = SmolVMError("sandbox is not running")
+    FakeSmolVM.run_error = CelestoError("sandbox is not running")
 
     created = create(CreateSandboxRequest())
     with pytest.raises(HTTPException) as exc_info:
@@ -1153,7 +1153,7 @@ def test_exec_timeout_retries_cleanup_at_shutdown_when_delete_fails(app: FastAPI
     create = _handler(app, "/sandboxes", "POST")
     execute = _handler(app, "/sandboxes/{sandbox_id}/exec", "POST")
     FakeSmolVM.run_error = OperationTimeoutError("command", 1)
-    FakeSmolVM.delete_error = SmolVMError("disk is busy")
+    FakeSmolVM.delete_error = CelestoError("disk is busy")
 
     created = create(CreateSandboxRequest())
     with pytest.raises(HTTPException) as exc_info:

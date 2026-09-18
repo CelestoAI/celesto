@@ -22,17 +22,17 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smolvm import SmolVM
-from smolvm.browser import (
+from celesto import Celesto
+from celesto.browser import (
     _browser_vm_id,
     _BrowserSandbox,
     _build_browser_vm_config,
     _DesktopSandbox,
 )
-from smolvm.computer import ComputerBrowser, ComputerFiles, _ComputerSandbox
-from smolvm.exceptions import BrowserSessionNotFoundError, SmolVMError
-from smolvm.runtime.boot_profiles import KernelBootProfile
-from smolvm.types import (
+from celesto.computer import ComputerBrowser, ComputerFiles, _ComputerSandbox
+from celesto.exceptions import BrowserSessionNotFoundError, CelestoError
+from celesto.runtime.boot_profiles import KernelBootProfile
+from celesto.types import (
     BrowserSessionConfig,
     BrowserSessionState,
     CommandResult,
@@ -84,13 +84,13 @@ def test_browser_reconnect_requires_explicit_state_manager(tmp_path: Path) -> No
         _BrowserSandbox.from_id("browser-abc123", data_dir=tmp_path)
 
 
-@patch("smolvm.browser._BrowserSandbox")
+@patch("celesto.browser._BrowserSandbox")
 def test_smolvm_browser_factory_starts_headless_sandbox(mock_sandbox_cls: MagicMock) -> None:
-    """SmolVM.browser(headless=True) should start a CDP-only browser sandbox."""
+    """Celesto.browser(headless=True) should start a CDP-only browser sandbox."""
     sandbox = MagicMock()
     mock_sandbox_cls.return_value = sandbox
 
-    result = SmolVM.browser(
+    result = Celesto.browser(
         headless=True,
         viewport={"width": 1024, "height": 768},
         boot_timeout=12.5,
@@ -111,13 +111,13 @@ def test_smolvm_browser_factory_starts_headless_sandbox(mock_sandbox_cls: MagicM
     sandbox.start.assert_called_once_with(boot_timeout=12.5, on_progress=None)
 
 
-@patch("smolvm.browser._BrowserSandbox")
+@patch("celesto.browser._BrowserSandbox")
 def test_smolvm_browser_factory_starts_visible_sandbox(mock_sandbox_cls: MagicMock) -> None:
-    """SmolVM.browser(headless=False) should start a visible browser sandbox."""
+    """Celesto.browser(headless=False) should start a visible browser sandbox."""
     sandbox = MagicMock()
     mock_sandbox_cls.return_value = sandbox
 
-    result = SmolVM.browser(headless=False, record_video=True)
+    result = Celesto.browser(headless=False, record_video=True)
 
     assert result is sandbox
     config = mock_sandbox_cls.call_args.args[0]
@@ -126,13 +126,13 @@ def test_smolvm_browser_factory_starts_visible_sandbox(mock_sandbox_cls: MagicMo
     sandbox.start.assert_called_once_with(boot_timeout=90.0, on_progress=None)
 
 
-@patch("smolvm.browser._BrowserSandbox")
+@patch("celesto.browser._BrowserSandbox")
 def test_smolvm_browser_factory_forwards_network_policy(mock_sandbox_cls: MagicMock) -> None:
     """Browser network restrictions should reach the underlying VM config."""
     sandbox = MagicMock()
     mock_sandbox_cls.return_value = sandbox
 
-    SmolVM.browser(internet_settings={"mode": "off"})
+    Celesto.browser(internet_settings={"mode": "off"})
 
     config = mock_sandbox_cls.call_args.args[0]
     assert config.internet_settings is not None
@@ -140,13 +140,13 @@ def test_smolvm_browser_factory_forwards_network_policy(mock_sandbox_cls: MagicM
     sandbox.start.assert_called_once_with(boot_timeout=90.0, on_progress=None)
 
 
-@patch("smolvm.browser._DesktopSandbox")
+@patch("celesto.browser._DesktopSandbox")
 def test_smolvm_desktop_factory_starts_visible_sandbox(mock_sandbox_cls: MagicMock) -> None:
-    """SmolVM.desktop() should start a visible desktop sandbox."""
+    """Celesto.desktop() should start a visible desktop sandbox."""
     sandbox = MagicMock()
     mock_sandbox_cls.return_value = sandbox
 
-    result = SmolVM.desktop(viewport_width=1440, viewport_height=900)
+    result = Celesto.desktop(viewport_width=1440, viewport_height=900)
 
     assert result is sandbox
     config = mock_sandbox_cls.call_args.args[0]
@@ -156,7 +156,7 @@ def test_smolvm_desktop_factory_starts_visible_sandbox(mock_sandbox_cls: MagicMo
     sandbox.start.assert_called_once_with(boot_timeout=90.0, on_progress=None)
 
 
-@patch("smolvm.computer._ComputerSandbox")
+@patch("celesto.computer._ComputerSandbox")
 def test_smolvm_computer_factory_starts_linux_desktop(mock_sandbox_cls: MagicMock) -> None:
     """The computer factory should create one desktop-and-browser session."""
     sandbox = MagicMock(spec=_ComputerSandbox)
@@ -164,7 +164,7 @@ def test_smolvm_computer_factory_starts_linux_desktop(mock_sandbox_cls: MagicMoc
     events: list[dict[str, object]] = []
     progress = MagicMock()
 
-    result = SmolVM.computer(
+    result = Celesto.computer(
         name="computer-demo",
         backend="qemu",
         display={"width": 1440, "height": 900},
@@ -191,9 +191,9 @@ def test_smolvm_computer_factory_starts_linux_desktop(mock_sandbox_cls: MagicMoc
 def test_smolvm_computer_rejects_unknown_template_and_vcpu_count() -> None:
     """Unsupported computer choices should fail before allocating a VM."""
     with pytest.raises(ValueError, match="template 'windows-desktop'"):
-        SmolVM.computer(template="windows-desktop")  # type: ignore[arg-type]
+        Celesto.computer(template="windows-desktop")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="vcpus"):
-        SmolVM.computer(resources={"vcpus": 1})
+        Celesto.computer(resources={"vcpus": 1})
 
 
 def test_computer_run_uses_desktop_user_and_default_timeout() -> None:
@@ -234,7 +234,7 @@ def test_computer_health_failure_emits_error_and_updates_status(
     events: list[dict[str, object]] = []
     computer._event_callback = events.append
     computer._failed_required_process = lambda: "openbox"
-    monkeypatch.setattr("smolvm.computer._HEALTH_CHECK_INTERVAL_SECONDS", 0)
+    monkeypatch.setattr("celesto.computer._HEALTH_CHECK_INTERVAL_SECONDS", 0)
 
     computer._monitor_required_processes()
 
@@ -308,7 +308,7 @@ def test_computer_files_read_respects_desktop_user_permissions() -> None:
     computer = MagicMock()
     computer.vm.run.return_value = CommandResult(exit_code=1, stdout="", stderr="denied")
 
-    with pytest.raises(SmolVMError, match="choose a readable file"):
+    with pytest.raises(CelestoError, match="choose a readable file"):
         ComputerFiles(computer).read("/etc/shadow")
 
     computer.vm.download_file.assert_not_called()
@@ -319,7 +319,7 @@ def test_computer_files_write_reports_unwritable_destination() -> None:
     computer = MagicMock()
     computer.vm.run.return_value = CommandResult(exit_code=1, stdout="", stderr="denied")
 
-    with pytest.raises(SmolVMError, match="choose a writable path"):
+    with pytest.raises(CelestoError, match="choose a writable path"):
         ComputerFiles(computer).write("/root/file.txt", b"content")
 
     computer.vm.upload_file.assert_called_once()
@@ -361,7 +361,7 @@ def test_computer_browser_reports_failed_relaunch() -> None:
     computer._wait_for_cdp_http.return_value = False
     browser = ComputerBrowser(computer)
 
-    with pytest.raises(SmolVMError, match="computer-demo"):
+    with pytest.raises(CelestoError, match="computer-demo"):
         browser.launch()
 
     computer._launch_guest_browser.assert_called_once_with()
@@ -386,11 +386,11 @@ def test_computer_browser_launch_error_hides_guest_output() -> None:
     computer._guest_profile_dir = MagicMock(return_value="/profile")
     computer._guest_download_dir = MagicMock(return_value="/downloads")
 
-    with pytest.raises(SmolVMError) as exc_info:
+    with pytest.raises(CelestoError) as exc_info:
         computer._launch_guest_browser()
 
     message = str(exc_info.value)
-    assert "smolvm computer logs computer-demo" in message
+    assert "celesto computer logs computer-demo" in message
     assert "private stdout" not in message
     assert "private stderr" not in message
 
@@ -424,11 +424,11 @@ def test_computer_delete_keeps_failed_cleanup_retryable() -> None:
     computer._info = stopping_info
     computer._state.update_browser_session.return_value = stopping_info
     computer._vm = MagicMock(status=VMState.RUNNING)
-    computer._vm.delete.side_effect = [SmolVMError("busy"), None]
+    computer._vm.delete.side_effect = [CelestoError("busy"), None]
     computer.collect_artifacts = MagicMock()
     computer.close = MagicMock()
 
-    with pytest.raises(SmolVMError, match="busy"):
+    with pytest.raises(CelestoError, match="busy"):
         computer.delete()
 
     computer._state.delete_browser_session.assert_not_called()
@@ -451,30 +451,30 @@ def test_computer_delete_without_vm_preserves_persisted_state() -> None:
     computer._info = MagicMock(session_id="computer-demo")
     computer._vm = None
 
-    with pytest.raises(SmolVMError, match="smolvm computer delete computer-demo"):
+    with pytest.raises(CelestoError, match="celesto computer delete computer-demo"):
         computer.delete()
 
     computer._state.update_browser_session.assert_not_called()
     computer._state.delete_browser_session.assert_not_called()
 
 
-@patch("smolvm.browser._BrowserSandbox")
+@patch("celesto.browser._BrowserSandbox")
 def test_smolvm_browser_factory_stops_sandbox_on_start_failure(
     mock_sandbox_cls: MagicMock,
 ) -> None:
-    """SmolVM.browser() should not leave a created sandbox around after start fails."""
+    """Celesto.browser() should not leave a created sandbox around after start fails."""
     sandbox = MagicMock()
     sandbox.start.side_effect = RuntimeError("boom")
     mock_sandbox_cls.return_value = sandbox
 
     with pytest.raises(RuntimeError, match="boom"):
-        SmolVM.browser()
+        Celesto.browser()
 
     sandbox.stop.assert_called_once_with()
 
 
-@patch("smolvm.facade.logger")
-@patch("smolvm.browser._BrowserSandbox")
+@patch("celesto.facade.logger")
+@patch("celesto.browser._BrowserSandbox")
 def test_smolvm_browser_factory_logs_cleanup_failure_without_replacing_start_error(
     mock_sandbox_cls: MagicMock,
     mock_logger: MagicMock,
@@ -486,7 +486,7 @@ def test_smolvm_browser_factory_logs_cleanup_failure_without_replacing_start_err
     mock_sandbox_cls.return_value = sandbox
 
     with pytest.raises(RuntimeError, match="start failed"):
-        SmolVM.browser()
+        Celesto.browser()
 
     sandbox.stop.assert_called_once_with()
     mock_logger.exception.assert_called_once_with(
@@ -494,39 +494,39 @@ def test_smolvm_browser_factory_logs_cleanup_failure_without_replacing_start_err
     )
 
 
-@patch("smolvm.browser._BrowserSandbox")
+@patch("celesto.browser._BrowserSandbox")
 def test_smolvm_browser_factory_rejects_invalid_resource_limits(
     mock_sandbox_cls: MagicMock,
 ) -> None:
     """Invalid factory limits should fail before constructing the sandbox."""
     with pytest.raises(ValueError, match="memory_mb"):
-        SmolVM.browser(memory_mb=0)
+        Celesto.browser(memory_mb=0)
     with pytest.raises(ValueError, match="disk_size_mb"):
-        SmolVM.browser(disk_size_mb=0)
+        Celesto.browser(disk_size_mb=0)
     with pytest.raises(ValueError, match="timeout_minutes"):
-        SmolVM.browser(timeout_minutes=0)
+        Celesto.browser(timeout_minutes=0)
     with pytest.raises(ValueError, match="boot_timeout"):
-        SmolVM.browser(boot_timeout=0)
+        Celesto.browser(boot_timeout=0)
 
     mock_sandbox_cls.assert_not_called()
 
 
-@patch("smolvm.browser._DesktopSandbox")
+@patch("celesto.browser._DesktopSandbox")
 def test_smolvm_desktop_factory_rejects_invalid_viewport(
     mock_sandbox_cls: MagicMock,
 ) -> None:
     """Viewport values should be validated before constructing the sandbox."""
     with pytest.raises(ValueError, match="viewport.width"):
-        SmolVM.desktop(viewport={"width": 0, "height": 900})
+        Celesto.desktop(viewport={"width": 0, "height": 900})
     with pytest.raises(ValueError, match="viewport_height"):
-        SmolVM.desktop(viewport_height=-1)
+        Celesto.desktop(viewport_height=-1)
 
     mock_sandbox_cls.assert_not_called()
 
 
-@patch("smolvm.utils.ensure_ssh_key")
-@patch("smolvm.images.builder.ImageBuilder")
-@patch("smolvm.browser._allocate_browser_host_port", side_effect=[39001])
+@patch("celesto.utils.ensure_ssh_key")
+@patch("celesto.images.builder.ImageBuilder")
+@patch("celesto.browser._allocate_browser_host_port", side_effect=[39001])
 def test_build_browser_vm_config_uses_persistent_disk_reuse(
     mock_allocate_host_port: MagicMock,
     mock_builder_cls: MagicMock,
@@ -582,8 +582,8 @@ def test_build_browser_vm_config_uses_persistent_disk_reuse(
     mock_allocate_host_port.assert_called_once()
 
 
-@patch("smolvm.utils.ensure_ssh_key")
-@patch("smolvm.images.builder.ImageBuilder")
+@patch("celesto.utils.ensure_ssh_key")
+@patch("celesto.images.builder.ImageBuilder")
 def test_build_browser_vm_config_passes_workspace_mounts_and_selects_qemu(
     mock_builder_cls: MagicMock,
     mock_ensure_ssh_key: MagicMock,
@@ -634,9 +634,9 @@ def test_build_browser_vm_config_passes_workspace_mounts_and_selects_qemu(
     )
 
 
-@patch("smolvm.utils.ensure_ssh_key")
-@patch("smolvm.images.builder.ImageBuilder")
-@patch("smolvm.browser._allocate_browser_host_port", side_effect=[39011, 39012, 39013])
+@patch("celesto.utils.ensure_ssh_key")
+@patch("celesto.images.builder.ImageBuilder")
+@patch("celesto.browser._allocate_browser_host_port", side_effect=[39011, 39012, 39013])
 def test_build_browser_vm_config_allocates_qemu_live_port_forwards(
     mock_allocate_host_port: MagicMock,
     mock_builder_cls: MagicMock,
@@ -678,11 +678,11 @@ def test_build_browser_vm_config_allocates_qemu_live_port_forwards(
     assert mock_allocate_host_port.call_count == 3
 
 
-@patch("smolvm.browser.platform.machine", return_value="x86_64")
-@patch("smolvm.browser._allocate_browser_host_port", side_effect=[39101, 39102, 39103])
-@patch("smolvm.utils.ensure_ssh_key")
-@patch("smolvm.images.builder.ImageBuilder")
-@patch("smolvm.images.published.ensure_published_image")
+@patch("celesto.browser.platform.machine", return_value="x86_64")
+@patch("celesto.browser._allocate_browser_host_port", side_effect=[39101, 39102, 39103])
+@patch("celesto.utils.ensure_ssh_key")
+@patch("celesto.images.builder.ImageBuilder")
+@patch("celesto.images.published.ensure_published_image")
 def test_build_computer_vm_config_uses_published_linux_desktop(
     mock_ensure_published_image: MagicMock,
     mock_builder_cls: MagicMock,
@@ -732,11 +732,11 @@ def test_build_computer_vm_config_uses_published_linux_desktop(
     assert mock_allocate_host_port.call_count == 3
 
 
-@patch("smolvm.browser.platform.machine", return_value="arm64")
-@patch("smolvm.browser.resolve_backend", return_value="firecracker")
-@patch("smolvm.utils.ensure_ssh_key")
-@patch("smolvm.images.builder.ImageBuilder")
-@patch("smolvm.images.published.ensure_published_image")
+@patch("celesto.browser.platform.machine", return_value="arm64")
+@patch("celesto.browser.resolve_backend", return_value="firecracker")
+@patch("celesto.utils.ensure_ssh_key")
+@patch("celesto.images.builder.ImageBuilder")
+@patch("celesto.images.published.ensure_published_image")
 def test_build_computer_vm_config_resolves_arm64_and_grows_published_desktop(
     mock_ensure_published_image: MagicMock,
     mock_builder_cls: MagicMock,
@@ -801,8 +801,8 @@ def test_build_computer_vm_config_resolves_arm64_and_grows_published_desktop(
     assert vm_config.grow_filesystem is True
 
 
-@patch("smolvm.utils.ensure_ssh_key")
-@patch("smolvm.images.published.ensure_published_image")
+@patch("celesto.utils.ensure_ssh_key")
+@patch("celesto.images.published.ensure_published_image")
 def test_build_computer_vm_config_rejects_disk_smaller_than_published_image(
     mock_ensure_published_image: MagicMock,
     mock_ensure_ssh_key: MagicMock,
@@ -819,7 +819,7 @@ def test_build_computer_vm_config_rejects_disk_smaller_than_published_image(
         ValueError,
         match=(
             "Linux computer 'computer-small' needs at least 8192 MiB of disk; run "
-            "'smolvm computer start --name computer-small --disk-size 8192'"
+            "'celesto computer start --name computer-small --disk-size 8192'"
         ),
     ):
         _build_browser_vm_config(
@@ -835,8 +835,8 @@ def test_build_computer_vm_config_rejects_disk_smaller_than_published_image(
     mock_ensure_published_image.assert_not_called()
 
 
-@patch("smolvm.utils.ensure_ssh_key")
-@patch("smolvm.images.builder.ImageBuilder")
+@patch("celesto.utils.ensure_ssh_key")
+@patch("celesto.images.builder.ImageBuilder")
 def test_build_browser_vm_config_passes_pubkey_to_vmconfig(
     mock_builder_cls: MagicMock,
     mock_ensure_ssh_key: MagicMock,
@@ -845,7 +845,7 @@ def test_build_browser_vm_config_passes_pubkey_to_vmconfig(
     """Browser VMConfig must carry the user's pubkey so /init injects it at boot.
 
     Browser images no longer bake authorized_keys at build time
-    (see src/smolvm/images/builder.py build_browser_rootfs); the key is
+    (see src/celesto/images/builder.py build_browser_rootfs); the key is
     delivered via the kernel cmdline, which only fires when ssh_public_key
     is set on VMConfig.
     """
@@ -873,8 +873,8 @@ def test_build_browser_vm_config_passes_pubkey_to_vmconfig(
     assert mock_builder.build_browser_rootfs.call_args.args[0] == pubkey_value
 
 
-@patch("smolvm.utils.ensure_ssh_key")
-@patch("smolvm.images.builder.ImageBuilder")
+@patch("celesto.utils.ensure_ssh_key")
+@patch("celesto.images.builder.ImageBuilder")
 def test_build_browser_vm_config_uses_custom_key_public_half(
     mock_builder_cls: MagicMock,
     mock_ensure_ssh_key: MagicMock,
@@ -911,9 +911,9 @@ def test_build_browser_vm_config_uses_custom_key_public_half(
     assert mock_builder.build_browser_rootfs.call_args.args[0] == custom_pubkey_value
 
 
-@patch("smolvm.browser.SmolVM")
-@patch("smolvm.browser._build_browser_vm_config")
-@patch("smolvm.browser._LOCAL_HTTP_OPENER.open", return_value=_CdpResponse())
+@patch("celesto.browser.Celesto")
+@patch("celesto.browser._build_browser_vm_config")
+@patch("celesto.browser._LOCAL_HTTP_OPENER.open", return_value=_CdpResponse())
 def test_browser_session_start_persists_ready_state(
     mock_open: MagicMock,
     mock_build_browser_vm_config: MagicMock,
@@ -969,9 +969,9 @@ def test_browser_session_start_persists_ready_state(
     session.close()
 
 
-@patch("smolvm.browser.SmolVM")
-@patch("smolvm.browser._build_browser_vm_config")
-@patch("smolvm.browser._LOCAL_HTTP_OPENER.open", return_value=_CdpResponse())
+@patch("celesto.browser.Celesto")
+@patch("celesto.browser._build_browser_vm_config")
+@patch("celesto.browser._LOCAL_HTTP_OPENER.open", return_value=_CdpResponse())
 def test_computer_start_requires_healthy_desktop_processes(
     _mock_open: MagicMock,
     mock_build_browser_vm_config: MagicMock,
@@ -995,7 +995,7 @@ def test_computer_start_requires_healthy_desktop_processes(
         data_dir=tmp_path,
     )
 
-    with pytest.raises(SmolVMError, match="smolvm computer logs computer-abc123"):
+    with pytest.raises(CelestoError, match="celesto computer logs computer-abc123"):
         session.start()
 
     assert session.status == BrowserSessionState.ERROR
@@ -1008,11 +1008,11 @@ def test_computer_start_requires_healthy_desktop_processes(
     session.close()
 
 
-@patch("smolvm.browser.SmolVM")
-@patch("smolvm.browser._build_browser_vm_config")
-@patch("smolvm.browser._BrowserSandbox._probe_local_port", return_value=True)
-@patch("smolvm.browser.time.sleep")
-@patch("smolvm.browser._LOCAL_HTTP_OPENER.open")
+@patch("celesto.browser.Celesto")
+@patch("celesto.browser._build_browser_vm_config")
+@patch("celesto.browser._BrowserSandbox._probe_local_port", return_value=True)
+@patch("celesto.browser.time.sleep")
+@patch("celesto.browser._LOCAL_HTTP_OPENER.open")
 def test_browser_sandbox_start_uses_configured_qemu_cdp_forward(
     mock_open: MagicMock,
     _mock_sleep: MagicMock,
@@ -1067,7 +1067,7 @@ def test_browser_sandbox_start_uses_configured_qemu_cdp_forward(
 
 
 def test_browser_wait_for_guest_port_uses_facade_control_wait() -> None:
-    """Browser orchestration should use the SmolVM facade for protocol port waits."""
+    """Browser orchestration should use the Celesto facade for protocol port waits."""
     vm = MagicMock()
     vm.wait_for_guest_tcp_ports.return_value = True
     session = object.__new__(_BrowserSandbox)
@@ -1111,8 +1111,8 @@ def test_browser_wait_for_guest_port_does_not_fallback_after_control_timeout() -
     vm.run.assert_not_called()
 
 
-@patch("smolvm.browser.SmolVM")
-@patch("smolvm.browser._build_browser_vm_config")
+@patch("celesto.browser.Celesto")
+@patch("celesto.browser._build_browser_vm_config")
 def test_desktop_sandbox_start_exposes_viewer_and_display_only(
     mock_build_browser_vm_config: MagicMock,
     mock_vm_cls: MagicMock,
@@ -1161,8 +1161,8 @@ def test_desktop_sandbox_start_exposes_viewer_and_display_only(
     session.close()
 
 
-@patch("smolvm.browser.SmolVM")
-@patch("smolvm.browser._build_browser_vm_config")
+@patch("celesto.browser.Celesto")
+@patch("celesto.browser._build_browser_vm_config")
 @patch.object(
     _BrowserSandbox,
     "collect_artifacts",

@@ -1,6 +1,6 @@
 # Windows guests
 
-SmolVM can run a Windows guest from a Windows disk image that you build yourself. This is useful for Windows-only software; it is a specialized QEMU workflow rather than the default sandbox path.
+Celesto can run a Windows guest from a Windows disk image that you build yourself. This is useful for Windows-only software; it is a specialized QEMU workflow rather than the default sandbox path.
 
 ## Build an image
 
@@ -21,9 +21,9 @@ The build is unattended and can take a while. The resulting `win11.qcow2` is the
 Use Python so you can provide the username and password chosen while building the image:
 
 ```python
-from smolvm import SmolVM
+from celesto import Celesto
 
-with SmolVM(
+with Celesto(
     os="windows",
     image="./win11.qcow2",
     ssh_user="smolvm",
@@ -33,10 +33,10 @@ with SmolVM(
     print(result.stdout)
 ```
 
-The generic `smolvm sandbox create` command does not currently accept Windows login credentials, so it cannot complete the readiness check for this password-based image ([CLI options](../../src/smolvm/cli/commands/app.py), [image configuration](../../src/smolvm/facade.py)).
+The generic `celesto sandbox create` command does not currently accept Windows login credentials, so it cannot complete the readiness check for this password-based image ([CLI options](../../src/celesto/cli/commands/app.py), [image configuration](../../src/celesto/facade.py)).
 
 Windows guests are currently supported on Linux x86_64 hosts and use SSH for host-to-guest control. They do not support workspace mounts, outbound-domain controls, or snapshots.
 
 ## Implementation notes
 
-The image builder creates the unattended install media and waits for the installed guest in [`src/smolvm/windows/build_image.py`](../../src/smolvm/windows/build_image.py). Windows platform settings are in [`src/smolvm/runtime/guest_platforms.py`](../../src/smolvm/runtime/guest_platforms.py); configuration restrictions are enforced in [`src/smolvm/facade.py`](../../src/smolvm/facade.py) and [`src/smolvm/vm.py`](../../src/smolvm/vm.py). See [`tests/test_windows_build_image.py`](../../tests/test_windows_build_image.py).
+The image builder creates the unattended install media and waits for the installed guest in [`src/celesto/windows/build_image.py`](../../src/celesto/windows/build_image.py). Windows platform settings are in [`src/celesto/runtime/guest_platforms.py`](../../src/celesto/runtime/guest_platforms.py); configuration restrictions are enforced in [`src/celesto/facade.py`](../../src/celesto/facade.py) and [`src/celesto/vm.py`](../../src/celesto/vm.py). See [`tests/test_windows_build_image.py`](../../tests/test_windows_build_image.py).

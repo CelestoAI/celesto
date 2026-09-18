@@ -12,14 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for smolvm.env — environment variable injection helpers."""
+"""Tests for celesto.env — environment variable injection helpers."""
 
 import subprocess
 from unittest.mock import MagicMock
 
 import pytest
 
-from smolvm.env import (
+from celesto.env import (
     ENV_FILE,
     _shell_quote,
     build_env_script,
@@ -28,8 +28,8 @@ from smolvm.env import (
     remove_env_vars,
     validate_env_key,
 )
-from smolvm.exceptions import SmolVMError
-from smolvm.types import CommandResult
+from celesto.exceptions import CelestoError
+from celesto.types import CommandResult
 
 # ── validate_env_key ──────────────────────────────────────────────────
 
@@ -211,7 +211,7 @@ class TestInjectEnvVars:
 
     def test_inject_failure_raises(self) -> None:
         ssh = _make_ssh_mock(run_ok=False, stderr="permission denied")
-        with pytest.raises(SmolVMError, match="Failed to inject"):
+        with pytest.raises(CelestoError, match="Failed to inject"):
             inject_env_vars(ssh, {"FOO": "bar"}, merge=False)
 
     def test_invalid_key_raises_before_ssh(self) -> None:
@@ -240,7 +240,7 @@ class TestInjectEnvVars:
     def test_generated_script_writes_the_env_file(self, tmp_path, monkeypatch) -> None:
         """Execute the generated shell script for real and check the result."""
         env_file = tmp_path / "profile.d" / "smolvm_env.sh"
-        monkeypatch.setattr("smolvm.env.ENV_FILE", str(env_file))
+        monkeypatch.setattr("celesto.env.ENV_FILE", str(env_file))
 
         ssh = MagicMock()
 
@@ -340,5 +340,5 @@ class TestRemoveEnvVars:
         )
         write_result = CommandResult(ok=False, exit_code=1, stdout="", stderr="disk full")
         ssh.run.side_effect = [read_result, write_result]
-        with pytest.raises(SmolVMError, match="Failed to update"):
+        with pytest.raises(CelestoError, match="Failed to update"):
             remove_env_vars(ssh, ["A"])

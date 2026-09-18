@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Use SmolVM as a LangChain tool.
+"""Use Celesto as a LangChain tool.
 
 Install:
     pip install smolvm langchain langchain-openai
@@ -26,7 +26,7 @@ Optional environment:
     export LANGCHAIN_MODEL=openai:gpt-4.1
 
 Before running:
-    smolvm doctor
+    celesto doctor
 
 Example:
     python examples/agent_tools/langchain_tool.py
@@ -38,7 +38,7 @@ import os
 from pprint import pprint
 from typing import Any
 
-from smolvm import SmolVM
+from celesto import Celesto
 
 DEFAULT_MODEL = "openai:gpt-5.4"
 
@@ -65,19 +65,19 @@ def _format_command_result(exit_code: int, stdout: str, stderr: str) -> str:
 
 
 def run_in_smolvm(command: str, timeout: int = 30) -> str:
-    """Run a shell command inside an ephemeral SmolVM sandbox.
+    """Run a shell command inside an ephemeral Celesto sandbox.
 
     Args:
         command: Shell command to execute inside the sandbox guest.
         timeout: Maximum number of seconds to wait for the command.
     """
-    with SmolVM() as vm:
+    with Celesto() as vm:
         result = vm.run(command, timeout=timeout)
         return _format_command_result(result.exit_code, result.stdout, result.stderr)
 
 
 def main() -> None:
-    """Run a minimal LangChain agent that can call SmolVM as a tool."""
+    """Run a minimal LangChain agent that can call Celesto as a tool."""
     create_agent = _require_dependency(
         "langchain.agents:create_agent",
         "pip install langchain langchain-openai",
@@ -90,7 +90,7 @@ def main() -> None:
         model=os.environ.get("LANGCHAIN_MODEL", DEFAULT_MODEL),
         tools=[tool(run_in_smolvm)],
         system_prompt=(
-            "You are a coding assistant with access to a secure SmolVM sandbox. "
+            "You are a coding assistant with access to a secure Celesto sandbox. "
             "For shell or Python inspection requests, call run_in_smolvm exactly "
             "once and then summarize the result."
         ),

@@ -25,13 +25,13 @@ Each code block should demonstrate exactly one idea. If a snippet requires the r
 
 **Wrong** — introduces sandbox creation AND environment variables at the same time:
 ```python
-with SmolVM(env={"API_KEY": "secret"}) as vm:
+with Celesto(env={"API_KEY": "secret"}) as vm:
     vm.run("curl $API_KEY")
 ```
 
 **Right** — teaches sandbox creation first, env vars in a separate example:
 ```python
-with SmolVM() as vm:
+with Celesto() as vm:
     vm.run("echo 'hello'")
 ```
 

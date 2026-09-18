@@ -14,9 +14,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smolvm.exceptions import SmolVMError
-from smolvm.runtime.base import RuntimeContext
-from smolvm.runtime.qemu import _SwtpmSidecar
+from celesto.exceptions import CelestoError
+from celesto.runtime.base import RuntimeContext
+from celesto.runtime.qemu import _SwtpmSidecar
 
 
 def _make_context(firmware_dir: Path) -> RuntimeContext:
@@ -59,8 +59,8 @@ def test_start_raises_clear_error_when_swtpm_binary_missing(tmp_path: Path) -> N
         context=context,
     )
     with (
-        patch("smolvm.runtime.qemu.which", return_value=None),
-        pytest.raises(SmolVMError, match="swtpm"),
+        patch("celesto.runtime.qemu.which", return_value=None),
+        pytest.raises(CelestoError, match="swtpm"),
     ):
         sidecar.start()
 
@@ -84,10 +84,10 @@ def test_start_spawns_swtpm_with_expected_arguments(tmp_path: Path) -> None:
 
     with (
         patch(
-            "smolvm.runtime.qemu.which",
+            "celesto.runtime.qemu.which",
             return_value=Path("/usr/bin/swtpm"),
         ),
-        patch("smolvm.runtime.qemu.subprocess.run", side_effect=fake_run) as mock_run,
+        patch("celesto.runtime.qemu.subprocess.run", side_effect=fake_run) as mock_run,
     ):
         returned_pid = sidecar.start()
 
@@ -118,11 +118,11 @@ def test_start_raises_when_socket_never_appears(tmp_path: Path) -> None:
 
     with (
         patch(
-            "smolvm.runtime.qemu.which",
+            "celesto.runtime.qemu.which",
             return_value=Path("/usr/bin/swtpm"),
         ),
-        patch("smolvm.runtime.qemu.subprocess.run", side_effect=fake_run),
-        pytest.raises(SmolVMError, match="socket never appeared"),
+        patch("celesto.runtime.qemu.subprocess.run", side_effect=fake_run),
+        pytest.raises(CelestoError, match="socket never appeared"),
     ):
         sidecar.start(timeout=0.2)
 
@@ -144,7 +144,7 @@ def test_stop_sigterms_the_daemon_and_unlinks_files(tmp_path: Path) -> None:
     # Extra Falses cover the post-wait re-check that would SIGKILL if needed.
     context.is_process_running.side_effect = [True, False, False, False]
 
-    with patch("smolvm.runtime.qemu.os.kill") as mock_kill:
+    with patch("celesto.runtime.qemu.os.kill") as mock_kill:
         sidecar.stop()
 
     mock_kill.assert_called_once()
@@ -187,9 +187,9 @@ def test_socket_wait_uses_a_monotonic_deadline(tmp_path: Path) -> None:
         return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
 
     with (
-        patch("smolvm.runtime.qemu.which", return_value=Path("/usr/bin/swtpm")),
-        patch("smolvm.runtime.qemu.subprocess.run", side_effect=fake_run),
-        patch("smolvm.runtime.qemu.time.time", side_effect=_no_wall_clock),
+        patch("celesto.runtime.qemu.which", return_value=Path("/usr/bin/swtpm")),
+        patch("celesto.runtime.qemu.subprocess.run", side_effect=fake_run),
+        patch("celesto.runtime.qemu.time.time", side_effect=_no_wall_clock),
     ):
         assert sidecar.start() == 4242
 
@@ -207,8 +207,8 @@ def test_shutdown_wait_uses_a_monotonic_deadline(tmp_path: Path) -> None:
     context.is_process_running.side_effect = [True, False, False, False]
 
     with (
-        patch("smolvm.runtime.qemu.os.kill"),
-        patch("smolvm.runtime.qemu.time.time", side_effect=_no_wall_clock),
+        patch("celesto.runtime.qemu.os.kill"),
+        patch("celesto.runtime.qemu.time.time", side_effect=_no_wall_clock),
     ):
         sidecar.stop()
 

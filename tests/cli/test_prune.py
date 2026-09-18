@@ -12,13 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for smolvm prune (image-cache pruning)."""
+"""Tests for celesto prune (image-cache pruning)."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from smolvm.cli.prune import find_stale_caches
+from celesto.cli.prune import find_stale_caches
 
 
 class TestFindStaleCaches:

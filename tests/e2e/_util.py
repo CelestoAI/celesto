@@ -30,8 +30,8 @@ try:
 except (ImportError, OSError):  # pragma: no cover - native extension missing entirely
     _core_network = None
 
-from smolvm.host.manager import HostManager
-from smolvm.runtime.backends import BACKEND_FIRECRACKER, BACKEND_QEMU
+from celesto.host.manager import HostManager
+from celesto.runtime.backends import BACKEND_FIRECRACKER, BACKEND_QEMU
 
 E2EBackend = Literal["qemu", "firecracker"]
 E2ETransport = Literal["sandbox", "ssh", "vsock"]

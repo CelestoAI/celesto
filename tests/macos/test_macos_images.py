@@ -12,9 +12,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smolvm.exceptions import ImageError
-from smolvm.macos.images import MacOSImageManager
-from smolvm.macos.models import LumeVMDetails
+from celesto.exceptions import ImageError
+from celesto.macos.images import MacOSImageManager
+from celesto.macos.models import LumeVMDetails
 
 
 def _details(name: str = "macos-latest") -> LumeVMDetails:
@@ -81,8 +81,8 @@ def test_latest_build_reuses_completed_lume_download(tmp_path: Path) -> None:
     manager._check_storage = MagicMock()  # type: ignore[method-assign]
 
     with (
-        patch("smolvm.macos.images.tempfile.gettempdir", return_value=str(tmp_path)),
-        patch("smolvm.macos.images._MINIMUM_IPSW_BYTES", 1),
+        patch("celesto.macos.images.tempfile.gettempdir", return_value=str(tmp_path)),
+        patch("celesto.macos.images._MINIMUM_IPSW_BYTES", 1),
     ):
         manifest = manager.build(ipsw="latest")
 
@@ -103,8 +103,8 @@ def test_failed_install_keeps_completed_download_for_retry(tmp_path: Path) -> No
     manager._check_storage = MagicMock()  # type: ignore[method-assign]
 
     with (
-        patch("smolvm.macos.images.tempfile.gettempdir", return_value=str(tmp_path)),
-        patch("smolvm.macos.images._MINIMUM_IPSW_BYTES", 1),
+        patch("celesto.macos.images.tempfile.gettempdir", return_value=str(tmp_path)),
+        patch("celesto.macos.images._MINIMUM_IPSW_BYTES", 1),
         pytest.raises(RuntimeError, match="install failed"),
     ):
         manager.build(ipsw="latest")
@@ -162,5 +162,5 @@ def test_local_ipsw_must_be_an_existing_apple_restore_file(tmp_path: Path) -> No
 def test_missing_image_error_names_build_command(tmp_path: Path) -> None:
     manager = MacOSImageManager(image_dir=tmp_path / "images", driver=MagicMock())
 
-    with pytest.raises(ImageError, match="smolvm image build --os macos"):
+    with pytest.raises(ImageError, match="celesto image build --os macos"):
         manager.get("missing")
