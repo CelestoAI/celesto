@@ -26,6 +26,19 @@ class CelestoError(Exception):
         self.details = details or {}
 
 
+class CloudAPIError(CelestoError):
+    """A cloud API request failed with an HTTP error status."""
+
+    def __init__(self, status_code: int) -> None:
+        self.status_code = int(status_code)
+        recovery = (
+            "Check your API key and organization access."
+            if status_code in (401, 403)
+            else "Check the request and cloud dashboard before retrying."
+        )
+        super().__init__(f"Cloud API returned HTTP {status_code}. {recovery}")
+
+
 class ValidationError(CelestoError):
     """Raised when input validation fails."""
 

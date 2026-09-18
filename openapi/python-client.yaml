@@ -1,0 +1,2 @@
+# Formatting is run explicitly at a pinned version by the generation script.
+post_hooks: []

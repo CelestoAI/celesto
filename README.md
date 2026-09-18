@@ -138,7 +138,7 @@ has not changed yet; old `smolvm` Python imports are no longer supported.
 Use `celesto setup` and `celesto doctor` to prepare your machine.
 
 The computer is deleted when the `with` block ends, including when your code
-raises an exception. This release runs locally only, so `local=True` is required.
+raises an exception. `local=True` runs it on your machine.
 Outside `with`, call `delete()` yourself; automatic expiry after a crash is not
 implemented yet.
 
@@ -151,6 +151,20 @@ cannot be used in a `with` block. Remove them with `delete()` or
 Advanced local APIs are available as `celesto.Celesto` and `celesto.CelestoManager`.
 Existing local data, environment settings, and image caches retain their current
 locations. The `smolvm` executable remains available for TypeScript integrations.
+
+To run in Celesto Cloud, set `CELESTO_API_KEY` in your environment, then omit
+`local=True`:
+
+```python
+from celesto import Computer
+
+with Computer() as comp:
+    print(comp.run("echo 'Hello from the cloud!'").stdout)
+```
+
+Cloud creation and commands can incur charges. Missing credentials raise an
+error; they never switch execution to your machine. See [Python cloud usage](docs/python-cloud.md)
+for connection options, persistence, and cleanup limits.
 
 ### Start a sandbox in TypeScript (alpha)
 

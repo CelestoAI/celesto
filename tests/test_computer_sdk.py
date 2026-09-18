@@ -18,9 +18,10 @@ def runtime(monkeypatch):
     return factory, vm
 
 
-def test_cloud_and_invalid_lifetime_fail_before_allocation(runtime):
+def test_missing_cloud_key_and_invalid_lifetime_fail_before_allocation(runtime, monkeypatch):
     factory, _ = runtime
-    with pytest.raises(ValueError, match="local=True"):
+    monkeypatch.delenv("CELESTO_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="CELESTO_API_KEY"):
         Computer()
     with pytest.raises(ValueError, match="lifetime"):
         Computer(local=True, lifetime="forever")

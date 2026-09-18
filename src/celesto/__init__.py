@@ -23,6 +23,7 @@ from importlib.metadata import version as _pkg_version
 from celesto.callbacks import Callback, CommandBlockedError, RunContext
 from celesto.exceptions import (
     CelestoError,
+    CloudAPIError,
     CommandExecutionUnavailableError,
     FirecrackerAPIError,
     HostError,
@@ -130,6 +131,7 @@ __all__ = [
     "MacOSMachineConfig",
     # Exceptions
     "CelestoError",
+    "CloudAPIError",
     "CommandExecutionUnavailableError",
     "SnapshotAlreadyExistsError",
     "SnapshotNotFoundError",
