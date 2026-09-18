@@ -1,6 +1,6 @@
 # CLI reference
 
-The CLI creates and manages disposable sandboxes. Run `smolvm COMMAND --help` for the current options on your installed version; this page helps you choose the right command.
+The CLI creates and manages disposable sandboxes. Run `celesto COMMAND --help` for the current options on your installed version; this page helps you choose the right command.
 
 ## Prepare the host
 
@@ -8,7 +8,7 @@ The CLI creates and manages disposable sandboxes. Run `smolvm COMMAND --help` fo
 | --- | --- |
 | `celesto setup` | Install or check local runtime dependencies. Add `--macos` to prepare the macOS desktop runtime. |
 | `celesto doctor` | Check whether this machine can run sandboxes. Use `--backend vz` to check macOS desktop support. |
-| `smolvm bridge check BRIDGE` | Check an existing Linux bridge before connecting a sandbox to it. |
+| `celesto bridge check BRIDGE` | Check an existing Linux bridge before connecting a sandbox to it. |
 | `celesto update` | Upgrade to the latest stable release. |
 | `celesto prune` | Remove stale cached images (alias for `celesto image prune`). |
 
@@ -64,7 +64,7 @@ The first time you start a sandbox or agent, Celesto downloads the files it boot
 | --- | --- |
 | `celesto image pull <preset>` | Download an image ahead of time, for example before going offline. |
 | `celesto image pull --all` | Download every image available for this machine in one go. |
-| `smolvm images` (or `image list` / `image ls`) | See which images are downloaded, when, and how much space they use. |
+| `celesto images` (or `image list` / `image ls`) | See which images are downloaded, when, and how much space they use. |
 | `celesto image inspect <name>` | See one image in detail: files, checksums, and where it came from. |
 | `celesto image build -t NAME .` | Build a custom image from a Dockerfile (needs Docker installed). |
 | `celesto image build --os macos --ipsw latest -t NAME` | Prepare a reusable macOS image locally from an Apple restore file. |
@@ -81,13 +81,13 @@ Images are stored in `~/.smolvm/images`. To keep them somewhere else, set the `S
 | `celesto browser start` / `open` / `list` / `logs` / `stop` | Manage browser sandboxes. |
 | `celesto computer start` / `open` / `list` / `logs` / `delete` | Manage complete Linux desktop computers. |
 | `celesto computer templates` | List the available desktop templates. |
-| `smolvm ui` | Start the local dashboard. |
-| `smolvm server start` | Start the local HTTP API. |
-| `smolvm windows build-image` | Build a Windows qcow2 image. |
+| `celesto ui` | Start the local dashboard. |
+| `celesto server start` | Start the local HTTP API. |
+| `celesto windows build-image` | Build a Windows qcow2 image. |
 
 ## Shell completion
 
-Turn on tab completion so your shell can finish `smolvm` commands, options, and the names of your existing sandboxes as you type. One command sets it up:
+Turn on tab completion so your shell can finish `celesto` commands, options, and the names of your existing sandboxes as you type. One command sets it up:
 
 ```bash
 celesto completion bash --install   # also works with: zsh, fish
@@ -106,7 +106,7 @@ eval "$(celesto completion zsh)"
 
 # fish — create the folder once, then write the completion file
 mkdir -p ~/.config/fish/completions
-celesto completion fish > ~/.config/fish/completions/smolvm.fish
+celesto completion fish > ~/.config/fish/completions/celesto.fish
 ```
 
 ## Common options
