@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for smolvm image list/rm and the SMOLVM_IMAGE_DIR resolution."""
+"""Tests for celesto image list/rm and the SMOLVM_IMAGE_DIR resolution."""
 
 from __future__ import annotations
 
@@ -25,11 +25,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smolvm import __version__
-from smolvm.cli.image import _IMAGE_DIR_NAME_RE, _KERNEL_DIR_NAME_RE
-from smolvm.cli.main import main
-from smolvm.cli.prune import _format_bytes, _total_size, find_stale_caches
-from smolvm.images.manager import IMAGE_DIR_ENV, ImageManager, resolve_image_dir
+from celesto import __version__
+from celesto.cli.image import _IMAGE_DIR_NAME_RE, _KERNEL_DIR_NAME_RE
+from celesto.cli.main import main
+from celesto.cli.prune import _format_bytes, _total_size, find_stale_caches
+from celesto.images.manager import IMAGE_DIR_ENV, ImageManager, resolve_image_dir
 
 
 def _make_cache_dirs(root: Path) -> None:
@@ -113,7 +113,7 @@ class TestResolveImageDir:
     def test_guest_agent_cache_dir_honors_env(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from smolvm.images.builder import _guest_agent_binary_cache_dir
+        from celesto.images.builder import _guest_agent_binary_cache_dir
 
         monkeypatch.setenv(IMAGE_DIR_ENV, str(tmp_path / "img"))
         assert _guest_agent_binary_cache_dir() == tmp_path / "img" / "_guest-agent"
@@ -121,7 +121,7 @@ class TestResolveImageDir:
     def test_image_builder_honors_env(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from smolvm.images.builder import ImageBuilder
+        from celesto.images.builder import ImageBuilder
 
         monkeypatch.setenv(IMAGE_DIR_ENV, str(tmp_path / "img"))
         assert ImageBuilder().cache_dir == tmp_path / "img"
@@ -159,7 +159,7 @@ class TestSizeHelpers:
 class TestCacheNameParsing:
     def test_round_trips_every_manifest_entry(self) -> None:
         """The list/rm parser must recognize everything cache_name() emits."""
-        from smolvm.images.published import MANIFEST, cache_name
+        from celesto.images.published import MANIFEST, cache_name
 
         for preset, arch, vmm, os_name in MANIFEST:
             for version in ("0.0.26", "0.0.14a0", "0.0.24.post3", "1.2.3.dev1"):
@@ -268,7 +268,7 @@ class TestImageList:
         # Rich wraps the panel mid-word with box-drawing borders; strip
         # everything but letters/digits so the recovery command is findable.
         flattened = re.sub(r"[^a-z0-9]+", "", capsys.readouterr().out.lower())
-        assert "smolvmimagepullcodex" in flattened
+        assert "celestoimagepullcodex" in flattened
 
     def test_list_env_var_default(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
@@ -419,7 +419,7 @@ class TestImageRm:
         assert ret == 1
         payload = json.loads(capsys.readouterr().out)
         assert payload["ok"] is False
-        assert "smolvm image list" in payload["error"]["recovery"]
+        assert "celesto image list" in payload["error"]["recovery"]
 
     @pytest.mark.parametrize("name", ["../evil", "a/b", "..", ".", "/somewhere/else/evil"])
     def test_rm_rejects_traversal_names(
@@ -533,8 +533,8 @@ class TestChoiceListsMatchPublishedTypes:
 
         import click
 
-        from smolvm.cli.main import build_cli
-        from smolvm.images.published import Arch, Os, Vmm
+        from celesto.cli.main import build_cli
+        from celesto.images.published import Arch, Os, Vmm
 
         pull = build_cli().commands["image"].commands["pull"]  # type: ignore[attr-defined]
         choices = {
@@ -551,7 +551,7 @@ class TestRelativeTime:
     def test_buckets(self) -> None:
         from datetime import datetime
 
-        from smolvm.cli.image import _relative_time
+        from celesto.cli.image import _relative_time
 
         now = datetime(2026, 7, 17, 12, 0, 0, tzinfo=UTC)
 
@@ -677,7 +677,7 @@ class TestImageInspect:
     def test_inspect_current_version_gets_manifest(
         self, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:
-        from smolvm.images.published import IMAGES_RELEASE_TAG, cache_name
+        from celesto.images.published import IMAGES_RELEASE_TAG, cache_name
 
         _make_published_entry(tmp_path, cache_name("codex", "amd64", "firecracker"))
 
@@ -709,7 +709,7 @@ class TestImageInspect:
 
         assert ret == 1
         payload = json.loads(capsys.readouterr().out)
-        assert "smolvm image list" in payload["error"]["recovery"]
+        assert "celesto image list" in payload["error"]["recovery"]
 
 
 class TestImagePullAll:
@@ -721,9 +721,9 @@ class TestImagePullAll:
         payload = json.loads(capsys.readouterr().out)
         assert "Choose one target" in payload["error"]["message"]
 
-    @patch("smolvm.images.published.ensure_published_image")
-    @patch("smolvm.cli.main._vmm_for_host", return_value="firecracker")
-    @patch("smolvm.cli.main._host_arch_for_published", return_value="amd64")
+    @patch("celesto.images.published.ensure_published_image")
+    @patch("celesto.cli.main._vmm_for_host", return_value="firecracker")
+    @patch("celesto.cli.main._host_arch_for_published", return_value="amd64")
     def test_pull_all_covers_manifest(
         self,
         mock_arch: MagicMock,
@@ -732,8 +732,8 @@ class TestImagePullAll:
         tmp_path: Path,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        from smolvm.images.manager import LocalImage
-        from smolvm.images.published import MANIFEST
+        from celesto.images.manager import LocalImage
+        from celesto.images.published import MANIFEST
 
         kernel = tmp_path / "vmlinux.bin"
         rootfs = tmp_path / "rootfs.ext4"
@@ -754,9 +754,9 @@ class TestImagePullAll:
         called = sorted((c.args[0], c.args[3]) for c in mock_ensure.call_args_list)
         assert called == expected
 
-    @patch("smolvm.images.published.ensure_published_image")
-    @patch("smolvm.cli.main._vmm_for_host", return_value="firecracker")
-    @patch("smolvm.cli.main._host_arch_for_published", return_value="amd64")
+    @patch("celesto.images.published.ensure_published_image")
+    @patch("celesto.cli.main._vmm_for_host", return_value="firecracker")
+    @patch("celesto.cli.main._host_arch_for_published", return_value="amd64")
     def test_pull_all_isolates_failures(
         self,
         mock_arch: MagicMock,
@@ -765,8 +765,8 @@ class TestImagePullAll:
         tmp_path: Path,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        from smolvm.exceptions import ImageError
-        from smolvm.images.manager import LocalImage
+        from celesto.exceptions import ImageError
+        from celesto.images.manager import LocalImage
 
         kernel = tmp_path / "vmlinux.bin"
         rootfs = tmp_path / "rootfs.ext4"
@@ -788,11 +788,11 @@ class TestImagePullAll:
         details = payload["error"]["details"]
         assert {f["preset"] for f in details["failed"]} == {"codex"}
         assert details["pulled"]  # other presets still downloaded
-        assert "smolvm image pull --all" in payload["error"]["recovery"]
+        assert "celesto image pull --all" in payload["error"]["recovery"]
 
-    @patch("smolvm.images.published.ensure_published_image")
-    @patch("smolvm.cli.main._vmm_for_host", return_value="firecracker")
-    @patch("smolvm.cli.main._host_arch_for_published", return_value="amd64")
+    @patch("celesto.images.published.ensure_published_image")
+    @patch("celesto.cli.main._vmm_for_host", return_value="firecracker")
+    @patch("celesto.cli.main._host_arch_for_published", return_value="amd64")
     def test_pull_all_os_filter(
         self,
         mock_arch: MagicMock,
@@ -801,7 +801,7 @@ class TestImagePullAll:
         tmp_path: Path,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        from smolvm.images.manager import LocalImage
+        from celesto.images.manager import LocalImage
 
         kernel = tmp_path / "vmlinux.bin"
         rootfs = tmp_path / "rootfs.ext4"
@@ -984,9 +984,9 @@ class TestRmSafety:
 
 
 class TestPullAllRecovery:
-    @patch("smolvm.images.published.ensure_published_image")
-    @patch("smolvm.cli.main._vmm_for_host", return_value="firecracker")
-    @patch("smolvm.cli.main._host_arch_for_published", return_value="amd64")
+    @patch("celesto.images.published.ensure_published_image")
+    @patch("celesto.cli.main._vmm_for_host", return_value="firecracker")
+    @patch("celesto.cli.main._host_arch_for_published", return_value="amd64")
     def test_failure_recovery_keeps_flags(
         self,
         mock_arch: MagicMock,
@@ -995,7 +995,7 @@ class TestPullAllRecovery:
         tmp_path: Path,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        from smolvm.exceptions import ImageError
+        from celesto.exceptions import ImageError
 
         mock_ensure.side_effect = ImageError("boom")
 
@@ -1005,9 +1005,9 @@ class TestPullAllRecovery:
         payload = json.loads(capsys.readouterr().out)
         assert "--image-dir" in payload["error"]["recovery"]
 
-    @patch("smolvm.images.published.published_targets", return_value=[])
-    @patch("smolvm.cli.main._vmm_for_host", return_value="firecracker")
-    @patch("smolvm.cli.main._host_arch_for_published", return_value="amd64")
+    @patch("celesto.images.published.published_targets", return_value=[])
+    @patch("celesto.cli.main._vmm_for_host", return_value="firecracker")
+    @patch("celesto.cli.main._host_arch_for_published", return_value="amd64")
     def test_no_targets_names_recovery(
         self,
         mock_arch: MagicMock,
@@ -1023,7 +1023,7 @@ class TestPullAllRecovery:
         assert ret == 2
         payload = json.loads(capsys.readouterr().out)
         recovery = payload["error"]["recovery"]
-        assert "smolvm image pull --all" in recovery
+        assert "celesto image pull --all" in recovery
         assert "--os" not in recovery
 
 
@@ -1059,7 +1059,7 @@ class TestUpstreamReviewRegressions:
     def test_guest_agent_cache_dir_honors_explicit_cache_dir(self, tmp_path: Path) -> None:
         """An explicit builder cache_dir must reach the guest-agent cache
         (regression: it always used the global default)."""
-        from smolvm.images.builder import _guest_agent_binary_cache_dir
+        from celesto.images.builder import _guest_agent_binary_cache_dir
 
         assert _guest_agent_binary_cache_dir(tmp_path) == tmp_path / "_guest-agent"
 

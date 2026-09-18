@@ -54,7 +54,7 @@ except ImportError:  # pragma: no cover - script execution path
 
 def build_start_command(args: argparse.Namespace, session_id: str) -> list[str]:
     command = [
-        "smolvm",
+        "celesto",
         "browser",
         "start",
         "--session-id",
@@ -89,7 +89,7 @@ def build_start_command(args: argparse.Namespace, session_id: str) -> list[str]:
 
 
 def stop_plan(session_id: str, *, timeout_s: float | None) -> CommandPlan:
-    return CommandPlan("browser_stop", ["smolvm", "browser", "stop", session_id], timeout_s)
+    return CommandPlan("browser_stop", ["celesto", "browser", "stop", session_id], timeout_s)
 
 
 def run_iteration(args: argparse.Namespace, iteration: int) -> dict[str, Any]:

@@ -13,8 +13,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smolvm.windows import render_autounattend
-from smolvm.windows.build_image import (
+from celesto.windows import render_autounattend
+from celesto.windows.build_image import (
     _AUTOUNATTEND_VOLUME_LABEL,
     WindowsImageBuilder,
     build_autounattend_iso,
@@ -69,8 +69,8 @@ def test_build_iso_uses_xorrisofs_with_autounattend_label(tmp_path: Path) -> Non
         return MagicMock(returncode=0, stdout="", stderr="")
 
     with (
-        patch("smolvm.windows.build_image.shutil.which", return_value="/usr/bin/xorrisofs"),
-        patch("smolvm.windows.build_image.subprocess.run", side_effect=fake_run) as mock_run,
+        patch("celesto.windows.build_image.shutil.which", return_value="/usr/bin/xorrisofs"),
+        patch("celesto.windows.build_image.subprocess.run", side_effect=fake_run) as mock_run,
     ):
         result = build_autounattend_iso("<unattend/>", out)
 
@@ -89,7 +89,7 @@ def test_build_iso_raises_clear_install_hint_when_xorrisofs_missing(
 ) -> None:
     out = tmp_path / "autounattend.iso"
     with (
-        patch("smolvm.windows.build_image.shutil.which", return_value=None),
+        patch("celesto.windows.build_image.shutil.which", return_value=None),
         pytest.raises(Exception, match="xorrisofs is required"),
     ):
         build_autounattend_iso("<unattend/>", out)

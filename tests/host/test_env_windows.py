@@ -12,14 +12,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from smolvm.env_windows import (
+from celesto.env_windows import (
     _MANAGED_KEYS_SENTINEL,
     _ps_single_quote,
     inject_env_vars,
     read_env_vars,
     remove_env_vars,
 )
-from smolvm.exceptions import SmolVMError
+from celesto.exceptions import CelestoError
 
 
 def _ok(stdout: str = "") -> MagicMock:
@@ -128,7 +128,7 @@ def test_inject_merge_false_clears_previously_managed_keys() -> None:
 def test_inject_raises_smolvmerror_on_powershell_failure() -> None:
     ssh = MagicMock()
     ssh.run.side_effect = [_ok(""), _fail("set failed")]
-    with pytest.raises(SmolVMError, match="PowerShell env-var command failed"):
+    with pytest.raises(CelestoError, match="PowerShell env-var command failed"):
         inject_env_vars(ssh, {"FOO": "bar"})
 
 
@@ -172,7 +172,7 @@ def test_read_raises_on_malformed_json() -> None:
         _ok("FOO\n"),
         _ok("not-json-at-all"),
     ]
-    with pytest.raises(SmolVMError, match="Failed to parse JSON env-var payload"):
+    with pytest.raises(CelestoError, match="Failed to parse JSON env-var payload"):
         read_env_vars(ssh)
 
 

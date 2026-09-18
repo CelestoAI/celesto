@@ -21,12 +21,12 @@ from types import SimpleNamespace
 from typing import Literal
 from unittest.mock import MagicMock
 
-from smolvm.browser import (
+from celesto.browser import (
     _BrowserSandbox,
     _guest_browser_proxy_endpoint,
     _guest_browser_session_command,
 )
-from smolvm.types import (
+from celesto.types import (
     BrowserSessionConfig,
     CommandResult,
     NetworkConfig,

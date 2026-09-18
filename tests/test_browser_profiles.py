@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from smolvm.browser_profiles import (
+from celesto.browser_profiles import (
     BrowserProfileCompatibilityError,
     BrowserProfileCorruptError,
     BrowserProfileError,
@@ -152,7 +152,7 @@ def test_staged_directory_fsync_failure_preserves_prior_generation(
                 raise OSError("simulated staged directory fsync failure")
             real_fsync_directory(path)
 
-        monkeypatch.setattr("smolvm.browser_profiles._fsync_directory", fail_staged_directory)
+        monkeypatch.setattr("celesto.browser_profiles._fsync_directory", fail_staged_directory)
         with pytest.raises(OSError, match="staged directory fsync failure"):
             lease.save(archive(tmp_path, "fsync-second.tar", b"second"))
         loaded = lease.load()
@@ -177,7 +177,7 @@ def test_generation_directory_fsync_failure_never_switches_current(
                 raise OSError("simulated generation directory fsync failure")
             real_fsync_directory(path)
 
-        monkeypatch.setattr("smolvm.browser_profiles._fsync_directory", fail_generation_directory)
+        monkeypatch.setattr("celesto.browser_profiles._fsync_directory", fail_generation_directory)
         with pytest.raises(OSError, match="generation directory fsync failure"):
             lease.save(archive(tmp_path, "generation-second.tar", b"second"))
         loaded = lease.load()
@@ -199,7 +199,7 @@ def test_profile_directory_fsync_failure_reports_unknown_committed_generation(
                 raise OSError("simulated profile directory fsync failure")
             real_fsync_directory(path)
 
-        monkeypatch.setattr("smolvm.browser_profiles._fsync_directory", fail_profile_directory)
+        monkeypatch.setattr("celesto.browser_profiles._fsync_directory", fail_profile_directory)
         with pytest.raises(BrowserProfileOutcomeUnknownError) as raised:
             lease.save(archive(tmp_path, "pointer-second.tar", b"second"))
         loaded = lease.load()

@@ -24,15 +24,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from smolvm.exceptions import SmolVMError, VMNotFoundError
-from smolvm.types import NetworkConfig, VMConfig
-from smolvm.vm import SmolVMManager
+from celesto.exceptions import CelestoError, VMNotFoundError
+from celesto.types import NetworkConfig, VMConfig
+from celesto.vm import CelestoManager
 
 
 @pytest.fixture
-def manager(tmp_path: Path) -> SmolVMManager:
+def manager(tmp_path: Path) -> CelestoManager:
     """A manager with temporary directories and a stubbed host network."""
-    vm_manager = SmolVMManager(
+    vm_manager = CelestoManager(
         data_dir=tmp_path / "data",
         socket_dir=tmp_path / "sockets",
         backend="firecracker",
@@ -65,7 +65,7 @@ def config(tmp_path: Path) -> VMConfig:
     return VMConfig(vm_id="sbx-disk", kernel_path=kernel, rootfs_path=rootfs)
 
 
-def _disk(manager: SmolVMManager, vm_id: str = "sbx-disk") -> Path:
+def _disk(manager: CelestoManager, vm_id: str = "sbx-disk") -> Path:
     return manager.data_dir / "disks" / f"{vm_id}.ext4"
 
 
@@ -74,7 +74,7 @@ class TestFailedTeardownKeepsNoDisk:
 
     def test_delete_removes_disk_when_a_teardown_step_fails(
         self,
-        manager: SmolVMManager,
+        manager: CelestoManager,
         config: VMConfig,
     ) -> None:
         """delete() drops the row either way, so the disk has to go too."""
@@ -93,7 +93,7 @@ class TestFailedTeardownKeepsNoDisk:
     @pytest.mark.asyncio
     async def test_async_delete_removes_disk_when_a_teardown_step_fails(
         self,
-        manager: SmolVMManager,
+        manager: CelestoManager,
         config: VMConfig,
     ) -> None:
         """The async path drops the row the same way, so it must clean up too."""
@@ -111,7 +111,7 @@ class TestFailedTeardownKeepsNoDisk:
 
     def test_failed_network_teardown_still_releases_reservations(
         self,
-        manager: SmolVMManager,
+        manager: CelestoManager,
         config: VMConfig,
     ) -> None:
         """Leases and ports outlive the row too, so every release must run."""
@@ -136,7 +136,7 @@ class TestFailedTeardownKeepsNoDisk:
                 ssh_host_port=host_port,
             ),
         )
-        manager.network.cleanup_nat_rules.side_effect = SmolVMError("no outbound interface")
+        manager.network.cleanup_nat_rules.side_effect = CelestoError("no outbound interface")
 
         manager.delete("sbx-disk")
 
@@ -147,14 +147,14 @@ class TestFailedTeardownKeepsNoDisk:
 
     def test_create_rollback_removes_disk_when_cleanup_fails(
         self,
-        manager: SmolVMManager,
+        manager: CelestoManager,
         config: VMConfig,
     ) -> None:
         """A create that fails at TAP setup must not leave a full disk copy."""
-        manager.network.prepare_tap_device.side_effect = SmolVMError("no sudo")
-        manager.network.cleanup_nat_rules.side_effect = SmolVMError("no outbound interface")
+        manager.network.prepare_tap_device.side_effect = CelestoError("no sudo")
+        manager.network.cleanup_nat_rules.side_effect = CelestoError("no outbound interface")
 
-        with pytest.raises(SmolVMError, match="no sudo"):
+        with pytest.raises(CelestoError, match="no sudo"):
             manager.create(config)
 
         assert not _disk(manager).exists()
@@ -166,7 +166,7 @@ class TestInterruptedCreate:
 
     def test_keyboard_interrupt_while_materializing_leaves_no_disk(
         self,
-        manager: SmolVMManager,
+        manager: CelestoManager,
         config: VMConfig,
     ) -> None:
         """KeyboardInterrupt is a BaseException; the rollback must still run."""
@@ -176,7 +176,7 @@ class TestInterruptedCreate:
             raise KeyboardInterrupt
 
         with (
-            patch.object(SmolVMManager, "_copy_with_reflink", side_effect=interrupt),
+            patch.object(CelestoManager, "_copy_with_reflink", side_effect=interrupt),
             pytest.raises(KeyboardInterrupt),
         ):
             manager.create(config)
@@ -186,7 +186,7 @@ class TestInterruptedCreate:
     @pytest.mark.asyncio
     async def test_keyboard_interrupt_while_materializing_async_leaves_no_disk(
         self,
-        manager: SmolVMManager,
+        manager: CelestoManager,
         config: VMConfig,
     ) -> None:
         """Same guarantee for async_create()."""
@@ -196,7 +196,7 @@ class TestInterruptedCreate:
             raise KeyboardInterrupt
 
         with (
-            patch.object(SmolVMManager, "_async_copy_with_reflink", side_effect=interrupt),
+            patch.object(CelestoManager, "_async_copy_with_reflink", side_effect=interrupt),
             pytest.raises(KeyboardInterrupt),
         ):
             await manager.async_create(config)
@@ -209,10 +209,10 @@ class TestReclaimingDisksWithoutRows:
 
     def test_delete_reclaims_a_disk_whose_row_is_missing(
         self,
-        manager: SmolVMManager,
+        manager: CelestoManager,
         config: VMConfig,
     ) -> None:
-        """Deleting by name reclaims files an older SmolVM stranded."""
+        """Deleting by name reclaims files an older Celesto stranded."""
         manager.create(config)
         disk = _disk(manager)
         log = manager.data_dir / "sbx-disk.log"
@@ -227,10 +227,10 @@ class TestReclaimingDisksWithoutRows:
 
     def test_delete_keeps_a_saved_disk_whose_row_is_missing(
         self,
-        manager: SmolVMManager,
+        manager: CelestoManager,
         config: VMConfig,
     ) -> None:
-        """A disk the user asked SmolVM to keep survives a later delete."""
+        """A disk the user asked Celesto to keep survives a later delete."""
         saved = config.model_copy(update={"retain_disk_on_delete": True})
         manager.create(saved)
         disk = _disk(manager)
@@ -244,7 +244,7 @@ class TestReclaimingDisksWithoutRows:
 
     def test_saved_disk_is_marked_and_the_mark_clears_on_reuse(
         self,
-        manager: SmolVMManager,
+        manager: CelestoManager,
         config: VMConfig,
     ) -> None:
         """The marker is what tells a kept disk apart from a leaked one."""
@@ -262,7 +262,7 @@ class TestReclaimingDisksWithoutRows:
 
     def test_failed_create_leaves_a_saved_disk_still_marked(
         self,
-        manager: SmolVMManager,
+        manager: CelestoManager,
         config: VMConfig,
     ) -> None:
         """A create that reuses a saved disk and then fails must not unmark it."""
@@ -273,8 +273,8 @@ class TestReclaimingDisksWithoutRows:
         manager.delete("sbx-disk")
         assert marker.exists()
 
-        manager.network.prepare_tap_device.side_effect = SmolVMError("no sudo")
-        with pytest.raises(SmolVMError, match="no sudo"):
+        manager.network.prepare_tap_device.side_effect = CelestoError("no sudo")
+        with pytest.raises(CelestoError, match="no sudo"):
             manager.create(config)
 
         assert disk.exists()
@@ -283,7 +283,7 @@ class TestReclaimingDisksWithoutRows:
 
     def test_delete_removes_the_runtime_log(
         self,
-        manager: SmolVMManager,
+        manager: CelestoManager,
         config: VMConfig,
     ) -> None:
         """Logs are per-VM and nothing reads them once the VM is gone."""
@@ -297,11 +297,11 @@ class TestReclaimingDisksWithoutRows:
 
 
 class TestLeftoverSweep:
-    """``smolvm sandbox prune`` needs an accurate view of what is reclaimable."""
+    """``celesto sandbox prune`` needs an accurate view of what is reclaimable."""
 
     def test_reports_leftovers_and_leaves_live_sandboxes_alone(
         self,
-        manager: SmolVMManager,
+        manager: CelestoManager,
         config: VMConfig,
     ) -> None:
         """Only files whose sandbox is gone count as leftovers."""
@@ -316,7 +316,7 @@ class TestLeftoverSweep:
 
     def test_skips_saved_disks_unless_asked(
         self,
-        manager: SmolVMManager,
+        manager: CelestoManager,
         config: VMConfig,
     ) -> None:
         """Deleting state the user asked to keep needs an explicit opt-in."""
@@ -338,7 +338,7 @@ class TestLeftoverSweep:
 
     def test_dry_run_reports_without_deleting(
         self,
-        manager: SmolVMManager,
+        manager: CelestoManager,
         config: VMConfig,
     ) -> None:
         """A dry run has to be safe to run on a production data directory."""
@@ -352,7 +352,7 @@ class TestLeftoverSweep:
 
     def test_skips_a_disk_a_running_process_is_using(
         self,
-        manager: SmolVMManager,
+        manager: CelestoManager,
         config: VMConfig,
     ) -> None:
         """Sandboxes started from an SDK script are not in the CLI inventory."""
@@ -360,7 +360,7 @@ class TestLeftoverSweep:
         manager.state.delete_vm("sbx-disk")
 
         with patch.object(
-            SmolVMManager,
+            CelestoManager,
             "_running_process_args",
             return_value=f"qemu-system-aarch64 -drive file={_disk(manager)},if=virtio",
         ):
@@ -370,7 +370,7 @@ class TestLeftoverSweep:
 
     def test_refuses_to_sweep_when_running_sandboxes_cannot_be_listed(
         self,
-        manager: SmolVMManager,
+        manager: CelestoManager,
         config: VMConfig,
     ) -> None:
         """Without that check the sweep could delete a live sandbox's disk."""
@@ -378,8 +378,8 @@ class TestLeftoverSweep:
         manager.state.delete_vm("sbx-disk")
 
         with (
-            patch.object(SmolVMManager, "_running_process_args", return_value=None),
-            pytest.raises(SmolVMError, match="Cannot check which sandboxes are running"),
+            patch.object(CelestoManager, "_running_process_args", return_value=None),
+            pytest.raises(CelestoError, match="Cannot check which sandboxes are running"),
         ):
             manager.prune_leftover_artifacts()
 
@@ -391,7 +391,7 @@ class TestStrictBridgeCleanup:
 
     def test_failed_bridge_teardown_keeps_the_row_and_the_disk(
         self,
-        manager: SmolVMManager,
+        manager: CelestoManager,
         config: VMConfig,
     ) -> None:
         """Both have to survive so a later delete can retry the teardown."""

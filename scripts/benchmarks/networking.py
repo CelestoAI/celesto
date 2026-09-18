@@ -49,7 +49,7 @@ _NETWORK_MODULE: Any | None = None
 def _load_network_module() -> Any:
     global _NETWORK_MODULE
     if _NETWORK_MODULE is None:
-        import smolvm.host.network as network_module
+        import celesto.host.network as network_module
 
         _NETWORK_MODULE = network_module
     return _NETWORK_MODULE
@@ -126,8 +126,8 @@ def _assert_sysctl(key_path: str, expected: str) -> None:
 
 
 def _sudo_fallback_available() -> bool:
-    from smolvm.exceptions import SmolVMError
-    from smolvm.utils import run_command
+    from celesto.exceptions import CelestoError
+    from celesto.utils import run_command
 
     checks = [
         ["ip", "link", "show"],
@@ -137,7 +137,7 @@ def _sudo_fallback_available() -> bool:
     for cmd in checks:
         try:
             run_command(cmd, use_sudo=True)
-        except SmolVMError:
+        except CelestoError:
             return False
     return True
 
@@ -170,7 +170,7 @@ def _should_skip_mode(mode: str) -> str | None:
         if not _sudo_fallback_available():
             return (
                 "native mode needs root or CAP_NET_ADMIN; rerun this benchmark "
-                "with sudo for native speed, or run `smolvm setup` to enable fallback"
+                "with sudo for native speed, or run `celesto setup` to enable fallback"
             )
         return (
             "native mode needs root or CAP_NET_ADMIN; rerun this benchmark "
@@ -185,7 +185,7 @@ def _should_skip_mode(mode: str) -> str | None:
     if os.geteuid() == 0:
         return "unprivileged fallback needs a non-root process"
     if not _sudo_fallback_available():
-        return "sudo fallback is unavailable; run `smolvm setup` before measuring fallback"
+        return "sudo fallback is unavailable; run `celesto setup` before measuring fallback"
     return None
 
 
@@ -265,9 +265,9 @@ def _benchmark_network_stages(
 
 
 def _benchmark_full_start(boot_timeout: float) -> float:
-    from smolvm.facade import SmolVM
+    from celesto.facade import Celesto
 
-    vm = SmolVM(backend="firecracker", os="alpine", comm_channel="ssh")
+    vm = Celesto(backend="firecracker", os="alpine", comm_channel="ssh")
     started = time.perf_counter()
     try:
         vm.start(boot_timeout=boot_timeout)

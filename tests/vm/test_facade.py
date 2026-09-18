@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for SmolVM VM facade module."""
+"""Tests for Celesto VM facade module."""
 
 from pathlib import Path
 from unittest.mock import ANY, MagicMock, call, patch
@@ -20,14 +20,14 @@ from unittest.mock import ANY, MagicMock, call, patch
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
-from smolvm.exceptions import (
+from celesto.exceptions import (
+    CelestoError,
     CommandExecutionUnavailableError,
     OperationTimeoutError,
-    SmolVMError,
 )
-from smolvm.facade import SmolVM, _build_auto_config, _qcow2_virtual_size_mib
-from smolvm.images import BootImage, DirectKernelBoot, FirmwareBoot
-from smolvm.types import (
+from celesto.facade import Celesto, _build_auto_config, _qcow2_virtual_size_mib
+from celesto.images import BootImage, DirectKernelBoot, FirmwareBoot
+from celesto.types import (
     GuestFlushPolicy,
     GuestOS,
     PortForwardConfig,
@@ -37,7 +37,7 @@ from smolvm.types import (
     VMState,
     VsockConfig,
 )
-from smolvm.vm import SmolVMManager
+from celesto.vm import CelestoManager
 
 
 @pytest.fixture(autouse=True)
@@ -52,11 +52,11 @@ def _assume_backends_installed():
     False to assert the preflight fires.
     """
     with (
-        patch("smolvm.runtime.backends._firecracker_binary_present", return_value=True),
-        patch("smolvm.runtime.backends._kvm_accessible", return_value=True),
-        patch("smolvm.runtime.backends._qemu_system_binary", return_value="qemu-system-x86_64"),
-        patch("smolvm.runtime.backends._qemu_img_present", return_value=True),
-        patch("smolvm.runtime.backends.libkrun_available", return_value=True),
+        patch("celesto.runtime.backends._firecracker_binary_present", return_value=True),
+        patch("celesto.runtime.backends._kvm_accessible", return_value=True),
+        patch("celesto.runtime.backends._qemu_system_binary", return_value="qemu-system-x86_64"),
+        patch("celesto.runtime.backends._qemu_img_present", return_value=True),
+        patch("celesto.runtime.backends.libkrun_available", return_value=True),
     ):
         yield
 
@@ -81,7 +81,7 @@ def sample_config(tmp_path: Path) -> VMConfig:
 class TestDiskSizeHelpers:
     """Tests for guest-visible disk size inspection."""
 
-    @patch("smolvm.facade.subprocess.run")
+    @patch("celesto.facade.subprocess.run")
     def test_qcow2_virtual_size_allows_concurrent_access(self, mock_run: MagicMock) -> None:
         """A running QEMU process must not prevent virtual size inspection."""
         disk = Path("/tmp/running.qcow2")
@@ -99,7 +99,7 @@ class TestDiskSizeHelpers:
 class TestVMInit:
     """Tests for VM initialization."""
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_create_with_config(
         self,
         mock_sdk_cls: MagicMock,
@@ -110,12 +110,12 @@ class TestVMInit:
         mock_sdk.create.return_value = MagicMock(vm_id="vm001", status=VMState.CREATED)
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
 
         assert vm.vm_id == "vm001"
         mock_sdk.create.assert_called_once_with(sample_config)
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_create_with_config_accepts_qemu_machine_override(
         self,
         mock_sdk_cls: MagicMock,
@@ -126,13 +126,13 @@ class TestVMInit:
         mock_sdk.create.return_value = MagicMock(vm_id="vm001", status=VMState.CREATED)
         mock_sdk_cls.return_value = mock_sdk
 
-        SmolVM(sample_config, qemu_machine="q35")
+        Celesto(sample_config, qemu_machine="q35")
 
         created_config = mock_sdk.create.call_args.args[0]
         assert created_config.qemu_machine == "q35"
         assert sample_config.qemu_machine == "auto"
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_create_with_config_validates_qemu_machine_override(
         self,
         mock_sdk_cls: MagicMock,
@@ -140,11 +140,11 @@ class TestVMInit:
     ) -> None:
         """Invalid qemu_machine= values should be rejected before copying config."""
         with pytest.raises(PydanticValidationError):
-            SmolVM(sample_config, qemu_machine="pc")  # type: ignore[arg-type]
+            Celesto(sample_config, qemu_machine="pc")  # type: ignore[arg-type]
 
         mock_sdk_cls.assert_not_called()
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_create_with_config_without_vm_id(
         self,
         mock_sdk_cls: MagicMock,
@@ -165,7 +165,7 @@ class TestVMInit:
         mock_sdk.create.return_value = MagicMock(vm_id=config.vm_id, status=VMState.CREATED)
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(config)
+        vm = Celesto(config)
 
         assert vm.vm_id == config.vm_id
         assert vm.vm_id.startswith("sbx-")
@@ -174,12 +174,12 @@ class TestVMInit:
     def test_both_config_and_id_raises(self, sample_config: VMConfig) -> None:
         """Test that passing both config and vm_id raises ValueError."""
         with pytest.raises(ValueError, match="not both"):
-            SmolVM(sample_config, vm_id="vm001")
+            Celesto(sample_config, vm_id="vm001")
 
-    @patch("smolvm.facade.SmolVMManager")
-    @patch("smolvm.images.builder.ImageBuilder")
-    @patch("smolvm.utils.ensure_ssh_key")
-    @patch("smolvm.runtime.backends.platform.system", return_value="Linux")
+    @patch("celesto.facade.CelestoManager")
+    @patch("celesto.images.builder.ImageBuilder")
+    @patch("celesto.utils.ensure_ssh_key")
+    @patch("celesto.runtime.backends.platform.system", return_value="Linux")
     def test_neither_config_nor_id_autoconfigures(
         self,
         _: MagicMock,
@@ -207,7 +207,7 @@ class TestVMInit:
         mock_sdk.create.return_value = MagicMock(vm_id="vm001", status=VMState.CREATED)
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM()
+        vm = Celesto()
 
         assert vm.vm_id.startswith("sbx-")
         mock_builder.build_alpine_ssh_key.assert_called_once()
@@ -218,10 +218,10 @@ class TestVMInit:
         assert "init=/init" in created_config.boot_args
         assert created_config.memory == 512
 
-    @patch("smolvm.facade.SmolVMManager")
-    @patch("smolvm.images.builder.ImageBuilder")
-    @patch("smolvm.utils.ensure_ssh_key")
-    @patch("smolvm.runtime.backends.platform.system", return_value="Linux")
+    @patch("celesto.facade.CelestoManager")
+    @patch("celesto.images.builder.ImageBuilder")
+    @patch("celesto.utils.ensure_ssh_key")
+    @patch("celesto.runtime.backends.platform.system", return_value="Linux")
     def test_autoconfigure_with_custom_mem_and_disk(
         self,
         _: MagicMock,
@@ -249,7 +249,7 @@ class TestVMInit:
         mock_sdk.create.return_value = MagicMock(vm_id="vm001", status=VMState.CREATED)
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(memory=2048, disk_size=4096)
+        vm = Celesto(memory=2048, disk_size=4096)
 
         assert vm.vm_id.startswith("sbx-")
         mock_builder.build_alpine_ssh_key.assert_called_once()
@@ -258,10 +258,10 @@ class TestVMInit:
         created_config = mock_sdk.create.call_args[0][0]
         assert created_config.memory == 2048
 
-    @patch("smolvm.facade.SmolVMManager")
-    @patch("smolvm.images.builder.ImageBuilder")
-    @patch("smolvm.utils.ensure_ssh_key")
-    @patch("smolvm.runtime.backends.platform.system", return_value="Linux")
+    @patch("celesto.facade.CelestoManager")
+    @patch("celesto.images.builder.ImageBuilder")
+    @patch("celesto.utils.ensure_ssh_key")
+    @patch("celesto.runtime.backends.platform.system", return_value="Linux")
     def test_autoconfigure_passes_pubkey_to_vmconfig(
         self,
         _: MagicMock,
@@ -273,7 +273,7 @@ class TestVMInit:
         """Auto-config VMConfig must carry the user's pubkey for /init to inject at boot.
 
         Alpine/Debian SSH-key images no longer bake authorized_keys at build
-        time (see src/smolvm/images/builder.py); the key is delivered via the
+        time (see src/celesto/images/builder.py); the key is delivered via the
         kernel cmdline, which only fires when ssh_public_key is set.
         """
         kernel = tmp_path / "auto-kernel"
@@ -295,13 +295,13 @@ class TestVMInit:
         mock_sdk.create.return_value = MagicMock(vm_id="vm001", status=VMState.CREATED)
         mock_sdk_cls.return_value = mock_sdk
 
-        SmolVM()
+        Celesto()
 
         created_config = mock_sdk.create.call_args[0][0]
         assert created_config.ssh_public_key == pubkey_value
 
-    @patch("smolvm.images.published.ensure_published_image")
-    @patch("smolvm.utils.ensure_ssh_key")
+    @patch("celesto.images.published.ensure_published_image")
+    @patch("celesto.utils.ensure_ssh_key")
     def test_autoconfigure_ubuntu_rejects_undersized_disk(
         self,
         mock_ensure_ssh_key: MagicMock,
@@ -309,7 +309,7 @@ class TestVMInit:
         tmp_path: Path,
     ) -> None:
         """Ubuntu should reject --disk-size below the published rootfs size."""
-        from smolvm.images.manager import LocalImage
+        from celesto.images.manager import LocalImage
 
         priv = tmp_path / "id_ed25519"
         pub = tmp_path / "id_ed25519.pub"
@@ -337,7 +337,7 @@ class TestVMInit:
         message = str(exc_info.value)
         assert "Ubuntu needs at least 4096 MiB for sandbox 'project spacex; rm -rf'" in message
         assert (
-            "smolvm sandbox create --name 'project spacex; rm -rf' --os ubuntu "
+            "celesto sandbox create --name 'project spacex; rm -rf' --os ubuntu "
             "--backend qemu --disk-size 4096" in message
         )
 
@@ -349,8 +349,8 @@ class TestVMInit:
             ("libkrun", "libkrun"),
         ],
     )
-    @patch("smolvm.utils.ensure_ssh_key")
-    @patch("smolvm.images.published.ensure_published_image")
+    @patch("celesto.utils.ensure_ssh_key")
+    @patch("celesto.images.published.ensure_published_image")
     def test_autoconfigure_ubuntu_uses_published_rootfs(
         self,
         mock_ensure_published: MagicMock,
@@ -360,7 +360,7 @@ class TestVMInit:
         tmp_path: Path,
     ) -> None:
         """Ubuntu pulls the published raw-ext4 image and boots direct-kernel."""
-        from smolvm.images.manager import LocalImage
+        from celesto.images.manager import LocalImage
 
         priv = tmp_path / "id_ed25519"
         pub = tmp_path / "id_ed25519.pub"
@@ -404,8 +404,8 @@ class TestVMInit:
         assert config.grow_filesystem is False
         assert not config.extra_drives
 
-    @patch("smolvm.images.published.ensure_published_image")
-    @patch("smolvm.utils.ensure_ssh_key")
+    @patch("celesto.images.published.ensure_published_image")
+    @patch("celesto.utils.ensure_ssh_key")
     def test_autoconfigure_ubuntu_download_error_propagates(
         self,
         mock_ensure_ssh_key: MagicMock,
@@ -413,7 +413,7 @@ class TestVMInit:
         tmp_path: Path,
     ) -> None:
         """A published-but-broken image surfaces the original ImageError."""
-        from smolvm.exceptions import ImageError
+        from celesto.exceptions import ImageError
 
         priv = tmp_path / "id_ed25519"
         pub = tmp_path / "id_ed25519.pub"
@@ -425,8 +425,8 @@ class TestVMInit:
         with pytest.raises(ImageError, match="SHA-256 mismatch"):
             _build_auto_config(os="ubuntu", backend="firecracker")
 
-    @patch("smolvm.images.published.ensure_published_image")
-    @patch("smolvm.utils.ensure_ssh_key")
+    @patch("celesto.images.published.ensure_published_image")
+    @patch("celesto.utils.ensure_ssh_key")
     def test_autoconfigure_missing_backend_fails_fast_before_download(
         self,
         mock_ensure_ssh_key: MagicMock,
@@ -446,15 +446,15 @@ class TestVMInit:
         mock_ensure_ssh_key.return_value = (priv, pub)
 
         with (
-            patch("smolvm.runtime.backends._qemu_system_binary", return_value=None),
-            patch("smolvm.runtime.backends._qemu_img_present", return_value=False),
-            pytest.raises(SmolVMError, match="QEMU isn't installed"),
+            patch("celesto.runtime.backends._qemu_system_binary", return_value=None),
+            patch("celesto.runtime.backends._qemu_img_present", return_value=False),
+            pytest.raises(CelestoError, match="QEMU isn't installed"),
         ):
             _build_auto_config(os="ubuntu", backend="qemu")
 
         mock_ensure_published.assert_not_called()
 
-    @patch("smolvm.utils.ensure_ssh_key")
+    @patch("celesto.utils.ensure_ssh_key")
     def test_autoconfigure_missing_firecracker_names_sandbox_in_recovery(
         self,
         mock_ensure_ssh_key: MagicMock,
@@ -468,12 +468,12 @@ class TestVMInit:
         mock_ensure_ssh_key.return_value = (priv, pub)
 
         with (
-            patch("smolvm.runtime.backends._firecracker_binary_present", return_value=False),
-            pytest.raises(SmolVMError) as excinfo,
+            patch("celesto.runtime.backends._firecracker_binary_present", return_value=False),
+            pytest.raises(CelestoError) as excinfo,
         ):
             _build_auto_config(vm_name="sbx-einstein", backend="firecracker")
 
-        assert "smolvm sandbox create --name sbx-einstein --backend qemu" in str(excinfo.value)
+        assert "celesto sandbox create --name sbx-einstein --backend qemu" in str(excinfo.value)
 
     def test_firmware_boot_vmconfig_rejects_non_qemu_backend(
         self,
@@ -526,33 +526,33 @@ class TestVMInit:
         mock_sdk.create.return_value = MagicMock(
             vm_id="vm-fw-ok", status=VMState.CREATED, config=config
         )
-        with patch("smolvm.facade.SmolVMManager", return_value=mock_sdk):
-            vm = SmolVM(config)
+        with patch("celesto.facade.CelestoManager", return_value=mock_sdk):
+            vm = Celesto(config)
             assert vm.can_run_commands() is True
 
     def test_custom_auto_sizing_with_config_raises(self, sample_config: VMConfig) -> None:
         """Custom auto sizing options are only valid in zero-config mode."""
         with pytest.raises(ValueError, match="auto-config mode"):
-            SmolVM(sample_config, memory=1024)
+            Celesto(sample_config, memory=1024)
 
     def test_os_with_config_raises(self, sample_config: VMConfig) -> None:
         """Guest OS selection is only valid in zero-config mode."""
         with pytest.raises(ValueError, match="auto-config mode"):
-            SmolVM(sample_config, os="ubuntu")
+            Celesto(sample_config, os="ubuntu")
 
     def test_os_with_vm_id_raises(self) -> None:
         """Guest OS selection should be rejected when reconnecting to a VM."""
         with pytest.raises(ValueError, match="auto-config mode"):
-            SmolVM(vm_id="vm001", os="ubuntu")
+            Celesto(vm_id="vm001", os="ubuntu")
 
     def test_invalid_os_raises(self) -> None:
         """Unsupported guest OS names should raise a helpful error."""
         with pytest.raises(ValueError, match="Valid values: alpine, ubuntu"):
             _build_auto_config(os="fedora")
 
-    @patch("smolvm.images.builder.ImageBuilder")
-    @patch("smolvm.utils.ensure_ssh_key")
-    @patch("smolvm.runtime.backends.platform.system", return_value="Linux")
+    @patch("celesto.images.builder.ImageBuilder")
+    @patch("celesto.utils.ensure_ssh_key")
+    @patch("celesto.runtime.backends.platform.system", return_value="Linux")
     def test_named_auto_config_preserves_vm_name(
         self,
         _: MagicMock,
@@ -587,10 +587,10 @@ class TestVMInit:
         assert "init=/init" in config.boot_args
         mock_builder.build_alpine_ssh_key.assert_called_once()
 
-    @patch("smolvm.facade.build_seed_iso")
-    @patch("smolvm.facade.ImageManager")
-    @patch("smolvm.utils.ensure_ssh_key")
-    @patch("smolvm.images.published.ensure_published_image")
+    @patch("celesto.facade.build_seed_iso")
+    @patch("celesto.facade.ImageManager")
+    @patch("celesto.utils.ensure_ssh_key")
+    @patch("celesto.images.published.ensure_published_image")
     def test_named_auto_config_qemu_uses_published_ubuntu(
         self,
         mock_ensure_published: MagicMock,
@@ -600,7 +600,7 @@ class TestVMInit:
         tmp_path: Path,
     ) -> None:
         """QEMU auto-config should use the public published Ubuntu image."""
-        from smolvm.images.manager import LocalImage
+        from celesto.images.manager import LocalImage
 
         kernel = tmp_path / "vmlinux.bin"
         rootfs = tmp_path / "rootfs.ext4"
@@ -639,9 +639,9 @@ class TestVMInit:
         mock_image_manager_cls.assert_not_called()
         mock_build_seed_iso.assert_not_called()
 
-    @patch("smolvm.facade.build_seed_iso")
-    @patch("smolvm.facade.ImageManager")
-    @patch("smolvm.images.published.ensure_published_image")
+    @patch("celesto.facade.build_seed_iso")
+    @patch("celesto.facade.ImageManager")
+    @patch("celesto.images.published.ensure_published_image")
     def test_named_auto_config_qemu_uses_explicit_ssh_key(
         self,
         mock_ensure_published: MagicMock,
@@ -650,7 +650,7 @@ class TestVMInit:
         tmp_path: Path,
     ) -> None:
         """QEMU auto-config should put the explicit SSH key on the config."""
-        from smolvm.images.manager import LocalImage
+        from celesto.images.manager import LocalImage
 
         kernel = tmp_path / "vmlinux.bin"
         rootfs = tmp_path / "rootfs.ext4"
@@ -677,7 +677,7 @@ class TestVMInit:
         mock_image_manager_cls.assert_not_called()
         mock_build_seed_iso.assert_not_called()
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_from_id(self, mock_sdk_cls: MagicMock) -> None:
         """Test reconnecting to an existing VM by ID."""
         mock_sdk = MagicMock()
@@ -685,13 +685,13 @@ class TestVMInit:
         mock_sdk_cls.from_id.return_value = mock_sdk
 
         state_manager = MagicMock()
-        vm = SmolVM.from_id("vm001", state_manager=state_manager)
+        vm = Celesto.from_id("vm001", state_manager=state_manager)
 
         assert vm.vm_id == "vm001"
         mock_sdk_cls.from_id.assert_called_once()
         assert mock_sdk_cls.from_id.call_args.kwargs["state_manager"] is state_manager
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_from_snapshot(self, mock_sdk_cls: MagicMock) -> None:
         """from_snapshot() should restore the snapshot before attaching to the VM."""
         restore_manager = MagicMock()
@@ -708,7 +708,7 @@ class TestVMInit:
         mock_sdk_cls.return_value = restore_manager
         mock_sdk_cls.from_id.return_value = attach_manager
 
-        vm = SmolVM.from_snapshot("snap-001", comm_channel="vsock")
+        vm = Celesto.from_snapshot("snap-001", comm_channel="vsock")
 
         assert vm.vm_id == "vm001"
         assert vm._comm_channel_request == "vsock"
@@ -719,7 +719,7 @@ class TestVMInit:
         )
         mock_sdk_cls.from_id.assert_called_once()
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_from_snapshot_rejects_mismatched_backend(self, mock_sdk_cls: MagicMock) -> None:
         """from_snapshot() should reject an explicit backend that disagrees with the snapshot."""
         restore_manager = MagicMock()
@@ -727,8 +727,8 @@ class TestVMInit:
         restore_manager.get_snapshot.return_value = MagicMock(backend="firecracker")
         mock_sdk_cls.return_value = restore_manager
 
-        with pytest.raises(SmolVMError, match="does not match the snapshot backend"):
-            SmolVM.from_snapshot("snap-001", backend="qemu")
+        with pytest.raises(CelestoError, match="does not match the snapshot backend"):
+            Celesto.from_snapshot("snap-001", backend="qemu")
 
 
 class TestSnapshot:
@@ -747,13 +747,13 @@ class TestSnapshot:
         resume_source: bool,
     ) -> None:
         """Live-only validation should give CLI users a complete retry command."""
-        vm = SmolVM.__new__(SmolVM)
+        vm = Celesto.__new__(Celesto)
         vm._vm_id = "vm001"
 
         with pytest.raises(
-            SmolVMError,
+            CelestoError,
             match=(
-                r"smolvm sandbox snapshot create vm001 --snapshot-type disk "
+                r"celesto sandbox snapshot create vm001 --snapshot-type disk "
                 r"--resume-source --live-only"
             ),
         ):
@@ -765,7 +765,7 @@ class TestSnapshot:
 
     def test_disk_snapshot_syncs_guest_before_sdk_snapshot(self) -> None:
         """Disk-only snapshots should flush guest filesystem buffers first."""
-        vm = SmolVM.__new__(SmolVM)
+        vm = Celesto.__new__(Celesto)
         vm._vm_id = "vm001"
         vm._info = MagicMock(status=VMState.RUNNING)
         vm._refresh_info = MagicMock()
@@ -803,24 +803,24 @@ class TestSnapshot:
 
     def test_disk_snapshot_sync_failure_names_retry_command(self) -> None:
         """Disk snapshot sync failures should include a concrete retry command."""
-        vm = SmolVM.__new__(SmolVM)
+        vm = Celesto.__new__(Celesto)
         vm._vm_id = "vm001"
         vm._info = MagicMock(status=VMState.RUNNING)
         vm._refresh_info = MagicMock()
 
         channel = MagicMock()
-        channel.sync.side_effect = SmolVMError("sync failed")
+        channel.sync.side_effect = CelestoError("sync failed")
         vm._ensure_control_for_operation = MagicMock(return_value=channel)
 
         with pytest.raises(
-            SmolVMError,
-            match=r"smolvm sandbox snapshot create vm001 --snapshot-type disk",
+            CelestoError,
+            match=r"celesto sandbox snapshot create vm001 --snapshot-type disk",
         ):
             vm._sync_guest_for_disk_snapshot()
 
     def test_disk_snapshot_sync_timeout_preserves_operation_context(self) -> None:
         """Timeouts should keep the low-level operation name visible to callers."""
-        vm = SmolVM.__new__(SmolVM)
+        vm = Celesto.__new__(Celesto)
         vm._vm_id = "vm001"
         vm._info = MagicMock(status=VMState.RUNNING)
         vm._refresh_info = MagicMock()
@@ -837,13 +837,13 @@ class TestSnapshot:
 
     def test_disk_snapshot_best_effort_flush_continues_after_sync_failure(self) -> None:
         """Continuity snapshots may proceed crash-consistently when sync is unavailable."""
-        vm = SmolVM.__new__(SmolVM)
+        vm = Celesto.__new__(Celesto)
         vm._vm_id = "vm001"
         vm._info = MagicMock(status=VMState.RUNNING)
         vm._refresh_info = MagicMock()
         vm._reset_runtime_state = MagicMock()
         vm._ensure_control_for_operation = MagicMock()
-        vm._ensure_control_for_operation.return_value.sync.side_effect = SmolVMError(
+        vm._ensure_control_for_operation.return_value.sync.side_effect = CelestoError(
             "sync unavailable"
         )
         vm._sdk = MagicMock()
@@ -861,10 +861,10 @@ class TestSnapshot:
 
 
 class TestFromBootImage:
-    """Tests for SmolVM.from_image()."""
+    """Tests for Celesto.from_image()."""
 
-    @patch("smolvm.facade.SmolVMManager")
-    @patch("smolvm.facade.ensure_base_kernel_for_backend")
+    @patch("celesto.facade.CelestoManager")
+    @patch("celesto.facade.ensure_base_kernel_for_backend")
     def test_from_image_resolves_kernel_and_creates_vm(
         self,
         mock_kernel: MagicMock,
@@ -887,7 +887,7 @@ class TestFromBootImage:
         )
         inventory = MagicMock()
 
-        vm = SmolVM.from_image(
+        vm = Celesto.from_image(
             image,
             vm_id="vm-custom",
             backend="qemu",
@@ -915,8 +915,8 @@ class TestFromBootImage:
         assert "pci=off" not in created_config.boot_args
         mock_kernel.assert_called_once_with("qemu", arch="amd64")
 
-    @patch("smolvm.facade.SmolVMManager")
-    @patch("smolvm.facade.ensure_base_kernel_for_backend")
+    @patch("celesto.facade.CelestoManager")
+    @patch("celesto.facade.ensure_base_kernel_for_backend")
     def test_from_image_uses_existing_kernel_and_preserves_no_ssh(
         self,
         mock_kernel: MagicMock,
@@ -940,7 +940,7 @@ class TestFromBootImage:
             ssh_capable=False,
         )
 
-        SmolVM.from_image(image, vm_id="vm-agent")
+        Celesto.from_image(image, vm_id="vm-agent")
 
         created_config = mock_sdk.create.call_args.args[0]
         assert created_config.kernel_path == kernel
@@ -948,7 +948,7 @@ class TestFromBootImage:
         assert created_config.ssh_capable is False
         mock_kernel.assert_not_called()
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_from_image_firmware_creates_firmware_config(
         self,
         mock_sdk_cls: MagicMock,
@@ -966,7 +966,7 @@ class TestFromBootImage:
             boot=FirmwareBoot(),
         )
 
-        SmolVM.from_image(image, vm_id="vm-fw", guest_os="windows")
+        Celesto.from_image(image, vm_id="vm-fw", guest_os="windows")
 
         created_config = mock_sdk.create.call_args.args[0]
         assert created_config.boot_mode == "firmware"
@@ -975,7 +975,7 @@ class TestFromBootImage:
         assert created_config.boot_args == ""
         assert created_config.guest_os == GuestOS.WINDOWS
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_from_image_accepts_slirp_port_forwards(
         self,
         mock_sdk_cls: MagicMock,
@@ -997,7 +997,7 @@ class TestFromBootImage:
             backend="qemu",
         )
 
-        SmolVM.from_image(
+        Celesto.from_image(
             image,
             vm_id="vm-ports",
             network="slirp",
@@ -1022,10 +1022,10 @@ class TestFromBootImage:
             backend="qemu",
         )
 
-        with pytest.raises(ValueError, match="smolvm sandbox create --name vm-mismatch --help"):
-            SmolVM.from_image(image, vm_id="vm-mismatch", backend="firecracker")
+        with pytest.raises(ValueError, match="celesto sandbox create --name vm-mismatch --help"):
+            Celesto.from_image(image, vm_id="vm-mismatch", backend="firecracker")
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_from_image_passes_resize_knobs(
         self,
         mock_sdk_cls: MagicMock,
@@ -1046,7 +1046,7 @@ class TestFromBootImage:
             boot_args="console=ttyS0 root=/dev/vda rw",
         )
 
-        SmolVM.from_image(
+        Celesto.from_image(
             image,
             vm_id="vm-resize",
             disk_size_mb=4096,
@@ -1077,8 +1077,8 @@ class TestFromBootImage:
         )
         data_dir = tmp_path / "data"
 
-        with patch.object(SmolVMManager, "_grow_raw_ext4_filesystem") as mock_grow:
-            vm = SmolVM.from_image(
+        with patch.object(CelestoManager, "_grow_raw_ext4_filesystem") as mock_grow:
+            vm = Celesto.from_image(
                 image,
                 vm_id="vm-from-image-grow",
                 data_dir=data_dir,
@@ -1110,8 +1110,8 @@ class TestFromBootImage:
             backend="qemu",
         )
 
-        with pytest.raises(ValueError, match="smolvm sandbox port expose vm-tap-ports --help"):
-            SmolVM.from_image(
+        with pytest.raises(ValueError, match="celesto sandbox port expose vm-tap-ports --help"):
+            Celesto.from_image(
                 image,
                 vm_id="vm-tap-ports",
                 network="tap",
@@ -1132,8 +1132,8 @@ class TestFromBootImage:
             backend="qemu",
         )
 
-        with pytest.raises(ValueError, match="smolvm sandbox port expose vm-bad-port --help"):
-            SmolVM.from_image(
+        with pytest.raises(ValueError, match="celesto sandbox port expose vm-bad-port --help"):
+            Celesto.from_image(
                 image,
                 vm_id="vm-bad-port",
                 network="slirp",
@@ -1147,20 +1147,20 @@ class TestVMImageParam:
     def test_image_and_config_mutually_exclusive(self, sample_config: VMConfig) -> None:
         """Passing both image and config should raise ValueError."""
         with pytest.raises(ValueError, match="image cannot be combined"):
-            SmolVM(sample_config, image="s3://bucket/images/test/")
+            Celesto(sample_config, image="s3://bucket/images/test/")
 
     def test_image_and_vm_id_mutually_exclusive(self) -> None:
         """Passing both image and vm_id should raise ValueError."""
         with pytest.raises(ValueError, match="image cannot be combined"):
-            SmolVM(image="s3://bucket/images/test/", vm_id="existing-vm")
+            Celesto(image="s3://bucket/images/test/", vm_id="existing-vm")
 
     def test_image_and_os_mutually_exclusive(self) -> None:
         """Passing both image and os should raise ValueError."""
         with pytest.raises(ValueError, match="mutually exclusive"):
-            SmolVM(image="s3://bucket/images/test/", os="alpine")
+            Celesto(image="s3://bucket/images/test/", os="alpine")
 
-    @patch("smolvm.facade.SmolVMManager")
-    @patch("smolvm.facade._build_s3_image_config")
+    @patch("celesto.facade.CelestoManager")
+    @patch("celesto.facade._build_s3_image_config")
     def test_image_resolves_s3_and_creates_vm(
         self,
         mock_build_s3: MagicMock,
@@ -1186,7 +1186,7 @@ class TestVMImageParam:
         mock_sdk.create.return_value = MagicMock(vm_id="vm-s3test", status=VMState.CREATED)
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(image="s3://bucket/images/alpine/")
+        vm = Celesto(image="s3://bucket/images/alpine/")
 
         mock_build_s3.assert_called_once_with(
             image="s3://bucket/images/alpine/",
@@ -1198,8 +1198,8 @@ class TestVMImageParam:
         assert vm.vm_id == "vm-s3test"
         mock_sdk.create.assert_called_once_with(config)
 
-    @patch("smolvm.facade.SmolVMManager")
-    @patch("smolvm.facade._build_s3_image_config")
+    @patch("celesto.facade.CelestoManager")
+    @patch("celesto.facade._build_s3_image_config")
     def test_image_passes_backend_and_memory(
         self,
         mock_build_s3: MagicMock,
@@ -1225,7 +1225,7 @@ class TestVMImageParam:
         mock_sdk.create.return_value = MagicMock(vm_id="vm-s3mem", status=VMState.CREATED)
         mock_sdk_cls.return_value = mock_sdk
 
-        SmolVM(image="s3://bucket/img/", backend="qemu", memory=1024)
+        Celesto(image="s3://bucket/img/", backend="qemu", memory=1024)
 
         mock_build_s3.assert_called_once_with(
             image="s3://bucket/img/",
@@ -1241,7 +1241,7 @@ class TestVMLocalImageParam:
 
     def test_is_local_image_truth_table(self) -> None:
         """Detection should treat host paths and file:// URIs as local."""
-        from smolvm.facade import _is_local_image
+        from celesto.facade import _is_local_image
 
         # Locals
         assert _is_local_image("/abs/path/to/disk.qcow2")
@@ -1257,21 +1257,21 @@ class TestVMLocalImageParam:
     def test_windows_without_image_raises_plain_english(self) -> None:
         """`os='windows'` with no image= must surface a plain-English error."""
         with pytest.raises(ValueError, match="Windows guests need a pre-installed disk image"):
-            SmolVM(os="windows")
+            Celesto(os="windows")
 
     def test_windows_with_mounts_rejected(self, tmp_path: Path) -> None:
         """Workspace mounts on Windows guests are Phase 2 scope."""
         disk = tmp_path / "win11.qcow2"
         disk.touch()
         with pytest.raises(ValueError, match=r"mounts.* not yet supported for Windows"):
-            SmolVM(os="windows", image=str(disk), mounts=["/host/path"])
+            Celesto(os="windows", image=str(disk), mounts=["/host/path"])
 
     def test_windows_with_internet_settings_rejected(self, tmp_path: Path) -> None:
         """Egress allowlist on Windows guests is Phase 2 scope."""
         disk = tmp_path / "win11.qcow2"
         disk.touch()
-        with pytest.raises(SmolVMError, match="guest does not support network restrictions"):
-            SmolVM(
+        with pytest.raises(CelestoError, match="guest does not support network restrictions"):
+            Celesto(
                 os="windows",
                 image=str(disk),
                 internet_settings={"allowed_domains": ["https://api.openai.com"]},
@@ -1280,22 +1280,22 @@ class TestVMLocalImageParam:
     def test_s3_image_with_os_still_rejected(self) -> None:
         """The image+os ban is preserved for S3 images (only relaxed for locals)."""
         with pytest.raises(ValueError, match="mutually exclusive for S3 images"):
-            SmolVM(image="s3://bucket/images/alpine/", os="alpine")
+            Celesto(image="s3://bucket/images/alpine/", os="alpine")
 
     def test_local_image_with_non_windows_os_rejected(self, tmp_path: Path) -> None:
         """Local image with os='alpine' isn't supported in this release."""
         disk = tmp_path / "rootfs.ext4"
         disk.touch()
         with pytest.raises(ValueError, match="only support os='windows'"):
-            SmolVM(image=str(disk), os="alpine")
+            Celesto(image=str(disk), os="alpine")
 
     def test_local_image_missing_file_raises(self, tmp_path: Path) -> None:
         """A path that doesn't exist surfaces a plain-English error."""
         with pytest.raises(ValueError, match="does not exist"):
-            SmolVM(os="windows", image=str(tmp_path / "does-not-exist.qcow2"))
+            Celesto(os="windows", image=str(tmp_path / "does-not-exist.qcow2"))
 
-    @patch("smolvm.facade.SmolVMManager")
-    @patch("smolvm.facade._build_local_image_config")
+    @patch("celesto.facade.CelestoManager")
+    @patch("celesto.facade._build_local_image_config")
     def test_local_windows_image_routes_to_local_builder(
         self,
         mock_build_local: MagicMock,
@@ -1322,7 +1322,7 @@ class TestVMLocalImageParam:
         mock_sdk.create.return_value = MagicMock(vm_id="vm-win", status=VMState.CREATED)
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(os="windows", image=str(disk))
+        vm = Celesto(os="windows", image=str(disk))
 
         mock_build_local.assert_called_once()
         call_kwargs = mock_build_local.call_args.kwargs
@@ -1332,7 +1332,7 @@ class TestVMLocalImageParam:
 
     def test_build_local_image_config_produces_windows_vmconfig(self, tmp_path: Path) -> None:
         """_build_local_image_config returns a properly-shaped Windows VMConfig."""
-        from smolvm.facade import _build_local_image_config
+        from celesto.facade import _build_local_image_config
 
         disk = tmp_path / "win11.qcow2"
         disk.write_bytes(b"fake qcow2")
@@ -1352,7 +1352,7 @@ class TestVMLocalImageParam:
         assert config.kernel_path is None
         assert config.backend == "qemu"
         # Phase 3a: Windows now uses isolated (per-VM qcow2 overlay) so
-        # concurrent SmolVM(image=SAME) calls don't collide on the disk
+        # concurrent Celesto(image=SAME) calls don't collide on the disk
         # write lock and the baseline stays untouched.
         assert config.disk_mode == "isolated"
         assert config.rootfs_path == disk
@@ -1361,7 +1361,7 @@ class TestVMLocalImageParam:
 
     def test_build_local_image_config_rejects_non_qemu_backend(self, tmp_path: Path) -> None:
         """Firecracker + Windows = clear error before VMConfig validation."""
-        from smolvm.facade import _build_local_image_config
+        from celesto.facade import _build_local_image_config
 
         disk = tmp_path / "win11.qcow2"
         disk.touch()
@@ -1376,9 +1376,9 @@ class TestVMLocalImageParam:
 
 
 class TestVMSSHClientHelper:
-    """Tests for SmolVM._new_ssh_client (single source of SSH-client truth)."""
+    """Tests for Celesto._new_ssh_client (single source of SSH-client truth)."""
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_helper_uses_sh_shell_kind_for_linux_guests(
         self,
         mock_sdk_cls: MagicMock,
@@ -1393,7 +1393,7 @@ class TestVMSSHClientHelper:
         mock_sdk.create.return_value = info
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(sample_config, ssh_user="root", ssh_key_path="/k")
+        vm = Celesto(sample_config, ssh_user="root", ssh_key_path="/k")
         # key_path is per-call (the SSH wait loop tries different keys),
         # NOT pulled from self._ssh_key_path inside the helper.
         client = vm._new_ssh_client(host="10.0.2.15", key_path="/k")
@@ -1403,7 +1403,7 @@ class TestVMSSHClientHelper:
         assert client.key_path == "/k"
         assert client.password is None
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_helper_uses_powershell_for_windows_guests(
         self,
         mock_sdk_cls: MagicMock,
@@ -1431,7 +1431,7 @@ class TestVMSSHClientHelper:
         mock_sdk_cls.return_value = mock_sdk
 
         # Construct via the same local-image path that real Windows users hit.
-        vm = SmolVM(
+        vm = Celesto(
             os="windows",
             image=str(disk),
             ssh_user="celesto",
@@ -1444,7 +1444,7 @@ class TestVMSSHClientHelper:
         assert client.password == "celesto"
         assert client.port == 2222
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_ssh_password_threads_to_client(
         self,
         mock_sdk_cls: MagicMock,
@@ -1459,7 +1459,7 @@ class TestVMSSHClientHelper:
         mock_sdk.create.return_value = info
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(sample_config, ssh_password="secret-pw")
+        vm = Celesto(sample_config, ssh_password="secret-pw")
         client = vm._new_ssh_client(host="10.0.2.15")
         assert client.password == "secret-pw"
 
@@ -1487,7 +1487,7 @@ class TestWindowsGuestPathHelpers:
         ],
     )
     def test_is_windows_guest_path_truth_table(self, path: str, is_windows: bool) -> None:
-        from smolvm.facade import _is_windows_guest_path
+        from celesto.facade import _is_windows_guest_path
 
         assert _is_windows_guest_path(path) is is_windows
 
@@ -1503,7 +1503,7 @@ class TestWindowsGuestPathHelpers:
         ],
     )
     def test_windows_guest_parent_dir(self, path: str, expected: str) -> None:
-        from smolvm.facade import _windows_guest_parent_dir
+        from celesto.facade import _windows_guest_parent_dir
 
         assert _windows_guest_parent_dir(path) == expected
 
@@ -1523,7 +1523,7 @@ class TestWindowsGuestPathHelpers:
     )
     def test_windows_path_for_powershell(self, path: str, expected: str) -> None:
         """The PowerShell-bound form must never start with ``/`` (PSH chokes)."""
-        from smolvm.facade import _windows_path_for_powershell
+        from celesto.facade import _windows_path_for_powershell
 
         assert _windows_path_for_powershell(path) == expected
         # And every form is safe to embed as a PowerShell -Path argument.
@@ -1533,7 +1533,7 @@ class TestWindowsGuestPathHelpers:
 class TestVMUploadDownloadWindows:
     """Tests for Windows-guest upload/download path acceptance + mkdir."""
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_upload_accepts_windows_path_and_uses_powershell_mkdir(
         self,
         mock_sdk_cls: MagicMock,
@@ -1567,7 +1567,7 @@ class TestVMUploadDownloadWindows:
         ssh = MagicMock()
         ssh.run.return_value = MagicMock(exit_code=0, stderr="")
 
-        vm = SmolVM(
+        vm = Celesto(
             os="windows",
             image=str(disk),
             ssh_user="celesto",
@@ -1586,7 +1586,7 @@ class TestVMUploadDownloadWindows:
         )
         ssh.put_file.assert_called_once_with(source, "C:\\Users\\celesto\\hello.ps1")
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_upload_rejects_relative_path_on_windows_too(
         self,
         mock_sdk_cls: MagicMock,
@@ -1615,7 +1615,7 @@ class TestVMUploadDownloadWindows:
         mock_sdk.get.return_value = running_info
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(
+        vm = Celesto(
             os="windows",
             image=str(disk),
             ssh_user="celesto",
@@ -1624,7 +1624,7 @@ class TestVMUploadDownloadWindows:
         with pytest.raises(ValueError, match="absolute"):
             vm.upload_file(source, "relative/path.txt")
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_download_accepts_windows_path(
         self,
         mock_sdk_cls: MagicMock,
@@ -1654,7 +1654,7 @@ class TestVMUploadDownloadWindows:
 
         ssh = MagicMock()
 
-        vm = SmolVM(
+        vm = Celesto(
             os="windows",
             image=str(disk),
             ssh_user="celesto",
@@ -1672,17 +1672,17 @@ class TestVMWindowsEnvVarsAccepted:
     """Phase 3b: env_vars on Windows VMConfigs is now accepted.
 
     Replaces the Phase-2 ``TestVMWindowsEnvVarsRejection`` — the
-    setx/HKCU-based injection lives in :mod:`smolvm.env_windows` and
-    SmolVM.__init__ no longer rejects upfront.
+    setx/HKCU-based injection lives in :mod:`celesto.env_windows` and
+    Celesto.__init__ no longer rejects upfront.
     """
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_env_vars_on_windows_vmconfig_accepted_at_init(
         self,
         mock_sdk_cls: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """SmolVM(config=...) with Windows+env_vars constructs without raising."""
+        """Celesto(config=...) with Windows+env_vars constructs without raising."""
         disk = tmp_path / "win11.qcow2"
         disk.touch()
 
@@ -1703,9 +1703,9 @@ class TestVMWindowsEnvVarsAccepted:
         mock_sdk.create.return_value = info
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(info.config)
+        vm = Celesto(info.config)
         # Construction succeeds; the actual injection runs inside
-        # SmolVM.start() against a real SSH client (covered in tests
+        # Celesto.start() against a real SSH client (covered in tests
         # against the env_windows module directly).
         assert vm._info.config.env_vars == {"FOO": "bar"}
 
@@ -1719,7 +1719,7 @@ class TestVMWindowsEnvDispatch:
         tmp_path: Path,
         *,
         env_vars: dict[str, str] | None = None,
-    ) -> SmolVM:
+    ) -> Celesto:
         disk = tmp_path / "win11.qcow2"
         disk.touch()
         running_info = MagicMock(vm_id="vm-win", status=VMState.RUNNING)
@@ -1744,14 +1744,14 @@ class TestVMWindowsEnvDispatch:
         mock_sdk.start.return_value = running_info
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(running_info.config, ssh_user="celesto", ssh_password="celesto")
+        vm = Celesto(running_info.config, ssh_user="celesto", ssh_password="celesto")
         vm._ssh = MagicMock()
         vm._ssh_ready = True
         return vm
 
-    @patch("smolvm.facade.inject_env_vars")
-    @patch("smolvm.facade.inject_env_vars_windows")
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.inject_env_vars")
+    @patch("celesto.facade.inject_env_vars_windows")
+    @patch("celesto.facade.CelestoManager")
     def test_set_env_vars_dispatches_to_windows_injector(
         self,
         mock_sdk_cls: MagicMock,
@@ -1769,9 +1769,9 @@ class TestVMWindowsEnvDispatch:
         mock_inject_win.assert_called_once_with(vm._ssh, {"FOO": "bar"}, merge=True)
         mock_inject_linux.assert_not_called()
 
-    @patch("smolvm.facade.remove_env_vars")
-    @patch("smolvm.facade.remove_env_vars_windows")
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.remove_env_vars")
+    @patch("celesto.facade.remove_env_vars_windows")
+    @patch("celesto.facade.CelestoManager")
     def test_unset_env_vars_dispatches_to_windows_remover(
         self,
         mock_sdk_cls: MagicMock,
@@ -1789,9 +1789,9 @@ class TestVMWindowsEnvDispatch:
         mock_remove_win.assert_called_once_with(vm._ssh, ["FOO"])
         mock_remove_linux.assert_not_called()
 
-    @patch("smolvm.facade.read_env_vars")
-    @patch("smolvm.facade.read_env_vars_windows")
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.read_env_vars")
+    @patch("celesto.facade.read_env_vars_windows")
+    @patch("celesto.facade.CelestoManager")
     def test_list_env_vars_dispatches_to_windows_reader(
         self,
         mock_sdk_cls: MagicMock,
@@ -1809,10 +1809,10 @@ class TestVMWindowsEnvDispatch:
         mock_read_win.assert_called_once_with(vm._ssh)
         mock_read_linux.assert_not_called()
 
-    @patch("smolvm.facade.inject_env_vars")
-    @patch("smolvm.facade.inject_env_vars_windows")
-    @patch("smolvm.facade.SSHClient")
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.inject_env_vars")
+    @patch("celesto.facade.inject_env_vars_windows")
+    @patch("celesto.facade.SSHClient")
+    @patch("celesto.facade.CelestoManager")
     def test_start_on_windows_vm_uses_windows_injector(
         self,
         mock_sdk_cls: MagicMock,
@@ -1855,7 +1855,7 @@ class TestVMWindowsEnvDispatch:
         mock_ssh_cls.return_value = mock_ssh
         mock_inject_win.return_value = ["FOO"]
 
-        vm = SmolVM(config, ssh_user="celesto", ssh_password="celesto")
+        vm = Celesto(config, ssh_user="celesto", ssh_password="celesto")
         vm.start()
 
         mock_inject_win.assert_called_once_with(mock_ssh, {"FOO": "bar"})
@@ -1865,7 +1865,7 @@ class TestVMWindowsEnvDispatch:
 class TestVMLifecycle:
     """Tests for VM lifecycle operations."""
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_start_returns_self(
         self,
         mock_sdk_cls: MagicMock,
@@ -1885,13 +1885,13 @@ class TestVMLifecycle:
         mock_sdk.start.return_value = running_info
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         result = vm.start()
 
         assert result is vm
         mock_sdk.start.assert_called_once()
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_start_noop_if_already_running(
         self,
         mock_sdk_cls: MagicMock,
@@ -1906,13 +1906,13 @@ class TestVMLifecycle:
         mock_sdk.create.return_value = running_info
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         result = vm.start()
 
         assert result is vm
         mock_sdk.start.assert_not_called()
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_start_resumes_paused_vm(
         self,
         mock_sdk_cls: MagicMock,
@@ -1932,14 +1932,14 @@ class TestVMLifecycle:
         mock_sdk.resume.return_value = running_info
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         result = vm.start()
 
         assert result is vm
         mock_sdk.resume.assert_called_once_with("vm001")
         mock_sdk.start.assert_not_called()
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_stop_returns_self(
         self,
         mock_sdk_cls: MagicMock,
@@ -1951,13 +1951,13 @@ class TestVMLifecycle:
         mock_sdk.stop.return_value = MagicMock(vm_id="vm001", status=VMState.STOPPED)
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         result = vm.stop()
 
         assert result is vm
         mock_sdk.stop.assert_called_once()
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_delete(
         self,
         mock_sdk_cls: MagicMock,
@@ -1968,7 +1968,7 @@ class TestVMLifecycle:
         mock_sdk.create.return_value = MagicMock(vm_id="vm001", status=VMState.CREATED)
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         vm.delete()
 
         mock_sdk.delete.assert_called_once_with("vm001")
@@ -1977,7 +1977,7 @@ class TestVMLifecycle:
 class TestVMRun:
     """Tests for command execution on the VM."""
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_can_run_commands_requires_explicit_ssh_capability_for_initrd(
         self,
         mock_sdk_cls: MagicMock,
@@ -2005,11 +2005,11 @@ class TestVMRun:
         mock_sdk.create.return_value = mock_info
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(config)
+        vm = Celesto(config)
 
         assert vm.can_run_commands() is False
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_can_run_commands_allows_initrd_only_when_explicitly_ssh_capable(
         self,
         mock_sdk_cls: MagicMock,
@@ -2038,12 +2038,12 @@ class TestVMRun:
         mock_sdk.create.return_value = mock_info
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(config)
+        vm = Celesto(config)
 
         assert vm.can_run_commands() is True
 
-    @patch("smolvm.facade.SSHClient")
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.SSHClient")
+    @patch("celesto.facade.CelestoManager")
     def test_run_on_running_vm(
         self,
         mock_sdk_cls: MagicMock,
@@ -2069,7 +2069,7 @@ class TestVMRun:
         mock_ssh.run.return_value = MagicMock(exit_code=0, stdout="ok\n", stderr="")
         mock_ssh_cls.return_value = mock_ssh
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         result = vm.run("echo ok")
 
         assert result.exit_code == 0
@@ -2078,8 +2078,8 @@ class TestVMRun:
         assert 0.5 <= wait_timeout <= 30.0
         mock_ssh.run.assert_called_once_with("echo ok", timeout=30, shell="login")
 
-    @patch("smolvm.facade.SSHClient")
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.SSHClient")
+    @patch("celesto.facade.CelestoManager")
     def test_run_raw_shell_mode(
         self,
         mock_sdk_cls: MagicMock,
@@ -2105,7 +2105,7 @@ class TestVMRun:
         mock_ssh.run.return_value = MagicMock(exit_code=0, stdout="ok\n", stderr="")
         mock_ssh_cls.return_value = mock_ssh
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         vm.run("echo ok", shell="raw")
 
         mock_ssh.wait_for_ssh.assert_called_once()
@@ -2113,8 +2113,8 @@ class TestVMRun:
         assert 0.5 <= wait_timeout <= 30.0
         mock_ssh.run.assert_called_once_with("echo ok", timeout=30, shell="raw")
 
-    @patch("smolvm.facade.SSHClient")
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.SSHClient")
+    @patch("celesto.facade.CelestoManager")
     def test_run_waits_for_ssh_once(
         self,
         mock_sdk_cls: MagicMock,
@@ -2140,7 +2140,7 @@ class TestVMRun:
         mock_ssh.run.return_value = MagicMock(exit_code=0, stdout="ok\n", stderr="")
         mock_ssh_cls.return_value = mock_ssh
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         vm.run("echo one")
         vm.run("echo two")
 
@@ -2149,8 +2149,8 @@ class TestVMRun:
         assert 0.5 <= wait_timeout <= 30.0
         assert mock_ssh.run.call_count == 2
 
-    @patch("smolvm.facade.SSHClient")
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.SSHClient")
+    @patch("celesto.facade.CelestoManager")
     def test_run_falls_back_to_guest_ip_when_localhost_unreachable(
         self,
         mock_sdk_cls: MagicMock,
@@ -2179,7 +2179,7 @@ class TestVMRun:
         guest_client.run.return_value = MagicMock(exit_code=0, stdout="ok\n", stderr="")
         mock_ssh_cls.side_effect = [localhost_client, guest_client]
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         result = vm.run("echo ok")
 
         assert result.exit_code == 0
@@ -2191,8 +2191,8 @@ class TestVMRun:
         guest_client.wait_for_ssh.assert_called_once()
         guest_client.run.assert_called_once_with("echo ok", timeout=30, shell="login")
 
-    @patch("smolvm.facade.SSHClient")
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.SSHClient")
+    @patch("celesto.facade.CelestoManager")
     def test_wait_for_ssh_falls_back_to_guest_ip_when_localhost_unreachable(
         self,
         mock_sdk_cls: MagicMock,
@@ -2220,7 +2220,7 @@ class TestVMRun:
         guest_client = MagicMock()
         mock_ssh_cls.side_effect = [localhost_client, guest_client]
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         vm.wait_for_ssh(timeout=20.0)
 
         assert mock_ssh_cls.call_count == 2
@@ -2229,8 +2229,8 @@ class TestVMRun:
         assert vm._ssh is guest_client
         assert vm._ssh_ready is True
 
-    @patch("smolvm.facade.SSHClient")
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.SSHClient")
+    @patch("celesto.facade.CelestoManager")
     def test_wait_for_ssh_ensures_network_connectivity(
         self,
         mock_sdk_cls: MagicMock,
@@ -2262,7 +2262,7 @@ class TestVMRun:
         )
         call_order.attach_mock(mock_ssh.wait_for_ssh, "wait_for_ssh")
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         vm.wait_for_ssh(timeout=20.0)
 
         assert call_order.mock_calls == [
@@ -2270,8 +2270,8 @@ class TestVMRun:
             call.wait_for_ssh(timeout=ANY),
         ]
 
-    @patch("smolvm.facade.SSHClient")
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.SSHClient")
+    @patch("celesto.facade.CelestoManager")
     def test_wait_for_ssh_falls_back_to_default_smolvm_key_when_no_key_configured(
         self,
         mock_sdk_cls: MagicMock,
@@ -2281,9 +2281,9 @@ class TestVMRun:
     ) -> None:
         """wait_for_ssh() without an explicit key should retry with ~/.smolvm/keys/id_ed25519.
 
-        Regression test for: smolvm sandbox ssh <name> failing with 'Authentication failed'
-        after smolvm sandbox create, because from_id() sets ssh_key_path=None but the VM
-        was provisioned with the default SmolVM key.
+        Regression test for: celesto sandbox ssh <name> failing with 'Authentication failed'
+        after celesto sandbox create, because from_id() sets ssh_key_path=None but the VM
+        was provisioned with the default Celesto key.
         """
         mock_network = MagicMock()
         mock_network.guest_ip = "172.16.0.2"
@@ -2326,10 +2326,10 @@ class TestVMRun:
 
         mock_ssh_cls.side_effect = [no_key_client_1, no_key_client_2, key_client]
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
 
         with patch(
-            "smolvm.utils.ensure_ssh_key",
+            "celesto.utils.ensure_ssh_key",
             return_value=(default_key_path, default_key_path.parent / "id_ed25519.pub"),
         ):
             vm.wait_for_ssh(timeout=30.0)
@@ -2341,8 +2341,8 @@ class TestVMRun:
         assert vm._ssh is key_client
         assert vm._ssh_ready is True
 
-    @patch("smolvm.facade.SSHClient")
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.SSHClient")
+    @patch("celesto.facade.CelestoManager")
     def test_run_on_non_ssh_boot_profile_raises_clear_error(
         self,
         mock_sdk_cls: MagicMock,
@@ -2364,14 +2364,14 @@ class TestVMRun:
         mock_sdk.get.return_value = mock_info
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         with pytest.raises(CommandExecutionUnavailableError, match="SSH-capable boot path"):
             vm.run("echo test")
 
         mock_ssh_cls.assert_not_called()
 
-    @patch("smolvm.facade.SSHClient")
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.SSHClient")
+    @patch("celesto.facade.CelestoManager")
     def test_run_maps_ssh_readiness_timeout_to_clear_error(
         self,
         mock_sdk_cls: MagicMock,
@@ -2397,13 +2397,13 @@ class TestVMRun:
         mock_ssh.wait_for_ssh.side_effect = OperationTimeoutError("wait_for_ssh", 30.0)
         mock_ssh_cls.return_value = mock_ssh
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         with pytest.raises(CommandExecutionUnavailableError, match="SSH did not become ready"):
             vm.run("echo test")
 
         mock_ssh.run.assert_not_called()
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_run_on_stopped_vm_raises(
         self,
         mock_sdk_cls: MagicMock,
@@ -2418,8 +2418,8 @@ class TestVMRun:
         mock_sdk.get.return_value = mock_info
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(sample_config)
-        with pytest.raises(SmolVMError, match="Start sandbox 'vm001'"):
+        vm = Celesto(sample_config)
+        with pytest.raises(CelestoError, match="Start sandbox 'vm001'"):
             vm.run("echo test")
 
 
@@ -2427,7 +2427,7 @@ class TestVMGuestTcpPortWait:
     """Tests for facade-level guest TCP port waits."""
 
     @staticmethod
-    def _running_vsock_vm(sample_config: VMConfig, mock_sdk_cls: MagicMock) -> SmolVM:
+    def _running_vsock_vm(sample_config: VMConfig, mock_sdk_cls: MagicMock) -> Celesto:
         config = sample_config.model_copy(
             update={
                 "backend": "qemu",
@@ -2444,9 +2444,9 @@ class TestVMGuestTcpPortWait:
         mock_sdk.get.return_value = running_info
         mock_sdk_cls.return_value = mock_sdk
 
-        return SmolVM(config)
+        return Celesto(config)
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_wait_for_guest_tcp_ports_uses_vsock_protocol_wait(
         self,
         mock_sdk_cls: MagicMock,
@@ -2469,7 +2469,7 @@ class TestVMGuestTcpPortWait:
             host="127.0.0.1",
         )
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_wait_for_guest_tcp_ports_returns_false_after_protocol_timeout(
         self,
         mock_sdk_cls: MagicMock,
@@ -2494,7 +2494,7 @@ class TestVMGuestTcpPortWait:
             host="127.0.0.1",
         )
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_wait_for_guest_tcp_ports_returns_none_when_protocol_wait_missing(
         self,
         mock_sdk_cls: MagicMock,
@@ -2521,7 +2521,7 @@ class TestVMQemuLocalExpose:
         mock_sdk_cls: MagicMock,
         sample_config: VMConfig,
         tmp_path: Path,
-    ) -> SmolVM:
+    ) -> Celesto:
         config = sample_config.model_copy(update={"backend": "qemu", "qemu_network": "slirp"})
         mock_network = MagicMock()
         mock_network.guest_ip = "10.0.2.15"
@@ -2539,7 +2539,7 @@ class TestVMQemuLocalExpose:
         mock_sdk.network = MagicMock()
         mock_sdk_cls.return_value = mock_sdk
 
-        return SmolVM(config)
+        return Celesto(config)
 
     @staticmethod
     def _qmp_client(mock_qmp_cls: MagicMock) -> MagicMock:
@@ -2547,7 +2547,7 @@ class TestVMQemuLocalExpose:
         mock_qmp_cls.return_value.__enter__.return_value = client
         return client
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_qemu_slirp_expose_local_uses_qmp_hostfwd_before_ssh(
         self,
         mock_sdk_cls: MagicMock,
@@ -2555,10 +2555,10 @@ class TestVMQemuLocalExpose:
         tmp_path: Path,
     ) -> None:
         with (
-            patch("smolvm.facade.QMPClient") as mock_qmp_cls,
-            patch("smolvm.facade.SmolVM._allocate_local_port", return_value=18081),
-            patch("smolvm.facade.SmolVM._probe_local_forward", return_value=True),
-            patch("smolvm.facade.SmolVM._start_local_tunnel") as mock_start_tunnel,
+            patch("celesto.facade.QMPClient") as mock_qmp_cls,
+            patch("celesto.facade.Celesto._allocate_local_port", return_value=18081),
+            patch("celesto.facade.Celesto._probe_local_forward", return_value=True),
+            patch("celesto.facade.Celesto._start_local_tunnel") as mock_start_tunnel,
         ):
             client = self._qmp_client(mock_qmp_cls)
             vm = self._running_qemu_vm(mock_sdk_cls, sample_config, tmp_path)
@@ -2575,7 +2575,7 @@ class TestVMQemuLocalExpose:
         mock_start_tunnel.assert_not_called()
         mock_sdk_cls.return_value.network.setup_local_port_forward.assert_not_called()
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_ssh_endpoints_include_tracked_qemu_hostfwd(
         self,
         mock_sdk_cls: MagicMock,
@@ -2583,8 +2583,8 @@ class TestVMQemuLocalExpose:
         tmp_path: Path,
     ) -> None:
         with (
-            patch("smolvm.facade.QMPClient"),
-            patch("smolvm.facade.SmolVM._probe_local_forward", return_value=True),
+            patch("celesto.facade.QMPClient"),
+            patch("celesto.facade.Celesto._probe_local_forward", return_value=True),
         ):
             vm = self._running_qemu_vm(mock_sdk_cls, sample_config, tmp_path)
 
@@ -2593,8 +2593,8 @@ class TestVMQemuLocalExpose:
         assert host_port == 18022
         assert vm._ssh_endpoints()[0] == ("127.0.0.1", 18022)
 
-    @patch("smolvm.facade.SSHClient")
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.SSHClient")
+    @patch("celesto.facade.CelestoManager")
     def test_wait_for_ssh_prepares_qemu_hostfwd_before_port_is_ready(
         self,
         mock_sdk_cls: MagicMock,
@@ -2603,9 +2603,9 @@ class TestVMQemuLocalExpose:
         tmp_path: Path,
     ) -> None:
         with (
-            patch("smolvm.facade.QMPClient") as mock_qmp_cls,
-            patch("smolvm.facade.SmolVM._allocate_local_port", return_value=18022),
-            patch("smolvm.facade.SmolVM._probe_local_forward") as mock_probe,
+            patch("celesto.facade.QMPClient") as mock_qmp_cls,
+            patch("celesto.facade.Celesto._allocate_local_port", return_value=18022),
+            patch("celesto.facade.Celesto._probe_local_forward") as mock_probe,
         ):
             client = self._qmp_client(mock_qmp_cls)
             vm = self._running_qemu_vm(mock_sdk_cls, sample_config, tmp_path)
@@ -2621,7 +2621,7 @@ class TestVMQemuLocalExpose:
         assert mock_ssh_cls.call_args.kwargs["host"] == "127.0.0.1"
         assert mock_ssh_cls.call_args.kwargs["port"] == 18022
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_unexpose_local_removes_qemu_hostfwd(
         self,
         mock_sdk_cls: MagicMock,
@@ -2629,9 +2629,9 @@ class TestVMQemuLocalExpose:
         tmp_path: Path,
     ) -> None:
         with (
-            patch("smolvm.facade.QMPClient") as mock_qmp_cls,
-            patch("smolvm.facade.SmolVM._allocate_local_port", return_value=18081),
-            patch("smolvm.facade.SmolVM._probe_local_forward", return_value=True),
+            patch("celesto.facade.QMPClient") as mock_qmp_cls,
+            patch("celesto.facade.Celesto._allocate_local_port", return_value=18081),
+            patch("celesto.facade.Celesto._probe_local_forward", return_value=True),
         ):
             client = self._qmp_client(mock_qmp_cls)
             vm = self._running_qemu_vm(mock_sdk_cls, sample_config, tmp_path)
@@ -2650,7 +2650,7 @@ class TestVMQemuLocalExpose:
             ),
         ]
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_qemu_hostfwd_failure_falls_back_to_ssh_tunnel(
         self,
         mock_sdk_cls: MagicMock,
@@ -2659,16 +2659,16 @@ class TestVMQemuLocalExpose:
     ) -> None:
         tunnel_proc = MagicMock()
         with (
-            patch("smolvm.facade.QMPClient") as mock_qmp_cls,
-            patch("smolvm.facade.SmolVM._allocate_local_port", return_value=18081),
-            patch("smolvm.facade.SmolVM._probe_local_forward", return_value=False),
+            patch("celesto.facade.QMPClient") as mock_qmp_cls,
+            patch("celesto.facade.Celesto._allocate_local_port", return_value=18081),
+            patch("celesto.facade.Celesto._probe_local_forward", return_value=False),
             patch(
-                "smolvm.facade.SmolVM._start_local_tunnel",
+                "celesto.facade.Celesto._start_local_tunnel",
                 return_value=tunnel_proc,
             ) as mock_start_tunnel,
         ):
             client = self._qmp_client(mock_qmp_cls)
-            client.execute.side_effect = SmolVMError("qmp unavailable")
+            client.execute.side_effect = CelestoError("qmp unavailable")
             vm = self._running_qemu_vm(mock_sdk_cls, sample_config, tmp_path)
 
             host_port = vm.expose_local(guest_port=8080, host_port=18080)
@@ -2680,7 +2680,7 @@ class TestVMQemuLocalExpose:
         )
         mock_start_tunnel.assert_called_once_with(host_port=18080, guest_port=8080)
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_qemu_hostfwd_probe_failure_removes_rule_before_ssh_fallback(
         self,
         mock_sdk_cls: MagicMock,
@@ -2689,11 +2689,11 @@ class TestVMQemuLocalExpose:
     ) -> None:
         tunnel_proc = MagicMock()
         with (
-            patch("smolvm.facade.QMPClient") as mock_qmp_cls,
-            patch("smolvm.facade.SmolVM._allocate_local_port", return_value=18081),
-            patch("smolvm.facade.SmolVM._probe_local_forward", return_value=False),
+            patch("celesto.facade.QMPClient") as mock_qmp_cls,
+            patch("celesto.facade.Celesto._allocate_local_port", return_value=18081),
+            patch("celesto.facade.Celesto._probe_local_forward", return_value=False),
             patch(
-                "smolvm.facade.SmolVM._start_local_tunnel",
+                "celesto.facade.Celesto._start_local_tunnel",
                 return_value=tunnel_proc,
             ),
         ):
@@ -2714,7 +2714,7 @@ class TestVMQemuLocalExpose:
             ),
         ]
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_qemu_guest_loopback_exposure_uses_ssh_tunnel(
         self,
         mock_sdk_cls: MagicMock,
@@ -2723,10 +2723,10 @@ class TestVMQemuLocalExpose:
     ) -> None:
         tunnel_proc = MagicMock()
         with (
-            patch("smolvm.facade.QMPClient") as mock_qmp_cls,
-            patch("smolvm.facade.SmolVM._allocate_local_port", return_value=18081),
+            patch("celesto.facade.QMPClient") as mock_qmp_cls,
+            patch("celesto.facade.Celesto._allocate_local_port", return_value=18081),
             patch(
-                "smolvm.facade.SmolVM._start_local_tunnel",
+                "celesto.facade.Celesto._start_local_tunnel",
                 return_value=tunnel_proc,
             ) as mock_start_tunnel,
         ):
@@ -2748,9 +2748,9 @@ class TestVMQemuLocalExpose:
 class TestVMLocalExpose:
     """Tests for localhost-only port exposure."""
 
-    @patch("smolvm.facade.SmolVMManager")
-    @patch("smolvm.facade.SmolVM._find_available_local_port", return_value=18081)
-    @patch("smolvm.facade.SmolVM._probe_local_forward", return_value=True)
+    @patch("celesto.facade.CelestoManager")
+    @patch("celesto.facade.Celesto._find_available_local_port", return_value=18081)
+    @patch("celesto.facade.Celesto._probe_local_forward", return_value=True)
     def test_expose_local_with_explicit_host_port(
         self,
         _mock_probe: MagicMock,
@@ -2773,7 +2773,7 @@ class TestVMLocalExpose:
         mock_sdk.network = MagicMock()
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         host_port = vm.expose_local(guest_port=8080, host_port=18080)
 
         assert host_port == 18080
@@ -2784,10 +2784,10 @@ class TestVMLocalExpose:
             guest_port=8080,
         )
 
-    @patch("smolvm.facade.SmolVMManager")
-    @patch("smolvm.facade.SmolVM._find_available_local_port", return_value=18081)
-    @patch("smolvm.facade.SmolVM._probe_local_forward", return_value=True)
-    @patch("smolvm.facade.SmolVM._find_available_local_port", side_effect=[18081, 18082])
+    @patch("celesto.facade.CelestoManager")
+    @patch("celesto.facade.Celesto._find_available_local_port", return_value=18081)
+    @patch("celesto.facade.Celesto._probe_local_forward", return_value=True)
+    @patch("celesto.facade.Celesto._find_available_local_port", side_effect=[18081, 18082])
     def test_expose_local_auto_host_port(
         self,
         mock_find_port: MagicMock,
@@ -2810,14 +2810,14 @@ class TestVMLocalExpose:
         mock_sdk.network = MagicMock()
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         host_port = vm.expose_local(guest_port=8080)
 
         assert host_port == 18081
         assert mock_find_port.call_count == 2
         mock_sdk.network.setup_local_port_forward.assert_called_once()
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_expose_local_requires_running_vm(
         self,
         mock_sdk_cls: MagicMock,
@@ -2834,13 +2834,13 @@ class TestVMLocalExpose:
         mock_sdk.network = MagicMock()
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(sample_config)
-        with pytest.raises(SmolVMError, match="VM is not running"):
+        vm = Celesto(sample_config)
+        with pytest.raises(CelestoError, match="VM is not running"):
             vm.expose_local(guest_port=8080, host_port=18080)
 
-    @patch("smolvm.facade.SmolVMManager")
-    @patch("smolvm.facade.SmolVM._find_available_local_port", return_value=18081)
-    @patch("smolvm.facade.SmolVM._probe_local_forward", return_value=True)
+    @patch("celesto.facade.CelestoManager")
+    @patch("celesto.facade.Celesto._find_available_local_port", return_value=18081)
+    @patch("celesto.facade.Celesto._probe_local_forward", return_value=True)
     def test_stop_cleans_local_forwards(
         self,
         _mock_probe: MagicMock,
@@ -2869,7 +2869,7 @@ class TestVMLocalExpose:
         mock_sdk.network = MagicMock()
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         vm.expose_local(guest_port=8080, host_port=18080)
         vm.stop()
 
@@ -2880,9 +2880,9 @@ class TestVMLocalExpose:
             guest_port=8080,
         )
 
-    @patch("smolvm.facade.SmolVMManager")
-    @patch("smolvm.facade.SmolVM._start_local_tunnel")
-    @patch("smolvm.facade.SmolVM._probe_local_forward", return_value=False)
+    @patch("celesto.facade.CelestoManager")
+    @patch("celesto.facade.Celesto._start_local_tunnel")
+    @patch("celesto.facade.Celesto._probe_local_forward", return_value=False)
     def test_expose_local_falls_back_to_ssh_tunnel(
         self,
         _mock_probe: MagicMock,
@@ -2908,7 +2908,7 @@ class TestVMLocalExpose:
         tunnel_proc = MagicMock()
         mock_start_tunnel.return_value = tunnel_proc
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         host_port = vm.expose_local(guest_port=8080, host_port=18080)
 
         assert host_port == 18080
@@ -2926,8 +2926,8 @@ class TestVMLocalExpose:
             guest_port=8080,
         )
 
-    @patch("smolvm.facade.SmolVMManager")
-    @patch("smolvm.facade.SmolVM._start_local_tunnel")
+    @patch("celesto.facade.CelestoManager")
+    @patch("celesto.facade.Celesto._start_local_tunnel")
     def test_expose_local_skips_nftables_for_qemu_backend(
         self,
         mock_start_tunnel: MagicMock,
@@ -2956,7 +2956,7 @@ class TestVMLocalExpose:
         tunnel_proc = MagicMock()
         mock_start_tunnel.return_value = tunnel_proc
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         host_port = vm.expose_local(guest_port=8080, host_port=18080)
 
         assert host_port == 18080
@@ -2964,10 +2964,10 @@ class TestVMLocalExpose:
         mock_sdk.network.setup_local_port_forward.assert_not_called()
         mock_sdk.network.cleanup_local_port_forward.assert_not_called()
 
-    @patch("smolvm.facade.SmolVMManager")
-    @patch("smolvm.facade.SmolVM._allocate_local_port", return_value=18081)
-    @patch("smolvm.facade.SmolVM._start_local_tunnel")
-    @patch("smolvm.facade.SmolVM._probe_local_forward", return_value=False)
+    @patch("celesto.facade.CelestoManager")
+    @patch("celesto.facade.Celesto._allocate_local_port", return_value=18081)
+    @patch("celesto.facade.Celesto._start_local_tunnel")
+    @patch("celesto.facade.Celesto._probe_local_forward", return_value=False)
     def test_expose_local_retries_with_fallback_port(
         self,
         _mock_probe: MagicMock,
@@ -2992,9 +2992,9 @@ class TestVMLocalExpose:
         mock_sdk_cls.return_value = mock_sdk
 
         tunnel_proc = MagicMock()
-        mock_start_tunnel.side_effect = [SmolVMError("first failed"), tunnel_proc]
+        mock_start_tunnel.side_effect = [CelestoError("first failed"), tunnel_proc]
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         host_port = vm.expose_local(guest_port=8080, host_port=18080)
 
         assert host_port == 18081
@@ -3004,10 +3004,10 @@ class TestVMLocalExpose:
         assert first_call.kwargs == {"host_port": 18080, "guest_port": 8080}
         assert second_call.kwargs == {"host_port": 18081, "guest_port": 8080}
 
-    @patch("smolvm.facade.SmolVMManager")
-    @patch("smolvm.facade.SmolVM._stop_local_tunnel")
-    @patch("smolvm.facade.SmolVM._start_local_tunnel")
-    @patch("smolvm.facade.SmolVM._probe_local_forward", return_value=False)
+    @patch("celesto.facade.CelestoManager")
+    @patch("celesto.facade.Celesto._stop_local_tunnel")
+    @patch("celesto.facade.Celesto._start_local_tunnel")
+    @patch("celesto.facade.Celesto._probe_local_forward", return_value=False)
     def test_unexpose_local_cleans_ssh_tunnel_transport(
         self,
         _mock_probe: MagicMock,
@@ -3034,7 +3034,7 @@ class TestVMLocalExpose:
         tunnel_proc = MagicMock()
         mock_start_tunnel.return_value = tunnel_proc
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         vm.expose_local(guest_port=8080, host_port=18080)
         vm.unexpose_local(host_port=18080, guest_port=8080)
 
@@ -3046,7 +3046,7 @@ class TestVMLocalExpose:
 class TestVMContextManager:
     """Tests for VM context manager."""
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_context_manager_stops_on_exit(
         self,
         mock_sdk_cls: MagicMock,
@@ -3060,7 +3060,7 @@ class TestVMContextManager:
         mock_sdk.stop.return_value = stopped_info
         mock_sdk_cls.return_value = mock_sdk
 
-        with SmolVM(sample_config) as vm:
+        with Celesto(sample_config) as vm:
             assert vm.vm_id == "vm001"
 
         # stop/delete/close should have been called for owned VM
@@ -3068,7 +3068,7 @@ class TestVMContextManager:
         mock_sdk.delete.assert_called_once_with("vm001")
         mock_sdk.close.assert_called_once()
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_context_manager_autostarts_owned_vm(
         self,
         mock_sdk_cls: MagicMock,
@@ -3091,7 +3091,7 @@ class TestVMContextManager:
         mock_sdk.stop.return_value = stopped_info
         mock_sdk_cls.return_value = mock_sdk
 
-        with SmolVM(sample_config):
+        with Celesto(sample_config):
             pass
 
         mock_sdk.start.assert_called_once_with("vm001", boot_timeout=30.0)
@@ -3099,7 +3099,7 @@ class TestVMContextManager:
         mock_sdk.delete.assert_called_once_with("vm001")
         mock_sdk.close.assert_called_once()
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_context_manager_from_id_does_not_delete(
         self,
         mock_sdk_cls: MagicMock,
@@ -3114,7 +3114,7 @@ class TestVMContextManager:
         mock_sdk_cls.from_id.return_value = mock_sdk
 
         state_manager = MagicMock()
-        with SmolVM.from_id("vm001", state_manager=state_manager) as vm:
+        with Celesto.from_id("vm001", state_manager=state_manager) as vm:
             assert vm.vm_id == "vm001"
 
         mock_sdk_cls.from_id.assert_called_once()
@@ -3127,7 +3127,7 @@ class TestVMContextManager:
 class TestVMProperties:
     """Tests for VM properties."""
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_get_ip(
         self,
         mock_sdk_cls: MagicMock,
@@ -3147,10 +3147,10 @@ class TestVMProperties:
         mock_sdk.get.return_value = mock_info
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         assert vm.get_ip() == "172.16.0.2"
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_get_ip_no_network_raises(
         self,
         mock_sdk_cls: MagicMock,
@@ -3165,11 +3165,11 @@ class TestVMProperties:
         mock_sdk.get.return_value = mock_info
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(sample_config)
-        with pytest.raises(SmolVMError, match="no network"):
+        vm = Celesto(sample_config)
+        with pytest.raises(CelestoError, match="no network"):
             vm.get_ip()
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_data_dir_property(
         self,
         mock_sdk_cls: MagicMock,
@@ -3186,10 +3186,10 @@ class TestVMProperties:
         mock_sdk.data_dir = Path("/tmp/smolvm-test")
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         assert vm.data_dir == Path("/tmp/smolvm-test")
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_repr(
         self,
         mock_sdk_cls: MagicMock,
@@ -3200,11 +3200,11 @@ class TestVMProperties:
         mock_sdk.create.return_value = MagicMock(vm_id="vm001", status=VMState.CREATED)
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         assert "vm001" in repr(vm)
         assert "created" in repr(vm)
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_ssh_commands_proxy(
         self,
         mock_sdk_cls: MagicMock,
@@ -3219,7 +3219,7 @@ class TestVMProperties:
         }
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(sample_config, ssh_key_path="/tmp/id_ed25519")
+        vm = Celesto(sample_config, ssh_key_path="/tmp/id_ed25519")
         cmds = vm.ssh_commands(public_host="203.0.113.10")
 
         assert "private_ip" in cmds
@@ -3230,7 +3230,7 @@ class TestVMProperties:
             public_host="203.0.113.10",
         )
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_ssh_attach_command_uses_resolved_client(
         self,
         mock_sdk_cls: MagicMock,
@@ -3241,7 +3241,7 @@ class TestVMProperties:
         mock_sdk.create.return_value = MagicMock(vm_id="vm001", status=VMState.CREATED)
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         vm._ssh = MagicMock(
             host="172.16.0.2",
             port=22,
@@ -3271,9 +3271,9 @@ class TestVMProperties:
 class TestVMEnvInjection:
     """Tests for environment variable injection during start()."""
 
-    @patch("smolvm.facade.inject_env_vars")
-    @patch("smolvm.facade.SSHClient")
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.inject_env_vars")
+    @patch("celesto.facade.SSHClient")
+    @patch("celesto.facade.CelestoManager")
     def test_start_injects_env_vars(
         self,
         mock_sdk_cls: MagicMock,
@@ -3306,7 +3306,7 @@ class TestVMEnvInjection:
         mock_ssh_cls.return_value = mock_ssh
         mock_inject.return_value = ["FOO"]
 
-        vm = SmolVM(config_with_env)
+        vm = Celesto(config_with_env)
         vm.start()
 
         # Should wait for SSH
@@ -3316,9 +3316,9 @@ class TestVMEnvInjection:
         # Should call inject
         mock_inject.assert_called_once_with(mock_ssh, {"FOO": "bar"})
 
-    @patch("smolvm.facade.inject_env_vars")
-    @patch("smolvm.facade.SSHClient")
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.inject_env_vars")
+    @patch("celesto.facade.SSHClient")
+    @patch("celesto.facade.CelestoManager")
     def test_start_injects_env_vars_with_ssh_fallback(
         self,
         mock_sdk_cls: MagicMock,
@@ -3353,7 +3353,7 @@ class TestVMEnvInjection:
         mock_ssh_cls.side_effect = [localhost_client, guest_client]
         mock_inject.return_value = ["FOO"]
 
-        vm = SmolVM(config_with_env)
+        vm = Celesto(config_with_env)
         vm.start()
 
         assert mock_ssh_cls.call_count == 2
@@ -3363,8 +3363,8 @@ class TestVMEnvInjection:
         assert mock_ssh_cls.call_args_list[1].kwargs["port"] == 22
         mock_inject.assert_called_once_with(guest_client, {"FOO": "bar"})
 
-    @patch("smolvm.facade.inject_env_vars")
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.inject_env_vars")
+    @patch("celesto.facade.CelestoManager")
     def test_start_skips_injection_if_no_env_vars(
         self,
         mock_sdk_cls: MagicMock,
@@ -3382,13 +3382,13 @@ class TestVMEnvInjection:
         mock_sdk.start.return_value = mock_info
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(config)
+        vm = Celesto(config)
         vm.start()
 
         mock_inject.assert_not_called()
 
-    @patch("smolvm.facade.inject_env_vars")
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.inject_env_vars")
+    @patch("celesto.facade.CelestoManager")
     def test_start_raises_if_guest_commands_not_supported(
         self,
         mock_sdk_cls: MagicMock,
@@ -3408,9 +3408,9 @@ class TestVMEnvInjection:
         mock_sdk.start.return_value = mock_info
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(config)
+        vm = Celesto(config)
 
-        with pytest.raises(SmolVMError, match="does not support guest commands"):
+        with pytest.raises(CelestoError, match="does not support guest commands"):
             vm.start()
 
         mock_inject.assert_not_called()
@@ -3419,8 +3419,8 @@ class TestVMEnvInjection:
 class TestVMEnvManagement:
     """Tests for runtime environment variable management methods."""
 
-    @patch("smolvm.facade.inject_env_vars")
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.inject_env_vars")
+    @patch("celesto.facade.CelestoManager")
     def test_set_env_vars(
         self,
         mock_sdk_cls: MagicMock,
@@ -3439,7 +3439,7 @@ class TestVMEnvManagement:
         mock_sdk.get.return_value = running_info
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(config)
+        vm = Celesto(config)
         vm._ssh = MagicMock()
         vm._ssh_ready = True
         mock_inject.return_value = ["FOO"]
@@ -3449,8 +3449,8 @@ class TestVMEnvManagement:
         assert result == ["FOO"]
         mock_inject.assert_called_once_with(vm._ssh, {"FOO": "bar"}, merge=True)
 
-    @patch("smolvm.facade.remove_env_vars")
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.remove_env_vars")
+    @patch("celesto.facade.CelestoManager")
     def test_unset_env_vars(
         self,
         mock_sdk_cls: MagicMock,
@@ -3469,7 +3469,7 @@ class TestVMEnvManagement:
         mock_sdk.get.return_value = running_info
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(config)
+        vm = Celesto(config)
         vm._ssh = MagicMock()
         vm._ssh_ready = True
         mock_remove.return_value = {"FOO": "bar"}
@@ -3479,8 +3479,8 @@ class TestVMEnvManagement:
         assert result == {"FOO": "bar"}
         mock_remove.assert_called_once_with(vm._ssh, ["FOO"])
 
-    @patch("smolvm.facade.read_env_vars")
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.read_env_vars")
+    @patch("celesto.facade.CelestoManager")
     def test_list_env_vars(
         self,
         mock_sdk_cls: MagicMock,
@@ -3499,7 +3499,7 @@ class TestVMEnvManagement:
         mock_sdk.get.return_value = running_info
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(config)
+        vm = Celesto(config)
         vm._ssh = MagicMock()
         vm._ssh_ready = True
         mock_read.return_value = {"FOO": "bar"}
@@ -3509,7 +3509,7 @@ class TestVMEnvManagement:
         assert result == {"FOO": "bar"}
         mock_read.assert_called_once_with(vm._ssh)
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_close_proxies_to_sdk(
         self,
         mock_sdk_cls: MagicMock,
@@ -3520,7 +3520,7 @@ class TestVMEnvManagement:
         mock_sdk.create.return_value = MagicMock(vm_id="vm001", status=VMState.CREATED)
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
         vm.close()
 
         mock_sdk.close.assert_called_once()
@@ -3529,7 +3529,7 @@ class TestVMEnvManagement:
 class TestVMFileUpload:
     """Tests for facade-level guest file upload."""
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_upload_file_creates_parent_and_puts_file(
         self,
         mock_sdk_cls: MagicMock,
@@ -3553,7 +3553,7 @@ class TestVMFileUpload:
         ssh = MagicMock()
         ssh.run.return_value = MagicMock(exit_code=0, stderr="")
 
-        vm = SmolVM(config)
+        vm = Celesto(config)
         vm._ssh = ssh
         vm._ssh_ready = True
 
@@ -3567,7 +3567,7 @@ class TestVMFileUpload:
         )
         ssh.put_file.assert_called_once_with(source, "/tmp/smolvm/note.txt")
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_upload_file_appends_name_for_guest_directory(
         self,
         mock_sdk_cls: MagicMock,
@@ -3591,7 +3591,7 @@ class TestVMFileUpload:
         ssh = MagicMock()
         ssh.run.return_value = MagicMock(exit_code=0, stderr="")
 
-        vm = SmolVM(config)
+        vm = Celesto(config)
         vm._ssh = ssh
         vm._ssh_ready = True
 
@@ -3600,7 +3600,7 @@ class TestVMFileUpload:
         assert guest_path == "/tmp/uploads/note.txt"
         ssh.put_file.assert_called_once_with(source, "/tmp/uploads/note.txt")
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_upload_file_skips_mkdir_when_make_dirs_false(
         self,
         mock_sdk_cls: MagicMock,
@@ -3623,7 +3623,7 @@ class TestVMFileUpload:
 
         ssh = MagicMock()
 
-        vm = SmolVM(config)
+        vm = Celesto(config)
         vm._ssh = ssh
         vm._ssh_ready = True
 
@@ -3633,7 +3633,7 @@ class TestVMFileUpload:
         ssh.run.assert_not_called()
         ssh.put_file.assert_called_once_with(source, "/tmp/path/note.txt")
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_upload_file_rejects_directory(
         self,
         mock_sdk_cls: MagicMock,
@@ -3644,12 +3644,12 @@ class TestVMFileUpload:
         mock_sdk.create.return_value = MagicMock(vm_id="vm001", status=VMState.RUNNING)
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
 
         with pytest.raises(ValueError, match="Not a file"):
             vm.upload_file(tmp_path, "/tmp/uploaded")
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_upload_file_rejects_relative_guest_path(
         self,
         mock_sdk_cls: MagicMock,
@@ -3663,12 +3663,12 @@ class TestVMFileUpload:
         mock_sdk.create.return_value = MagicMock(vm_id="vm001", status=VMState.RUNNING)
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(sample_config)
+        vm = Celesto(sample_config)
 
         with pytest.raises(ValueError, match="must be absolute"):
             vm.upload_file(source, "~/note.txt")
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_upload_file_quotes_paths_with_spaces(
         self,
         mock_sdk_cls: MagicMock,
@@ -3692,7 +3692,7 @@ class TestVMFileUpload:
         ssh = MagicMock()
         ssh.run.return_value = MagicMock(exit_code=0, stderr="")
 
-        vm = SmolVM(config)
+        vm = Celesto(config)
         vm._ssh = ssh
         vm._ssh_ready = True
 
@@ -3706,7 +3706,7 @@ class TestVMFileUpload:
         )
         ssh.put_file.assert_called_once_with(source, "/tmp/with space/note.txt")
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_upload_file_raises_when_mkdir_fails(
         self,
         mock_sdk_cls: MagicMock,
@@ -3730,11 +3730,11 @@ class TestVMFileUpload:
         ssh = MagicMock()
         ssh.run.return_value = MagicMock(exit_code=1, stderr="permission denied")
 
-        vm = SmolVM(config)
+        vm = Celesto(config)
         vm._ssh = ssh
         vm._ssh_ready = True
 
-        with pytest.raises(SmolVMError, match="permission denied"):
+        with pytest.raises(CelestoError, match="permission denied"):
             vm.upload_file(source, "/root/forbidden/note.txt")
 
         ssh.put_file.assert_not_called()
@@ -3744,7 +3744,7 @@ class TestVMFileDownload:
     """Tests for facade-level guest file download."""
 
     @staticmethod
-    def _running_vm(sample_config: VMConfig, mock_sdk_cls: MagicMock) -> SmolVM:
+    def _running_vm(sample_config: VMConfig, mock_sdk_cls: MagicMock) -> Celesto:
         config = sample_config.model_copy(update={"ssh_capable": True})
         running_info = MagicMock(vm_id="vm001", status=VMState.RUNNING)
         running_info.config = config
@@ -3756,9 +3756,9 @@ class TestVMFileDownload:
         mock_sdk.get.return_value = running_info
         mock_sdk_cls.return_value = mock_sdk
 
-        return SmolVM(config)
+        return Celesto(config)
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_download_file_creates_parent_and_gets_file(
         self,
         mock_sdk_cls: MagicMock,
@@ -3779,7 +3779,7 @@ class TestVMFileDownload:
         assert target_dir.is_dir()
         ssh.get_file.assert_called_once_with("/tmp/smolvm/note.txt", target)
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_download_file_appends_name_for_local_directory_via_slash(
         self,
         mock_sdk_cls: MagicMock,
@@ -3797,7 +3797,7 @@ class TestVMFileDownload:
         assert local_path == str(expected)
         ssh.get_file.assert_called_once_with("/tmp/note.txt", expected)
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_download_file_passes_receive_limit_to_control_channel(
         self,
         mock_sdk_cls: MagicMock,
@@ -3814,7 +3814,7 @@ class TestVMFileDownload:
 
         ssh.get_file.assert_called_once_with("/tmp/note.txt", target, max_bytes=1024)
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_download_file_appends_name_when_local_path_is_existing_dir(
         self,
         mock_sdk_cls: MagicMock,
@@ -3832,7 +3832,7 @@ class TestVMFileDownload:
         assert local_path == str(expected)
         ssh.get_file.assert_called_once_with("/tmp/note.txt", expected)
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_download_file_skips_mkdir_when_make_dirs_false(
         self,
         mock_sdk_cls: MagicMock,
@@ -3851,7 +3851,7 @@ class TestVMFileDownload:
         assert local_path == str(target)
         ssh.get_file.assert_called_once_with("/tmp/note.txt", target)
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_download_file_raises_when_local_parent_missing_and_no_create_dirs(
         self,
         mock_sdk_cls: MagicMock,
@@ -3865,12 +3865,12 @@ class TestVMFileDownload:
 
         missing_target = tmp_path / "missing" / "note.txt"
 
-        with pytest.raises(SmolVMError, match="Local destination directory does not exist"):
+        with pytest.raises(CelestoError, match="Local destination directory does not exist"):
             vm.download_file("/tmp/note.txt", missing_target, make_dirs=False)
 
         ssh.get_file.assert_not_called()
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_download_file_rejects_relative_guest_path(
         self,
         mock_sdk_cls: MagicMock,
@@ -3882,7 +3882,7 @@ class TestVMFileDownload:
         with pytest.raises(ValueError, match="must be absolute"):
             vm.download_file("note.txt", tmp_path / "out.txt")
 
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     def test_download_file_rejects_empty_guest_path(
         self,
         mock_sdk_cls: MagicMock,
@@ -3906,16 +3906,16 @@ class TestVMFileDownload:
     ],
 )
 def test_policy_errors_precede_image_preparation(settings):
-    from smolvm import ValidationError
+    from celesto import ValidationError
 
     with (
-        patch("smolvm.facade._build_auto_config") as build,
-        patch("smolvm.facade._build_local_image_config") as local,
-        patch("smolvm.facade.SmolVMManager") as manager,
+        patch("celesto.facade._build_auto_config") as build,
+        patch("celesto.facade._build_local_image_config") as local,
+        patch("celesto.facade.CelestoManager") as manager,
     ):
         for kwargs in ({}, {"image": "/tmp/not-needed.qcow2", "os": "alpine"}):
             with pytest.raises(ValidationError) as error:
-                SmolVM(internet_settings=settings, **kwargs)
+                Celesto(internet_settings=settings, **kwargs)
             assert error.value.details["field"] == "internet_settings"
             assert error.value.details["errors"]
         build.assert_not_called()
@@ -3924,11 +3924,11 @@ def test_policy_errors_precede_image_preparation(settings):
 
 
 def test_unsupported_policy_precedes_image_preparation():
-    from smolvm import ValidationError
+    from celesto import ValidationError
 
-    with patch("smolvm.facade._build_auto_config") as build:
+    with patch("celesto.facade._build_auto_config") as build:
         with pytest.raises(ValidationError, match="Linux TAP"):
-            SmolVM(
+            Celesto(
                 backend="qemu",
                 internet_settings={"mode": "restricted", "allowed_cidrs": ["203.0.113.7"]},
             )
@@ -3936,11 +3936,11 @@ def test_unsupported_policy_precedes_image_preparation():
 
 
 def test_from_image_policy_errors_precede_kernel_preparation():
-    from smolvm import ValidationError
+    from celesto import ValidationError
 
-    with patch("smolvm.facade.ensure_base_kernel_for_backend") as kernel:
+    with patch("celesto.facade.ensure_base_kernel_for_backend") as kernel:
         with pytest.raises(ValidationError):
-            SmolVM.from_image(MagicMock(), internet_settings={"mod": "off"})
+            Celesto.from_image(MagicMock(), internet_settings={"mod": "off"})
         kernel.assert_not_called()
 
 
@@ -3956,16 +3956,16 @@ def test_from_image_policy_errors_precede_kernel_preparation():
 def test_from_image_qemu_policy_errors_name_recovery(
     monkeypatch, explicit_name, host, network, policy, forwards
 ):
-    from smolvm import ValidationError
+    from celesto import ValidationError
 
-    monkeypatch.setattr("smolvm._network_policy.sys.platform", host)
-    monkeypatch.setattr("smolvm.facade.generate_sandbox_name", lambda *a, **k: "sbx-generated")
+    monkeypatch.setattr("celesto._network_policy.sys.platform", host)
+    monkeypatch.setattr("celesto.facade.generate_sandbox_name", lambda *a, **k: "sbx-generated")
     image = MagicMock(
         backend=None, boot_mode="direct_kernel", rootfs_format="raw-ext4", initrd_path=None
     )
-    with patch("smolvm.facade.ensure_backend_available") as prepare:
+    with patch("celesto.facade.ensure_backend_available") as prepare:
         with pytest.raises(ValidationError) as error:
-            SmolVM.from_image(
+            Celesto.from_image(
                 image,
                 vm_id=explicit_name,
                 backend="qemu",
@@ -3973,7 +3973,7 @@ def test_from_image_qemu_policy_errors_name_recovery(
                 internet_settings=policy,
                 port_forwards=forwards,
             )
-        assert f"smolvm sandbox create --name {explicit_name or 'sbx-generated'} --help" in str(
+        assert f"celesto sandbox create --name {explicit_name or 'sbx-generated'} --help" in str(
             error.value
         )
         prepare.assert_not_called()

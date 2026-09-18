@@ -20,21 +20,21 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from smolvm import Callback, CommandBlockedError, RunContext, SmolVM
-from smolvm.callbacks import CallbackDispatcher
-from smolvm.types import CommandResult, VMState
+from celesto import Callback, Celesto, CommandBlockedError, RunContext
+from celesto.callbacks import CallbackDispatcher
+from celesto.types import CommandResult, VMState
 
 
 def _make_vm(
     callbacks: list[Callback] | None = None,
     run_result: CommandResult | None = None,
-) -> SmolVM:
-    """Build a SmolVM wired just enough to exercise run()'s callback path.
+) -> Celesto:
+    """Build a Celesto wired just enough to exercise run()'s callback path.
 
     Bypasses __init__ (which would create a real manager / VM) and stubs the
     gating attributes run() checks before delegating to the SSH client.
     """
-    vm = SmolVM.__new__(SmolVM)
+    vm = Celesto.__new__(Celesto)
     vm._vm_id = "vm-test"
     vm._refresh_info = MagicMock()  # type: ignore[method-assign]
     vm.can_run_commands = MagicMock(return_value=True)  # type: ignore[method-assign]

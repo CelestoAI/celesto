@@ -203,7 +203,7 @@ install -m 0755 "$SCRIPT_DIR/preset-init.sh" "$MNT/init"
 # Bake the SmolVM Rust guest agent (vsock control plane) into every published
 # image. preset-init.sh launches it before sshd, so the host can drive the
 # guest over vsock. Keep the guest path in sync with
-# src/smolvm/images/builder.py.
+# src/celesto/images/builder.py.
 GUEST_AGENT_BINARY="${SMOLVM_GUEST_AGENT_BINARY:-$SCRIPT_DIR/../../target/$GUEST_AGENT_TARGET/release/smolvm-guest-agent}"
 if [ ! -x "$GUEST_AGENT_BINARY" ]; then
   echo "Rust guest agent binary not found: $GUEST_AGENT_BINARY" >&2

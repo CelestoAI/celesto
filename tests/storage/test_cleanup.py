@@ -20,8 +20,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smolvm.cli.cleanup import run_cleanup, run_delete, run_prune_sandboxes
-from smolvm.cli.main import main as cli_main
+from celesto.cli.cleanup import run_cleanup, run_delete, run_prune_sandboxes
+from celesto.cli.main import main as cli_main
 
 
 def _make_vm(vm_id: str) -> MagicMock:
@@ -31,18 +31,18 @@ def _make_vm(vm_id: str) -> MagicMock:
 
 
 class TestDelete:
-    """Tests for ``smolvm sandbox delete <vm-id>``."""
+    """Tests for ``celesto sandbox delete <vm-id>``."""
 
     @pytest.fixture
     def mock_sdk_cls(self) -> MagicMock:
-        with patch("smolvm.cli.cleanup.CLIService") as mock_service_cls:
+        with patch("celesto.cli.cleanup.CLIService") as mock_service_cls:
             sdk = MagicMock()
             manager = mock_service_cls.return_value.manager.return_value
             manager.__enter__.return_value = sdk
             manager.__exit__.return_value = None
             yield sdk
 
-    @patch("smolvm.cli.cleanup.os.geteuid", return_value=0)
+    @patch("celesto.cli.cleanup.os.geteuid", return_value=0)
     def test_run_delete_single_vm(
         self,
         _: MagicMock,
@@ -58,7 +58,7 @@ class TestDelete:
         sdk.delete.assert_called_once_with("vm-abc123")
         sdk.list_vms.assert_not_called()
 
-    @patch("smolvm.cli.cleanup.os.geteuid", return_value=0)
+    @patch("celesto.cli.cleanup.os.geteuid", return_value=0)
     def test_run_delete_multiple_vms(
         self,
         _: MagicMock,
@@ -73,7 +73,7 @@ class TestDelete:
         assert ret == 0
         assert sdk.delete.call_count == 2
 
-    @patch("smolvm.cli.cleanup.os.geteuid", return_value=0)
+    @patch("celesto.cli.cleanup.os.geteuid", return_value=0)
     def test_run_delete_dry_run(
         self,
         _: MagicMock,
@@ -90,7 +90,7 @@ class TestDelete:
         out = capsys.readouterr().out
         assert "Dry run complete" in out
 
-    @patch("smolvm.cli.cleanup.os.geteuid", return_value=0)
+    @patch("celesto.cli.cleanup.os.geteuid", return_value=0)
     def test_run_delete_partial_failure(
         self,
         _: MagicMock,
@@ -114,7 +114,7 @@ class TestDelete:
         assert "failed" in out
         assert "busy" in out
 
-    @patch("smolvm.cli.cleanup.os.geteuid", return_value=0)
+    @patch("celesto.cli.cleanup.os.geteuid", return_value=0)
     def test_run_delete_json(
         self,
         _: MagicMock,
@@ -132,9 +132,9 @@ class TestDelete:
         assert payload["data"]["targets"] == ["vm-abc"]
         assert payload["data"]["deleted"] == ["vm-abc"]
 
-    @patch("smolvm.cli.cleanup.run_delete", return_value=0)
+    @patch("celesto.cli.cleanup.run_delete", return_value=0)
     def test_cli_delete_forwards_args(self, mock_run_delete: MagicMock) -> None:
-        """`smolvm sandbox delete vm-abc vm-def --json` forwards correctly."""
+        """`celesto sandbox delete vm-abc vm-def --json` forwards correctly."""
         ret = cli_main(["sandbox", "delete", "vm-abc", "vm-def", "--json"])
 
         assert ret == 0
@@ -147,19 +147,19 @@ class TestDelete:
 
 
 class TestCleanup:
-    """Tests for ``smolvm sandbox delete --all``."""
+    """Tests for ``celesto sandbox delete --all``."""
 
     @pytest.fixture
     def mock_sdk_cls(self) -> MagicMock:
-        with patch("smolvm.cli.cleanup.CLIService") as mock_service_cls:
+        with patch("celesto.cli.cleanup.CLIService") as mock_service_cls:
             sdk = MagicMock()
             manager = mock_service_cls.return_value.manager.return_value
             manager.__enter__.return_value = sdk
             manager.__exit__.return_value = None
             yield sdk
 
-    @patch("smolvm.cli.cleanup.os.geteuid", return_value=1000)
-    @patch("smolvm.cli.cleanup.sys")
+    @patch("celesto.cli.cleanup.os.geteuid", return_value=1000)
+    @patch("celesto.cli.cleanup.sys")
     def test_run_cleanup_dry_run_human(
         self,
         mock_sys: MagicMock,
@@ -184,7 +184,7 @@ class TestCleanup:
         assert "Dry run complete" in out
         sdk.delete.assert_not_called()
 
-    @patch("smolvm.cli.cleanup.os.geteuid", return_value=0)
+    @patch("celesto.cli.cleanup.os.geteuid", return_value=0)
     def test_run_cleanup_deletes_all(
         self,
         _: MagicMock,
@@ -201,7 +201,7 @@ class TestCleanup:
         assert ret == 0
         assert sdk.delete.call_count == 2
 
-    @patch("smolvm.cli.cleanup.os.geteuid", return_value=0)
+    @patch("celesto.cli.cleanup.os.geteuid", return_value=0)
     def test_run_cleanup_partial_failure(
         self,
         _: MagicMock,
@@ -228,7 +228,7 @@ class TestCleanup:
         assert "failed" in out
         assert "busy" in out
 
-    @patch("smolvm.cli.cleanup.os.geteuid", return_value=0)
+    @patch("celesto.cli.cleanup.os.geteuid", return_value=0)
     def test_run_cleanup_json(
         self,
         _: MagicMock,
@@ -251,7 +251,7 @@ class TestCleanup:
         assert payload["data"]["reconciled_stale_ids"] == ["vm-stale"]
         assert payload["data"]["summary"]["failed_count"] == 0
 
-    @patch("smolvm.cli.cleanup.os.geteuid", return_value=0)
+    @patch("celesto.cli.cleanup.os.geteuid", return_value=0)
     def test_run_cleanup_json_requires_force(
         self,
         _: MagicMock,
@@ -273,14 +273,14 @@ class TestCleanup:
         assert payload["command"] == "sandbox.delete"
         assert payload["exit_code"] == 1
         assert "force" in payload["error"]["message"].lower()
-        assert "smolvm sandbox delete --all --force --json" in payload["error"]["message"]
+        assert "celesto sandbox delete --all --force --json" in payload["error"]["message"]
         assert (
             payload["error"]["recovery"]
-            == "Run 'smolvm sandbox delete --all --force --json' to confirm."
+            == "Run 'celesto sandbox delete --all --force --json' to confirm."
         )
 
-    @patch("smolvm.cli.cleanup.os.geteuid", return_value=0)
-    @patch("smolvm.cli.cleanup.sys.stdin")
+    @patch("celesto.cli.cleanup.os.geteuid", return_value=0)
+    @patch("celesto.cli.cleanup.sys.stdin")
     def test_run_cleanup_non_tty_requires_force(
         self,
         mock_stdin: MagicMock,
@@ -299,9 +299,9 @@ class TestCleanup:
         assert ret == 1
         sdk.delete.assert_not_called()
 
-    @patch("smolvm.cli.cleanup.os.geteuid", return_value=0)
-    @patch("smolvm.cli.cleanup.sys.stdin")
-    @patch("smolvm.cli.cleanup.input", create=True)
+    @patch("celesto.cli.cleanup.os.geteuid", return_value=0)
+    @patch("celesto.cli.cleanup.sys.stdin")
+    @patch("celesto.cli.cleanup.input", create=True)
     def test_run_cleanup_prompt_yes(
         self,
         mock_input: MagicMock,
@@ -322,9 +322,9 @@ class TestCleanup:
         assert ret == 0
         sdk.delete.assert_called_once_with("vm-abc123")
 
-    @patch("smolvm.cli.cleanup.os.geteuid", return_value=0)
-    @patch("smolvm.cli.cleanup.sys.stdin")
-    @patch("smolvm.cli.cleanup.input", create=True)
+    @patch("celesto.cli.cleanup.os.geteuid", return_value=0)
+    @patch("celesto.cli.cleanup.sys.stdin")
+    @patch("celesto.cli.cleanup.input", create=True)
     def test_run_cleanup_prompt_no(
         self,
         mock_input: MagicMock,
@@ -346,9 +346,9 @@ class TestCleanup:
         sdk.delete.assert_not_called()
         assert "Aborted" in capsys.readouterr().out
 
-    @patch("smolvm.cli.cleanup.run_cleanup", return_value=0)
+    @patch("celesto.cli.cleanup.run_cleanup", return_value=0)
     def test_cli_cleanup_forwards_json(self, mock_run_cleanup: MagicMock) -> None:
-        """`smolvm sandbox delete --all --force --json` forwards correctly."""
+        """`celesto sandbox delete --all --force --json` forwards correctly."""
         ret = cli_main(["sandbox", "delete", "--all", "--force", "--json"])
 
         assert ret == 0
@@ -359,13 +359,13 @@ class TestCleanup:
             command_name="sandbox.delete",
         )
 
-    @patch("smolvm.cli.cleanup.run_cleanup")
+    @patch("celesto.cli.cleanup.run_cleanup")
     def test_cli_cleanup_json_requires_force(
         self,
         mock_run_cleanup: MagicMock,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """`smolvm sandbox delete --all --json` is rejected before runtime."""
+        """`celesto sandbox delete --all --json` is rejected before runtime."""
         ret = cli_main(["sandbox", "delete", "--all", "--json"])
 
         assert ret == 1
@@ -373,20 +373,20 @@ class TestCleanup:
         assert payload["ok"] is False
         assert payload["command"] == "sandbox.delete"
         assert payload["error"]["code"] == "refused"
-        assert "smolvm sandbox delete --all --force --json" in payload["error"]["message"]
+        assert "celesto sandbox delete --all --force --json" in payload["error"]["message"]
         assert (
             payload["error"]["recovery"]
-            == "Run 'smolvm sandbox delete --all --force --json' to confirm."
+            == "Run 'celesto sandbox delete --all --force --json' to confirm."
         )
         mock_run_cleanup.assert_not_called()
 
 
 class TestSandboxPrune:
-    """Tests for ``smolvm sandbox prune``."""
+    """Tests for ``celesto sandbox prune``."""
 
     @pytest.fixture
     def mock_sdk_cls(self) -> MagicMock:
-        with patch("smolvm.cli.cleanup.CLIService") as mock_service_cls:
+        with patch("celesto.cli.cleanup.CLIService") as mock_service_cls:
             sdk = MagicMock()
             manager = mock_service_cls.return_value.manager.return_value
             manager.__enter__.return_value = sdk
@@ -488,7 +488,7 @@ class TestSandboxPrune:
         sdk.prune_leftover_artifacts.assert_not_called()
         payload = json.loads(capsys.readouterr().out)
         assert payload["ok"] is False
-        assert "smolvm sandbox prune --force --json" in payload["error"]["message"]
+        assert "celesto sandbox prune --force --json" in payload["error"]["message"]
 
     def test_prune_json_payload(
         self,
@@ -530,8 +530,8 @@ class TestSandboxPrune:
         assert "sbx-gone.qcow2" in out
 
     def test_cli_wires_prune_command(self) -> None:
-        """``smolvm sandbox prune`` reaches the runner with its flags."""
-        with patch("smolvm.cli.cleanup.run_prune_sandboxes", return_value=0) as runner:
+        """``celesto sandbox prune`` reaches the runner with its flags."""
+        with patch("celesto.cli.cleanup.run_prune_sandboxes", return_value=0) as runner:
             ret = cli_main(["sandbox", "prune", "--dry-run", "--include-saved"])
 
         assert ret == 0

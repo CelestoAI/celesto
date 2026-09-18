@@ -1,0 +1,46 @@
+# Copyright 2026 Celesto AI
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Host↔guest control-plane transports.
+
+Celesto drives a guest from the host to run commands, transfer files, and
+probe readiness. :class:`~celesto.comm.base.CommChannel` is the small interface
+every consumer relies on; it has two implementations:
+
+- :class:`~celesto.ssh.SSHClient` — SSH/paramiko (the default, works everywhere).
+- :class:`~celesto.comm.rust_http_vsock_channel.RustHttpVsockChannel` — the
+  public Rust guest agent over HTTP/vsock, for QEMU CID and Firecracker UDS.
+"""
+
+from __future__ import annotations
+
+from celesto.comm.base import CommChannel, CommChannelKind, ShellMode
+from celesto.comm.rust_http_vsock_channel import RustHttpVsockChannel
+from celesto.comm.select import (
+    ChannelResolution,
+    VsockNotSupportedError,
+    host_supports_vsock,
+    resolve_comm_channel,
+)
+
+__all__ = [
+    "ChannelResolution",
+    "CommChannel",
+    "CommChannelKind",
+    "ShellMode",
+    "VsockNotSupportedError",
+    "RustHttpVsockChannel",
+    "host_supports_vsock",
+    "resolve_comm_channel",
+]

@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from smolvm import QemuDirtyBitmapBackup, SmolVM, SnapshotCapturePolicy, SnapshotType, VMConfig
+from celesto import Celesto, QemuDirtyBitmapBackup, SnapshotCapturePolicy, SnapshotType, VMConfig
 from tests.qemu_incremental import _materialize
 
 pytestmark = pytest.mark.e2e
@@ -44,7 +44,7 @@ def _boot_and_read_markers(
             "disk_size_mib": None,
         }
     )
-    vm = SmolVM(
+    vm = Celesto(
         config=config,
         data_dir=root,
         socket_dir=socket_dir,
@@ -87,7 +87,7 @@ def test_materialized_incremental_leaves_boot_after_source_state_is_deleted(
 
     with tempfile.TemporaryDirectory(prefix="qinc-src-") as source_socket_raw:
         source_socket_dir = Path(source_socket_raw)
-        source = SmolVM(
+        source = Celesto(
             backend="qemu",
             os="ubuntu",
             data_dir=source_data,

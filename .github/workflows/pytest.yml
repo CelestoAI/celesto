@@ -77,7 +77,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           uv run python -c "
-          from smolvm.host._accel import HAS_NETLINK
+          from celesto.host._accel import HAS_NETLINK
           assert HAS_NETLINK, 'smolvm-core not loaded'
           from smolvm_core import network
           assert network.available(), 'Native extension reports native networking unavailable on Linux'
@@ -183,9 +183,9 @@ jobs:
           from pathlib import Path
           from importlib.metadata import version as pkg_version
 
-          from smolvm.host._accel import HAS_NETLINK
-          from smolvm.host.setup import detect_setup_platform, resolve_setup_script
-          from smolvm.images import builder as image_builder
+          from celesto.host._accel import HAS_NETLINK
+          from celesto.host.setup import detect_setup_platform, resolve_setup_script
+          from celesto.images import builder as image_builder
 
           assert pkg_version("smolvm") == "${VERSION}"
           assert pkg_version("smolvm-core") == "${CORE_VERSION}"

@@ -11,13 +11,13 @@ import shlex
 from pathlib import Path
 from unittest.mock import patch
 
-from smolvm.cli.image import (
+from celesto.cli.image import (
     run_image_inspect,
     run_image_list,
     run_image_rm,
     run_macos_image_build,
 )
-from smolvm.cli.image_transfer import run_image_save
+from celesto.cli.image_transfer import run_image_save
 
 
 def _image(root: Path) -> Path:
@@ -51,9 +51,9 @@ def test_macos_image_build_recovery_quotes_ipsw_path(tmp_path: Path, capsys) -> 
     ipsw_path.touch()
     ipsw = str(ipsw_path)
     with (
-        patch("smolvm.runtime.backends.ensure_backend_available"),
+        patch("celesto.runtime.backends.ensure_backend_available"),
         patch(
-            "smolvm.macos.images.MacOSImageManager",
+            "celesto.macos.images.MacOSImageManager",
             side_effect=RuntimeError("build failed"),
         ),
     ):

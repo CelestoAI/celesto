@@ -14,11 +14,11 @@ from pathlib import Path
 import pytest
 from _util import BOOT_TIMEOUT, require_backend_available, selected_backend
 
-from smolvm import SmolVM
-from smolvm.exceptions import SmolVMError
-from smolvm.host.network import NetworkManager
-from smolvm.storage import MemoryStateManager
-from smolvm.types import SnapshotType
+from celesto import Celesto
+from celesto.exceptions import CelestoError
+from celesto.host.network import NetworkManager
+from celesto.storage import MemoryStateManager
+from celesto.types import SnapshotType
 
 pytestmark = pytest.mark.e2e
 
@@ -90,7 +90,7 @@ Server(("0.0.0.0", 18080), Handler).serve_forever()
         privileged("ip", "addr", "add", f"{gateway}/24", "dev", host_if)
         privileged("ip", "link", "set", host_if, "up")
         # Docker runners can default FORWARD to DROP. Permit only this lab's
-        # interface through that ambient firewall; SmolVM's earlier policy
+        # interface through that ambient firewall; Celesto's earlier policy
         # chains still decide which guest packets may reach it.
         for binary in ("iptables", "ip6tables"):
             for direction in ("-i", "-o"):
@@ -171,7 +171,7 @@ def test_firewall_packet_contract(policy_lab, qemu_replies):
     ns = f"npg-{suffix}"
     tap = f"tap{secrets.randbelow(1000000) + 100000}"
     peer = f"g{suffix}"
-    # A test-only point-to-point subnet; no allocated SmolVM addresses touched.
+    # A test-only point-to-point subnet; no allocated Celesto addresses touched.
     local, guest = "192.0.2.1", "192.0.2.2"
     nm = NetworkManager(host_ip=local)
     reply_server = None
@@ -292,7 +292,7 @@ except (OSError,AssertionError): sys.exit(1)
         privileged("ip", "link", "set", host_if, "name", neighbor_tap)
         try:
             # Keep the ambient firewall permissive for the renamed lab too,
-            # so only SmolVM's isolation rule can make this probe fail.
+            # so only Celesto's isolation rule can make this probe fail.
             for direction in ("-i", "-o"):
                 privileged(
                     "iptables", "-w", "-I", "FORWARD", direction, neighbor_tap, "-j", "ACCEPT"
@@ -329,7 +329,7 @@ except (OSError,AssertionError): sys.exit(1)
         privileged("ip", "-n", ns, "route", "replace", "default", "via", local, "src", guest)
         assert not reachable(denied, "udp", "dns-denied")
         # Invalid replacement must leave the old policy intact, not flush it.
-        with pytest.raises(SmolVMError):
+        with pytest.raises(CelestoError):
             nm._run_nft_script(nm._network_policy_script(tap, None) + "invalid nft syntax\n")
         assert not reachable(denied, token="failed-update")
         assert reachable(allowed, token="old-policy")
@@ -402,7 +402,7 @@ def test_firecracker_policy_lifecycle(policy_lab, request, tmp_path, mode):
     if mode == "restricted":
         settings["allowed_cidrs"] = [allowed]
     inventory = MemoryStateManager(tmp_path / "inventory")
-    sandbox = SmolVM(
+    sandbox = Celesto(
         backend="firecracker",
         os="alpine",
         comm_channel="vsock",
@@ -438,7 +438,7 @@ def test_firecracker_policy_lifecycle(policy_lab, request, tmp_path, mode):
         snapshot = sandbox.snapshot(snapshot_type=SnapshotType.DISK)
         sandbox.stop()
         sandbox.delete()
-        restored = SmolVM.from_snapshot(
+        restored = Celesto.from_snapshot(
             snapshot.snapshot_id, backend="firecracker", resume_vm=True, state_manager=inventory
         )
         check(restored)
@@ -465,7 +465,7 @@ def test_firecracker_policy_install_failure(policy_lab, request, tmp_path, monke
     if mode == "restricted":
         settings["allowed_cidrs"] = [allowed]
     inventory = MemoryStateManager(tmp_path / "inventory")
-    sandbox = SmolVM(
+    sandbox = Celesto(
         backend="firecracker",
         os="alpine",
         comm_channel="vsock",
@@ -487,7 +487,7 @@ def test_firecracker_policy_install_failure(policy_lab, request, tmp_path, monke
         before = firecracker_pids()
         with monkeypatch.context() as patch:
             patch.setattr(NetworkManager, "_run_nft_script", reject_policy)
-            with pytest.raises(SmolVMError):
+            with pytest.raises(CelestoError):
                 sandbox.start(boot_timeout=BOOT_TIMEOUT)
         assert firecracker_pids() == before, "Failed policy installation launched Firecracker"
         sandbox.start(boot_timeout=BOOT_TIMEOUT)
@@ -498,15 +498,15 @@ def test_firecracker_policy_install_failure(policy_lab, request, tmp_path, monke
         before = firecracker_pids()
         with monkeypatch.context() as patch:
             patch.setattr(NetworkManager, "_run_nft_script", reject_policy)
-            with pytest.raises(SmolVMError):
-                SmolVM.from_snapshot(
+            with pytest.raises(CelestoError):
+                Celesto.from_snapshot(
                     snapshot.snapshot_id,
                     backend="firecracker",
                     resume_vm=True,
                     state_manager=inventory,
                 )
         assert firecracker_pids() == before, "Failed restore policy launched Firecracker"
-        restored = SmolVM.from_snapshot(
+        restored = Celesto.from_snapshot(
             snapshot.snapshot_id,
             backend="firecracker",
             resume_vm=True,

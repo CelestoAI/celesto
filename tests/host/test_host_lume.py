@@ -14,8 +14,8 @@ from unittest.mock import patch
 
 import pytest
 
-from smolvm.exceptions import HostError
-from smolvm.host import lume
+from celesto.exceptions import HostError
+from celesto.host import lume
 
 
 def _archive(path: Path, extra_member: str | None = None) -> None:
@@ -39,7 +39,7 @@ def test_verify_lume_app_requires_virtualization_entitlement(tmp_path: Path) -> 
     entitled = subprocess.CompletedProcess(
         [], 0, stdout="", stderr="<key>com.apple.security.virtualization</key>"
     )
-    with patch("smolvm.host.lume.subprocess.run", side_effect=[signed, signed, entitled]):
+    with patch("celesto.host.lume.subprocess.run", side_effect=[signed, signed, entitled]):
         lume._verify_lume_app(app)
 
 
@@ -51,9 +51,9 @@ def test_macos_major_version_falls_back_for_invalid_values() -> None:
 
 def test_install_requires_macos_14_or_newer(tmp_path: Path) -> None:
     with (
-        patch("smolvm.host.lume.platform.system", return_value="Darwin"),
-        patch("smolvm.host.lume.platform.machine", return_value="arm64"),
-        patch("smolvm.host.lume.platform.mac_ver", return_value=("13.6", ("", "", ""), "")),
+        patch("celesto.host.lume.platform.system", return_value="Darwin"),
+        patch("celesto.host.lume.platform.machine", return_value="arm64"),
+        patch("celesto.host.lume.platform.mac_ver", return_value=("13.6", ("", "", ""), "")),
         pytest.raises(HostError, match="macOS 14 or newer"),
     ):
         lume.install_pinned_lume(destination=tmp_path / "lume")
@@ -87,9 +87,9 @@ def test_pinned_lume_ready_requires_exact_version(tmp_path: Path) -> None:
     binary.write_text("#!/bin/sh\necho 0.4.0\n")
     binary.chmod(0o755)
 
-    with patch("smolvm.host.lume.find_lume_binary", return_value=binary):
+    with patch("celesto.host.lume.find_lume_binary", return_value=binary):
         assert lume.pinned_lume_ready() is True
 
     binary.write_text("#!/bin/sh\necho 0.3.0\n")
-    with patch("smolvm.host.lume.find_lume_binary", return_value=binary):
+    with patch("celesto.host.lume.find_lume_binary", return_value=binary):
         assert lume.pinned_lume_ready() is False

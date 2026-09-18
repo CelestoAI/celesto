@@ -14,7 +14,7 @@ Use the smallest resource that fits the job:
 
 A computer includes a browser, but a browser sandbox is still the simpler choice for web-only work.
 
-SmolVM downloads the Linux desktop image on first use and verifies its checksum. Later starts reuse
+Celesto downloads the Linux desktop image on first use and verifies its checksum. Later starts reuse
 the cached image, so applications do not need Docker to create a computer.
 
 ## Start and view a computer
@@ -22,26 +22,26 @@ the cached image, so applications do not need Docker to create a computer.
 Start the built-in Linux desktop template:
 
 ```bash
-smolvm computer start --name assistant
+celesto computer start --name assistant
 ```
 
 The command prints the computer's viewer URL. Open it later by name:
 
 ```bash
-smolvm computer open assistant
+celesto computer open assistant
 ```
 
 List available templates and active computers:
 
 ```bash
-smolvm computer templates
-smolvm computer list
+celesto computer templates
+celesto computer list
 ```
 
 Delete the computer when the work is finished:
 
 ```bash
-smolvm computer delete assistant
+celesto computer delete assistant
 ```
 
 Deletion removes the computer and its temporary files.
@@ -51,9 +51,9 @@ Deletion removes the computer and its temporary files.
 The returned object groups each capability by what it controls. `display` is for people or visual-control tools. `browser` is for Chromium automation. `files` and `run()` operate as the same unprivileged user who owns the desktop.
 
 ```python
-from smolvm import SmolVM
+from celesto import Celesto
 
-with SmolVM.computer() as computer:
+with Celesto.computer() as computer:
     print(computer.display.viewer_url)
     print(computer.browser.cdp_url)
     computer.files.write("/workspace/task.txt", "Review this file")

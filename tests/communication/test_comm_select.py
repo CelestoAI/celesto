@@ -16,9 +16,9 @@
 
 import pytest
 
-from smolvm.comm.select import VsockNotSupportedError, resolve_comm_channel
-from smolvm.runtime.backends import BACKEND_FIRECRACKER, BACKEND_QEMU
-from smolvm.types import GuestOS
+from celesto.comm.select import VsockNotSupportedError, resolve_comm_channel
+from celesto.runtime.backends import BACKEND_FIRECRACKER, BACKEND_QEMU
+from celesto.types import GuestOS
 
 
 def _resolve(**overrides):
@@ -45,7 +45,7 @@ class TestAuto:
     def test_auto_picks_vsock_without_fallback_on_firecracker_linux(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr("smolvm.comm.select.platform.system", lambda: "Linux")
+        monkeypatch.setattr("celesto.comm.select.platform.system", lambda: "Linux")
         res = _resolve(backend=BACKEND_FIRECRACKER)
         assert res.kind == "vsock"
 
@@ -70,7 +70,7 @@ class TestExplicit:
         assert exc.value.details["required_device"] == "/dev/vhost-vsock"
 
     def test_explicit_vsock_on_firecracker_linux(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("smolvm.comm.select.platform.system", lambda: "Linux")
+        monkeypatch.setattr("celesto.comm.select.platform.system", lambda: "Linux")
         res = _resolve(requested="vsock", backend=BACKEND_FIRECRACKER)
         assert res.kind == "vsock"
 

@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Simple manual example for SmolVM environment variable management.
+"""Simple manual example for Celesto environment variable management.
 
 Run:
     python examples/env_injection.py
@@ -25,11 +25,11 @@ This demonstrates the high-level facade methods:
 - ``vm.unset_env_vars``
 """
 
-from smolvm import SmolVM
+from celesto import Celesto
 
 
 def main() -> int:
-    with SmolVM() as vm:
+    with Celesto() as vm:
         print(f"VM started: {vm.vm_id}")
 
         print("\n1) Set environment variables")

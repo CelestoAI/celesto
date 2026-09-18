@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for SmolVM image builder module."""
+"""Tests for Celesto image builder module."""
 
 import subprocess
 import tarfile
@@ -21,11 +21,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smolvm.exceptions import ImageError, SmolVMError
-from smolvm.images import builder as builder_mod
-from smolvm.images.builder import ImageBuilder
-from smolvm.images.published import BASE_KERNELS
-from smolvm.runtime.boot_profiles import KernelBootProfile
+from celesto.exceptions import CelestoError, ImageError
+from celesto.images import builder as builder_mod
+from celesto.images.builder import ImageBuilder
+from celesto.images.published import BASE_KERNELS
+from celesto.runtime.boot_profiles import KernelBootProfile
 
 
 def _ok_subprocess_run(
@@ -49,8 +49,8 @@ def test_check_docker_retries_one_transient_failure(tmp_path: Path) -> None:
     success = subprocess.CompletedProcess([str(docker), "info"], 0)
 
     with (
-        patch("smolvm.images.builder.shutil.which", return_value=str(docker)),
-        patch("smolvm.images.builder.subprocess.run", side_effect=[first_failure, success]) as run,
+        patch("celesto.images.builder.shutil.which", return_value=str(docker)),
+        patch("celesto.images.builder.subprocess.run", side_effect=[first_failure, success]) as run,
     ):
         assert ImageBuilder(cache_dir=tmp_path / "images").check_docker() is True
 
@@ -168,7 +168,7 @@ class TestDockerDiagnostics:
     def test_docker_requirement_error_when_docker_missing(self, tmp_path: Path) -> None:
         builder = ImageBuilder(cache_dir=tmp_path / "images")
 
-        with patch("smolvm.images.builder.shutil.which", return_value=None):
+        with patch("celesto.images.builder.shutil.which", return_value=None):
             error = builder.docker_requirement_error()
 
         assert str(error) == (
@@ -176,7 +176,7 @@ class TestDockerDiagnostics:
             "Install Docker Desktop (macOS) or docker.io (Linux)."
         )
 
-    @patch("smolvm.images.builder.subprocess.run")
+    @patch("celesto.images.builder.subprocess.run")
     def test_docker_requirement_error_when_daemon_unreachable(
         self, mock_subprocess_run: MagicMock, tmp_path: Path
     ) -> None:
@@ -190,14 +190,14 @@ class TestDockerDiagnostics:
             ),
         )
 
-        with patch("smolvm.images.builder.shutil.which", return_value="/usr/bin/docker"):
+        with patch("celesto.images.builder.shutil.which", return_value="/usr/bin/docker"):
             error = builder.docker_requirement_error()
 
         assert "could not reach the Docker daemon" in str(error)
         assert "Start Docker Desktop or the Docker service" in str(error)
         assert "Cannot connect to the Docker daemon" in str(error)
 
-    @patch("smolvm.images.builder.subprocess.run")
+    @patch("celesto.images.builder.subprocess.run")
     def test_docker_requirement_error_when_socket_permission_denied(
         self, mock_subprocess_run: MagicMock, tmp_path: Path
     ) -> None:
@@ -211,7 +211,7 @@ class TestDockerDiagnostics:
             ),
         )
 
-        with patch("smolvm.images.builder.shutil.which", return_value="/usr/bin/docker"):
+        with patch("celesto.images.builder.shutil.which", return_value="/usr/bin/docker"):
             error = builder.docker_requirement_error()
 
         assert "cannot access the Docker daemon socket" in str(error)
@@ -251,16 +251,16 @@ class TestImageBuilderLoopFs:
 
         with (
             patch.object(ImageBuilder, "_loopfs_helper_path", return_value=None),
-            pytest.raises(ImageError, match="smolvm setup"),
+            pytest.raises(ImageError, match="celesto setup"),
         ):
             builder._run_loopfs("mount", Path("/tmp/rootfs.ext4"), Path("/tmp/mnt"))
 
-    @patch("smolvm.images.builder.run_command")
+    @patch("celesto.images.builder.run_command")
     def test_run_loopfs_maps_runtime_error(
         self, mock_run_command: MagicMock, tmp_path: Path
     ) -> None:
         builder = ImageBuilder(cache_dir=tmp_path / "images")
-        mock_run_command.side_effect = SmolVMError("sudo: a password is required")
+        mock_run_command.side_effect = CelestoError("sudo: a password is required")
 
         with (
             patch.object(
@@ -268,12 +268,12 @@ class TestImageBuilderLoopFs:
                 "_loopfs_helper_path",
                 return_value=Path("/usr/local/libexec/smolvm-loopfs-helper"),
             ),
-            pytest.raises(ImageError, match="smolvm setup"),
+            pytest.raises(ImageError, match="celesto setup"),
         ):
             builder._run_loopfs("mount", Path("/tmp/rootfs.ext4"), Path("/tmp/mnt"))
 
-    @patch("smolvm.images.builder.subprocess.run")
-    @patch("smolvm.images.builder.run_command")
+    @patch("celesto.images.builder.subprocess.run")
+    @patch("celesto.images.builder.run_command")
     def test_do_build_uses_loopfs_helper(
         self, mock_run_command: MagicMock, mock_subprocess_run: MagicMock, tmp_path: Path
     ) -> None:
@@ -299,7 +299,7 @@ class TestImageBuilderLoopFs:
             ),
             patch.object(ImageBuilder, "_download_kernel"),
             patch(
-                "smolvm.images.builder._guest_agent_binary",
+                "celesto.images.builder._guest_agent_binary",
                 return_value=_fake_guest_agent_binary(tmp_path),
             ),
         ):
@@ -471,7 +471,7 @@ class TestBrowserImageBuilder:
             assert "x11vnc" in dockerfile_content
             assert init_script.startswith("#!/bin/sh")
             assert rootfs_size_mb == 4096
-            # Post-0.0.14a0 the kernel URL resolves to the SmolVM-built
+            # Post-0.0.14a0 the kernel URL resolves to the Celesto-built
             # base kernel. Builder default is the ELF format (Firecracker —
             # the typical Linux backend); QEMU callers thread an explicit
             # kernel_url override via _build_auto_config.
@@ -602,8 +602,8 @@ class TestBrowserImageBuilder:
         )
         mock_do_build.assert_called_once()
 
-    @patch("smolvm.images.builder.subprocess.run")
-    @patch("smolvm.images.builder.run_command")
+    @patch("celesto.images.builder.subprocess.run")
+    @patch("celesto.images.builder.run_command")
     def test_do_build_uses_docker_fallback_when_loopfs_missing(
         self, mock_run_command: MagicMock, mock_subprocess_run: MagicMock, tmp_path: Path
     ) -> None:
@@ -646,7 +646,7 @@ class TestBrowserImageBuilder:
             ),
             patch.object(ImageBuilder, "_download_kernel"),
             patch(
-                "smolvm.images.builder._guest_agent_binary",
+                "celesto.images.builder._guest_agent_binary",
                 return_value=_fake_guest_agent_binary(tmp_path),
             ),
         ):
@@ -669,8 +669,8 @@ class TestBrowserImageBuilder:
         assert len(docker_run_calls) == 1
         assert rootfs_path.exists()
 
-    @patch("smolvm.images.builder.subprocess.run")
-    @patch("smolvm.images.builder.run_command")
+    @patch("celesto.images.builder.subprocess.run")
+    @patch("celesto.images.builder.run_command")
     def test_do_build_preserves_tar_error_when_unmount_fails(
         self, mock_run_command: MagicMock, mock_subprocess_run: MagicMock, tmp_path: Path
     ) -> None:
@@ -687,9 +687,9 @@ class TestBrowserImageBuilder:
             cmd: list[str], **kwargs: object
         ) -> subprocess.CompletedProcess[str]:
             if len(cmd) > 1 and cmd[1] == "extract":
-                raise SmolVMError("extract failed")
+                raise CelestoError("extract failed")
             if len(cmd) > 1 and cmd[1] == "umount":
-                raise SmolVMError("umount failed")
+                raise CelestoError("umount failed")
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
         mock_subprocess_run.side_effect = _subprocess_side_effect
@@ -707,7 +707,7 @@ class TestBrowserImageBuilder:
                 return_value=Path("/usr/local/libexec/smolvm-loopfs-helper"),
             ),
             patch(
-                "smolvm.images.builder._guest_agent_binary",
+                "celesto.images.builder._guest_agent_binary",
                 return_value=_fake_guest_agent_binary(tmp_path),
             ),
             pytest.raises(ImageError, match="extract"),

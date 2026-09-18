@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Run OpenClaw 2026.9.1 in a disposable SmolVM sandbox.
+"""Run OpenClaw 2026.9.1 in a disposable Celesto sandbox.
 
-For everyday use, prefer ``smolvm openclaw start`` followed by
-``smolvm openclaw open-ui``. This lower-level example shows the same runtime,
+For everyday use, prefer ``celesto openclaw start`` followed by
+``celesto openclaw open-ui``. This lower-level example shows the same runtime,
 explicit credential forwarding, and localhost-only dashboard flow with the SDK.
 """
 
@@ -13,9 +13,9 @@ import os
 import sys
 from urllib.parse import urlsplit, urlunsplit
 
-from smolvm import SSH_BOOT_ARGS, ImageBuilder, SmolVM, VMConfig
-from smolvm.presets.openclaw import OPENCLAW_NODE_VERSION, OPENCLAW_VERSION
-from smolvm.utils import ensure_ssh_key
+from celesto import SSH_BOOT_ARGS, Celesto, ImageBuilder, VMConfig
+from celesto.presets.openclaw import OPENCLAW_NODE_VERSION, OPENCLAW_VERSION
+from celesto.utils import ensure_ssh_key
 
 GUEST_DASHBOARD_PORT = 18789
 HOST_DASHBOARD_PORT = 18789
@@ -23,7 +23,7 @@ OPENCLAW_PREFIX = "/opt/openclaw"
 VM_MEMORY_MIB = 2048
 
 
-def _run_or_exit(vm: SmolVM, command: str, timeout: int = 300) -> str:
+def _run_or_exit(vm: Celesto, command: str, timeout: int = 300) -> str:
     """Run one guest command and stop with a readable error if it fails."""
     print(f"\n$ {command}")
     result = vm.run(command, timeout=timeout)
@@ -48,7 +48,7 @@ def _host_env_vars() -> dict[str, str]:
     return {name: value for name in names if (value := os.getenv(name, "").strip())}
 
 
-def _install_supported_node(vm: SmolVM) -> None:
+def _install_supported_node(vm: Celesto) -> None:
     """Install the Node.js line supported by this OpenClaw release."""
     node_major = OPENCLAW_NODE_VERSION[0]
     minimum = ", ".join(str(part) for part in OPENCLAW_NODE_VERSION)
@@ -76,7 +76,7 @@ def _install_supported_node(vm: SmolVM) -> None:
     )
 
 
-def _install_openclaw(vm: SmolVM) -> None:
+def _install_openclaw(vm: Celesto) -> None:
     """Install the exact OpenClaw release and permit its package setup script."""
     _run_or_exit(vm, f"rm -rf {OPENCLAW_PREFIX} && mkdir -p {OPENCLAW_PREFIX}", timeout=60)
     _run_or_exit(
@@ -97,7 +97,7 @@ def _install_openclaw(vm: SmolVM) -> None:
     )
 
 
-def _start_gateway(vm: SmolVM) -> None:
+def _start_gateway(vm: Celesto) -> None:
     """Start the loopback-only OpenClaw gateway and wait until it responds."""
     _run_or_exit(
         vm,
@@ -124,7 +124,7 @@ def _start_gateway(vm: SmolVM) -> None:
     )
 
 
-def _dashboard_url(vm: SmolVM, host_port: int) -> str:
+def _dashboard_url(vm: Celesto, host_port: int) -> str:
     """Create a one-time dashboard link and point it at the host port."""
     raw = _run_or_exit(
         vm,
@@ -167,7 +167,7 @@ def main() -> int:
         boot_args=SSH_BOOT_ARGS,
     )
 
-    with SmolVM(config, ssh_key_path=str(private_key)) as vm:
+    with Celesto(config, ssh_key_path=str(private_key)) as vm:
         print(f"Sandbox running: {vm.vm_id} ({vm.get_ip()})")
         _install_supported_node(vm)
         _install_openclaw(vm)

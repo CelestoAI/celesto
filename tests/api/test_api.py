@@ -20,8 +20,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smolvm.api import FirecrackerClient
-from smolvm.exceptions import FirecrackerAPIError, OperationTimeoutError
+from celesto.api import FirecrackerClient
+from celesto.exceptions import FirecrackerAPIError, OperationTimeoutError
 
 
 def _core_client() -> MagicMock:
@@ -44,7 +44,7 @@ def test_pause_resume_vm_payloads(tmp_path: Path) -> None:
     core_client = _core_client()
     client = _client(tmp_path)
 
-    with patch("smolvm.api._require_core_firecracker", return_value=core_client):
+    with patch("celesto.api._require_core_firecracker", return_value=core_client):
         client.pause_vm()
         client.resume_vm()
 
@@ -68,7 +68,7 @@ def test_create_snapshot_payload(tmp_path: Path) -> None:
     snapshot_path = tmp_path / "vmstate.bin"
     mem_path = tmp_path / "mem.bin"
 
-    with patch("smolvm.api._require_core_firecracker", return_value=core_client):
+    with patch("celesto.api._require_core_firecracker", return_value=core_client):
         client.create_snapshot(snapshot_path, mem_path)
 
     core_client.request_raw.assert_called_once_with(
@@ -92,7 +92,7 @@ def test_load_snapshot_payload(tmp_path: Path) -> None:
     snapshot_path = tmp_path / "vmstate.bin"
     mem_path = tmp_path / "mem.bin"
 
-    with patch("smolvm.api._require_core_firecracker", return_value=core_client):
+    with patch("celesto.api._require_core_firecracker", return_value=core_client):
         client.load_snapshot(
             snapshot_path,
             mem_path,
@@ -126,7 +126,7 @@ def test_firecracker_request_returns_native_json_payload(tmp_path: Path) -> None
     core_client.request_raw.return_value = (200, '{"ok":true}')
     client = _client(tmp_path)
 
-    with patch("smolvm.api._require_core_firecracker", return_value=core_client):
+    with patch("celesto.api._require_core_firecracker", return_value=core_client):
         result = client._request("GET", "/", expected_status=(200,))
 
     assert result == {"ok": True}
@@ -145,7 +145,7 @@ def test_firecracker_transport_error_no_longer_falls_back_to_requests(tmp_path: 
     client = _client(tmp_path)
 
     with (
-        patch("smolvm.api._require_core_firecracker", return_value=core_client),
+        patch("celesto.api._require_core_firecracker", return_value=core_client),
         pytest.raises(FirecrackerAPIError, match="connection reset"),
     ):
         client._request("GET", "/", expected_status=(200,))
@@ -173,7 +173,7 @@ def test_firecracker_start_transport_error_treats_replayed_start_as_success(
     ]
     client = _client(tmp_path)
 
-    with patch("smolvm.api._require_core_firecracker", return_value=core_client):
+    with patch("celesto.api._require_core_firecracker", return_value=core_client):
         client.start_instance()
 
     assert core_client.request_raw.call_count == 2
@@ -189,7 +189,7 @@ def test_firecracker_request_disabled_native_fails(
     monkeypatch.setenv("SMOLVM_DISABLE_NATIVE_FIRECRACKER_API", "1")
 
     with (
-        patch("smolvm.api.core_firecracker") as mock_core_firecracker,
+        patch("celesto.api.core_firecracker") as mock_core_firecracker,
         pytest.raises(FirecrackerAPIError, match="unset `SMOLVM_DISABLE_NATIVE_FIRECRACKER_API`"),
     ):
         mock_core_firecracker.available.return_value = True
@@ -205,7 +205,7 @@ def test_firecracker_api_error_preserves_status_code(tmp_path: Path) -> None:
     client = _client(tmp_path)
 
     with (
-        patch("smolvm.api._require_core_firecracker", return_value=core_client),
+        patch("celesto.api._require_core_firecracker", return_value=core_client),
         pytest.raises(FirecrackerAPIError) as exc_info,
     ):
         client.start_instance()
@@ -219,7 +219,7 @@ def test_wait_for_socket_uses_native_full_timeout(tmp_path: Path) -> None:
     core_client = _core_client()
     client = _client(tmp_path)
 
-    with patch("smolvm.api._require_core_firecracker", return_value=core_client):
+    with patch("celesto.api._require_core_firecracker", return_value=core_client):
         client.wait_for_socket(timeout=180.0)
 
     core_client.wait_for_socket.assert_called_once_with(180.0)
@@ -232,7 +232,7 @@ def test_wait_for_socket_native_timeout_raises_operation_timeout(tmp_path: Path)
     client = _client(tmp_path)
 
     with (
-        patch("smolvm.api._require_core_firecracker", return_value=core_client),
+        patch("celesto.api._require_core_firecracker", return_value=core_client),
         pytest.raises(OperationTimeoutError),
     ):
         client.wait_for_socket(timeout=0.5)

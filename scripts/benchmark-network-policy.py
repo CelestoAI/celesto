@@ -12,16 +12,25 @@ import json
 import socket
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
+from importlib.util import find_spec
 from pathlib import Path
 from threading import Lock
 from urllib.parse import urlparse
 from urllib.request import ProxyHandler, build_opener
 from uuid import uuid4
 
-from smolvm import SmolVM
-from smolvm import facade as _facade
-from smolvm.storage import MemoryStateManager
-from smolvm.types import SnapshotType, VMConfig
+# The release matrix runs this script against both the current wheel and a
+# pinned pre-rebrand wheel. Keep compatibility local to this comparison tool.
+if find_spec("celesto") is not None:
+    from celesto import Celesto
+    from celesto import facade as _facade
+    from celesto.storage import MemoryStateManager
+    from celesto.types import SnapshotType, VMConfig
+else:
+    from smolvm import SmolVM as Celesto
+    from smolvm import facade as _facade
+    from smolvm.storage import MemoryStateManager
+    from smolvm.types import SnapshotType, VMConfig
 
 
 def claim_forward_port(claimed: set[int], lock: Lock) -> int:
@@ -137,7 +146,7 @@ def main() -> None:
             }
         started = work.setdefault("started", time.monotonic())
         try:
-            sandbox = SmolVM(**kwargs)
+            sandbox = Celesto(**kwargs)
             work["vm"] = sandbox
             work["sdk"] = sandbox._sdk
             sandbox.start()
@@ -176,7 +185,7 @@ def main() -> None:
 
     def restore_sample(work: dict) -> None:
         started = time.monotonic()
-        restored = SmolVM.from_snapshot(
+        restored = Celesto.from_snapshot(
             work["snapshot_id"],
             backend="qemu" if template else "firecracker",
             resume_vm=True,

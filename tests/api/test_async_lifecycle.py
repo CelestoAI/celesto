@@ -21,8 +21,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from smolvm.exceptions import SmolVMError
-from smolvm.types import VMConfig, VMState
+from celesto.exceptions import CelestoError
+from celesto.types import VMConfig, VMState
 
 # ---------------------------------------------------------------------------
 # async_run_command
@@ -35,7 +35,7 @@ class TestAsyncRunCommand:
     @pytest.mark.asyncio
     async def test_async_run_command_success(self) -> None:
         """Successful command returns CompletedProcess."""
-        from smolvm.utils import async_run_command
+        from celesto.utils import async_run_command
 
         mock_proc = AsyncMock()
         mock_proc.communicate.return_value = (b"hello\n", b"")
@@ -49,8 +49,8 @@ class TestAsyncRunCommand:
 
     @pytest.mark.asyncio
     async def test_async_run_command_failure_raises(self) -> None:
-        """Non-zero exit raises SmolVMError."""
-        from smolvm.utils import async_run_command
+        """Non-zero exit raises CelestoError."""
+        from celesto.utils import async_run_command
 
         mock_proc = AsyncMock()
         mock_proc.communicate.return_value = (b"", b"error msg")
@@ -58,14 +58,14 @@ class TestAsyncRunCommand:
 
         with (
             patch("asyncio.create_subprocess_exec", return_value=mock_proc),
-            pytest.raises(SmolVMError, match="Command failed"),
+            pytest.raises(CelestoError, match="Command failed"),
         ):
             await async_run_command(["false"], use_sudo=False)
 
     @pytest.mark.asyncio
     async def test_async_run_command_timeout_raises(self) -> None:
-        """Command that exceeds timeout raises SmolVMError."""
-        from smolvm.utils import async_run_command
+        """Command that exceeds timeout raises CelestoError."""
+        from celesto.utils import async_run_command
 
         mock_proc = AsyncMock()
         mock_proc.communicate.side_effect = TimeoutError()
@@ -74,26 +74,26 @@ class TestAsyncRunCommand:
 
         with (
             patch("asyncio.create_subprocess_exec", return_value=mock_proc),
-            pytest.raises(SmolVMError, match="timed out"),
+            pytest.raises(CelestoError, match="timed out"),
         ):
             await async_run_command(["sleep", "100"], use_sudo=False, timeout=1)
 
     @pytest.mark.asyncio
     async def test_async_run_command_empty_raises(self) -> None:
         """Empty command raises ValueError."""
-        from smolvm.utils import async_run_command
+        from celesto.utils import async_run_command
 
         with pytest.raises(ValueError, match="cmd cannot be empty"):
             await async_run_command([], use_sudo=False)
 
 
 # ---------------------------------------------------------------------------
-# Async SmolVMManager
+# Async CelestoManager
 # ---------------------------------------------------------------------------
 
 
 class TestAsyncSmolVMManager:
-    """Tests for async lifecycle methods on SmolVMManager."""
+    """Tests for async lifecycle methods on CelestoManager."""
 
     @pytest.mark.asyncio
     async def test_async_create_resizes_and_grows_raw_qemu_disk(
@@ -101,7 +101,7 @@ class TestAsyncSmolVMManager:
         tmp_path: Path,
     ) -> None:
         """async_create should apply the same raw resize/grow path as create."""
-        from smolvm.vm import SmolVMManager
+        from celesto.vm import CelestoManager
 
         kernel = tmp_path / "vmlinux"
         rootfs = tmp_path / "rootfs.img"
@@ -116,7 +116,7 @@ class TestAsyncSmolVMManager:
             disk_size_mib=2,
             grow_filesystem=True,
         )
-        manager = SmolVMManager(
+        manager = CelestoManager(
             data_dir=tmp_path / "data-async-create",
             socket_dir=tmp_path / "sockets-async-create",
             backend="qemu",
@@ -126,7 +126,7 @@ class TestAsyncSmolVMManager:
             target.write_bytes(source.read_bytes())
 
         with (
-            patch.object(SmolVMManager, "_async_copy_with_reflink", side_effect=_copy),
+            patch.object(CelestoManager, "_async_copy_with_reflink", side_effect=_copy),
             patch.object(manager, "_grow_raw_ext4_filesystem") as mock_grow,
         ):
             vm_info = await manager.async_create(config)
@@ -138,8 +138,8 @@ class TestAsyncSmolVMManager:
         mock_grow.assert_called_once_with(expected_disk, "vm-async-create")
 
     @pytest.mark.asyncio
-    @patch("smolvm.vm.SmolVMManager._runtime_adapter_for_backend")
-    @patch("smolvm.vm.SmolVMManager._backend_for_vm")
+    @patch("celesto.vm.CelestoManager._runtime_adapter_for_backend")
+    @patch("celesto.vm.CelestoManager._backend_for_vm")
     async def test_async_start(
         self,
         mock_backend_for_vm: MagicMock,
@@ -147,8 +147,8 @@ class TestAsyncSmolVMManager:
         tmp_path: Path,
     ) -> None:
         """async_start should call adapter.async_start and update state."""
-        from smolvm.runtime.base import RuntimeLaunch
-        from smolvm.vm import SmolVMManager
+        from celesto.runtime.base import RuntimeLaunch
+        from celesto.vm import CelestoManager
 
         kernel = tmp_path / "vmlinux"
         rootfs = tmp_path / "rootfs.ext4"
@@ -162,10 +162,10 @@ class TestAsyncSmolVMManager:
             backend="qemu",
         )
 
-        manager = SmolVMManager(data_dir=tmp_path / "data")
+        manager = CelestoManager(data_dir=tmp_path / "data")
         manager.state.create_vm(config)
         # Manually set network so start() doesn't complain
-        from smolvm.types import NetworkConfig
+        from celesto.types import NetworkConfig
 
         manager.state.reserve_ssh_port("vm-async1")
         manager.state.update_vm(
@@ -190,15 +190,16 @@ class TestAsyncSmolVMManager:
         )
         mock_adapter_for_backend.return_value = mock_adapter
 
-        result = await manager.async_start("vm-async1")
+        with patch.object(manager, "_local_ssh_port_is_available", return_value=True):
+            result = await manager.async_start("vm-async1")
 
         assert result.status == VMState.RUNNING
         assert result.pid == 12345
         mock_adapter.async_start.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch("smolvm.vm.SmolVMManager._runtime_adapter_for_backend")
-    @patch("smolvm.vm.SmolVMManager._backend_for_vm")
+    @patch("celesto.vm.CelestoManager._runtime_adapter_for_backend")
+    @patch("celesto.vm.CelestoManager._backend_for_vm")
     async def test_async_stop(
         self,
         mock_backend_for_vm: MagicMock,
@@ -206,7 +207,7 @@ class TestAsyncSmolVMManager:
         tmp_path: Path,
     ) -> None:
         """async_stop should call adapter.async_stop and update state."""
-        from smolvm.vm import SmolVMManager
+        from celesto.vm import CelestoManager
 
         kernel = tmp_path / "vmlinux"
         rootfs = tmp_path / "rootfs.ext4"
@@ -220,7 +221,7 @@ class TestAsyncSmolVMManager:
             backend="qemu",
         )
 
-        manager = SmolVMManager(data_dir=tmp_path / "data")
+        manager = CelestoManager(data_dir=tmp_path / "data")
         manager.state.create_vm(config)
         manager.state.update_vm("vm-async2", status=VMState.RUNNING, pid=99999)
 
@@ -236,7 +237,7 @@ class TestAsyncSmolVMManager:
 
 
 # ---------------------------------------------------------------------------
-# Async SmolVM facade
+# Async Celesto facade
 # ---------------------------------------------------------------------------
 
 
@@ -259,10 +260,10 @@ def _paused_sdk(
     config: VMConfig,
     status: VMState = VMState.PAUSED,
 ) -> MagicMock:
-    """Patch the SDK so a new ``SmolVM`` starts in the given status."""
+    """Patch the SDK so a new ``Celesto`` starts in the given status."""
     mock_sdk = MagicMock()
     mock_sdk.create.return_value = MagicMock(vm_id=config.vm_id, status=status, config=config)
-    monkeypatch.setattr("smolvm.facade.SmolVMManager", MagicMock(return_value=mock_sdk))
+    monkeypatch.setattr("celesto.facade.CelestoManager", MagicMock(return_value=mock_sdk))
     return mock_sdk
 
 
@@ -270,14 +271,14 @@ class TestAsyncSmolVMFacade:
     """Tests for async facade methods."""
 
     @pytest.mark.asyncio
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     async def test_async_start_calls_sdk(
         self,
         mock_sdk_cls: MagicMock,
         tmp_path: Path,
     ) -> None:
         """async_start should call sdk.async_start."""
-        from smolvm.facade import SmolVM
+        from celesto.facade import Celesto
 
         kernel = tmp_path / "vmlinux"
         rootfs = tmp_path / "rootfs.ext4"
@@ -307,7 +308,7 @@ class TestAsyncSmolVMFacade:
         )
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(config)
+        vm = Celesto(config)
         result = await vm.async_start()
 
         assert result is vm
@@ -323,7 +324,7 @@ class TestAsyncSmolVMFacade:
         import asyncio
         import threading
 
-        from smolvm.facade import SmolVM
+        from celesto.facade import Celesto
 
         config = _paused_vm_config(tmp_path)
         resumed_info = MagicMock(vm_id="vm-paused-async", status=VMState.RUNNING, config=config)
@@ -342,7 +343,7 @@ class TestAsyncSmolVMFacade:
 
         mock_sdk = _paused_sdk(monkeypatch, config)
         mock_sdk.resume.side_effect = blocking_resume
-        vm = SmolVM(config)
+        vm = Celesto(config)
 
         loop_thread = threading.get_ident()
         start_task = asyncio.create_task(vm.async_start())
@@ -377,7 +378,7 @@ class TestAsyncSmolVMFacade:
         import asyncio
         import threading
 
-        from smolvm.facade import SmolVM
+        from celesto.facade import Celesto
 
         config = _paused_vm_config(tmp_path)
         resumed_info = MagicMock(vm_id="vm-paused-async", status=VMState.RUNNING, config=config)
@@ -391,7 +392,7 @@ class TestAsyncSmolVMFacade:
 
         mock_sdk = _paused_sdk(monkeypatch, config)
         mock_sdk.resume.side_effect = blocking_resume
-        vm = SmolVM(config)
+        vm = Celesto(config)
         start_task = asyncio.create_task(vm.async_start())
 
         while not resume_started.is_set():
@@ -419,12 +420,12 @@ class TestAsyncSmolVMFacade:
         tmp_path: Path,
     ) -> None:
         """A failed resume surfaces the original error and reports no transition."""
-        from smolvm.facade import SmolVM
+        from celesto.facade import Celesto
 
         config = _paused_vm_config(tmp_path)
         mock_sdk = _paused_sdk(monkeypatch, config)
         mock_sdk.resume.side_effect = RuntimeError("hypervisor refused resume")
-        vm = SmolVM(config)
+        vm = Celesto(config)
 
         with pytest.raises(RuntimeError, match="hypervisor refused resume"):
             await vm.async_start()
@@ -438,11 +439,11 @@ class TestAsyncSmolVMFacade:
         tmp_path: Path,
     ) -> None:
         """Control: an already-running VM neither resumes nor restarts."""
-        from smolvm.facade import SmolVM
+        from celesto.facade import Celesto
 
         config = _paused_vm_config(tmp_path)
         mock_sdk = _paused_sdk(monkeypatch, config, status=VMState.RUNNING)
-        vm = SmolVM(config)
+        vm = Celesto(config)
 
         assert await vm.async_start() is vm
         mock_sdk.resume.assert_not_called()
@@ -454,27 +455,27 @@ class TestAsyncSmolVMFacade:
         tmp_path: Path,
     ) -> None:
         """Control: the synchronous resume path is unchanged."""
-        from smolvm.facade import SmolVM
+        from celesto.facade import Celesto
 
         config = _paused_vm_config(tmp_path)
         mock_sdk = _paused_sdk(monkeypatch, config)
         resumed_info = MagicMock(vm_id="vm-paused-async", status=VMState.RUNNING, config=config)
         mock_sdk.resume.return_value = resumed_info
-        vm = SmolVM(config)
+        vm = Celesto(config)
 
         assert vm.resume() is vm
         mock_sdk.resume.assert_called_once_with("vm-paused-async")
         assert vm.info is resumed_info
 
     @pytest.mark.asyncio
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     async def test_async_stop_calls_sdk(
         self,
         mock_sdk_cls: MagicMock,
         tmp_path: Path,
     ) -> None:
         """async_stop should call sdk.async_stop."""
-        from smolvm.facade import SmolVM
+        from celesto.facade import Celesto
 
         kernel = tmp_path / "vmlinux"
         rootfs = tmp_path / "rootfs.ext4"
@@ -500,21 +501,21 @@ class TestAsyncSmolVMFacade:
         )
         mock_sdk_cls.return_value = mock_sdk
 
-        vm = SmolVM(config)
+        vm = Celesto(config)
         result = await vm.async_stop()
 
         assert result is vm
         mock_sdk.async_stop.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch("smolvm.facade.SmolVMManager")
+    @patch("celesto.facade.CelestoManager")
     async def test_async_context_manager(
         self,
         mock_sdk_cls: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Async context manager should start and stop/delete the VM."""
-        from smolvm.facade import SmolVM
+        from celesto.facade import Celesto
 
         kernel = tmp_path / "vmlinux"
         rootfs = tmp_path / "rootfs.ext4"
@@ -543,7 +544,7 @@ class TestAsyncSmolVMFacade:
         mock_sdk.async_delete = AsyncMock()
         mock_sdk_cls.return_value = mock_sdk
 
-        async with SmolVM(config) as vm:
+        async with Celesto(config) as vm:
             assert vm.vm_id == "vm-ctx"
             mock_sdk.async_start.assert_called_once()
 

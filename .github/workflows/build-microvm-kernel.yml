@@ -117,11 +117,11 @@ jobs:
             # Read it as a string instead of importing the package: this
             # workflow installs only the apt packages it needs to build
             # a kernel and skips the smolvm Python deps (paramiko etc),
-            # so `from smolvm.images.published import …` would ImportError.
-            tag=$(awk -F'"' '/^IMAGES_RELEASE_TAG[[:space:]]*=/{print $2; exit}' src/smolvm/images/published.py)
+            # so `from celesto.images.published import …` would ImportError.
+            tag=$(awk -F'"' '/^IMAGES_RELEASE_TAG[[:space:]]*=/{print $2; exit}' src/celesto/images/published.py)
           fi
           if [ -z "$tag" ]; then
-            echo "ERROR: IMAGES_RELEASE_TAG could not be parsed from src/smolvm/images/published.py" >&2
+            echo "ERROR: IMAGES_RELEASE_TAG could not be parsed from src/celesto/images/published.py" >&2
             exit 1
           fi
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
@@ -158,7 +158,7 @@ jobs:
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import ast, os
           arch = os.environ["ARCH"]
-          src = open("src/smolvm/images/published.py").read()
+          src = open("src/celesto/images/published.py").read()
           tree = ast.parse(src)
 
 
@@ -255,7 +255,7 @@ jobs:
               *)       continue ;;
             esac
             if [ -n "$pinned_sha" ] && [ "$local_sha" != "$pinned_sha" ]; then
-              echo "::warning title=Kernel SHA drift::${name}: source on this branch builds ${local_sha} but BASE_KERNELS pins ${pinned_sha} at ${TAG}. Bump IMAGES_RELEASE_TAG in src/smolvm/images/published.py to publish the new bytes."
+              echo "::warning title=Kernel SHA drift::${name}: source on this branch builds ${local_sha} but BASE_KERNELS pins ${pinned_sha} at ${TAG}. Bump IMAGES_RELEASE_TAG in src/celesto/images/published.py to publish the new bytes."
               drift_detected=1
             fi
           done
@@ -279,7 +279,7 @@ jobs:
           else
             existing_assets_note="Existing assets were skipped (see upload step log)."
           fi
-          published_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/main/src/smolvm/images/published.py"
+          published_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/main/src/celesto/images/published.py"
           {
             echo "## microvm kernel build: \`${ARCH}\`"
             echo ""
@@ -294,6 +294,6 @@ jobs:
             if [ "${DRIFT_DETECTED:-0}" = "1" ]; then
               echo ""
               echo "> [!WARNING]"
-              echo "> Source on this branch builds different kernel bytes than \`BASE_KERNELS\` pins for \`${TAG}\`. Bump \`IMAGES_RELEASE_TAG\` in [\`src/smolvm/images/published.py\`](${published_url}) to publish the new bytes."
+              echo "> Source on this branch builds different kernel bytes than \`BASE_KERNELS\` pins for \`${TAG}\`. Bump \`IMAGES_RELEASE_TAG\` in [\`src/celesto/images/published.py\`](${published_url}) to publish the new bytes."
             fi
           } >> "$GITHUB_STEP_SUMMARY"

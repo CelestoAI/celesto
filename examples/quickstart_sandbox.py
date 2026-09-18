@@ -14,20 +14,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Run one command inside a disposable SmolVM sandbox.
+"""Run one command inside a disposable Celesto sandbox.
 
 Before running:
-    smolvm doctor
+    celesto doctor
 
 Run:
     python examples/quickstart_sandbox.py
 """
 
-from smolvm import SmolVM
+from celesto import Computer
 
 
 def main() -> int:
-    with SmolVM() as vm:
+    with Computer(local=True) as vm:
         result = vm.run("echo 'Hello from the sandbox'")
         print(result.stdout.strip())
     return 0

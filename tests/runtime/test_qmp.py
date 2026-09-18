@@ -30,10 +30,10 @@ import pytest
 from smolvm_core import errors as core_errors
 from smolvm_core import qmp as core_qmp
 
-import smolvm.qmp as qmp_module
-from smolvm.exceptions import SmolVMError
-from smolvm.qmp import QMPClient, QMPDirtyBitmap, QMPJobFailedError
-from smolvm.runtime.qemu import _live_backup_identifiers
+import celesto.qmp as qmp_module
+from celesto.exceptions import CelestoError
+from celesto.qmp import QMPClient, QMPDirtyBitmap, QMPJobFailedError
+from celesto.runtime.qemu import _live_backup_identifiers
 
 
 @pytest.fixture
@@ -459,7 +459,7 @@ def test_qmp_dirty_bitmap_rejects_malformed_status(
 
     with QMPClient(qmp_socket_path) as client:
         client.connect()
-        with pytest.raises(SmolVMError, match="invalid dirty bitmap status"):
+        with pytest.raises(CelestoError, match="invalid dirty bitmap status"):
             client.query_dirty_bitmaps("rootdisk0")
 
     thread.join(timeout=2.0)
@@ -483,7 +483,7 @@ def test_qmp_command_error_includes_qemu_description(qmp_socket_path: Path) -> N
 
     with QMPClient(qmp_socket_path) as client:
         client.connect()
-        with pytest.raises(SmolVMError, match="Node name too long") as exc_info:
+        with pytest.raises(CelestoError, match="Node name too long") as exc_info:
             client.blockdev_add("x" * 44, Path("/tmp/target.qcow2"))
 
     thread.join(timeout=2.0)
@@ -587,7 +587,7 @@ def test_qmp_connect_can_retry_after_capabilities_handshake_failure(
     failed_thread = _start_qmp_server(socket_path, failed_responses, failed_requests)
 
     client = QMPClient(socket_path)
-    with pytest.raises(SmolVMError, match="qmp_capabilities"):
+    with pytest.raises(CelestoError, match="qmp_capabilities"):
         client.connect()
 
     failed_thread.join(timeout=2.0)
@@ -700,14 +700,14 @@ def test_qmp_client_requires_native_binding(
     )
     socket_path = qmp_socket_path
 
-    with pytest.raises(SmolVMError, match="QEMU control support is missing") as exc_info:
+    with pytest.raises(CelestoError, match="QEMU control support is missing") as exc_info:
         qmp_module.QMPClient(socket_path)
 
     assert exc_info.value.details == {"socket_path": str(socket_path)}
 
 
 def test_qmp_native_errors_become_smolvm_errors(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Core QMP exceptions should not leak past the public SmolVM wrapper."""
+    """Core QMP exceptions should not leak past the public Celesto wrapper."""
 
     class BrokenCoreClient:
         def __init__(self, socket_path: Path) -> None:
@@ -723,7 +723,7 @@ def test_qmp_native_errors_become_smolvm_errors(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(qmp_module.core_qmp, "QMPClient", BrokenCoreClient)
     client = qmp_module.QMPClient(socket_path)
 
-    with pytest.raises(SmolVMError, match="Timed out waiting for QMP socket") as exc_info:
+    with pytest.raises(CelestoError, match="Timed out waiting for QMP socket") as exc_info:
         client.connect()
 
     assert exc_info.value.details == {"socket_path": str(socket_path)}

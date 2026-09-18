@@ -14,16 +14,16 @@ import platform
 import re
 import time
 
-from smolvm import SmolVM
-from smolvm.images.builder import ImageBuilder
-from smolvm.images.published import BASE_KERNELS, _kernel_format_for_vmm
-from smolvm.runtime.boot_profiles import (
+from celesto import Celesto
+from celesto.images.builder import ImageBuilder
+from celesto.images.published import BASE_KERNELS, _kernel_format_for_vmm
+from celesto.runtime.boot_profiles import (
     KernelBootProfile,
     get_boot_profile_spec,
     to_published_arch,
 )
-from smolvm.types import VMConfig
-from smolvm.vm import resolve_data_dir
+from celesto.types import VMConfig
+from celesto.vm import resolve_data_dir
 
 PROF = KernelBootProfile.MICROVM_DIRECT
 ARCH = platform.machine()
@@ -85,7 +85,7 @@ def one(kernel, rootfs, *, channel, boot_args, tag) -> dict:
         kw = {"comm_channel": channel}
         if channel == "ssh":
             kw["ssh_password"] = "smolvm"
-        vm = SmolVM(config=cfg, **kw)
+        vm = Celesto(config=cfg, **kw)
         rec["create"] = time.perf_counter() - t0
         t0 = time.perf_counter()
         vm.start()

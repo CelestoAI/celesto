@@ -27,9 +27,9 @@ class Sandbox:
         self.provider = provider
         if provider == "local":
             prepare_local_tools()
-            from smolvm import SmolVM
+            from celesto import Celesto
 
-            self.vm = SmolVM(os="ubuntu", memory=4096, disk_size=16384)
+            self.vm = Celesto(os="ubuntu", memory=4096, disk_size=16384)
             try:
                 self.vm.start()
             except BaseException:

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for SmolVM main SDK class."""
+"""Tests for Celesto main SDK class."""
 
 import socket
 import subprocess
@@ -25,13 +25,13 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
-from smolvm.comm.select import ChannelResolution
-from smolvm.exceptions import (
-    SmolVMError,
+from celesto.comm.select import ChannelResolution
+from celesto.exceptions import (
+    CelestoError,
     VMAlreadyExistsError,
     VMNotFoundError,
 )
-from smolvm.types import (
+from celesto.types import (
     InternetSettings,
     PortForwardConfig,
     VMConfig,
@@ -39,21 +39,21 @@ from smolvm.types import (
     VMState,
     WorkspaceMount,
 )
-from smolvm.vm import (
+from celesto.vm import (
     LIBKRUN_GATEWAY_IP,
     LIBKRUN_GUEST_IP,
     QEMU_GATEWAY_IP,
     QEMU_GUEST_IP,
     QEMU_NETMASK,
-    SmolVMManager,
+    CelestoManager,
     _usernet_addresses,
 )
 
 
 @pytest.fixture
-def smol_vm(tmp_path: Path) -> SmolVMManager:
-    """Create a SmolVM instance with temporary directories."""
-    return SmolVMManager(
+def smol_vm(tmp_path: Path) -> CelestoManager:
+    """Create a Celesto instance with temporary directories."""
+    return CelestoManager(
         data_dir=tmp_path / "data",
         socket_dir=tmp_path / "sockets",
         backend="firecracker",
@@ -77,7 +77,7 @@ def sample_config(tmp_path: Path) -> VMConfig:
     )
 
 
-def _attach_mock_network(manager: SmolVMManager) -> MagicMock:
+def _attach_mock_network(manager: CelestoManager) -> MagicMock:
     """Attach a network mock that supports sync and async create paths."""
     mock_network = MagicMock()
     mock_network.host_ip = "172.16.0.1"
@@ -98,11 +98,11 @@ def _attach_mock_network(manager: SmolVMManager) -> MagicMock:
 class TestSmolVMCreate:
     """Tests for VM creation."""
 
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.vm.NetworkManager")
     def test_create_vm_allocates_resources(
         self,
         mock_network_class: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Test that create allocates IP and TAP."""
@@ -126,11 +126,11 @@ class TestSmolVMCreate:
         mock_network.setup_nat.assert_called_once()
         mock_network.setup_ssh_port_forward.assert_called_once()
 
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.vm.NetworkManager")
     def test_create_duplicate_raises(
         self,
         mock_network_class: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Test that creating duplicate VM raises error."""
@@ -145,11 +145,11 @@ class TestSmolVMCreate:
         with pytest.raises(VMAlreadyExistsError):
             smol_vm.create(sample_config)
 
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.vm.NetworkManager")
     def test_create_rollback_on_network_failure(
         self,
         mock_network_class: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Test that resources are cleaned up on failure."""
@@ -167,11 +167,11 @@ class TestSmolVMCreate:
         with pytest.raises(VMNotFoundError):
             smol_vm.get("vm001")
 
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.vm.NetworkManager")
     def test_create_rollback_preserves_preexisting_managed_disk(
         self,
         mock_network_class: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Create rollback must not delete a disk retained from an earlier VM."""
@@ -192,7 +192,7 @@ class TestSmolVMCreate:
         with pytest.raises(VMNotFoundError):
             smol_vm.get("vm001")
 
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.vm.NetworkManager")
     def test_create_libkrun_uses_usernet_networking(
         self,
         mock_network_class: MagicMock,
@@ -200,7 +200,7 @@ class TestSmolVMCreate:
         sample_config: VMConfig,
     ) -> None:
         """libkrun backend should reuse usernet-style networking without TAP/NAT setup."""
-        smol_vm = SmolVMManager(
+        smol_vm = CelestoManager(
             data_dir=tmp_path / "data-libkrun",
             socket_dir=tmp_path / "sockets-libkrun",
             backend="libkrun",
@@ -229,7 +229,7 @@ class TestSmolVMCreate:
         sample_config: VMConfig,
     ) -> None:
         """Async libkrun creation must persist libkrun's usernet endpoints."""
-        smol_vm = SmolVMManager(
+        smol_vm = CelestoManager(
             data_dir=tmp_path / "data-async-libkrun",
             socket_dir=tmp_path / "sockets-async-libkrun",
             backend="libkrun",
@@ -263,7 +263,7 @@ class TestSmolVMCreate:
         sample_config: VMConfig,
     ) -> None:
         """Control: the QEMU slirp path is unaffected by the libkrun fix."""
-        smol_vm = SmolVMManager(
+        smol_vm = CelestoManager(
             data_dir=tmp_path / "data-async-qemu",
             socket_dir=tmp_path / "sockets-async-qemu",
             backend="qemu",
@@ -289,7 +289,7 @@ class TestSmolVMCreate:
 
     def test_usernet_addresses_rejects_unknown_backend(self) -> None:
         """An unmapped backend fails closed instead of silently getting QEMU's addresses."""
-        from smolvm.exceptions import NetworkError
+        from celesto.exceptions import NetworkError
 
         with pytest.raises(NetworkError) as excinfo:
             _usernet_addresses("not-a-backend", "sbx-test")
@@ -298,11 +298,11 @@ class TestSmolVMCreate:
         # plain English, the sandbox they named, and a command that recovers.
         message = str(excinfo.value)
         assert "'not-a-backend'" in message
-        assert "smolvm sandbox create --name sbx-test --backend qemu" in message
+        assert "celesto sandbox create --name sbx-test --backend qemu" in message
 
     def test_check_prerequisites_libkrun_only_checks_library_and_ssh(self, tmp_path: Path) -> None:
         """libkrun prerequisite checks should not require qemu/qemu-img."""
-        smol_vm = SmolVMManager(
+        smol_vm = CelestoManager(
             data_dir=tmp_path / "data-libkrun-preflight",
             socket_dir=tmp_path / "sockets-libkrun-preflight",
             backend="libkrun",
@@ -310,17 +310,17 @@ class TestSmolVMCreate:
 
         with (
             patch.object(smol_vm, "_find_libkrun_library", return_value=True),
-            patch("smolvm.vm.which", return_value=Path("/usr/bin/ssh")),
+            patch("celesto.vm.which", return_value=Path("/usr/bin/ssh")),
             patch.object(smol_vm, "_find_qemu_binary", return_value=None),
             patch.object(smol_vm, "_find_qemu_img_binary", return_value=None),
         ):
             assert smol_vm.check_prerequisites() == []
 
-    @patch("smolvm.comm.select.platform.system", return_value="Linux")
+    @patch("celesto.comm.select.platform.system", return_value="Linux")
     def test_create_firecracker_explicit_vsock_sets_up_egress_without_ssh_forward(
         self,
         _mock_system: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Explicit Firecracker vsock should keep internet egress without SSH DNAT."""
@@ -342,11 +342,11 @@ class TestSmolVMCreate:
         mock_network.setup_nat.assert_called_once_with(vm_info.network.tap_device)
         mock_network.setup_ssh_port_forward.assert_not_called()
 
-    @patch("smolvm.comm.select.platform.system", return_value="Linux")
+    @patch("celesto.comm.select.platform.system", return_value="Linux")
     def test_create_firecracker_explicit_vsock_network_connectivity_stays_idempotent(
         self,
         _mock_system: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Later network-backed operations can still re-apply idempotent egress setup."""
@@ -370,11 +370,11 @@ class TestSmolVMCreate:
         mock_network.setup_nat.assert_called_with(vm_info.network.tap_device)
         mock_network.setup_ssh_port_forward.assert_not_called()
 
-    @patch("smolvm.comm.select.platform.system", return_value="Linux")
+    @patch("celesto.comm.select.platform.system", return_value="Linux")
     def test_create_firecracker_auto_vsock_sets_up_egress_without_ssh_forward(
         self,
         _mock_system: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Auto-selected Firecracker vsock should still provision guest internet."""
@@ -392,11 +392,11 @@ class TestSmolVMCreate:
         mock_network.setup_nat.assert_called_once_with(vm_info.network.tap_device)
         mock_network.setup_ssh_port_forward.assert_not_called()
 
-    @patch("smolvm.comm.select.platform.system", return_value="Linux")
+    @patch("celesto.comm.select.platform.system", return_value="Linux")
     def test_create_firecracker_explicit_ssh_keeps_ssh_forward(
         self,
         _mock_system: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Explicit SSH must reserve and expose a host SSH port."""
@@ -413,11 +413,11 @@ class TestSmolVMCreate:
         mock_network.setup_nat.assert_called_once()
         mock_network.setup_ssh_port_forward.assert_called_once()
 
-    @patch("smolvm.comm.select.platform.system", return_value="Linux")
+    @patch("celesto.comm.select.platform.system", return_value="Linux")
     def test_create_firecracker_explicit_vsock_with_env_sets_up_egress_without_ssh_forward(
         self,
         _mock_system: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Env-only startup uses managed vsock env, but guest egress still needs NAT."""
@@ -442,13 +442,13 @@ class TestSmolVMCreate:
         mock_network.setup_nat.assert_called_once_with(vm_info.network.tap_device)
         mock_network.setup_ssh_port_forward.assert_not_called()
 
-    @patch("smolvm.comm.select.platform.system", return_value="Linux")
-    @patch("smolvm.vm.resolve_domains_to_ips", return_value=["93.184.216.34"])
+    @patch("celesto.comm.select.platform.system", return_value="Linux")
+    @patch("celesto.vm.resolve_domains_to_ips", return_value=["93.184.216.34"])
     def test_create_firecracker_explicit_vsock_with_allowlist_keeps_tap_connectivity(
         self,
         _mock_resolve: MagicMock,
         _mock_system: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Network policy needs route/NAT before boot even with explicit vsock."""
@@ -474,7 +474,7 @@ class TestSmolVMCreate:
         )
         mock_network.setup_ssh_port_forward.assert_not_called()
 
-    @patch("smolvm.comm.select.host_supports_vsock", return_value=True)
+    @patch("celesto.comm.select.host_supports_vsock", return_value=True)
     def test_create_qemu_slirp_explicit_vsock_skips_ssh_hostfwd(
         self,
         _mock_host_vsock: MagicMock,
@@ -482,7 +482,7 @@ class TestSmolVMCreate:
         sample_config: VMConfig,
     ) -> None:
         """QEMU slirp does not expose SSH unless SSH is the selected channel."""
-        smol_vm = SmolVMManager(
+        smol_vm = CelestoManager(
             data_dir=tmp_path / "data-qemu-vsock",
             socket_dir=tmp_path / "sockets-qemu-vsock",
             backend="qemu",
@@ -514,7 +514,7 @@ class TestSmolVMCreate:
         sample_config: VMConfig,
     ) -> None:
         """Workspace startup remains SSH-backed even when the control channel is vsock."""
-        smol_vm = SmolVMManager(
+        smol_vm = CelestoManager(
             data_dir=tmp_path / "data-qemu-workspace",
             socket_dir=tmp_path / "sockets-qemu-workspace",
             backend="qemu",
@@ -540,7 +540,7 @@ class TestSmolVMCreate:
     def test_firecracker_workspace_policy_keeps_ssh_forward(
         self,
         tmp_path: Path,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Workspace startup is SSH-backed by policy even before backend validation."""
@@ -563,7 +563,7 @@ class TestSmolVMCreate:
 
     def test_explicit_vsock_error_uses_recovery_payload(
         self,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Explicit-vsock create errors should not expose selector internals."""
@@ -571,22 +571,22 @@ class TestSmolVMCreate:
             update={"vm_id": "vm-vsock-bad", "backend": "libkrun", "comm_channel": "vsock"}
         )
 
-        with pytest.raises(SmolVMError) as exc_info:
+        with pytest.raises(CelestoError) as exc_info:
             smol_vm._resolve_control_channel_for_config(config, "libkrun")
 
         assert (
             str(exc_info.value)
             == "Cannot use vsock for sandbox 'vm-vsock-bad': this backend does not support "
             "vsock in this release; create it with SSH by running: "
-            "smolvm sandbox create --name vm-vsock-bad --backend libkrun."
+            "celesto sandbox create --name vm-vsock-bad --backend libkrun."
         )
         assert exc_info.value.details == {
             "vm_id": "vm-vsock-bad",
-            "recovery_command": "smolvm sandbox create --name vm-vsock-bad --backend libkrun",
+            "recovery_command": "celesto sandbox create --name vm-vsock-bad --backend libkrun",
         }
 
     @pytest.mark.asyncio
-    @patch("smolvm.comm.select.platform.system", return_value="Linux")
+    @patch("celesto.comm.select.platform.system", return_value="Linux")
     async def test_async_create_firecracker_explicit_vsock_sets_up_egress_without_ssh_forward(
         self,
         _mock_system: MagicMock,
@@ -594,7 +594,7 @@ class TestSmolVMCreate:
         sample_config: VMConfig,
     ) -> None:
         """Async create should mirror Firecracker vsock egress without SSH forwarding."""
-        smol_vm = SmolVMManager(
+        smol_vm = CelestoManager(
             data_dir=tmp_path / "data-async-vsock",
             socket_dir=tmp_path / "sockets-async-vsock",
             backend="firecracker",
@@ -649,8 +649,8 @@ class TestSmolVMDiskLifecycle:
         target = tmp_path / "target.ext4"
         source.write_bytes(b"rootfs")
 
-        with patch("smolvm.host.disk.clone_or_sparse_copy") as mock_copy:
-            SmolVMManager._copy_with_reflink(source, target)
+        with patch("celesto.host.disk.clone_or_sparse_copy") as mock_copy:
+            CelestoManager._copy_with_reflink(source, target)
 
         mock_copy.assert_called_once_with(source, target)
 
@@ -669,16 +669,16 @@ class TestSmolVMDiskLifecycle:
 
         with (
             patch(
-                "smolvm.host.disk.subprocess.run",
+                "celesto.host.disk.subprocess.run",
                 return_value=SimpleNamespace(returncode=1, stderr="cp failed"),
             ),
             patch(
-                "smolvm.host.disk.core_disk",
+                "celesto.host.disk.core_disk",
                 create=True,
             ) as mock_core_disk,
         ):
             mock_core_disk.clone_or_sparse_copy.side_effect = AssertionError("core disabled")
-            SmolVMManager._copy_with_reflink(source, target)
+            CelestoManager._copy_with_reflink(source, target)
 
         self._assert_sparse_copy(
             source,
@@ -699,16 +699,16 @@ class TestSmolVMDiskLifecycle:
         source = tmp_path / "source.ext4"
         target = tmp_path / "target.ext4"
         self._write_sparse_file(source, hole_bytes)
-        manager = SmolVMManager(data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets")
+        manager = CelestoManager(data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets")
         monkeypatch.setenv("SMOLVM_DISABLE_NATIVE_DISK", "1")
 
         with (
             patch(
-                "smolvm.host.disk.subprocess.run",
+                "celesto.host.disk.subprocess.run",
                 return_value=SimpleNamespace(returncode=1, stderr="cp failed"),
             ),
             patch(
-                "smolvm.host.disk.core_disk",
+                "celesto.host.disk.core_disk",
                 create=True,
             ) as mock_core_disk,
         ):
@@ -722,11 +722,11 @@ class TestSmolVMDiskLifecycle:
             assert_sparse=supports_sparse_allocation,
         )
 
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.vm.NetworkManager")
     def test_create_materializes_isolated_disk(
         self,
         mock_network_class: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Isolated mode should clone rootfs into data_dir/disks per VM."""
@@ -742,11 +742,11 @@ class TestSmolVMDiskLifecycle:
         assert vm_info.config.rootfs_path == expected_disk
         assert expected_disk.exists()
 
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.vm.NetworkManager")
     def test_shared_disk_mode_uses_original_rootfs(
         self,
         mock_network_class: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Shared disk mode should use the caller-provided rootfs path directly."""
@@ -762,11 +762,11 @@ class TestSmolVMDiskLifecycle:
         assert vm_info.config.rootfs_path == sample_config.rootfs_path
         assert not (smol_vm.data_dir / "disks" / "vm001.ext4").exists()
 
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.vm.NetworkManager")
     def test_duplicate_create_does_not_resize_existing_disk(
         self,
         mock_network_class: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Duplicate create should fail before touching the existing managed disk."""
@@ -788,11 +788,11 @@ class TestSmolVMDiskLifecycle:
 
         assert expected_disk.stat().st_size == 1024 * 1024
 
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.vm.NetworkManager")
     def test_create_resizes_and_grows_raw_isolated_disk(
         self,
         mock_network_class: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Resize/grow applies to the per-VM raw ext4 disk, not the base image."""
@@ -808,7 +808,7 @@ class TestSmolVMDiskLifecycle:
 
         config = sample_config.model_copy(update={"disk_size_mib": 2, "grow_filesystem": True})
         with (
-            patch.object(SmolVMManager, "_copy_with_reflink", side_effect=_copy),
+            patch.object(CelestoManager, "_copy_with_reflink", side_effect=_copy),
             patch.object(smol_vm, "_grow_raw_ext4_filesystem") as mock_grow,
         ):
             vm_info = smol_vm.create(config)
@@ -821,7 +821,7 @@ class TestSmolVMDiskLifecycle:
 
     def test_create_persistence_failure_does_not_resize_retained_disk(
         self,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """A reused managed disk is not mutated until the VM row exists."""
@@ -831,8 +831,8 @@ class TestSmolVMDiskLifecycle:
         config = sample_config.model_copy(update={"disk_size_mib": 3})
 
         with (
-            patch.object(smol_vm.state, "create_vm", side_effect=SmolVMError("persist failed")),
-            pytest.raises(SmolVMError, match="persist failed"),
+            patch.object(smol_vm.state, "create_vm", side_effect=CelestoError("persist failed")),
+            pytest.raises(CelestoError, match="persist failed"),
         ):
             smol_vm.create(config)
 
@@ -841,7 +841,7 @@ class TestSmolVMDiskLifecycle:
 
     def test_failed_grow_restores_retained_managed_disk(
         self,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Failed resize/grow rolls an existing retained disk back."""
@@ -854,9 +854,9 @@ class TestSmolVMDiskLifecycle:
             patch.object(
                 smol_vm,
                 "_grow_raw_ext4_filesystem",
-                side_effect=SmolVMError("grow failed"),
+                side_effect=CelestoError("grow failed"),
             ),
-            pytest.raises(SmolVMError, match="grow failed"),
+            pytest.raises(CelestoError, match="grow failed"),
         ):
             smol_vm.create(config)
 
@@ -865,11 +865,11 @@ class TestSmolVMDiskLifecycle:
         with pytest.raises(VMNotFoundError):
             smol_vm.get("vm001")
 
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.vm.NetworkManager")
     def test_create_persistence_failure_removes_new_managed_disk(
         self,
         mock_network_class: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """If persisting the VM row fails, the pre-created disk is removed."""
@@ -885,9 +885,9 @@ class TestSmolVMDiskLifecycle:
 
         expected_disk = smol_vm.data_dir / "disks" / "vm001.ext4"
         with (
-            patch.object(SmolVMManager, "_copy_with_reflink", side_effect=_copy),
-            patch.object(smol_vm.state, "create_vm", side_effect=SmolVMError("persist failed")),
-            pytest.raises(SmolVMError, match="persist failed"),
+            patch.object(CelestoManager, "_copy_with_reflink", side_effect=_copy),
+            patch.object(smol_vm.state, "create_vm", side_effect=CelestoError("persist failed")),
+            pytest.raises(CelestoError, match="persist failed"),
         ):
             smol_vm.create(sample_config)
 
@@ -897,7 +897,7 @@ class TestSmolVMDiskLifecycle:
 
     def test_e2fsck_successful_repairs_do_not_fail_growth(
         self,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         tmp_path: Path,
     ) -> None:
         """e2fsck may return 1 or 3 after repairs; resize2fs should still run."""
@@ -911,8 +911,8 @@ class TestSmolVMDiskLifecycle:
             return subprocess.CompletedProcess(command, 3 if "e2fsck" in command[0] else 0)
 
         with (
-            patch("smolvm.vm.which", side_effect=Path),
-            patch("smolvm.vm.subprocess.run", side_effect=_fake_run),
+            patch("celesto.vm.which", side_effect=Path),
+            patch("celesto.vm.subprocess.run", side_effect=_fake_run),
         ):
             smol_vm._grow_raw_ext4_filesystem(disk, "vm001")
 
@@ -921,11 +921,11 @@ class TestSmolVMDiskLifecycle:
             ["resize2fs", str(disk)],
         ]
 
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.vm.NetworkManager")
     def test_failed_grow_removes_new_managed_disk(
         self,
         mock_network_class: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """If resize/grow fails before persistence, the partial disk is removed."""
@@ -942,13 +942,13 @@ class TestSmolVMDiskLifecycle:
         config = sample_config.model_copy(update={"disk_size_mib": 2, "grow_filesystem": True})
         expected_disk = smol_vm.data_dir / "disks" / "vm001.ext4"
         with (
-            patch.object(SmolVMManager, "_copy_with_reflink", side_effect=_copy),
+            patch.object(CelestoManager, "_copy_with_reflink", side_effect=_copy),
             patch.object(
                 smol_vm,
                 "_grow_raw_ext4_filesystem",
-                side_effect=SmolVMError("grow failed"),
+                side_effect=CelestoError("grow failed"),
             ),
-            pytest.raises(SmolVMError, match="grow failed"),
+            pytest.raises(CelestoError, match="grow failed"),
         ):
             smol_vm.create(config)
 
@@ -958,22 +958,22 @@ class TestSmolVMDiskLifecycle:
 
     def test_resize_rejects_shared_disk_mode(
         self,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Resize requests must not mutate the caller's base image."""
         config = sample_config.model_copy(update={"disk_mode": "shared", "disk_size_mib": 2})
-        with pytest.raises(SmolVMError, match="isolated disk"):
+        with pytest.raises(CelestoError, match="isolated disk"):
             smol_vm.create(config)
 
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.vm.NetworkManager")
     def test_create_resizes_qemu_overlay_disk(
         self,
         mock_network_class: MagicMock,
         tmp_path: Path,
     ) -> None:
         """QEMU qcow2 overlays are resized with qemu-img."""
-        smol_vm = SmolVMManager(
+        smol_vm = CelestoManager(
             data_dir=tmp_path / "data-qemu-resize",
             socket_dir=tmp_path / "sockets-qemu-resize",
             backend="qemu",
@@ -1010,9 +1010,9 @@ class TestSmolVMDiskLifecycle:
             overlay.touch()
 
         with (
-            patch.object(SmolVMManager, "_create_qemu_overlay_disk", side_effect=_create_overlay),
+            patch.object(CelestoManager, "_create_qemu_overlay_disk", side_effect=_create_overlay),
             patch.object(smol_vm, "_find_qemu_img_binary", return_value=Path("qemu-img")),
-            patch("smolvm.vm.subprocess.run", side_effect=_fake_qemu_run),
+            patch("celesto.vm.subprocess.run", side_effect=_fake_qemu_run),
         ):
             vm_info = smol_vm.create(config)
 
@@ -1022,7 +1022,7 @@ class TestSmolVMDiskLifecycle:
 
     def test_qcow2_resize_compares_bytes_not_ceil_mib(
         self,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         tmp_path: Path,
     ) -> None:
         """A 1 MiB + 1 byte qcow2 should still resize when target is 2 MiB."""
@@ -1043,7 +1043,7 @@ class TestSmolVMDiskLifecycle:
 
         with (
             patch.object(smol_vm, "_find_qemu_img_binary", return_value=Path("qemu-img")),
-            patch("smolvm.vm.subprocess.run", side_effect=_fake_qemu_run),
+            patch("celesto.vm.subprocess.run", side_effect=_fake_qemu_run),
         ):
             smol_vm._resize_qcow2_disk(disk, 2, "vm-qcow2")
 
@@ -1051,7 +1051,7 @@ class TestSmolVMDiskLifecycle:
 
     def test_grow_rejects_qcow2_disk(
         self,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
         tmp_path: Path,
     ) -> None:
@@ -1059,14 +1059,14 @@ class TestSmolVMDiskLifecycle:
         qcow2 = tmp_path / "disk.qcow2"
         qcow2.touch()
         config = sample_config.model_copy(update={"rootfs_path": qcow2, "grow_filesystem": True})
-        with pytest.raises(SmolVMError, match="qcow2"):
+        with pytest.raises(CelestoError, match="qcow2"):
             smol_vm._resize_materialized_rootfs(config)
 
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.vm.NetworkManager")
     def test_delete_removes_isolated_disk_by_default(
         self,
         mock_network_class: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Deleting a VM removes its isolated disk unless retention is enabled."""
@@ -1084,11 +1084,11 @@ class TestSmolVMDiskLifecycle:
 
         assert not disk_path.exists()
 
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.vm.NetworkManager")
     def test_delete_retains_isolated_disk_when_enabled(
         self,
         mock_network_class: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """retain_disk_on_delete preserves isolated disk for later reuse."""
@@ -1107,11 +1107,11 @@ class TestSmolVMDiskLifecycle:
 
         assert disk_path.exists()
 
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.vm.NetworkManager")
     def test_create_reuses_retained_disk_for_same_vm_id(
         self,
         mock_network_class: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """A retained isolated disk should be reused for a recreated VM ID."""
@@ -1137,11 +1137,11 @@ class TestSmolVMDiskLifecycle:
 class TestSmolVMGet:
     """Tests for getting VM info."""
 
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.vm.NetworkManager")
     def test_get_existing_vm(
         self,
         mock_network_class: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Test getting an existing VM."""
@@ -1157,7 +1157,7 @@ class TestSmolVMGet:
 
         assert vm_info.vm_id == "vm001"
 
-    def test_get_nonexistent_raises(self, smol_vm: SmolVMManager) -> None:
+    def test_get_nonexistent_raises(self, smol_vm: CelestoManager) -> None:
         """Test that getting nonexistent VM raises error."""
         with pytest.raises(VMNotFoundError):
             smol_vm.get("nonexistent")
@@ -1166,21 +1166,21 @@ class TestSmolVMGet:
 class TestSmolVMList:
     """Tests for listing VMs."""
 
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.vm.NetworkManager")
     def test_list_empty(
         self,
         mock_network_class: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
     ) -> None:
         """Test listing when no VMs exist."""
         vms = smol_vm.list_vms()
         assert vms == []
 
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.vm.NetworkManager")
     def test_list_multiple(
         self,
         mock_network_class: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         tmp_path: Path,
     ) -> None:
         """Test listing multiple VMs."""
@@ -1210,11 +1210,11 @@ class TestSmolVMList:
 class TestSmolVMDelete:
     """Tests for VM deletion."""
 
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.vm.NetworkManager")
     def test_delete_vm(
         self,
         mock_network_class: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Test deleting a VM."""
@@ -1230,16 +1230,16 @@ class TestSmolVMDelete:
         with pytest.raises(VMNotFoundError):
             smol_vm.get("vm001")
 
-    def test_delete_nonexistent_raises(self, smol_vm: SmolVMManager) -> None:
+    def test_delete_nonexistent_raises(self, smol_vm: CelestoManager) -> None:
         """Test that deleting nonexistent VM raises error."""
         with pytest.raises(VMNotFoundError):
             smol_vm.delete("nonexistent")
 
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.vm.NetworkManager")
     def test_delete_cleans_local_forward_rules(
         self,
         mock_network_class: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Delete should clean local-forward nftables rules by vm_id."""
@@ -1259,13 +1259,13 @@ class TestSmolVMDelete:
 class TestIPBasedTAPNaming:
     """Tests for IP-allocation-based TAP naming."""
 
-    @patch.object(SmolVMManager, "_local_ssh_port_is_available", return_value=True)
-    @patch("smolvm.vm.NetworkManager")
+    @patch.object(CelestoManager, "_local_ssh_port_is_available", return_value=True)
+    @patch("celesto.vm.NetworkManager")
     def test_create_uses_ip_for_tap_name(
         self,
         mock_network_class: MagicMock,
         _mock_port_available: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Test that TAP name is derived from the IP last octet."""
@@ -1291,11 +1291,11 @@ class TestIPBasedTAPNaming:
             "tap2", user=expected_user, netmask="32"
         )
 
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.vm.NetworkManager")
     def test_sequential_vms_get_unique_taps(
         self,
         mock_network_class: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         tmp_path: Path,
     ) -> None:
         """Test that sequential VMs get unique TAP names based on IPs."""
@@ -1328,8 +1328,8 @@ class TestSmolVMContextManager:
     """Tests for context manager support."""
 
     def test_context_manager(self, tmp_path: Path) -> None:
-        """Test that SmolVM can be used with 'with' statement."""
-        with SmolVMManager(
+        """Test that Celesto can be used with 'with' statement."""
+        with CelestoManager(
             data_dir=tmp_path / "data",
             socket_dir=tmp_path / "sockets",
             backend="firecracker",
@@ -1339,7 +1339,7 @@ class TestSmolVMContextManager:
 
         assert sdk._closed
 
-    def test_close_is_idempotent(self, smol_vm: SmolVMManager) -> None:
+    def test_close_is_idempotent(self, smol_vm: CelestoManager) -> None:
         """Test that close() can be called multiple times safely."""
         smol_vm.close()
         smol_vm.close()  # Should not raise
@@ -1349,11 +1349,11 @@ class TestSmolVMContextManager:
 class TestSmolVMFromId:
     """Tests for from_id class method."""
 
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.vm.NetworkManager")
     def test_from_id_existing(
         self,
         mock_network_class: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
         tmp_path: Path,
     ) -> None:
@@ -1367,7 +1367,7 @@ class TestSmolVMFromId:
         smol_vm.create(sample_config)
 
         # from_id should succeed and return a new SDK instance
-        sdk2 = SmolVMManager.from_id(
+        sdk2 = CelestoManager.from_id(
             "vm001",
             data_dir=tmp_path / "data",
             socket_dir=tmp_path / "sockets",
@@ -1379,7 +1379,7 @@ class TestSmolVMFromId:
     def test_from_id_nonexistent(self, tmp_path: Path) -> None:
         """Test from_id raises for nonexistent VM."""
         with pytest.raises(VMNotFoundError):
-            SmolVMManager.from_id(
+            CelestoManager.from_id(
                 "nonexistent",
                 data_dir=tmp_path / "data",
                 socket_dir=tmp_path / "sockets",
@@ -1389,15 +1389,15 @@ class TestSmolVMFromId:
 class TestSmolVMBootArgsAndSSHCommands:
     """Tests for boot-arg injection and SSH helper commands."""
 
-    @patch("smolvm.runtime.firecracker.FirecrackerClient")
-    @patch.object(SmolVMManager, "_start_firecracker")
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.runtime.firecracker.FirecrackerClient")
+    @patch.object(CelestoManager, "_start_firecracker")
+    @patch("celesto.vm.NetworkManager")
     def test_start_injects_ip_boot_arg_when_missing(
         self,
         mock_network_class: MagicMock,
         mock_start_fc: MagicMock,
         mock_client_cls: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Test start() auto-injects ip= boot arg if not present."""
@@ -1420,15 +1420,15 @@ class TestSmolVMBootArgsAndSSHCommands:
         boot_args = mock_client.set_boot_source.call_args[0][1]
         assert "ip=172.16.0.2::172.16.0.1:255.255.255.0::eth0:off" in boot_args
 
-    @patch("smolvm.runtime.firecracker.FirecrackerClient")
-    @patch.object(SmolVMManager, "_start_firecracker")
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.runtime.firecracker.FirecrackerClient")
+    @patch.object(CelestoManager, "_start_firecracker")
+    @patch("celesto.vm.NetworkManager")
     def test_start_preserves_existing_ip_boot_arg(
         self,
         mock_network_class: MagicMock,
         mock_start_fc: MagicMock,
         mock_client_cls: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         tmp_path: Path,
     ) -> None:
         """Test start() does not override caller-provided ip= boot args."""
@@ -1462,15 +1462,15 @@ class TestSmolVMBootArgsAndSSHCommands:
         boot_args = mock_client.set_boot_source.call_args[0][1]
         assert boot_args == config.boot_args
 
-    @patch("smolvm.runtime.firecracker.FirecrackerClient")
-    @patch.object(SmolVMManager, "_start_firecracker")
-    @patch("smolvm.vm.NetworkManager")
+    @patch("celesto.runtime.firecracker.FirecrackerClient")
+    @patch.object(CelestoManager, "_start_firecracker")
+    @patch("celesto.vm.NetworkManager")
     def test_start_attaches_extra_drives(
         self,
         mock_network_class: MagicMock,
         mock_start_fc: MagicMock,
         mock_client_cls: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
         tmp_path: Path,
     ) -> None:
@@ -1503,13 +1503,13 @@ class TestSmolVMBootArgsAndSSHCommands:
             is_read_only=False,
         )
 
-    @patch.object(SmolVMManager, "_local_ssh_port_is_available", return_value=True)
-    @patch("smolvm.vm.NetworkManager")
+    @patch.object(CelestoManager, "_local_ssh_port_is_available", return_value=True)
+    @patch("celesto.vm.NetworkManager")
     def test_get_ssh_commands_returns_private_and_forwarded(
         self,
         mock_network_class: MagicMock,
         _mock_port_available: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
     ) -> None:
         """Test SSH helper command output includes forwarded host port."""
@@ -1538,7 +1538,7 @@ class TestDataDirResolution:
         env_dir = tmp_path / "env"
         monkeypatch.setenv("SMOLVM_DATA_DIR", str(env_dir))
 
-        sdk = SmolVMManager(
+        sdk = CelestoManager(
             data_dir=explicit_dir,
             socket_dir=tmp_path / "sockets",
             backend="firecracker",
@@ -1555,7 +1555,7 @@ class TestDataDirResolution:
         monkeypatch.setenv("SMOLVM_DATA_DIR", str(env_dir))
         monkeypatch.delenv("SUDO_USER", raising=False)
 
-        sdk = SmolVMManager(socket_dir=tmp_path / "sockets", backend="firecracker")
+        sdk = CelestoManager(socket_dir=tmp_path / "sockets", backend="firecracker")
         try:
             assert sdk.data_dir == env_dir
             assert not (env_dir / "smolvm.db").exists()
@@ -1571,8 +1571,8 @@ class TestDataDirResolution:
         monkeypatch.delenv("SUDO_USER", raising=False)
         monkeypatch.setenv("XDG_STATE_HOME", str(xdg_state_home))
 
-        with patch("smolvm.vm.os.geteuid", return_value=1000):
-            sdk = SmolVMManager(socket_dir=tmp_path / "sockets", backend="firecracker")
+        with patch("celesto.vm.os.geteuid", return_value=1000):
+            sdk = CelestoManager(socket_dir=tmp_path / "sockets", backend="firecracker")
 
         try:
             assert sdk.data_dir == xdg_state_home / "smolvm"
@@ -1596,11 +1596,11 @@ class TestDataDirResolution:
         monkeypatch.setenv("SUDO_USER", "alice")
 
         with (
-            patch("smolvm.vm.os.geteuid", return_value=0),
-            patch("smolvm.vm.pwd.getpwnam", return_value=fake_passwd),
-            patch("smolvm.vm.os.chown"),
+            patch("celesto.vm.os.geteuid", return_value=0),
+            patch("celesto.vm.pwd.getpwnam", return_value=fake_passwd),
+            patch("celesto.vm.os.chown"),
         ):
-            sdk = SmolVMManager(socket_dir=tmp_path / "sockets", backend="firecracker")
+            sdk = CelestoManager(socket_dir=tmp_path / "sockets", backend="firecracker")
 
         try:
             assert sdk.data_dir == sudo_home / ".local" / "state" / "smolvm"
@@ -1614,18 +1614,18 @@ class TestFirecrackerLaunchAndSocketCleanup:
 
     def test_missing_firecracker_uses_public_setup_recovery(
         self,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         tmp_path: Path,
     ) -> None:
         """Missing Firecracker errors should point to the public setup command."""
         with (
             patch.object(smol_vm.host, "find_firecracker", return_value=None),
-            pytest.raises(SmolVMError, match="smolvm setup"),
+            pytest.raises(CelestoError, match="celesto setup"),
         ):
             smol_vm._start_firecracker(tmp_path / "fc.sock", tmp_path / "fc.log")
 
     def test_start_firecracker_runs_without_sudo(
-        self, smol_vm: SmolVMManager, tmp_path: Path
+        self, smol_vm: CelestoManager, tmp_path: Path
     ) -> None:
         """Firecracker should run as current user; no sudo prefix in launch command."""
         socket_path = tmp_path / "sockets" / "fc-vm.sock"
@@ -1642,7 +1642,7 @@ class TestFirecrackerLaunchAndSocketCleanup:
                 "find_firecracker",
                 return_value=Path("/usr/bin/firecracker"),
             ),
-            patch("smolvm.vm.subprocess.Popen", return_value=mock_process) as mock_popen,
+            patch("celesto.vm.subprocess.Popen", return_value=mock_process) as mock_popen,
         ):
             smol_vm._start_firecracker(socket_path, log_path)
 
@@ -1652,13 +1652,13 @@ class TestFirecrackerLaunchAndSocketCleanup:
         assert kwargs["stdin"] is subprocess.DEVNULL
         assert kwargs["start_new_session"] is True
 
-    @patch("smolvm.vm.subprocess.run")
+    @patch("celesto.vm.subprocess.run")
     @patch("pathlib.Path.unlink")
     def test_unlink_socket_permission_error_uses_sudo_fallback(
         self,
         mock_unlink: MagicMock,
         mock_run: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
     ) -> None:
         """Permission errors should trigger sudo rm fallback for stale root sockets."""
         mock_unlink.side_effect = PermissionError
@@ -1669,26 +1669,26 @@ class TestFirecrackerLaunchAndSocketCleanup:
         mock_run.assert_called_once()
         assert mock_run.call_args[0][0] == ["sudo", "-n", "rm", "-f", "/tmp/fc-test.sock"]
 
-    @patch("smolvm.vm.subprocess.run")
+    @patch("celesto.vm.subprocess.run")
     @patch("pathlib.Path.unlink")
     def test_unlink_socket_permission_error_reports_actionable_error(
         self,
         mock_unlink: MagicMock,
         mock_run: MagicMock,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
     ) -> None:
         """If sudo fallback fails, raise a clear error with manual remediation."""
         mock_unlink.side_effect = PermissionError
         mock_run.return_value = SimpleNamespace(returncode=1, stderr="sudo: a password is required")
 
-        with pytest.raises(SmolVMError, match="sudo rm -f /tmp/fc-test.sock"):
+        with pytest.raises(CelestoError, match="sudo rm -f /tmp/fc-test.sock"):
             smol_vm._unlink_socket(Path("/tmp/fc-test.sock"))
 
 
 class TestProcessLifecycle:
     """Tests for process tracking, killing, and zombie reaping (issue #189)."""
 
-    def test_is_process_running_reaps_zombie_via_handle(self, smol_vm: SmolVMManager) -> None:
+    def test_is_process_running_reaps_zombie_via_handle(self, smol_vm: CelestoManager) -> None:
         """A child that exited naturally must not be mistaken for a live process."""
         process = subprocess.Popen([sys.executable, "-c", "pass"])
         smol_vm._process_handles[process.pid] = process
@@ -1703,19 +1703,21 @@ class TestProcessLifecycle:
         assert smol_vm._is_process_running(process.pid) is False
         assert process.pid not in smol_vm._process_handles
 
-    def test_is_process_running_rejects_zombie_without_handle(self, smol_vm: SmolVMManager) -> None:
+    def test_is_process_running_rejects_zombie_without_handle(
+        self, smol_vm: CelestoManager
+    ) -> None:
         """A zombie owned by another process must not be treated as running."""
         with (
-            patch("smolvm.vm.os.kill", side_effect=PermissionError),
+            patch("celesto.vm.os.kill", side_effect=PermissionError),
             patch.object(smol_vm, "_is_zombie_process", return_value=True) as mock_is_zombie,
         ):
             assert smol_vm._is_process_running(12345) is False
         mock_is_zombie.assert_called_once_with(12345)
 
-    def test_is_zombie_process_reads_ps_state(self, smol_vm: SmolVMManager) -> None:
+    def test_is_zombie_process_reads_ps_state(self, smol_vm: CelestoManager) -> None:
         """The portable fallback should recognize ps's zombie state marker."""
         result = subprocess.CompletedProcess(args=["ps"], returncode=0, stdout="Z    \n", stderr="")
-        with patch("smolvm.vm.subprocess.run", return_value=result) as mock_run:
+        with patch("celesto.vm.subprocess.run", return_value=result) as mock_run:
             assert smol_vm._is_zombie_process(12345) is True
 
         mock_run.assert_called_once_with(
@@ -1729,13 +1731,13 @@ class TestProcessLifecycle:
     @pytest.mark.parametrize("first_check", [None, PermissionError()])
     def test_process_reaped_during_zombie_probe_is_not_running(self, smol_vm, first_check):
         with (
-            patch("smolvm.vm.os.kill", side_effect=[first_check, ProcessLookupError()]),
+            patch("celesto.vm.os.kill", side_effect=[first_check, ProcessLookupError()]),
             patch.object(smol_vm, "_is_zombie_process", return_value=False),
         ):
             assert smol_vm._is_process_running(12345) is False
 
     def test_kill_process_reaps_handle_so_followup_check_returns_false(
-        self, smol_vm: SmolVMManager
+        self, smol_vm: CelestoManager
     ) -> None:
         """SIGKILL via _kill_process should leave _is_process_running returning False."""
         process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
@@ -1750,7 +1752,7 @@ class TestProcessLifecycle:
             with suppress(subprocess.TimeoutExpired):
                 process.wait(timeout=2.0)
 
-    def test_wait_for_process_uses_handle_and_drops_pid(self, smol_vm: SmolVMManager) -> None:
+    def test_wait_for_process_uses_handle_and_drops_pid(self, smol_vm: CelestoManager) -> None:
         """_wait_for_process should block via Popen.wait() and drop the handle."""
         process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(0.1)"])
         smol_vm._process_handles[process.pid] = process
@@ -1767,10 +1769,10 @@ def _info(config: VMConfig, status: VMState, pid: int | None = None) -> VMInfo:
 
 
 class TestRefreshStatus:
-    """Tests for the cheap per-row liveness check used by ``smolvm sandbox list``."""
+    """Tests for the cheap per-row liveness check used by ``celesto sandbox list``."""
 
     def test_running_with_live_pid_unchanged(
-        self, smol_vm: SmolVMManager, sample_config: VMConfig
+        self, smol_vm: CelestoManager, sample_config: VMConfig
     ) -> None:
         vm_info = _info(sample_config, VMState.RUNNING, pid=12345)
         with patch.object(smol_vm, "_is_process_running", return_value=True):
@@ -1778,7 +1780,7 @@ class TestRefreshStatus:
         assert result is vm_info
 
     def test_running_with_dead_pid_demoted_to_error(
-        self, smol_vm: SmolVMManager, sample_config: VMConfig
+        self, smol_vm: CelestoManager, sample_config: VMConfig
     ) -> None:
         vm_info = _info(sample_config, VMState.RUNNING, pid=99999)
         updated = _info(sample_config, VMState.ERROR, pid=None)
@@ -1793,7 +1795,7 @@ class TestRefreshStatus:
         )
 
     def test_paused_with_dead_pid_demoted_to_error(
-        self, smol_vm: SmolVMManager, sample_config: VMConfig
+        self, smol_vm: CelestoManager, sample_config: VMConfig
     ) -> None:
         vm_info = _info(sample_config, VMState.PAUSED, pid=99999)
         updated = _info(sample_config, VMState.ERROR, pid=None)
@@ -1804,7 +1806,7 @@ class TestRefreshStatus:
             result = smol_vm.refresh_status(vm_info)
         assert result.status == VMState.ERROR
 
-    def test_stopped_not_touched(self, smol_vm: SmolVMManager, sample_config: VMConfig) -> None:
+    def test_stopped_not_touched(self, smol_vm: CelestoManager, sample_config: VMConfig) -> None:
         vm_info = _info(sample_config, VMState.STOPPED, pid=None)
         with (
             patch.object(smol_vm, "_is_process_running") as mock_check,
@@ -1816,7 +1818,7 @@ class TestRefreshStatus:
         mock_update.assert_not_called()
 
     def test_running_without_pid_not_touched(
-        self, smol_vm: SmolVMManager, sample_config: VMConfig
+        self, smol_vm: CelestoManager, sample_config: VMConfig
     ) -> None:
         vm_info = _info(sample_config, VMState.RUNNING, pid=None)
         with (
@@ -1833,7 +1835,7 @@ class TestCrashedVMDetection:
     """Tests that pause/resume surface a useful error when the VM has crashed."""
 
     def test_resume_reports_crash_when_status_stale_running(
-        self, smol_vm: SmolVMManager, sample_config: VMConfig
+        self, smol_vm: CelestoManager, sample_config: VMConfig
     ) -> None:
         """DB says RUNNING but PID is dead: resume should raise 'crashed', not 'Cannot resume'."""
         vm_info = _info(sample_config, VMState.RUNNING, pid=99999)
@@ -1842,35 +1844,35 @@ class TestCrashedVMDetection:
             patch.object(smol_vm.state, "get_vm", return_value=vm_info),
             patch.object(smol_vm, "_is_process_running", return_value=False),
             patch.object(smol_vm.state, "update_vm", return_value=crashed),
-            pytest.raises(SmolVMError, match="is not running"),
+            pytest.raises(CelestoError, match="is not running"),
         ):
             smol_vm.resume(sample_config.vm_id)
 
     def test_resume_original_error_when_status_genuinely_wrong(
-        self, smol_vm: SmolVMManager, sample_config: VMConfig
+        self, smol_vm: CelestoManager, sample_config: VMConfig
     ) -> None:
         """DB says STOPPED: resume should raise the original 'Cannot resume' error."""
         vm_info = _info(sample_config, VMState.STOPPED, pid=None)
         with (
             patch.object(smol_vm.state, "get_vm", return_value=vm_info),
-            pytest.raises(SmolVMError, match="Cannot resume VM in state 'stopped'"),
+            pytest.raises(CelestoError, match="Cannot resume VM in state 'stopped'"),
         ):
             smol_vm.resume(sample_config.vm_id)
 
     def test_pause_reports_crash_when_runtime_pause_fails_with_dead_pid(
-        self, smol_vm: SmolVMManager, sample_config: VMConfig
+        self, smol_vm: CelestoManager, sample_config: VMConfig
     ) -> None:
         """pause's QMP call fails: if PID is dead, surface a crash message."""
         vm_info = _info(sample_config, VMState.RUNNING, pid=99999)
         crashed = _info(sample_config, VMState.ERROR, pid=None)
         mock_adapter = MagicMock()
-        mock_adapter.pause.side_effect = SmolVMError("Timed out waiting for QMP socket")
+        mock_adapter.pause.side_effect = CelestoError("Timed out waiting for QMP socket")
         with (
             patch.object(smol_vm.state, "get_vm", return_value=vm_info),
             patch.object(smol_vm, "_runtime_adapter_for_vm", return_value=mock_adapter),
             patch.object(smol_vm, "_is_process_running", return_value=False),
             patch.object(smol_vm.state, "update_vm", return_value=crashed),
-            pytest.raises(SmolVMError, match="is not running"),
+            pytest.raises(CelestoError, match="is not running"),
         ):
             smol_vm.pause(sample_config.vm_id)
 
@@ -1888,7 +1890,7 @@ class TestResolveBootArgs:
 
     def _vm_info(
         self,
-        smol_vm: SmolVMManager,
+        smol_vm: CelestoManager,
         sample_config: VMConfig,
         *,
         ssh_public_key: str | None = None,
@@ -1906,13 +1908,13 @@ class TestResolveBootArgs:
         return VMInfo(vm_id=config.vm_id, status=VMState.STOPPED, config=config)
 
     def test_no_key_means_no_cmdline_injection(
-        self, smol_vm: SmolVMManager, sample_config: VMConfig
+        self, smol_vm: CelestoManager, sample_config: VMConfig
     ) -> None:
         info = self._vm_info(smol_vm, sample_config)
         assert "smolvm.authorized_key_b64=" not in smol_vm._resolve_boot_args(info)
 
     def test_key_is_base64_encoded_into_cmdline(
-        self, smol_vm: SmolVMManager, sample_config: VMConfig
+        self, smol_vm: CelestoManager, sample_config: VMConfig
     ) -> None:
         import base64
 
@@ -1931,7 +1933,7 @@ class TestResolveBootArgs:
         assert decoded == self._ED25519_KEY
 
     def test_key_in_existing_boot_args_is_not_duplicated(
-        self, smol_vm: SmolVMManager, sample_config: VMConfig
+        self, smol_vm: CelestoManager, sample_config: VMConfig
     ) -> None:
         info = self._vm_info(
             smol_vm,
@@ -1944,7 +1946,7 @@ class TestResolveBootArgs:
         assert tokens == ["smolvm.authorized_key_b64=PRESET"]
 
     def test_key_strip_whitespace_before_encoding(
-        self, smol_vm: SmolVMManager, sample_config: VMConfig
+        self, smol_vm: CelestoManager, sample_config: VMConfig
     ) -> None:
         """Trailing newlines from key files shouldn't end up in the encoded token."""
         import base64
@@ -1958,7 +1960,7 @@ class TestResolveBootArgs:
 
     def test_init_script_parses_authorized_key_cmdline(self) -> None:
         """The /init script must contain the parser block — keep host + guest in sync."""
-        from smolvm.images.builder import ImageBuilder
+        from celesto.images.builder import ImageBuilder
 
         script = ImageBuilder()._default_init_script()
         assert "smolvm.authorized_key_b64=" in script
@@ -1975,8 +1977,8 @@ class TestExplicitPolicyLifecycle:
     def test_incompatible_options_fail_before_allocating(
         self, smol_vm, sample_config, monkeypatch, tmp_path, incompatible
     ):
-        monkeypatch.setattr("smolvm.vm.sys.platform", "linux")
-        monkeypatch.setattr("smolvm.comm.select.platform.system", lambda: "Linux")
+        monkeypatch.setattr("celesto.vm.sys.platform", "linux")
+        monkeypatch.setattr("celesto.comm.select.platform.system", lambda: "Linux")
         updates = {"internet_settings": InternetSettings(mode="off"), "comm_channel": "vsock"}
         if incompatible == "ssh":
             updates["comm_channel"] = "ssh"
@@ -1985,21 +1987,21 @@ class TestExplicitPolicyLifecycle:
         else:
             updates["port_forwards"] = [PortForwardConfig(host_port=18080, guest_port=8080)]
         smol_vm.state = MagicMock()
-        with pytest.raises(SmolVMError, match="vsock|[Ss]hared folders"):
+        with pytest.raises(CelestoError, match="vsock|[Ss]hared folders"):
             smol_vm.create(sample_config.model_copy(update=updates))
         smol_vm.state.create_vm.assert_not_called()
         smol_vm.state.allocate_ip.assert_not_called()
 
     def test_create_policy_failure_releases_resources(self, smol_vm, sample_config, monkeypatch):
-        monkeypatch.setattr("smolvm.vm.sys.platform", "linux")
-        monkeypatch.setattr("smolvm.comm.select.platform.system", lambda: "Linux")
+        monkeypatch.setattr("celesto.vm.sys.platform", "linux")
+        monkeypatch.setattr("celesto.comm.select.platform.system", lambda: "Linux")
         network = _attach_mock_network(smol_vm)
-        network.apply_network_policy.side_effect = SmolVMError("policy install failed")
+        network.apply_network_policy.side_effect = CelestoError("policy install failed")
         config = sample_config.model_copy(
             update={"internet_settings": InternetSettings(mode="off"), "comm_channel": "vsock"}
         )
         with patch.object(smol_vm.state, "release_ip", wraps=smol_vm.state.release_ip) as release:
-            with pytest.raises(SmolVMError, match="policy install failed"):
+            with pytest.raises(CelestoError, match="policy install failed"):
                 smol_vm.create(config)
             release.assert_called_once_with(config.vm_id)
         with pytest.raises(VMNotFoundError):
@@ -2013,42 +2015,42 @@ class TestExplicitPolicyLifecycle:
     async def test_async_start_policy_failure_prevents_execution(
         self, smol_vm, sample_config, monkeypatch
     ):
-        monkeypatch.setattr("smolvm.vm.sys.platform", "linux")
-        monkeypatch.setattr("smolvm.comm.select.platform.system", lambda: "Linux")
+        monkeypatch.setattr("celesto.vm.sys.platform", "linux")
+        monkeypatch.setattr("celesto.comm.select.platform.system", lambda: "Linux")
         network = _attach_mock_network(smol_vm)
         config = sample_config.model_copy(
             update={"internet_settings": InternetSettings(mode="off"), "comm_channel": "vsock"}
         )
         info = smol_vm.create(config)
-        network.apply_network_policy.side_effect = SmolVMError("policy install failed")
+        network.apply_network_policy.side_effect = CelestoError("policy install failed")
         adapter = MagicMock()
         adapter.async_start = AsyncMock()
         monkeypatch.setattr(smol_vm, "_runtime_adapter_for_backend", lambda _: adapter)
-        with pytest.raises(SmolVMError, match="policy install failed"):
+        with pytest.raises(CelestoError, match="policy install failed"):
             await smol_vm.async_start(info.vm_id)
         adapter.async_start.assert_not_awaited()
         adapter.start.assert_not_called()
 
     def test_resume_policy_failure_prevents_execution(self, smol_vm, sample_config, monkeypatch):
-        monkeypatch.setattr("smolvm.vm.sys.platform", "linux")
-        monkeypatch.setattr("smolvm.comm.select.platform.system", lambda: "Linux")
+        monkeypatch.setattr("celesto.vm.sys.platform", "linux")
+        monkeypatch.setattr("celesto.comm.select.platform.system", lambda: "Linux")
         network = _attach_mock_network(smol_vm)
         config = sample_config.model_copy(
             update={"internet_settings": InternetSettings(mode="off"), "comm_channel": "vsock"}
         )
         info = smol_vm.create(config)
         smol_vm.state.update_vm(info.vm_id, status=VMState.PAUSED)
-        network.apply_network_policy.side_effect = SmolVMError("policy install failed")
+        network.apply_network_policy.side_effect = CelestoError("policy install failed")
         adapter = MagicMock()
         monkeypatch.setattr(smol_vm, "_runtime_adapter_for_vm", lambda _: adapter)
-        with pytest.raises(SmolVMError, match="policy install failed"):
+        with pytest.raises(CelestoError, match="policy install failed"):
             smol_vm.resume(info.vm_id)
         adapter.resume.assert_not_called()
 
     @pytest.mark.parametrize("mode", ["off", "restricted"])
     def test_create_and_repair_do_not_open_network(self, smol_vm, sample_config, monkeypatch, mode):
-        monkeypatch.setattr("smolvm.vm.sys.platform", "linux")
-        monkeypatch.setattr("smolvm.comm.select.platform.system", lambda: "Linux")
+        monkeypatch.setattr("celesto.vm.sys.platform", "linux")
+        monkeypatch.setattr("celesto.comm.select.platform.system", lambda: "Linux")
         network = _attach_mock_network(smol_vm)
         settings = InternetSettings(
             mode=mode, allowed_cidrs=["203.0.113.7"] if mode == "restricted" else []
@@ -2056,7 +2058,7 @@ class TestExplicitPolicyLifecycle:
         config = sample_config.model_copy(
             update={"internet_settings": settings, "comm_channel": "vsock"}
         )
-        with patch("smolvm.vm.resolve_domains_to_ips", side_effect=AssertionError("DNS called")):
+        with patch("celesto.vm.resolve_domains_to_ips", side_effect=AssertionError("DNS called")):
             info = smol_vm.create(config)
             smol_vm.ensure_network_connectivity(info)
         for invocation in network.setup_nat.call_args_list:
@@ -2070,7 +2072,7 @@ class TestExplicitPolicyLifecycle:
             update={"backend": backend, "internet_settings": InternetSettings(mode="off")}
         )
         smol_vm.state = MagicMock()
-        with pytest.raises(SmolVMError, match="network") as error:
+        with pytest.raises(CelestoError, match="network") as error:
             smol_vm.create(config)
         message = str(error.value)
         assert "Linux" in message
@@ -2080,8 +2082,8 @@ class TestExplicitPolicyLifecycle:
         smol_vm.state.create_vm.assert_not_called()
 
     def test_start_failure_does_not_execute_guest(self, smol_vm, sample_config, monkeypatch):
-        monkeypatch.setattr("smolvm.vm.sys.platform", "linux")
-        monkeypatch.setattr("smolvm.comm.select.platform.system", lambda: "Linux")
+        monkeypatch.setattr("celesto.vm.sys.platform", "linux")
+        monkeypatch.setattr("celesto.comm.select.platform.system", lambda: "Linux")
         config = sample_config.model_copy(
             update={"internet_settings": InternetSettings(mode="off"), "comm_channel": "vsock"}
         )
@@ -2098,14 +2100,14 @@ class TestExplicitPolicyLifecycle:
         settings = InternetSettings().model_copy(update={"allowed_http_methods": ["GET"]})
         config = sample_config.model_copy(update={"internet_settings": settings})
         smol_vm.state = MagicMock()
-        with pytest.raises(SmolVMError, match="HTTP method restrictions"):
+        with pytest.raises(CelestoError, match="HTTP method restrictions"):
             smol_vm.create(config)
         smol_vm.state.create_vm.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_async_create_applies_policy(self, smol_vm, sample_config, monkeypatch):
-        monkeypatch.setattr("smolvm.vm.sys.platform", "linux")
-        monkeypatch.setattr("smolvm.comm.select.platform.system", lambda: "Linux")
+        monkeypatch.setattr("celesto.vm.sys.platform", "linux")
+        monkeypatch.setattr("celesto.comm.select.platform.system", lambda: "Linux")
         config = sample_config.model_copy(
             update={"internet_settings": InternetSettings(mode="off"), "comm_channel": "vsock"}
         )
@@ -2124,16 +2126,16 @@ class TestQemuPolicyLifecycle:
             listener.bind(("127.0.0.1", 0))
             port = listener.getsockname()[1]
             listener.listen()
-            assert not SmolVMManager._local_tcp_port_is_available("127.0.0.1", port)
+            assert not CelestoManager._local_tcp_port_is_available("127.0.0.1", port)
             with socket.create_connection(("127.0.0.1", port)) as client:
                 peer, _ = listener.accept()
                 peer.close()  # Server actively closes: its local port enters TIME_WAIT.
                 assert client.recv(1) == b""
-        assert SmolVMManager._local_tcp_port_is_available("127.0.0.1", port)
+        assert CelestoManager._local_tcp_port_is_available("127.0.0.1", port)
 
     @pytest.fixture
     def qemu_policy(self, smol_vm, sample_config, monkeypatch, tmp_path):
-        monkeypatch.setattr("smolvm.vm.sys.platform", "linux")
+        monkeypatch.setattr("celesto.vm.sys.platform", "linux")
         monkeypatch.setattr(smol_vm, "_materialize_rootfs", lambda config: config)
         monkeypatch.setattr(
             smol_vm, "_async_materialize_rootfs", AsyncMock(side_effect=lambda config: config)
@@ -2168,9 +2170,9 @@ class TestQemuPolicyLifecycle:
         info = manager.create(config)
         network.reset_mock()
         with (
-            patch("smolvm.vm.resolve_domains_to_ips", side_effect=AssertionError("DNS called")),
+            patch("celesto.vm.resolve_domains_to_ips", side_effect=AssertionError("DNS called")),
             patch(
-                "smolvm.vm.socket.if_nametoindex",
+                "celesto.vm.socket.if_nametoindex",
                 return_value=1,
                 side_effect=None if tap_present else OSError("No such interface"),
             ),
@@ -2190,8 +2192,8 @@ class TestQemuPolicyLifecycle:
         )
         network.setup_nat.assert_called_once_with(info.network.tap_device, allow_outbound=False)
         network.reset_mock()
-        network.apply_network_policy.side_effect = SmolVMError("nft failed")
-        with pytest.raises(SmolVMError, match="nft failed"):
+        network.apply_network_policy.side_effect = CelestoError("nft failed")
+        with pytest.raises(CelestoError, match="nft failed"):
             manager.ensure_network_connectivity(info)
         network.remove_network_policy.assert_not_called()
         network.setup_nat.assert_not_called()
@@ -2212,8 +2214,8 @@ class TestQemuPolicyLifecycle:
         )
         manager._runtime_adapter_for_backend = MagicMock(return_value=adapter)
         manager._runtime_adapter_for_vm = MagicMock(return_value=adapter)
-        network.apply_network_policy.side_effect = SmolVMError("nft failed")
-        with pytest.raises(SmolVMError, match="nft failed"):
+        network.apply_network_policy.side_effect = CelestoError("nft failed")
+        with pytest.raises(CelestoError, match="nft failed"):
             getattr(manager, operation)(info.vm_id)
         getattr(adapter, operation).assert_not_called()
         network.apply_network_policy.side_effect = None
@@ -2222,8 +2224,8 @@ class TestQemuPolicyLifecycle:
 
     def test_failed_create_releases_resources_and_can_retry(self, qemu_policy):
         manager, config, network = qemu_policy
-        network.apply_network_policy.side_effect = SmolVMError("nft failed")
-        with pytest.raises(SmolVMError, match="nft failed"):
+        network.apply_network_policy.side_effect = CelestoError("nft failed")
+        with pytest.raises(CelestoError, match="nft failed"):
             manager.create(config)
         with pytest.raises(VMNotFoundError):
             manager.get(config.vm_id)
@@ -2246,7 +2248,7 @@ class TestQemuPolicyLifecycle:
         )
         adapter = MagicMock(async_start=AsyncMock())
         manager._runtime_adapter_for_backend = MagicMock(return_value=adapter)
-        network.apply_network_policy.side_effect = SmolVMError("nft failed")
-        with pytest.raises(SmolVMError, match="nft failed"):
+        network.apply_network_policy.side_effect = CelestoError("nft failed")
+        with pytest.raises(CelestoError, match="nft failed"):
             await manager.async_start(info.vm_id)
         adapter.async_start.assert_not_awaited()

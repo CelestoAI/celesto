@@ -68,18 +68,19 @@ all = [
 ]
 
 [project.scripts]
-smolvm = "smolvm.cli.main:main"
+celesto = "celesto.cli.main:main"
+smolvm = "celesto.cli.main:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/smolvm"]
+packages = ["src/celesto"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"scripts/system-setup.sh" = "smolvm/_setup_assets/system-setup.sh"
-"scripts/system-setup-macos.sh" = "smolvm/_setup_assets/system-setup-macos.sh"
-"scripts/internal/install-firecracker.sh" = "smolvm/_setup_assets/internal/install-firecracker.sh"
-"scripts/internal/configure-runtime-sudoers.sh" = "smolvm/_setup_assets/internal/configure-runtime-sudoers.sh"
-"scripts/internal/image-build-loopfs.sh" = "smolvm/_setup_assets/internal/image-build-loopfs.sh"
-"THIRD_PARTY_NOTICES.md" = "smolvm/THIRD_PARTY_NOTICES.md"
+"scripts/system-setup.sh" = "celesto/_setup_assets/system-setup.sh"
+"scripts/system-setup-macos.sh" = "celesto/_setup_assets/system-setup-macos.sh"
+"scripts/internal/install-firecracker.sh" = "celesto/_setup_assets/internal/install-firecracker.sh"
+"scripts/internal/configure-runtime-sudoers.sh" = "celesto/_setup_assets/internal/configure-runtime-sudoers.sh"
+"scripts/internal/image-build-loopfs.sh" = "celesto/_setup_assets/internal/image-build-loopfs.sh"
+"THIRD_PARTY_NOTICES.md" = "celesto/THIRD_PARTY_NOTICES.md"
 
 [tool.hatch.build]
 exclude = ["/ui", "/smolvm-core"]

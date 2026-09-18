@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Start the fake legacy portal from inside the SmolVM sandbox."""
+"""Start the fake legacy portal from inside the Celesto sandbox."""
 
 from __future__ import annotations
 

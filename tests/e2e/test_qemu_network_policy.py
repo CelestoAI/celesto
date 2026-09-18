@@ -20,10 +20,10 @@ from uuid import uuid4
 import pytest
 from test_network_policy import policy_lab  # noqa: F401
 
-from smolvm import SmolVM
-from smolvm.images import BootImage, DirectKernelBoot
-from smolvm.storage import MemoryStateManager
-from smolvm.types import InternetSettings, VMConfig
+from celesto import Celesto
+from celesto.images import BootImage, DirectKernelBoot
+from celesto.storage import MemoryStateManager
+from celesto.types import InternetSettings, VMConfig
 
 pytestmark = [
     pytest.mark.e2e,
@@ -104,7 +104,7 @@ def test_application_without_control_agent(template, tmp_path, monkeypatch, mode
     config = VMConfig.model_validate(values)
     inventory = MemoryStateManager(tmp_path)
     if constructor == "config":
-        vm = SmolVM(config=config, data_dir=tmp_path, state_manager=inventory)
+        vm = Celesto(config=config, data_dir=tmp_path, state_manager=inventory)
     else:
         image = BootImage(
             name="qemu-policy-app",
@@ -113,7 +113,7 @@ def test_application_without_control_agent(template, tmp_path, monkeypatch, mode
             kernel_path=config.kernel_path,
             boot=DirectKernelBoot(init="/policy-init"),
         )
-        vm = SmolVM.from_image(
+        vm = Celesto.from_image(
             image,
             backend="qemu",
             network=config.qemu_network,
@@ -130,12 +130,12 @@ def test_application_without_control_agent(template, tmp_path, monkeypatch, mode
     sdk = vm._sdk
     # Fail loudly if ordinary application access takes a control-channel detour.
     monkeypatch.setattr(
-        SmolVM,
+        Celesto,
         "_ensure_control_for_operation",
         lambda *a, **kw: pytest.fail("Application used a command connection"),
     )
     monkeypatch.setattr(
-        SmolVM,
+        Celesto,
         "_start_local_tunnel",
         lambda *a, **kw: pytest.fail("Application used an SSH tunnel"),
     )
@@ -179,7 +179,7 @@ def test_application_without_control_agent(template, tmp_path, monkeypatch, mode
         vm.stop()
         vm.delete()
         vm = None
-        vm = SmolVM.from_snapshot(
+        vm = Celesto.from_snapshot(
             snapshot_id, backend="qemu", data_dir=tmp_path, state_manager=inventory, resume_vm=True
         )
         assert vm.info.config.internet_settings == policy
@@ -225,7 +225,7 @@ def test_policy_keeps_sdk_files_and_shared_folders(template, tmp_path, writable,
     folder = tmp_path / "shared"
     folder.mkdir()
     (folder / "hello.txt").write_text("shared hello")
-    with SmolVM(
+    with Celesto(
         config=config,
         data_dir=tmp_path / "data",
         internet_settings={
@@ -257,8 +257,8 @@ def test_tap_destinations_and_real_install_failure(
     if template.get("qemu_network") != "tap":
         pytest.skip("Requires Linux TAP configuration")
     # Reuse the existing disposable lab instead of making a second firewall lab.
-    from smolvm.exceptions import SmolVMError, VMNotFoundError
-    from smolvm.host.network import NetworkManager
+    from celesto.exceptions import CelestoError, VMNotFoundError
+    from celesto.host.network import NetworkManager
 
     allowed, denied, *_ = policy_lab
     inventory = MemoryStateManager(tmp_path / "inventory")
@@ -284,7 +284,7 @@ def test_tap_destinations_and_real_install_failure(
 
     try:
         # Positive controls traverse a real VM, not just the host's network.
-        with SmolVM(config=VMConfig.model_validate(values), data_dir=tmp_path / "open") as control:
+        with Celesto(config=VMConfig.model_validate(values), data_dir=tmp_path / "open") as control:
             url = f"http://{control.info.network.guest_ip}:18080/"
             ready(url)
             assert probe(url, allowed, 18080)
@@ -297,20 +297,20 @@ def test_tap_destinations_and_real_install_failure(
         config = VMConfig.model_validate(values)
         with monkeypatch.context() as fault:
             fault.setattr(NetworkManager, "_run_nft_script", reject)
-            with pytest.raises(SmolVMError):
-                SmolVM(config=config, data_dir=tmp_path, state_manager=inventory)
-        vm = SmolVM(config=config, data_dir=tmp_path, state_manager=inventory)
+            with pytest.raises(CelestoError):
+                Celesto(config=config, data_dir=tmp_path, state_manager=inventory)
+        vm = Celesto(config=config, data_dir=tmp_path, state_manager=inventory)
         sdk = vm._sdk
         with monkeypatch.context() as fault:
             fault.setattr(NetworkManager, "_run_nft_script", reject)
-            with pytest.raises(SmolVMError):
+            with pytest.raises(CelestoError):
                 vm.start()
         assert vm.info.pid is None
         vm.start()
         check(vm)
         with monkeypatch.context() as fault:
             fault.setattr(NetworkManager, "_run_nft_script", reject)
-            with pytest.raises(SmolVMError):
+            with pytest.raises(CelestoError):
                 sdk.ensure_network_connectivity(vm.info)
             # Read existing application/policy state without repairing it again.
             url = f"http://{vm.info.network.guest_ip}:18080/"
@@ -319,7 +319,7 @@ def test_tap_destinations_and_real_install_failure(
         vm.pause()
         with monkeypatch.context() as fault:
             fault.setattr(NetworkManager, "_run_nft_script", reject)
-            with pytest.raises(SmolVMError):
+            with pytest.raises(CelestoError):
                 vm.resume()
         assert vm.info.status.value == "paused"
         vm.resume()
@@ -329,8 +329,8 @@ def test_tap_destinations_and_real_install_failure(
         vm = None
         with monkeypatch.context() as fault:
             fault.setattr(NetworkManager, "_run_nft_script", reject)
-            with pytest.raises(SmolVMError):
-                SmolVM.from_snapshot(
+            with pytest.raises(CelestoError):
+                Celesto.from_snapshot(
                     snapshot_id,
                     backend="qemu",
                     data_dir=tmp_path,
@@ -339,7 +339,7 @@ def test_tap_destinations_and_real_install_failure(
                 )
         with pytest.raises(VMNotFoundError):
             inventory.get_vm(config.vm_id)
-        vm = SmolVM.from_snapshot(
+        vm = Celesto.from_snapshot(
             snapshot_id, backend="qemu", data_dir=tmp_path, state_manager=inventory, resume_vm=True
         )
         check(vm)

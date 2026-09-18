@@ -152,10 +152,10 @@ jobs:
             # Single source of truth — published.py::IMAGES_RELEASE_TAG.
             # Read as string rather than importing: avoids forcing every
             # job to install smolvm's Python deps just to print one tag.
-            tag=$(awk -F'"' '/^IMAGES_RELEASE_TAG[[:space:]]*=/{print $2; exit}' src/smolvm/images/published.py)
+            tag=$(awk -F'"' '/^IMAGES_RELEASE_TAG[[:space:]]*=/{print $2; exit}' src/celesto/images/published.py)
           fi
           if [ -z "$tag" ]; then
-            echo "ERROR: IMAGES_RELEASE_TAG could not be parsed from src/smolvm/images/published.py" >&2
+            echo "ERROR: IMAGES_RELEASE_TAG could not be parsed from src/celesto/images/published.py" >&2
             exit 1
           fi
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
@@ -329,10 +329,10 @@ jobs:
             # Single source of truth — published.py::IMAGES_RELEASE_TAG.
             # Read as string rather than importing: avoids forcing every
             # job to install smolvm's Python deps just to print one tag.
-            tag=$(awk -F'"' '/^IMAGES_RELEASE_TAG[[:space:]]*=/{print $2; exit}' src/smolvm/images/published.py)
+            tag=$(awk -F'"' '/^IMAGES_RELEASE_TAG[[:space:]]*=/{print $2; exit}' src/celesto/images/published.py)
           fi
           if [ -z "$tag" ]; then
-            echo "ERROR: IMAGES_RELEASE_TAG could not be parsed from src/smolvm/images/published.py" >&2
+            echo "ERROR: IMAGES_RELEASE_TAG could not be parsed from src/celesto/images/published.py" >&2
             exit 1
           fi
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
@@ -365,7 +365,7 @@ jobs:
           uv run python <<'PY'
           import os
           from pathlib import Path
-          from smolvm.images.builder import ImageBuilder
+          from celesto.images.builder import ImageBuilder
 
           arch = os.environ["ARCH"]
           kernel_url = Path(os.environ["KERNEL_PATH"]).resolve().as_uri()
@@ -543,10 +543,10 @@ jobs:
           if [ -n "$INPUT_TAG" ]; then
             tag="$INPUT_TAG"
           else
-            tag=$(awk -F'"' '/^IMAGES_RELEASE_TAG[[:space:]]*=/{print $2; exit}' src/smolvm/images/published.py)
+            tag=$(awk -F'"' '/^IMAGES_RELEASE_TAG[[:space:]]*=/{print $2; exit}' src/celesto/images/published.py)
           fi
           if [ -z "$tag" ]; then
-            echo "ERROR: IMAGES_RELEASE_TAG could not be parsed from src/smolvm/images/published.py" >&2
+            echo "ERROR: IMAGES_RELEASE_TAG could not be parsed from src/celesto/images/published.py" >&2
             exit 1
           fi
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
@@ -579,7 +579,7 @@ jobs:
           uv run python <<'PY'
           import os
           from pathlib import Path
-          from smolvm.images.builder import ImageBuilder
+          from celesto.images.builder import ImageBuilder
 
           arch = os.environ["ARCH"]
           kernel_url = Path(os.environ["KERNEL_PATH"]).resolve().as_uri()
@@ -759,10 +759,10 @@ jobs:
             # Single source of truth — published.py::IMAGES_RELEASE_TAG.
             # Read as string rather than importing: avoids forcing every
             # job to install smolvm's Python deps just to print one tag.
-            tag=$(awk -F'"' '/^IMAGES_RELEASE_TAG[[:space:]]*=/{print $2; exit}' src/smolvm/images/published.py)
+            tag=$(awk -F'"' '/^IMAGES_RELEASE_TAG[[:space:]]*=/{print $2; exit}' src/celesto/images/published.py)
           fi
           if [ -z "$tag" ]; then
-            echo "ERROR: IMAGES_RELEASE_TAG could not be parsed from src/smolvm/images/published.py" >&2
+            echo "ERROR: IMAGES_RELEASE_TAG could not be parsed from src/celesto/images/published.py" >&2
             exit 1
           fi
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
@@ -820,7 +820,7 @@ jobs:
           # Asset naming asymmetry: ubuntu has no OS suffix (legacy from
           # the single-flavour era), alpine introduces ``-alpine-``. The
           # published manifest URL builder mirrors this in
-          # ``src/smolvm/images/published.py::_release_asset_url``.
+          # ``src/celesto/images/published.py::_release_asset_url``.
           if [ "$OS" = "ubuntu" ]; then
             name="${PRESET}-${ARCH}"
           else

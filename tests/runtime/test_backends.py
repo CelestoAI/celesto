@@ -4,9 +4,9 @@ from unittest.mock import patch
 
 import pytest
 
-from smolvm.exceptions import SmolVMError
-from smolvm.runtime import backends as b
-from smolvm.runtime.backends import (
+from celesto.exceptions import CelestoError
+from celesto.runtime import backends as b
+from celesto.runtime.backends import (
     BACKEND_FIRECRACKER,
     BACKEND_LIBKRUN,
     BACKEND_QEMU,
@@ -32,26 +32,27 @@ def _env(
 ):
     """Patch the low-level host probes so backend detection is deterministic."""
     stack = contextlib.ExitStack()
-    stack.enter_context(patch("smolvm.runtime.backends.platform.system", return_value=system))
-    stack.enter_context(patch("smolvm.runtime.backends.platform.machine", return_value=arch))
+    stack.enter_context(patch("celesto.runtime.backends.platform.system", return_value=system))
+    stack.enter_context(patch("celesto.runtime.backends.platform.machine", return_value=arch))
     stack.enter_context(
         patch(
-            "smolvm.runtime.backends.platform.mac_ver", return_value=(mac_version, ("", "", ""), "")
+            "celesto.runtime.backends.platform.mac_ver",
+            return_value=(mac_version, ("", "", ""), ""),
         )
     )
     stack.enter_context(
-        patch("smolvm.runtime.backends._firecracker_binary_present", return_value=fc_binary)
+        patch("celesto.runtime.backends._firecracker_binary_present", return_value=fc_binary)
     )
-    stack.enter_context(patch("smolvm.runtime.backends._kvm_accessible", return_value=kvm))
+    stack.enter_context(patch("celesto.runtime.backends._kvm_accessible", return_value=kvm))
     stack.enter_context(
         patch(
-            "smolvm.runtime.backends._qemu_system_binary",
+            "celesto.runtime.backends._qemu_system_binary",
             return_value="qemu-system-x86_64" if qemu_system else None,
         )
     )
-    stack.enter_context(patch("smolvm.runtime.backends._qemu_img_present", return_value=qemu_img))
-    stack.enter_context(patch("smolvm.runtime.backends.libkrun_available", return_value=libkrun))
-    stack.enter_context(patch("smolvm.runtime.backends._lume_binary_present", return_value=lume))
+    stack.enter_context(patch("celesto.runtime.backends._qemu_img_present", return_value=qemu_img))
+    stack.enter_context(patch("celesto.runtime.backends.libkrun_available", return_value=libkrun))
+    stack.enter_context(patch("celesto.runtime.backends._lume_binary_present", return_value=lume))
     return stack
 
 
@@ -119,7 +120,7 @@ def test_auto_backend_does_not_reprobe_the_fallback() -> None:
     # Nothing installed: each preferred backend is probed exactly once, and the
     # platform-default fallback reuses the status probed in the first iteration
     # instead of probing it again.
-    with _env(), patch("smolvm.runtime.backends._backend_status", wraps=b._backend_status) as spy:
+    with _env(), patch("celesto.runtime.backends._backend_status", wraps=b._backend_status) as spy:
         backend, status = b._auto_backend()
     assert backend == BACKEND_FIRECRACKER
     assert status is not None
@@ -147,10 +148,10 @@ def test_resolve_backend_status_defers_probe_for_explicit_backend() -> None:
 
 
 def test_ensure_backend_available_uses_supplied_status_without_reprobing() -> None:
-    from smolvm.runtime.backends import BackendStatus
+    from celesto.runtime.backends import BackendStatus
 
     good = BackendStatus(available=True, primary_present=True, message=None)
-    with patch("smolvm.runtime.backends._backend_status") as probe:
+    with patch("celesto.runtime.backends._backend_status") as probe:
         ensure_backend_available(BACKEND_QEMU, good)
     probe.assert_not_called()
 
@@ -166,7 +167,7 @@ def test_ensure_backend_available_passes_when_qemu_installed() -> None:
 def test_ensure_backend_available_raises_for_missing_qemu() -> None:
     with (
         _env(qemu_system=False, qemu_img=False),
-        pytest.raises(SmolVMError, match="QEMU isn't installed"),
+        pytest.raises(CelestoError, match="QEMU isn't installed"),
     ):
         ensure_backend_available(BACKEND_QEMU)
 
@@ -175,62 +176,62 @@ def test_ensure_backend_available_qemu_img_only_missing_gives_accurate_message()
     # qemu-system present but qemu-img absent must NOT claim QEMU is uninstalled.
     with (
         _env(qemu_system=True, qemu_img=False),
-        pytest.raises(SmolVMError, match="qemu-img") as excinfo,
+        pytest.raises(CelestoError, match="qemu-img") as excinfo,
     ):
         ensure_backend_available(BACKEND_QEMU)
     assert "isn't installed" not in str(excinfo.value)
 
 
 def test_ensure_backend_available_raises_for_missing_firecracker() -> None:
-    with _env(fc_binary=False), pytest.raises(SmolVMError, match="Firecracker isn't installed"):
+    with _env(fc_binary=False), pytest.raises(CelestoError, match="Firecracker isn't installed"):
         ensure_backend_available(BACKEND_FIRECRACKER)
 
 
 def test_ensure_backend_available_firecracker_present_without_kvm_reports_kvm() -> None:
-    with _env(fc_binary=True, kvm=False), pytest.raises(SmolVMError, match="/dev/kvm"):
+    with _env(fc_binary=True, kvm=False), pytest.raises(CelestoError, match="/dev/kvm"):
         ensure_backend_available(BACKEND_FIRECRACKER)
 
 
 def test_firecracker_missing_message_interpolates_sandbox_name() -> None:
     # The recovery command must name the sandbox with --name so it is runnable.
-    with _env(fc_binary=False), pytest.raises(SmolVMError) as excinfo:
+    with _env(fc_binary=False), pytest.raises(CelestoError) as excinfo:
         ensure_backend_available(BACKEND_FIRECRACKER, vm_name="sbx-einstein")
-    assert "smolvm sandbox create --name sbx-einstein --backend qemu" in str(excinfo.value)
+    assert "celesto sandbox create --name sbx-einstein --backend qemu" in str(excinfo.value)
 
 
 def test_firecracker_kvm_message_interpolates_sandbox_name() -> None:
-    with _env(fc_binary=True, kvm=False), pytest.raises(SmolVMError) as excinfo:
+    with _env(fc_binary=True, kvm=False), pytest.raises(CelestoError) as excinfo:
         ensure_backend_available(BACKEND_FIRECRACKER, vm_name="sbx-einstein")
-    assert "smolvm sandbox create --name sbx-einstein --backend qemu" in str(excinfo.value)
+    assert "celesto sandbox create --name sbx-einstein --backend qemu" in str(excinfo.value)
 
 
 def test_firecracker_recovery_command_omits_name_when_unknown() -> None:
-    with _env(fc_binary=False), pytest.raises(SmolVMError) as excinfo:
+    with _env(fc_binary=False), pytest.raises(CelestoError) as excinfo:
         ensure_backend_available(BACKEND_FIRECRACKER)
     message = str(excinfo.value)
     assert "--name" not in message
-    assert "smolvm sandbox create --backend qemu" in message
+    assert "celesto sandbox create --backend qemu" in message
 
 
 def test_ensure_backend_available_raises_for_missing_libkrun() -> None:
-    with _env(libkrun=False), pytest.raises(SmolVMError, match="libkrun isn't installed"):
+    with _env(libkrun=False), pytest.raises(CelestoError, match="libkrun isn't installed"):
         ensure_backend_available(BACKEND_LIBKRUN)
 
 
 def test_vz_backend_requires_apple_silicon_macos_and_lume() -> None:
     with (
         _env(system="Linux", arch="x86_64", lume=True),
-        pytest.raises(SmolVMError, match="Apple Silicon Mac"),
+        pytest.raises(CelestoError, match="Apple Silicon Mac"),
     ):
         ensure_backend_available(BACKEND_VZ)
     with (
         _env(system="Darwin", arch="arm64", lume=False),
-        pytest.raises(SmolVMError, match="smolvm setup --macos"),
+        pytest.raises(CelestoError, match="celesto setup --macos"),
     ):
         ensure_backend_available(BACKEND_VZ)
     with (
         _env(system="Darwin", arch="arm64", mac_version="13.6", lume=True),
-        pytest.raises(SmolVMError, match="macOS 14 or newer"),
+        pytest.raises(CelestoError, match="macOS 14 or newer"),
     ):
         ensure_backend_available(BACKEND_VZ)
     with _env(system="Darwin", arch="arm64", lume=True):

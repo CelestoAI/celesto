@@ -16,8 +16,8 @@
 
 import pytest
 
-from smolvm.runtime.backends import BACKEND_FIRECRACKER, BACKEND_QEMU
-from smolvm.runtime.boot_profiles import (
+from celesto.runtime.backends import BACKEND_FIRECRACKER, BACKEND_QEMU
+from celesto.runtime.boot_profiles import (
     KernelBootProfile,
     get_boot_profile_spec,
 )

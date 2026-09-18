@@ -19,8 +19,8 @@ from __future__ import annotations
 import random
 import re
 
-from smolvm._naming import CITIES, SCIENTISTS, generate_sandbox_name
-from smolvm.types import _IDENTIFIER_PATTERN
+from celesto._naming import CITIES, SCIENTISTS, generate_sandbox_name
+from celesto.types import _IDENTIFIER_PATTERN
 
 
 def test_bare_scientist_when_nothing_taken() -> None:

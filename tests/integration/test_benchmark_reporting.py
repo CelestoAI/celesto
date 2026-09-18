@@ -29,15 +29,15 @@ from scripts.benchmarks.reporting import (
 
 def test_run_command_dry_run_records_command_without_executing() -> None:
     record = run_command(
-        CommandPlan("probe", ["smolvm", "doctor"], timeout_s=1.5),
+        CommandPlan("probe", ["celesto", "doctor"], timeout_s=1.5),
         dry_run=True,
     )
 
     assert record["status"] == "dry-run"
     assert record["ok"] is True
     assert record["exit_code"] is None
-    assert record["command"] == ["smolvm", "doctor"]
-    assert record["command_text"] == "smolvm doctor"
+    assert record["command"] == ["celesto", "doctor"]
+    assert record["command_text"] == "celesto doctor"
 
 
 def test_parse_json_output_tolerates_surrounding_text() -> None:

@@ -19,7 +19,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smolvm.host import disk
+from celesto.host import disk
 
 
 def test_clone_or_sparse_copy_prefers_cp_before_native(tmp_path: Path) -> None:

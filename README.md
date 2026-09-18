@@ -31,7 +31,7 @@
 
 ---
 
-SmolVM gives AI agents their own secure and persistent computer. 
+Celesto gives AI agents their own secure and persistent computer.
 Each microVM boots in milliseconds, runs any code or software you throw at it, persists files and state across sessions, and disappears when you're done — ready to handle thousands of sandboxes in production.
 
 <br>
@@ -98,7 +98,7 @@ Each microVM boots in milliseconds, runs any code or software you throw at it, p
 
 ## Quickstart
 
-Install SmolVM with a single command:
+Install Celesto with a single command:
 
 ```bash
 curl -sSL https://celesto.ai/install.sh | bash
@@ -111,8 +111,8 @@ This installs everything you need (including Python), configures your machine, a
 
 ```bash
 pip install smolvm
-smolvm setup
-smolvm doctor
+celesto setup
+celesto doctor
 ```
 
 On supported Linux and macOS systems, `pip install smolvm` also pulls in the matching `smolvm-core` wheel automatically. Most users do not need Rust installed.
@@ -126,19 +126,37 @@ For golden-AMI builds, two-stage deploys, pinning the Firecracker version, and o
 ### Start a sandbox in Python
 
 ```python
-from smolvm import SmolVM
+from celesto import Computer
 
-vm = SmolVM()
-result = vm.run("echo 'Hello from the sandbox!'")
-print(result)
-vm.stop()
+with Computer(local=True) as comp:
+    result = comp.run("echo 'Hello from the sandbox!'")
+    print(result.stdout)
 ```
+
+Install with `pip install smolvm`, then import from `celesto`. The package name
+has not changed yet; old `smolvm` Python imports are no longer supported.
+Use `celesto setup` and `celesto doctor` to prepare your machine.
+
+The computer is deleted when the `with` block ends, including when your code
+raises an exception. This release runs locally only, so `local=True` is required.
+Outside `with`, call `delete()` yourself; automatic expiry after a crash is not
+implemented yet.
+
+To keep a computer after Python exits, create it with
+`Computer(local=True, lifetime="persistent")`, save its `id` after the first
+command, and reconnect with `Computer.get(id, local=True)`. Persistent computers
+cannot be used in a `with` block. Remove them with `delete()` or
+`celesto sandbox delete <id>`.
+
+Advanced local APIs are available as `celesto.Celesto` and `celesto.CelestoManager`.
+Existing local data, environment settings, and image caches retain their current
+locations. The `smolvm` executable remains available for TypeScript integrations.
 
 ### Start a sandbox in TypeScript (alpha)
 
 The TypeScript SDK gives Node.js agents a disposable computer on the same machine. It starts the local runtime automatically, so there is no server command or cloud credential to configure.
 
-The alpha supports Node.js 20.4 or newer on Linux x64 and Apple Silicon macOS. After installing SmolVM above, install the preview package and `tsx`:
+The alpha supports Node.js 20.4 or newer on Linux x64 and Apple Silicon macOS. After installing Celesto above, install the preview package and `tsx`:
 
 ```bash
 npm install https://github.com/CelestoAI/SmolVM/releases/download/typescript-v0.1.0-preview.1/celestoai-smolvm-0.1.0-preview.1.tgz
@@ -178,69 +196,69 @@ For a structured workflow, try [OpenMuse Research](examples/open-muse-research/R
 Create a sandbox, check that it's running, then stop it:
 
 ```bash
-smolvm sandbox create --name my-sandbox
+celesto sandbox create --name my-sandbox
 # my-sandbox  running  172.16.0.2
 
-smolvm sandbox list
+celesto sandbox list
 # NAME         PRESET  STATUS   PID
 # my-sandbox   -       running  12345
 
-smolvm sandbox stop my-sandbox
+celesto sandbox stop my-sandbox
 ```
 
 Open a shell inside a running sandbox:
 
 ```bash
-smolvm sandbox shell my-sandbox
+celesto sandbox shell my-sandbox
 ```
 
-Use `smolvm sandbox ssh my-sandbox` when you specifically need an SSH session.
+Use `celesto sandbox ssh my-sandbox` when you specifically need an SSH session.
 
 Run a single command in a running sandbox without opening a shell — useful in scripts. Put the command after `--`, and add `--start` if you want a stopped sandbox started first:
 
 ```bash
-smolvm sandbox exec my-sandbox -- python --version
+celesto sandbox exec my-sandbox -- python --version
 ```
 
 If something goes wrong, read the sandbox's logs (add `--follow` to watch them live):
 
 ```bash
-smolvm sandbox logs my-sandbox
+celesto sandbox logs my-sandbox
 ```
 
-Tip: turn on tab completion so your shell can finish commands and sandbox names for you — run `smolvm completion bash --install` (or `zsh`, `fish`) once. See the [CLI reference](docs/reference/cli.md#shell-completion) for details.
+Tip: turn on tab completion so your shell can finish commands and sandbox names for you — run `celesto completion bash --install` (or `zsh`, `fish`) once. See the [CLI reference](docs/reference/cli.md#shell-completion) for details.
 
 ## macOS desktop sandbox (preview)
 
-On an Apple Silicon Mac, SmolVM can open a temporary macOS desktop for testing apps and installers without changing your everyday system. The first run downloads macOS from Apple and prepares a reusable local image.
+On an Apple Silicon Mac, Celesto can open a temporary macOS desktop for testing apps and installers without changing your everyday system. The first run downloads macOS from Apple and prepares a reusable local image.
 
 ```bash
-smolvm setup --macos
+celesto setup --macos
 ```
 
 Create the desktop sandbox:
 
 ```bash
-smolvm sandbox create --os macos --name test-mac
-# Next: smolvm sandbox desktop test-mac
+celesto sandbox create --os macos --name test-mac
+# Next: celesto sandbox desktop test-mac
 ```
 
 Open it in the built-in Screen Sharing app:
 
 ```bash
-smolvm sandbox desktop test-mac
+celesto sandbox desktop test-mac
 ```
 
 Image preparation needs about 50 GB and 20–40 minutes. macOS images stay on the Mac that created them, and at most two macOS guests can run at once. See the [macOS desktop guide](docs/guides/macos.md) for shared folders, limits, and cleanup.
 
 ## Windows sandbox
 
-SmolVM can boot a Windows 11 guest as well as Linux. Hand it a Windows image and you get the same Python and CLI you use for Linux — run PowerShell, upload files, set environment variables, and run many sandboxes in parallel from one baseline image.
+Celesto can boot a Windows 11 guest as well as Linux. Hand it a Windows image and you get the same Python and CLI you use for Linux — run PowerShell, upload files, set environment variables, and run many sandboxes in parallel from one baseline image.
 
 ```python
-from smolvm import SmolVM
+from celesto import Celesto
 
-with SmolVM(
+with Celesto(
     os="windows",
     image="~/.smolvm/images/win11.qcow2",
     ssh_user="smolvm",
@@ -262,7 +280,7 @@ Windows guests need a Linux host with KVM. Host mounts, network controls, and sn
 
 ## Coding agents
 
-It sucks to “press enter and accept changes” every few seconds while using coding agents. SmolVM makes it easy to isolate the agent coding environment from the host (laptops).
+It sucks to “press enter and accept changes” every few seconds while using coding agents. Celesto makes it easy to isolate the agent coding environment from the host (laptops).
 
 Start any supported coding agent in its own sandbox:
 
@@ -271,37 +289,37 @@ Video tutorial:
 <a href="https://youtu.be/j1qyrTsI0Jw"><img src="https://img.youtube.com/vi/j1qyrTsI0Jw/maxresdefault.jpg" alt="Coding agents in a sandbox" width="480"></a>
 
 ```bash
-smolvm codex start
-smolvm claude start
-smolvm pi start
-smolvm hermes start
-smolvm opencode start
-smolvm openclaw start --name openclaw-work --no-attach
+celesto codex start
+celesto claude start
+celesto pi start
+celesto hermes start
+celesto opencode start
+celesto openclaw start --name openclaw-work --no-attach
 ```
 
 OpenClaw also has a private browser dashboard. Open it after the named sandbox starts:
 
 ```bash
-smolvm openclaw list
+celesto openclaw list
 # NAME              STATUS   PID
 # openclaw-work     running  12345
 
-smolvm openclaw open-ui openclaw-work
+celesto openclaw open-ui openclaw-work
 ```
 
-Creating an OpenClaw sandbox currently takes several minutes while SmolVM installs its supported Node.js runtime and pinned OpenClaw release. See the [OpenClaw guide](docs/guides/agent-presets.md#open-openclaws-dashboard) for credentials, the dashboard flow, and safe steps for replacing an older sandbox.
+Creating an OpenClaw sandbox currently takes several minutes while Celesto installs its supported Node.js runtime and pinned OpenClaw release. See the [OpenClaw guide](docs/guides/agent-presets.md#open-openclaws-dashboard) for credentials, the dashboard flow, and safe steps for replacing an older sandbox.
 
 
 ## Browser sandbox
 
-SmolVM can also start a full browser inside a sandbox. This is useful when agents need to navigate websites, fill out forms, take screenshots, or connect through VNC.
+Celesto can also start a full browser inside a sandbox. This is useful when agents need to navigate websites, fill out forms, take screenshots, or connect through VNC.
 
 Start a visible browser sandbox from Python:
 
 ```python
-from smolvm import SmolVM
+from celesto import Celesto
 
-with SmolVM.browser(headless=False) as browser:
+with Celesto.browser(headless=False) as browser:
     print(browser.cdp_url)  # Automation endpoint for Playwright or CDP tools
     print(browser.viewer_url)  # Web URL you can open to watch live
     print(browser.display_url)  # VNC URL for clients or computer-use agents
@@ -315,22 +333,22 @@ computer-use agent needs to control the screen.
 Start the same browser sandbox from the CLI:
 
 ```bash
-smolvm browser start --live
+celesto browser start --live
 # Sandbox: browser-a1b2c3d4
 # Viewer URL: http://127.0.0.1:36080/vnc.html?autoconnect=1&resize=scale  # open in a browser
 # Display URL: vnc://127.0.0.1:35900                                      # give to a VNC client or agent
 ```
 
-Use `SmolVM.browser(headless=True)` for browser automation only; it gives you
-`cdp_url` and no visible viewer. Use `SmolVM.browser(headless=False)` for a
+Use `Celesto.browser(headless=True)` for browser automation only; it gives you
+`cdp_url` and no visible viewer. Use `Celesto.browser(headless=False)` for a
 visible browser; it gives you `cdp_url`, `viewer_url`, and `display_url`. A
 browser sandbox is still a focused Chromium environment, not a general desktop.
 
 Open the viewer URL to watch the browser in real time, or give the display URL to a computer-use agent or VNC client. When you're done, list and stop sandboxes:
 
 ```bash
-smolvm browser list
-smolvm browser stop sess_a1b2c3
+celesto browser list
+celesto browser stop sess_a1b2c3
 ```
 
 See [examples/browser_sandbox.py](examples/browser_sandbox.py) for a complete Python example.
@@ -343,9 +361,9 @@ Use a Linux computer when an agent needs a visible desktop with more than a brow
 During this preview, the first computer start builds its image locally and requires Docker. Later starts reuse the cached image.
 
 ```python
-from smolvm import SmolVM
+from celesto import Celesto
 
-with SmolVM.computer() as computer:
+with Celesto.computer() as computer:
     print(computer.display.viewer_url)
     print(computer.browser.cdp_url)
     computer.files.write("/workspace/task.txt", "Review this file")
@@ -357,9 +375,9 @@ The API groups the screen under `computer.display` and Chromium under `computer.
 From the CLI:
 
 ```bash
-smolvm computer start --name assistant
-smolvm computer open assistant
-smolvm computer delete assistant
+celesto computer start --name assistant
+celesto computer open assistant
+celesto computer delete assistant
 ```
 
 Choose a normal sandbox for command-only work, a browser sandbox for web-only automation, and a Linux computer for work across desktop applications. See the [Linux computer guide](docs/guides/computers.md) for Python and TypeScript examples.
@@ -370,9 +388,9 @@ Choose a normal sandbox for command-only work, a browser sandbox for web-only au
 Sandboxes have internet access by default. On Linux with Firecracker, turn outbound access off while keeping commands and file transfers available through a direct connection (`vsock`):
 
 ```python
-from smolvm import SmolVM
+from celesto import Celesto
 
-with SmolVM(
+with Celesto(
     backend="firecracker",
     comm_channel="vsock",
     internet_settings={"mode": "off"},
@@ -392,8 +410,8 @@ See the [networking guide](docs/guides/networking.md) for a restricted-access ex
 You can give a sandbox access to a folder on your machine. This is useful when an agent needs to work with an existing project without copying files back and forth.
 
 ```bash
-smolvm sandbox create --name my-sandbox --mount ~/Projects/my-app
-smolvm sandbox shell my-sandbox
+celesto sandbox create --name my-sandbox --mount ~/Projects/my-app
+celesto sandbox shell my-sandbox
 ls /workspace   # your host files appear here
 ```
 
@@ -402,13 +420,13 @@ By default the host folder is read-only — the sandbox can read every file, but
 Mount at a custom path, or mount multiple directories:
 
 ```bash
-smolvm sandbox create --mount ~/Projects/my-app:/code --mount ~/data:/mnt/data
+celesto sandbox create --mount ~/Projects/my-app:/code --mount ~/data:/mnt/data
 ```
 
 When you do want the sandbox to edit your host files, add `--writable-mounts`:
 
 ```bash
-smolvm sandbox create --mount ~/Projects/my-app --writable-mounts
+celesto sandbox create --mount ~/Projects/my-app --writable-mounts
 ```
 
 Every directory passed with `--mount` becomes writable; writes from the guest are visible on the host immediately. The flag applies to all mounts on that command, so don't pair a folder you want the sandbox to modify with one you want kept untouched.
@@ -416,9 +434,9 @@ Every directory passed with `--mount` becomes writable; writes from the guest ar
 The same works from Python:
 
 ```python
-from smolvm import SmolVM
+from celesto import Celesto
 
-with SmolVM(mounts=["~/Projects/my-app"], writable_mounts=True) as vm:
+with Celesto(mounts=["~/Projects/my-app"], writable_mounts=True) as vm:
     vm.run("echo hello > /workspace/from-sandbox.txt")
 ```
 
@@ -429,10 +447,10 @@ This is useful when an agent needs a config file, script, or small input file.
 
 ```bash
 # Copy a file from your machine into the sandbox.
-smolvm sandbox file upload my-sandbox ./prompt.txt /tmp/prompt.txt
+celesto sandbox file upload my-sandbox ./prompt.txt /tmp/prompt.txt
 
 # Open a shell in the sandbox to confirm the file is there.
-smolvm sandbox shell my-sandbox
+celesto sandbox shell my-sandbox
 # Then, inside the sandbox shell:
 cat /tmp/prompt.txt
 ```
@@ -441,9 +459,9 @@ For a temporary, one-shot sandbox, the same works from Python. The sandbox
 and uploaded file are deleted when the context exits:
 
 ```python
-from smolvm import SmolVM
+from celesto import Celesto
 
-with SmolVM() as vm:
+with Celesto() as vm:
     vm.upload_file("./prompt.txt", "/tmp/prompt.txt")
 ```
 
@@ -463,7 +481,7 @@ with `/`), and any existing file at that path is overwritten.
 
 ### Agent framework integrations
 
-These examples show how to wrap SmolVM as a tool for popular agent frameworks, so an AI model can run shell commands or drive a browser through your sandbox.
+These examples show how to wrap Celesto as a tool for popular agent frameworks, so an AI model can run shell commands or drive a browser through your sandbox.
 
 | Framework | Example |
 | --- | --- |
@@ -485,12 +503,12 @@ Each script shows its own `pip install ...` line when it needs extra packages.
 
 ## Security
 
-SmolVM automatically trusts new sandboxes on first connection to keep setup simple. This is safe for local development, but you should not expose sandbox network ports publicly without extra controls. See [SECURITY.md](SECURITY.md) for the full policy and scope.
+Celesto automatically trusts new sandboxes on first connection to keep setup simple. This is safe for local development, but you should not expose sandbox network ports publicly without extra controls. See [SECURITY.md](SECURITY.md) for the full policy and scope.
 
 
 ## Performance
 
-SmolVM ships a benchmark suite that measures the timings AI agents actually feel: cold start, time-to-interactive, pause/resume, and snapshot create/restore. It drives the public Python SDK on whichever backend is native to your host — Firecracker on Linux, QEMU on macOS.
+Celesto ships a benchmark suite that measures the timings AI agents actually feel: cold start, time-to-interactive, pause/resume, and snapshot create/restore. It drives the public Python SDK on whichever backend is native to your host — Firecracker on Linux, QEMU on macOS.
 
 Run it locally:
 

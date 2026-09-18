@@ -6,10 +6,10 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from smolvm.exceptions import SmolVMError
-from smolvm.runtime.base import RuntimeContext
-from smolvm.runtime.qemu import QemuRuntimeAdapter
-from smolvm.types import NetworkConfig, VMConfig, VMInfo, VMState
+from celesto.exceptions import CelestoError
+from celesto.runtime.base import RuntimeContext
+from celesto.runtime.qemu import QemuRuntimeAdapter
+from celesto.types import NetworkConfig, VMConfig, VMInfo, VMState
 
 
 def _make_context() -> RuntimeContext:
@@ -89,7 +89,7 @@ def test_stop_raises_when_qemu_survives_hard_kill(tmp_path: Path) -> None:
     adapter = QemuRuntimeAdapter(context)
     vm_info = _make_vm_info(tmp_path)
 
-    with patch("os.kill") as mock_os_kill, pytest.raises(SmolVMError, match="did not exit"):
+    with patch("os.kill") as mock_os_kill, pytest.raises(CelestoError, match="did not exit"):
         adapter.stop(vm_info, timeout=10.0)
 
     mock_os_kill.assert_called_once()
@@ -113,8 +113,8 @@ def test_qcow2_backing_inspection_force_shares_running_qemu_disk(tmp_path: Path)
     )
 
     with (
-        patch("smolvm.runtime.qemu.which", return_value=Path("/usr/bin/qemu-img")),
-        patch("smolvm.runtime.qemu.subprocess.run", return_value=result) as mock_run,
+        patch("celesto.runtime.qemu.which", return_value=Path("/usr/bin/qemu-img")),
+        patch("celesto.runtime.qemu.subprocess.run", return_value=result) as mock_run,
     ):
         backing = QemuRuntimeAdapter._qcow2_backing_file_required(disk)
 

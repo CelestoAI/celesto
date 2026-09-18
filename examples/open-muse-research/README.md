@@ -1,21 +1,21 @@
 # OpenMuse Research
 
-OpenMuse Research turns one travel goal into a sourced itinerary, budget, and research packet. The AI works inside a temporary SmolVM, copies out the finished files, and deletes the temporary computer.
+OpenMuse Research turns one travel goal into a sourced itinerary, budget, and research packet. The AI works inside a temporary Celesto, copies out the finished files, and deletes the temporary computer.
 
 This is a focused local demo, not a general personal assistant. It supports one operator, one run at a time, and the built-in three-day Bengaluru trip workflow.
 
 ## Run the demo
 
-You need Node.js 22.19 or newer, an OpenAI API key, and a working SmolVM installation.
+You need Node.js 22.19 or newer, an OpenAI API key, and a working Celesto installation.
 
-Install and check SmolVM first:
+Install and check Celesto first:
 
 ```bash
 curl -sSL https://celesto.ai/install.sh | bash
-smolvm doctor
+celesto doctor
 ```
 
-Then install the example. `--allow-remote=root` lets npm 12 fetch the SmolVM release archive named directly in this package.
+Then install the example. `--allow-remote=root` lets npm 12 fetch the Celesto release archive named directly in this package.
 
 ```bash
 cd examples/open-muse-research
@@ -40,7 +40,7 @@ Start the app:
 npm run dev
 ```
 
-If the TypeScript SDK reports that the installed SmolVM runtime is too old while developing from this repository, use the source runtime:
+If the TypeScript SDK reports that the installed Celesto runtime is too old while developing from this repository, use the source runtime:
 
 ```dotenv
 SMOLVM_RUNTIME=./scripts/source-smolvm-runtime.sh
@@ -83,7 +83,7 @@ Run the complete local check without a VM or model request:
 npm run check
 ```
 
-The tests use structural fake SmolVM and workflow implementations. They cover artifact validation, URL policy, planning output, one-run enforcement, cancellation, export, and cleanup.
+The tests use structural fake Celesto and workflow implementations. They cover artifact validation, URL policy, planning output, one-run enforcement, cancellation, export, and cleanup.
 
 ## Current limits
 

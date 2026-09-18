@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Parse guest boot timing markers from SmolVM runtime logs."""
+"""Parse guest boot timing markers from Celesto runtime logs."""
 
 from __future__ import annotations
 

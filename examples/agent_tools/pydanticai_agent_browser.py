@@ -14,14 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Drive a SmolVM browser from PydanticAI through agent-browser.
+"""Drive a Celesto browser from PydanticAI through agent-browser.
 
 Prerequisites:
     pip install smolvm pydantic-ai
     brew install agent-browser or npm install -g agent-browser
     agent-browser install
     export OPENAI_API_KEY=...
-    smolvm doctor
+    celesto doctor
 
 Example:
     python examples/agent_tools/pydanticai_agent_browser.py
@@ -60,16 +60,16 @@ FINAL_SCREENSHOT_PATH = "artifacts/pydanticai-agent-browser/final.png"
 SYSTEM_INSTRUCTIONS = (
     "You are an agent who has access to control browser using some tools and CLIs.\n"
     "You must reason and plan before act.\n"
-    "You automate one SmolVM browser sandbox from the host.\n"
+    "You automate one Celesto browser sandbox from the host.\n"
     "First read `agent-browser --help`.\n"
     "Decide on the exact commands before you run them.\n"
     "Follow this workflow exactly:\n"
-    "1. First run `smolvm browser start --live --json`.\n"
+    "1. First run `celesto browser start --live --json`.\n"
     "2. Read `cdp_port` from the `parsed_browser_session` section in the tool output.\n"
     "3. Use `agent-browser --cdp <cdp_port>` on every browser command.\n"
     "4. Use `agent-browser --cdp <cdp_port> snapshot -i --json` before choosing refs.\n"
     f"5. Save the final screenshot to `{FINAL_SCREENSHOT_PATH}`.\n"
-    "6. Stop the browser with `smolvm browser stop <session_id>` when done.\n"
+    "6. Stop the browser with `celesto browser stop <session_id>` when done.\n"
     "7. Return only these four lines: title, url, screenshot_path, session_id.\n"
     "Only use the `run_host_bash` tool, and keep each command simple.\n"
     "Your final output must contain a human readable summary."
@@ -115,7 +115,7 @@ def _require_dependency(import_path: str, install_hint: str) -> Any:
 
 
 def _parse_browser_start_output(stdout: str) -> dict[str, Any] | None:
-    """Parse `smolvm browser start --json` output into a simple dictionary."""
+    """Parse `celesto browser start --json` output into a simple dictionary."""
     try:
         payload = json.loads(stdout)
     except json.JSONDecodeError:
@@ -129,8 +129,8 @@ def _parse_browser_start_output(stdout: str) -> dict[str, Any] | None:
     cdp_url = data.get("cdp_url")
     if not isinstance(cdp_url, str) or not cdp_url:
         raise RuntimeError(
-            "SmolVM returned browser sandbox JSON without a usable cdp_url. "
-            "This example expects `smolvm browser start --json` to include it."
+            "Celesto returned browser sandbox JSON without a usable cdp_url. "
+            "This example expects `celesto browser start --json` to include it."
         )
 
     parsed = urlparse(cdp_url)
@@ -138,12 +138,12 @@ def _parse_browser_start_output(stdout: str) -> dict[str, Any] | None:
         cdp_port = parsed.port
     except ValueError as exc:
         raise RuntimeError(
-            "SmolVM returned an unexpected browser cdp_url. "
+            "Celesto returned an unexpected browser cdp_url. "
             "This example needs a localhost port for `agent-browser --cdp`."
         ) from exc
     if cdp_port is None:
         raise RuntimeError(
-            "SmolVM returned an unexpected browser cdp_url without a port. "
+            "Celesto returned an unexpected browser cdp_url without a port. "
             "This example needs that port for `agent-browser --cdp`."
         )
 
@@ -224,7 +224,7 @@ def run_host_bash(
     parsed_browser_session: dict[str, Any] | None = None
     if (
         result.returncode == 0
-        and command.strip().startswith("smolvm browser start")
+        and command.strip().startswith("celesto browser start")
         and "--json" in command
     ):
         parsed_browser_session = _parse_browser_start_output(result.stdout)
@@ -254,7 +254,7 @@ def _build_agent() -> Any:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run the minimal SmolVM plus agent-browser PydanticAI demo."
+        description="Run the minimal Celesto plus agent-browser PydanticAI demo."
     )
     parser.add_argument(
         "--input",
@@ -269,7 +269,7 @@ def _resolve_prompt(input_prompt: str | None) -> str:
 
 
 def main() -> None:
-    """Run the minimal SmolVM plus agent-browser PydanticAI demo."""
+    """Run the minimal Celesto plus agent-browser PydanticAI demo."""
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 
     args = _build_parser().parse_args()

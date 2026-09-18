@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Use SmolVM as a PydanticAI stateless tool.
+"""Use Celesto as a PydanticAI stateless tool.
 
 Install:
     pip install smolvm pydantic-ai
@@ -26,7 +26,7 @@ Optional environment:
     export PYDANTICAI_MODEL=openai:gpt-4.1
 
 Before running:
-    smolvm doctor
+    celesto doctor
 
 Example:
     python examples/agent_tools/pydanticai_tool.py
@@ -37,7 +37,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from smolvm import SmolVM
+from celesto import Celesto
 
 DEFAULT_MODEL = "openai:gpt-4.1"
 
@@ -64,13 +64,13 @@ def _format_command_result(exit_code: int, stdout: str, stderr: str) -> str:
 
 
 def run_in_smolvm(command: str, timeout: int = 30) -> str:
-    """Run a shell command inside an ephemeral SmolVM sandbox.
+    """Run a shell command inside an ephemeral Celesto sandbox.
 
     Args:
         command: Shell command to execute inside the sandbox guest.
         timeout: Maximum number of seconds to wait for the command.
     """
-    with SmolVM() as vm:
+    with Celesto() as vm:
         result = vm.run(command, timeout=timeout)
         return _format_command_result(result.exit_code, result.stdout, result.stderr)
 
@@ -80,7 +80,7 @@ def _build_agent() -> Any:
     agent = agent_cls(
         os.environ.get("PYDANTICAI_MODEL", DEFAULT_MODEL),
         instructions=(
-            "You are a coding assistant with access to a secure SmolVM sandbox. "
+            "You are a coding assistant with access to a secure Celesto sandbox. "
             "For shell or Python inspection requests, call run_in_smolvm exactly "
             "once and then summarize the result."
         ),
@@ -90,7 +90,7 @@ def _build_agent() -> Any:
 
 
 def main() -> None:
-    """Run a minimal PydanticAI example with SmolVM as a tool."""
+    """Run a minimal PydanticAI example with Celesto as a tool."""
     agent = _build_agent()
     prompt = (
         "Use run_in_smolvm to run this exact command inside the sandbox: "

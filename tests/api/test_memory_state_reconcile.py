@@ -5,8 +5,8 @@ from unittest import mock
 
 import pytest
 
-from smolvm.storage import MemoryStateManager
-from smolvm.types import VMConfig, VMState
+from celesto.storage import MemoryStateManager
+from celesto.types import VMConfig, VMState
 
 
 def _manager_with_vm(
@@ -35,7 +35,7 @@ def test_memory_reconcile_marks_non_positive_pid_stale_without_signalling(
     state = _manager_with_vm(tmp_path, pid=pid)
 
     with mock.patch(
-        "smolvm.storage._memory.os.kill",
+        "celesto.storage._memory.os.kill",
         side_effect=AssertionError("reconcile must not probe a non-positive PID"),
     ):
         assert "vm001" in state.reconcile()
@@ -50,7 +50,7 @@ def test_memory_reconcile_marks_missing_pid_stale_without_signalling(tmp_path: P
     state = _manager_with_vm(tmp_path, pid=None)
 
     with mock.patch(
-        "smolvm.storage._memory.os.kill",
+        "celesto.storage._memory.os.kill",
         side_effect=AssertionError("reconcile must not probe a missing PID"),
     ):
         assert state.reconcile() == ["vm001"]
@@ -65,7 +65,7 @@ def test_memory_reconcile_keeps_live_positive_pid(tmp_path: Path, status: VMStat
     """Control: a live process keeps its status and PID."""
     state = _manager_with_vm(tmp_path, status=status, pid=4242)
 
-    with mock.patch("smolvm.storage._memory.os.kill", return_value=None) as kill:
+    with mock.patch("celesto.storage._memory.os.kill", return_value=None) as kill:
         assert state.reconcile() == []
 
     kill.assert_called_once_with(4242, 0)
@@ -78,7 +78,7 @@ def test_memory_reconcile_marks_dead_positive_pid_stale(tmp_path: Path) -> None:
     """A positive PID whose process is gone is reconciled to ERROR."""
     state = _manager_with_vm(tmp_path, pid=4242)
 
-    with mock.patch("smolvm.storage._memory.os.kill", side_effect=ProcessLookupError):
+    with mock.patch("celesto.storage._memory.os.kill", side_effect=ProcessLookupError):
         assert state.reconcile() == ["vm001"]
 
     vm_info = state.get_vm("vm001")
@@ -90,7 +90,7 @@ def test_memory_reconcile_treats_permission_error_as_alive(tmp_path: Path) -> No
     """PermissionError means the process exists but belongs to another user."""
     state = _manager_with_vm(tmp_path, pid=4242)
 
-    with mock.patch("smolvm.storage._memory.os.kill", side_effect=PermissionError):
+    with mock.patch("celesto.storage._memory.os.kill", side_effect=PermissionError):
         assert state.reconcile() == []
 
     vm_info = state.get_vm("vm001")
@@ -103,7 +103,7 @@ def test_memory_reconcile_returns_each_stale_vm_once(tmp_path: Path) -> None:
     state = _manager_with_vm(tmp_path, pid=0)
 
     with mock.patch(
-        "smolvm.storage._memory.os.kill",
+        "celesto.storage._memory.os.kill",
         side_effect=AssertionError("reconcile must not probe a non-positive PID"),
     ):
         assert state.reconcile() == ["vm001"]

@@ -29,8 +29,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from smolvm import SmolVM
-from smolvm.qmp import QMPClient
+from celesto import Celesto
+from celesto.qmp import QMPClient
 
 _BITMAP_NAME = "celesto-phase0-benchmark"
 
@@ -53,7 +53,7 @@ def _create_target(qemu_img: str, path: Path, virtual_size: int) -> None:
     _run(qemu_img, "create", "-f", "qcow2", str(path), str(virtual_size))
 
 
-def _terminal_latency_ms(vm: SmolVM) -> float:
+def _terminal_latency_ms(vm: Celesto) -> float:
     started = time.monotonic()
     result = vm.run("true")
     elapsed = (time.monotonic() - started) * 1000
@@ -90,7 +90,7 @@ def _difference(after: dict[str, int], before: dict[str, int]) -> dict[str, int]
 
 def _capture(
     client: QMPClient,
-    vm: SmolVM,
+    vm: Celesto,
     qemu_img: str,
     path: Path,
     virtual_size: int,
@@ -163,7 +163,7 @@ def benchmark(output_dir: Path, *, intervals: int, write_mib: int) -> dict[str, 
     dirty_bytes: list[int] = []
 
     with tempfile.TemporaryDirectory(prefix="qinc-bench-") as socket_raw:
-        vm = SmolVM(
+        vm = Celesto(
             backend="qemu",
             os="ubuntu",
             data_dir=source_data,

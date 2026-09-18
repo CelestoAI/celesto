@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Measure file and directory transfer through SmolVM control channels."""
+"""Measure file and directory transfer through Celesto control channels."""
 
 from __future__ import annotations
 
@@ -112,7 +112,7 @@ def dry_run_records(args: argparse.Namespace, sizes: list[int]) -> list[dict[str
 
 
 def run_iteration(args: argparse.Namespace, iteration: int, sizes: list[int]) -> dict[str, Any]:
-    from smolvm.facade import SmolVM
+    from celesto.facade import Celesto
 
     sandbox_hint = f"{args.name_prefix}-{uuid.uuid4().hex[:8]}"
     workspace = Path(tempfile.mkdtemp(prefix=f"smolvm-transfer-{iteration}-"))
@@ -125,7 +125,7 @@ def run_iteration(args: argparse.Namespace, iteration: int, sizes: list[int]) ->
         "file_records": [],
         "directory_record": None,
     }
-    vm = SmolVM(
+    vm = Celesto(
         backend=args.backend,
         os=args.os,
         comm_channel=None if args.comm_channel == "auto" else args.comm_channel,

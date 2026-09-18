@@ -103,10 +103,10 @@ jobs:
             tag="$INPUT_TAG"
           else
             # Single source of truth — published.py::IMAGES_RELEASE_TAG.
-            tag=$(awk -F'"' '/^IMAGES_RELEASE_TAG[[:space:]]*=/{print $2; exit}' src/smolvm/images/published.py)
+            tag=$(awk -F'"' '/^IMAGES_RELEASE_TAG[[:space:]]*=/{print $2; exit}' src/celesto/images/published.py)
           fi
           if [ -z "$tag" ]; then
-            echo "ERROR: IMAGES_RELEASE_TAG could not be parsed from src/smolvm/images/published.py" >&2
+            echo "ERROR: IMAGES_RELEASE_TAG could not be parsed from src/celesto/images/published.py" >&2
             exit 1
           fi
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
@@ -159,7 +159,7 @@ jobs:
           else
             symbol="_${preset_symbol}_${ARCH^^}_ROOTFS_SHA"
           fi
-          manifest_sha=$(awk -v symbol="$symbol" '$1 == symbol {gsub(/"/, "", $3); print $3}' src/smolvm/images/published.py)
+          manifest_sha=$(awk -v symbol="$symbol" '$1 == symbol {gsub(/"/, "", $3); print $3}' src/celesto/images/published.py)
           if [ -n "$manifest_sha" ] && [ "$actual_sha" != "$manifest_sha" ]; then
             echo "Manifest checksum mismatch for $asset" >&2
             exit 1

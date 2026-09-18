@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for SmolVM images module."""
+"""Tests for Celesto images module."""
 
 import errno
 import hashlib
@@ -25,8 +25,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from smolvm.exceptions import ImageError
-from smolvm.images.manager import (
+from celesto.exceptions import ImageError
+from celesto.images.manager import (
     ImageManager,
     ImageSource,
     LocalImage,
@@ -70,7 +70,7 @@ def staging_fds(monkeypatch):
         descriptors.append(fd)
         return fd, path
 
-    monkeypatch.setattr("smolvm.images.manager.tempfile.mkstemp", tracked_mkstemp)
+    monkeypatch.setattr("celesto.images.manager.tempfile.mkstemp", tracked_mkstemp)
     return descriptors
 
 
@@ -238,7 +238,7 @@ class TestEnsureImage:
         (image_dir / "vmlinux.bin").write_bytes(kernel_content)
         (image_dir / "rootfs.ext4").write_bytes(rootfs_content)
 
-        with patch("smolvm.images.manager.requests.get") as mock_get:
+        with patch("celesto.images.manager.requests.get") as mock_get:
             result = image_manager.ensure_image("test-image")
 
             # Should NOT have downloaded anything
@@ -249,7 +249,7 @@ class TestEnsureImage:
         assert result.kernel_path.exists()
         assert result.rootfs_path.exists()
 
-    @patch("smolvm.images.manager.requests.get")
+    @patch("celesto.images.manager.requests.get")
     def test_downloads_when_not_cached(
         self,
         mock_get: MagicMock,
@@ -281,7 +281,7 @@ class TestEnsureImage:
         assert result.rootfs_path.exists()
         assert mock_get.call_count == 2
 
-    @patch("smolvm.images.manager.requests.get")
+    @patch("celesto.images.manager.requests.get")
     def test_re_downloads_on_sha_mismatch(
         self,
         mock_get: MagicMock,
@@ -320,7 +320,7 @@ class TestEnsureImage:
 class TestDownloadFile:
     """Tests for atomic download."""
 
-    @patch("smolvm.images.manager.requests.get")
+    @patch("celesto.images.manager.requests.get")
     def test_sha_mismatch_raises(
         self, mock_get: MagicMock, image_manager: ImageManager, tmp_path: Path
     ) -> None:
@@ -343,7 +343,7 @@ class TestDownloadFile:
         assert not dest.exists()
         assert not list(tmp_path.glob("*.tmp"))
 
-    @patch("smolvm.images.manager.requests.get")
+    @patch("celesto.images.manager.requests.get")
     def test_network_error_raises(
         self, mock_get: MagicMock, image_manager: ImageManager, tmp_path: Path
     ) -> None:
@@ -357,7 +357,7 @@ class TestDownloadFile:
         with pytest.raises(ImageError, match="Download failed"):
             image_manager._download_file("https://example.com/file", dest, "abc123")
 
-    @patch("smolvm.images.manager.requests.get")
+    @patch("celesto.images.manager.requests.get")
     def test_failed_download_does_not_leak_file_descriptors(
         self, mock_get: MagicMock, image_manager: ImageManager, tmp_path: Path, staging_fds
     ) -> None:
@@ -394,7 +394,7 @@ class TestDownloadFile:
         _DOWNLOAD_FAILURE_MODES,
         ids=[case[0] for case in _DOWNLOAD_FAILURE_MODES],
     )
-    @patch("smolvm.images.manager.requests.get")
+    @patch("celesto.images.manager.requests.get")
     def test_no_failure_mode_leaks_descriptors_or_temp_files(
         self,
         mock_get: MagicMock,
@@ -439,7 +439,7 @@ class TestDownloadFile:
             assert_staging_fds_closed(staging_fds)
         assert not list(tmp_path.glob("*.tmp")), f"{label} orphaned staging files"
 
-    @patch("smolvm.images.manager.requests.get")
+    @patch("celesto.images.manager.requests.get")
     def test_unparseable_content_length_is_ignored(
         self, mock_get: MagicMock, image_manager: ImageManager, tmp_path: Path
     ) -> None:
@@ -464,7 +464,7 @@ class TestDownloadFile:
         assert dest.read_bytes() == content
         assert totals == [None]
 
-    @patch("smolvm.images.manager.requests.get")
+    @patch("celesto.images.manager.requests.get")
     def test_uppercase_expected_sha256_accepted(
         self, mock_get: MagicMock, image_manager: ImageManager, tmp_path: Path
     ) -> None:
@@ -485,7 +485,7 @@ class TestDownloadFile:
 
         assert dest.read_bytes() == content
 
-    @patch("smolvm.images.manager.requests.get")
+    @patch("celesto.images.manager.requests.get")
     def test_uppercase_expected_sha256_still_detects_mismatch(
         self, mock_get: MagicMock, image_manager: ImageManager, tmp_path: Path
     ) -> None:
@@ -564,7 +564,7 @@ class TestVerifySHA256:
         assert ImageManager._verify_sha256(file_path, "   ") is False
         assert ImageManager._verify_sha512(file_path, "") is False
 
-    @patch("smolvm.images.manager.requests.get")
+    @patch("celesto.images.manager.requests.get")
     def test_download_skips_sha_when_none(self, mock_get: MagicMock, tmp_path: Path) -> None:
         """Test that _download_file succeeds without SHA check when None."""
         mock_resp = MagicMock()
@@ -597,7 +597,7 @@ class TestVerifySHA256:
         (image_dir / "vmlinux.bin").write_bytes(b"kernel")
         (image_dir / "rootfs.ext4").write_bytes(b"rootfs")
 
-        with patch("smolvm.images.manager.requests.get") as mock_get:
+        with patch("celesto.images.manager.requests.get") as mock_get:
             result = mgr.ensure_image("no-sha")
             mock_get.assert_not_called()
 
@@ -707,7 +707,7 @@ class TestEnsureRootfsOnly:
         assert result.exists()
         assert result.read_bytes() == content
 
-    @patch("smolvm.images.manager.requests.get")
+    @patch("celesto.images.manager.requests.get")
     def test_blank_sha512_is_rejected_not_skipped(
         self, mock_get: MagicMock, tmp_path: Path
     ) -> None:
@@ -753,7 +753,7 @@ class TestImageManagerInit:
     def test_default_registry_is_empty_after_kernel_migration(self) -> None:
         """Default BUILTIN_IMAGES is intentionally empty post-0.0.14a0.
 
-        SmolVM ships its kernel via ``smolvm.images.published.BASE_KERNELS``
+        Celesto ships its kernel via ``celesto.images.published.BASE_KERNELS``
         and rootfs via ``MANIFEST`` there. The legacy demo entries
         (``hello``, ``quickstart-x86_64``) pointed at retired Firecracker S3
         URLs and have been removed.
@@ -924,7 +924,7 @@ class TestEnsureS3Image:
         )
 
         mgr = ImageManager(cache_dir=tmp_path / "images")
-        with patch("smolvm.images.manager._require_boto3", return_value=mock_s3):
+        with patch("celesto.images.manager._require_boto3", return_value=mock_s3):
             local, parsed_manifest = mgr.ensure_s3_image("s3://bucket/images/test/")
 
         assert local.name == "test-image"
@@ -954,7 +954,7 @@ class TestEnsureS3Image:
         )
 
         mgr = ImageManager(cache_dir=tmp_path / "images")
-        with patch("smolvm.images.manager._require_boto3", return_value=mock_s3):
+        with patch("celesto.images.manager._require_boto3", return_value=mock_s3):
             local, _ = mgr.ensure_s3_image("s3://bucket/images/test/")
 
         assert local.kernel_path.read_bytes() == kernel_content
@@ -973,7 +973,7 @@ class TestEnsureS3Image:
 
         mgr = ImageManager(cache_dir=tmp_path / "images")
         with (
-            patch("smolvm.images.manager._require_boto3", return_value=mock_s3),
+            patch("celesto.images.manager._require_boto3", return_value=mock_s3),
             pytest.raises(ImageError, match="SHA-256 mismatch"),
         ):
             mgr.ensure_s3_image("s3://bucket/images/test/")
@@ -996,7 +996,7 @@ class TestEnsureS3Image:
 
         mgr = ImageManager(cache_dir=tmp_path / "images")
 
-        with patch("smolvm.images.manager._require_boto3", return_value=mock_s3):
+        with patch("celesto.images.manager._require_boto3", return_value=mock_s3):
             # First call downloads
             mgr.ensure_s3_image("s3://bucket/images/test/")
             # Reset mock call count
@@ -1027,13 +1027,13 @@ class TestEnsureS3Image:
         mgr = ImageManager(cache_dir=tmp_path / "images")
 
         # First download to populate cache
-        with patch("smolvm.images.manager._require_boto3", return_value=mock_s3):
+        with patch("celesto.images.manager._require_boto3", return_value=mock_s3):
             local, _ = mgr.ensure_s3_image("s3://bucket/images/test/")
 
         # Corrupt the cached kernel
         local.kernel_path.write_bytes(b"corrupted")
 
-        with patch("smolvm.images.manager._require_boto3", return_value=mock_s3):
+        with patch("celesto.images.manager._require_boto3", return_value=mock_s3):
             mock_s3.get_object.reset_mock()
             local2, _ = mgr.ensure_s3_image("s3://bucket/images/test/")
 
@@ -1054,7 +1054,7 @@ class TestEnsureS3Image:
         )
 
         mgr = ImageManager(cache_dir=tmp_path / "images")
-        with patch("smolvm.images.manager._require_boto3", return_value=mock_s3):
+        with patch("celesto.images.manager._require_boto3", return_value=mock_s3):
             local, _ = mgr.ensure_s3_image("s3://bucket/images/nosha/")
 
         assert local.kernel_path.exists()
@@ -1067,7 +1067,7 @@ class TestEnsureS3Image:
 
         mgr = ImageManager(cache_dir=tmp_path / "images")
         with (
-            patch("smolvm.images.manager._require_boto3", return_value=mock_s3),
+            patch("celesto.images.manager._require_boto3", return_value=mock_s3),
             pytest.raises(ImageError, match="Failed to download image manifest"),
         ):
             mgr.ensure_s3_image("s3://bucket/images/private/")
@@ -1081,7 +1081,7 @@ class TestEnsureS3Image:
 
         mgr = ImageManager(cache_dir=tmp_path / "images")
         with (
-            patch("smolvm.images.manager._require_boto3", return_value=mock_s3),
+            patch("celesto.images.manager._require_boto3", return_value=mock_s3),
             pytest.raises(ImageError, match="Invalid smolvm-image.json"),
         ):
             mgr.ensure_s3_image("s3://bucket/images/bad/")
@@ -1091,7 +1091,7 @@ class TestEnsureS3Image:
         mgr = ImageManager(cache_dir=tmp_path / "images")
         with (
             patch(
-                "smolvm.images.manager._require_boto3",
+                "celesto.images.manager._require_boto3",
                 side_effect=ImageError("S3 image support requires boto3"),
             ),
             pytest.raises(ImageError, match="requires boto3"),
@@ -1122,7 +1122,7 @@ class TestEnsureS3Image:
         )
 
         mgr = ImageManager(cache_dir=tmp_path / "images")
-        with patch("smolvm.images.manager._require_boto3", return_value=mock_s3):
+        with patch("celesto.images.manager._require_boto3", return_value=mock_s3):
             local, manifest = mgr.ensure_s3_image("s3://bucket/images/ubuntu/")
 
         assert local.initrd_path is not None
@@ -1149,14 +1149,14 @@ class TestEnsureS3Image:
         mgr = ImageManager(cache_dir=tmp_path / "images")
 
         # First call — populate cache
-        with patch("smolvm.images.manager._require_boto3", return_value=mock_s3):
+        with patch("celesto.images.manager._require_boto3", return_value=mock_s3):
             mgr.ensure_s3_image("s3://bucket/images/test/")
 
         # Second call — S3 is down, should use cached manifest + assets
         offline_s3 = MagicMock()
         offline_s3.get_object.side_effect = Exception("Network unreachable")
 
-        with patch("smolvm.images.manager._require_boto3", return_value=offline_s3):
+        with patch("celesto.images.manager._require_boto3", return_value=offline_s3):
             local, _ = mgr.ensure_s3_image("s3://bucket/images/test/")
 
         assert local.kernel_path.exists()
@@ -1183,7 +1183,7 @@ class TestS3CredentialResolution:
             "SMOLVM_S3_SECRET_ACCESS_KEY": self._TEST_SECRET_KEY,
         }
         with patch.dict("os.environ", env), patch.dict(sys.modules, {"boto3": mock_boto3}):
-            from smolvm.images.manager import _require_boto3
+            from celesto.images.manager import _require_boto3
 
             _require_boto3()
 
@@ -1212,7 +1212,7 @@ class TestS3CredentialResolution:
             os.environ.pop("SMOLVM_S3_ACCESS_KEY_ID", None)
             os.environ.pop("SMOLVM_S3_SECRET_ACCESS_KEY", None)
 
-            from smolvm.images.manager import _require_boto3
+            from celesto.images.manager import _require_boto3
 
             _require_boto3()
 
@@ -1239,7 +1239,7 @@ class TestS3CredentialResolution:
             os.environ.pop("SMOLVM_S3_ACCESS_KEY_ID", None)
             os.environ.pop("SMOLVM_S3_SECRET_ACCESS_KEY", None)
 
-            from smolvm.images.manager import _require_boto3
+            from celesto.images.manager import _require_boto3
 
             _require_boto3()
 
@@ -1263,7 +1263,7 @@ class TestS3CredentialResolution:
             os.environ.pop("SMOLVM_S3_SECRET_ACCESS_KEY", None)
             os.environ.pop("SMOLVM_S3_ENDPOINT_URL", None)
 
-            from smolvm.images.manager import _require_boto3
+            from celesto.images.manager import _require_boto3
 
             _require_boto3()
 
@@ -1312,7 +1312,7 @@ def _s3_client(content: bytes) -> MagicMock:
 def _accepts_via_http_download(tmp_path: Path, digest: str) -> bool:
     """Whether the HTTP download path accepts *digest*."""
     mgr = ImageManager(cache_dir=tmp_path)
-    with patch("smolvm.images.manager.requests.get", return_value=_http_response(_DIGEST_CONTENT)):
+    with patch("celesto.images.manager.requests.get", return_value=_http_response(_DIGEST_CONTENT)):
         try:
             mgr._download_file("https://example.com/f", tmp_path / "http.bin", digest)
         except ImageError:
@@ -1349,7 +1349,7 @@ def _accepts_via_cache_check_sha512(tmp_path: Path, digest: str) -> bool:
 def _accepts_via_ensure_rootfs_sha256(tmp_path: Path, digest: str) -> bool:
     """Whether ``ensure_rootfs_only``'s sha256 pin accepts *digest*."""
     mgr = ImageManager(cache_dir=tmp_path / "cache")
-    with patch("smolvm.images.manager.requests.get", return_value=_http_response(_DIGEST_CONTENT)):
+    with patch("celesto.images.manager.requests.get", return_value=_http_response(_DIGEST_CONTENT)):
         try:
             mgr.ensure_rootfs_only("rootfs-256", url="https://example.com/r", sha256=digest)
         except ImageError:
@@ -1360,7 +1360,7 @@ def _accepts_via_ensure_rootfs_sha256(tmp_path: Path, digest: str) -> bool:
 def _accepts_via_ensure_rootfs_sha512(tmp_path: Path, digest: str) -> bool:
     """Whether ``ensure_rootfs_only``'s sha512 pin accepts *digest*."""
     mgr = ImageManager(cache_dir=tmp_path / "cache")
-    with patch("smolvm.images.manager.requests.get", return_value=_http_response(_DIGEST_CONTENT)):
+    with patch("celesto.images.manager.requests.get", return_value=_http_response(_DIGEST_CONTENT)):
         try:
             mgr.ensure_rootfs_only("rootfs-512", url="https://example.com/r", sha512=digest)
         except ImageError:
@@ -1378,7 +1378,7 @@ def _accepts_via_ensure_image(tmp_path: Path, digest: str) -> bool:
         rootfs_sha256=digest,
     )
     mgr = ImageManager(cache_dir=tmp_path / "cache", registry={"img": source})
-    with patch("smolvm.images.manager.requests.get", return_value=_http_response(_DIGEST_CONTENT)):
+    with patch("celesto.images.manager.requests.get", return_value=_http_response(_DIGEST_CONTENT)):
         try:
             mgr.ensure_image("img")
         except ImageError:
@@ -1485,7 +1485,7 @@ class TestDigestNormalizationIsStructural:
         import ast
         import inspect
 
-        from smolvm.images import manager
+        from celesto.images import manager
 
         tree = ast.parse(inspect.getsource(manager))
         # By convention in this module the freshly computed digest is bound to

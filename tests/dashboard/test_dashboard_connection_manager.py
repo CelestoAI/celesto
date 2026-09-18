@@ -21,7 +21,7 @@ import pytest
 
 pytest.importorskip("fastapi")
 
-from smolvm.dashboard.connection_manager import ConnectionManager
+from celesto.dashboard.connection_manager import ConnectionManager
 
 
 class FakeWebSocket:

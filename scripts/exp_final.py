@@ -15,16 +15,16 @@ import platform
 import statistics as st
 import time
 
-from smolvm import SmolVM
-from smolvm.facade import _build_auto_config
-from smolvm.images.builder import ImageBuilder
-from smolvm.images.published import BASE_KERNELS, _kernel_format_for_vmm
-from smolvm.runtime.boot_profiles import (
+from celesto import Celesto
+from celesto.facade import _build_auto_config
+from celesto.images.builder import ImageBuilder
+from celesto.images.published import BASE_KERNELS, _kernel_format_for_vmm
+from celesto.runtime.boot_profiles import (
     KernelBootProfile,
     get_boot_profile_spec,
     to_published_arch,
 )
-from smolvm.types import VMConfig
+from celesto.types import VMConfig
 
 ARCH = platform.machine()
 PROF = KernelBootProfile.MICROVM_DIRECT
@@ -140,7 +140,7 @@ def main():
             cfg, key = _build_auto_config(
                 vm_name=f"fin-{backend}-{_seq}", os="alpine", backend=backend
             )
-            return SmolVM(config=cfg, ssh_key_path=key)
+            return Celesto(config=cfg, ssh_key_path=key)
 
         return f
 
@@ -156,7 +156,7 @@ def main():
             boot_args=ba_trim,
             backend="qemu",
         )
-        return SmolVM(config=cfg, comm_channel="vsock")
+        return Celesto(config=cfg, comm_channel="vsock")
 
     res = []
     res.append(bench("BEFORE: Firecracker + SSH (Linux default)", mk_default("firecracker")))

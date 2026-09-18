@@ -20,9 +20,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic import ValidationError
 
-from smolvm.facade import SmolVM
-from smolvm.types import CommandResult, VMConfig, VMState, WorkspaceMount
-from smolvm.vm import SmolVMManager
+from celesto.facade import Celesto
+from celesto.types import CommandResult, VMConfig, VMState, WorkspaceMount
+from celesto.vm import CelestoManager
 
 # ── WorkspaceMount validation ───────────────────────────────────────
 
@@ -79,7 +79,7 @@ class TestWorkspaceMountValidation:
     def test_missing_host_path_loads_under_validate_paths_false(self, tmp_path: Path) -> None:
         """Persisted configs reload even when the host path was deleted.
 
-        Read-only commands like ``smolvm sandbox list`` pass
+        Read-only commands like ``celesto sandbox list`` pass
         ``context={"validate_paths": False}`` so a stale mount path on disk
         does not crash the whole command. The validator must respect that.
         """
@@ -164,7 +164,7 @@ class TestVMConfigWorkspaceMounts:
     def test_persisted_config_reloads_with_missing_mount_host(self, tmp_path: Path) -> None:
         """Storage reads must succeed when a workspace host folder is gone.
 
-        Reproduces the ``smolvm sandbox list`` crash where a deleted Conductor
+        Reproduces the ``celesto sandbox list`` crash where a deleted Conductor
         worktree caused the whole command to fail. The fix is that
         ``WorkspaceMount`` honors the ``validate_paths=False`` context the
         storage layer already passes via ``vm_config_from_json``.
@@ -187,9 +187,9 @@ class TestVMConfigWorkspaceMounts:
 # ── QEMU command builder ────────────────────────────────────────────
 
 
-@patch("smolvm.vm.subprocess.Popen")
+@patch("celesto.vm.subprocess.Popen")
 @patch.object(
-    SmolVMManager,
+    CelestoManager,
     "_find_qemu_binary",
     return_value=Path("/opt/homebrew/bin/qemu-system-aarch64"),
 )
@@ -216,12 +216,12 @@ def test_start_qemu_includes_9p_workspace_args(
         workspace_mounts=[WorkspaceMount(host_path=ws_dir)],
     )
 
-    sdk = SmolVMManager(
+    sdk = CelestoManager(
         data_dir=tmp_path / "data",
         socket_dir=tmp_path / "sockets",
         backend="qemu",
     )
-    with patch.object(SmolVMManager, "_create_qemu_overlay_disk") as mock_convert:
+    with patch.object(CelestoManager, "_create_qemu_overlay_disk") as mock_convert:
         mock_convert.side_effect = lambda source, target, **_kwargs: target.touch()
         vm_info = sdk.create(config)
 
@@ -229,7 +229,7 @@ def test_start_qemu_includes_9p_workspace_args(
     proc.pid = 12345
     mock_popen.return_value = proc
 
-    with patch("smolvm.vm.platform.system", return_value="Darwin"):
+    with patch("celesto.vm.platform.system", return_value="Darwin"):
         sdk._start_qemu(vm_info, tmp_path / "vm-ws-test.log")
 
     cmd = mock_popen.call_args.args[0]
@@ -246,9 +246,9 @@ def test_start_qemu_includes_9p_workspace_args(
     assert "virtio-9p-device,fsdev=fsdev-workspace0,mount_tag=workspace0" in cmd
 
 
-@patch("smolvm.vm.subprocess.Popen")
+@patch("celesto.vm.subprocess.Popen")
 @patch.object(
-    SmolVMManager,
+    CelestoManager,
     "_find_qemu_binary",
     return_value=Path("/opt/homebrew/bin/qemu-system-aarch64"),
 )
@@ -275,12 +275,12 @@ def test_start_qemu_writable_mount_omits_readonly(
         workspace_mounts=[WorkspaceMount(host_path=ws_dir, writable=True)],
     )
 
-    sdk = SmolVMManager(
+    sdk = CelestoManager(
         data_dir=tmp_path / "data",
         socket_dir=tmp_path / "sockets",
         backend="qemu",
     )
-    with patch.object(SmolVMManager, "_create_qemu_overlay_disk") as mock_convert:
+    with patch.object(CelestoManager, "_create_qemu_overlay_disk") as mock_convert:
         mock_convert.side_effect = lambda source, target, **_kwargs: target.touch()
         vm_info = sdk.create(config)
 
@@ -288,7 +288,7 @@ def test_start_qemu_writable_mount_omits_readonly(
     proc.pid = 12345
     mock_popen.return_value = proc
 
-    with patch("smolvm.vm.platform.system", return_value="Darwin"):
+    with patch("celesto.vm.platform.system", return_value="Darwin"):
         sdk._start_qemu(vm_info, tmp_path / "vm-ws-rw.log")
 
     cmd = mock_popen.call_args.args[0]
@@ -298,9 +298,9 @@ def test_start_qemu_writable_mount_omits_readonly(
     assert "readonly" not in fsdev_arg
 
 
-@patch("smolvm.vm.subprocess.Popen")
+@patch("celesto.vm.subprocess.Popen")
 @patch.object(
-    SmolVMManager,
+    CelestoManager,
     "_find_qemu_binary",
     return_value=Path("/opt/homebrew/bin/qemu-system-aarch64"),
 )
@@ -311,7 +311,7 @@ def test_start_friendly_error_when_workspace_host_path_missing(
 ) -> None:
     """`start` should refuse with a plain-English error when a mount's host
     folder has been deleted since the VM was created — no Pydantic stack."""
-    from smolvm.exceptions import SmolVMError
+    from celesto.exceptions import CelestoError
 
     kernel = tmp_path / "vmlinux"
     rootfs = tmp_path / "rootfs.ext4"
@@ -330,30 +330,30 @@ def test_start_friendly_error_when_workspace_host_path_missing(
         workspace_mounts=[WorkspaceMount(host_path=ws_dir)],
     )
 
-    sdk = SmolVMManager(
+    sdk = CelestoManager(
         data_dir=tmp_path / "data",
         socket_dir=tmp_path / "sockets",
         backend="qemu",
     )
-    with patch.object(SmolVMManager, "_create_qemu_overlay_disk") as mock_convert:
+    with patch.object(CelestoManager, "_create_qemu_overlay_disk") as mock_convert:
         mock_convert.side_effect = lambda source, target, **_kwargs: target.touch()
         sdk.create(config)
 
     ws_dir.rmdir()  # simulate Conductor worktree cleanup
 
-    with pytest.raises(SmolVMError, match="shared folder is missing") as exc_info:
+    with pytest.raises(CelestoError, match="shared folder is missing") as exc_info:
         sdk.start("vm-stale-mount")
     # The error names the sandbox and the recovery command, so a first-time
     # user can act on it without reading the source.
     message = str(exc_info.value)
     assert "vm-stale-mount" in message
-    assert "smolvm sandbox delete vm-stale-mount" in message
+    assert "celesto sandbox delete vm-stale-mount" in message
     mock_popen.assert_not_called()
 
 
-@patch("smolvm.vm.subprocess.Popen")
+@patch("celesto.vm.subprocess.Popen")
 @patch.object(
-    SmolVMManager,
+    CelestoManager,
     "_find_qemu_binary",
     return_value=Path("/opt/homebrew/bin/qemu-system-aarch64"),
 )
@@ -366,7 +366,7 @@ def test_start_friendly_error_when_workspace_host_path_is_a_file(
     instead of a directory — covers the gap where the path technically
     exists but the original Pydantic ``is_dir()`` check would have
     rejected it. Without this we'd fall through to a backend error."""
-    from smolvm.exceptions import SmolVMError
+    from celesto.exceptions import CelestoError
 
     kernel = tmp_path / "vmlinux"
     rootfs = tmp_path / "rootfs.ext4"
@@ -385,12 +385,12 @@ def test_start_friendly_error_when_workspace_host_path_is_a_file(
         workspace_mounts=[WorkspaceMount(host_path=ws_dir)],
     )
 
-    sdk = SmolVMManager(
+    sdk = CelestoManager(
         data_dir=tmp_path / "data",
         socket_dir=tmp_path / "sockets",
         backend="qemu",
     )
-    with patch.object(SmolVMManager, "_create_qemu_overlay_disk") as mock_convert:
+    with patch.object(CelestoManager, "_create_qemu_overlay_disk") as mock_convert:
         mock_convert.side_effect = lambda source, target, **_kwargs: target.touch()
         sdk.create(config)
 
@@ -398,14 +398,14 @@ def test_start_friendly_error_when_workspace_host_path_is_a_file(
     ws_dir.rmdir()
     ws_dir.touch()
 
-    with pytest.raises(SmolVMError, match="shared folder is missing"):
+    with pytest.raises(CelestoError, match="shared folder is missing"):
         sdk.start("vm-mount-is-file")
     mock_popen.assert_not_called()
 
 
-@patch("smolvm.vm.subprocess.Popen")
+@patch("celesto.vm.subprocess.Popen")
 @patch.object(
-    SmolVMManager,
+    CelestoManager,
     "_find_qemu_binary",
     return_value=Path("/opt/homebrew/bin/qemu-system-aarch64"),
 )
@@ -420,7 +420,7 @@ def test_async_start_runs_the_same_workspace_preflight(
     """
     import asyncio
 
-    from smolvm.exceptions import SmolVMError
+    from celesto.exceptions import CelestoError
 
     kernel = tmp_path / "vmlinux"
     rootfs = tmp_path / "rootfs.ext4"
@@ -439,18 +439,18 @@ def test_async_start_runs_the_same_workspace_preflight(
         workspace_mounts=[WorkspaceMount(host_path=ws_dir)],
     )
 
-    sdk = SmolVMManager(
+    sdk = CelestoManager(
         data_dir=tmp_path / "data",
         socket_dir=tmp_path / "sockets",
         backend="qemu",
     )
-    with patch.object(SmolVMManager, "_create_qemu_overlay_disk") as mock_convert:
+    with patch.object(CelestoManager, "_create_qemu_overlay_disk") as mock_convert:
         mock_convert.side_effect = lambda source, target, **_kwargs: target.touch()
         sdk.create(config)
 
     ws_dir.rmdir()
 
-    with pytest.raises(SmolVMError, match="shared folder is missing"):
+    with pytest.raises(CelestoError, match="shared folder is missing"):
         asyncio.run(sdk.async_start("vm-async-stale"))
     mock_popen.assert_not_called()
 
@@ -464,7 +464,7 @@ def test_workspace_rejected_on_non_qemu_backend(
     backend: str,
 ) -> None:
     """Workspace mounts should be rejected for non-QEMU backends."""
-    from smolvm.exceptions import SmolVMError
+    from celesto.exceptions import CelestoError
 
     kernel = tmp_path / "vmlinux"
     rootfs = tmp_path / "rootfs.ext4"
@@ -482,27 +482,27 @@ def test_workspace_rejected_on_non_qemu_backend(
         workspace_mounts=[WorkspaceMount(host_path=ws_dir)],
     )
 
-    sdk = SmolVMManager(
+    sdk = CelestoManager(
         data_dir=tmp_path / "data",
         socket_dir=tmp_path / "sockets",
         backend=backend,
     )
 
-    with pytest.raises(SmolVMError, match="only supported with the QEMU"):
+    with pytest.raises(CelestoError, match="only supported with the QEMU"):
         sdk.create(config)
 
 
 # ── Mount auto-selects QEMU backend ─────────────────────────────────
 
 
-@patch("smolvm.facade.SmolVMManager")
-@patch("smolvm.facade._build_auto_config")
+@patch("celesto.facade.CelestoManager")
+@patch("celesto.facade._build_auto_config")
 def test_mounts_without_backend_auto_selects_qemu(
     mock_build_auto_config: MagicMock,
     mock_sdk_cls: MagicMock,
     tmp_path: Path,
 ) -> None:
-    """`SmolVM(mounts=...)` without an explicit backend should pick QEMU so
+    """`Celesto(mounts=...)` without an explicit backend should pick QEMU so
     `--mount` works out of the box instead of erroring out on a non-QEMU
     default (Firecracker on Linux)."""
     kernel = tmp_path / "vmlinux"
@@ -526,20 +526,20 @@ def test_mounts_without_backend_auto_selects_qemu(
     mock_sdk.create.return_value = MagicMock(vm_id="vm-auto", status=VMState.CREATED)
     mock_sdk_cls.return_value = mock_sdk
 
-    SmolVM(mounts=[str(ws_dir)])
+    Celesto(mounts=[str(ws_dir)])
 
     assert mock_build_auto_config.call_args.kwargs["backend"] == "qemu"
-    # SmolVMManager must be initialized with the upgraded backend, not the
+    # CelestoManager must be initialized with the upgraded backend, not the
     # platform default.
     assert mock_sdk_cls.call_args.kwargs["backend"] == "qemu"
 
 
-@patch("smolvm.facade.SmolVMManager")
+@patch("celesto.facade.CelestoManager")
 def test_config_with_workspace_mounts_auto_selects_qemu(
     mock_sdk_cls: MagicMock,
     tmp_path: Path,
 ) -> None:
-    """`SmolVM(config=cfg)` with populated `cfg.workspace_mounts` and no
+    """`Celesto(config=cfg)` with populated `cfg.workspace_mounts` and no
     backend pinned on either the config or the kwarg should upgrade the
     manager backend to QEMU."""
     kernel = tmp_path / "vmlinux"
@@ -560,7 +560,7 @@ def test_config_with_workspace_mounts_auto_selects_qemu(
     mock_sdk.create.return_value = MagicMock(vm_id="vm-cfg-ws", status=VMState.CREATED)
     mock_sdk_cls.return_value = mock_sdk
 
-    SmolVM(config)
+    Celesto(config)
 
     assert mock_sdk_cls.call_args.kwargs["backend"] == "qemu"
 
@@ -570,7 +570,7 @@ def test_config_with_workspace_mounts_auto_selects_qemu(
 
 def test_snapshot_rejected_with_workspace_mounts(tmp_path: Path) -> None:
     """Snapshotting should be blocked for VMs with workspace mounts."""
-    from smolvm.exceptions import SmolVMError
+    from celesto.exceptions import CelestoError
 
     kernel = tmp_path / "vmlinux"
     rootfs = tmp_path / "rootfs.ext4"
@@ -588,16 +588,16 @@ def test_snapshot_rejected_with_workspace_mounts(tmp_path: Path) -> None:
         workspace_mounts=[WorkspaceMount(host_path=ws_dir)],
     )
 
-    sdk = SmolVMManager(
+    sdk = CelestoManager(
         data_dir=tmp_path / "data",
         socket_dir=tmp_path / "sockets",
         backend="qemu",
     )
-    with patch.object(SmolVMManager, "_create_qemu_overlay_disk") as mock_convert:
+    with patch.object(CelestoManager, "_create_qemu_overlay_disk") as mock_convert:
         mock_convert.side_effect = lambda source, target, **_kwargs: target.touch()
         vm_info = sdk.create(config)
 
-    with pytest.raises(SmolVMError, match="workspace mounts"):
+    with pytest.raises(CelestoError, match="workspace mounts"):
         sdk._ensure_snapshot_supported(vm_info)
 
 
@@ -608,9 +608,9 @@ class TestCliMountFlag:
     """Tests for the --mount CLI flag on create."""
 
     def _create_args(self, argv: list[str]) -> object:
-        from smolvm.cli.main import main
+        from celesto.cli.main import main
 
-        with patch("smolvm.cli.main._run_create", return_value=0) as mock_run_create:
+        with patch("celesto.cli.main._run_create", return_value=0) as mock_run_create:
             ret = main(["sandbox", "create", *argv])
 
         assert ret == 0
@@ -653,20 +653,20 @@ class TestCliMountFlag:
         )
         assert args.writable_mounts is True
 
-    @patch("smolvm.facade.SmolVM")
-    @patch("smolvm.facade._build_auto_config")
+    @patch("celesto.facade.Celesto")
+    @patch("celesto.facade._build_auto_config")
     def test_create_with_mount_and_no_backend_selects_qemu(
         self,
         mock_build_auto_config: MagicMock,
         mock_smolvm_cls: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """`smolvm sandbox create --mount /path` (no --backend) must auto-select QEMU
+        """`celesto sandbox create --mount /path` (no --backend) must auto-select QEMU
         at the CLI layer. Without this, _build_auto_config gets backend=None,
         resolves to the platform default (firecracker on Linux), and the
         downstream guard rejects the mount + firecracker combo with a
         confusing 'Re-run without --backend' message — the user already did."""
-        from smolvm.cli.main import main
+        from celesto.cli.main import main
 
         kernel = tmp_path / "vmlinux"
         rootfs = tmp_path / "rootfs.ext4"
@@ -690,8 +690,8 @@ class TestCliMountFlag:
         assert ret == 0
         assert mock_build_auto_config.call_args.kwargs["backend"] == "qemu"
 
-    @patch("smolvm.facade.SmolVM")
-    @patch("smolvm.facade._build_auto_config")
+    @patch("celesto.facade.Celesto")
+    @patch("celesto.facade._build_auto_config")
     def test_create_with_mount_and_explicit_firecracker_left_alone(
         self,
         mock_build_auto_config: MagicMock,
@@ -701,7 +701,7 @@ class TestCliMountFlag:
         """Explicit `--backend firecracker --mount /path` must NOT be silently
         upgraded; the downstream guard should still fire so the user sees the
         incompatibility they explicitly requested."""
-        from smolvm.cli.main import main
+        from celesto.cli.main import main
 
         kernel = tmp_path / "vmlinux"
         rootfs = tmp_path / "rootfs.ext4"
@@ -743,7 +743,7 @@ class TestParseMountSpecs:
     """Tests for _parse_mount_specs helper."""
 
     def test_single_host_only_defaults_to_workspace(self, tmp_path: Path) -> None:
-        from smolvm.facade import _parse_mount_specs
+        from celesto.facade import _parse_mount_specs
 
         mounts = _parse_mount_specs([str(tmp_path)])
         assert len(mounts) == 1
@@ -751,14 +751,14 @@ class TestParseMountSpecs:
         assert mounts[0].guest_path == "/workspace"
 
     def test_host_with_guest_path(self, tmp_path: Path) -> None:
-        from smolvm.facade import _parse_mount_specs
+        from celesto.facade import _parse_mount_specs
 
         mounts = _parse_mount_specs([f"{tmp_path}:/code"])
         assert len(mounts) == 1
         assert mounts[0].guest_path == "/code"
 
     def test_multiple_mounts_get_indexed_defaults(self, tmp_path: Path) -> None:
-        from smolvm.facade import _parse_mount_specs
+        from celesto.facade import _parse_mount_specs
 
         d1 = tmp_path / "a"
         d2 = tmp_path / "b"
@@ -769,7 +769,7 @@ class TestParseMountSpecs:
         assert mounts[1].guest_path == "/workspace-1"
 
     def test_mixed_explicit_and_default(self, tmp_path: Path) -> None:
-        from smolvm.facade import _parse_mount_specs
+        from celesto.facade import _parse_mount_specs
 
         d1 = tmp_path / "a"
         d2 = tmp_path / "b"
@@ -780,7 +780,7 @@ class TestParseMountSpecs:
         assert mounts[1].guest_path == "/data"
 
     def test_writable_flag_propagates_to_all_mounts(self, tmp_path: Path) -> None:
-        from smolvm.facade import _parse_mount_specs
+        from celesto.facade import _parse_mount_specs
 
         d1 = tmp_path / "a"
         d2 = tmp_path / "b"
@@ -790,7 +790,7 @@ class TestParseMountSpecs:
         assert all(m.writable for m in mounts)
 
     def test_writable_defaults_to_false(self, tmp_path: Path) -> None:
-        from smolvm.facade import _parse_mount_specs
+        from celesto.facade import _parse_mount_specs
 
         mounts = _parse_mount_specs([str(tmp_path)])
         assert mounts[0].writable is False
@@ -806,8 +806,8 @@ class TestFacadeWorkspaceGuards:
         """Workspace mounts should fail fast if ssh_user is not root."""
         from unittest.mock import MagicMock
 
-        from smolvm.exceptions import SmolVMError
-        from smolvm.facade import SmolVM
+        from celesto.exceptions import CelestoError
+        from celesto.facade import Celesto
 
         kernel = tmp_path / "vmlinux"
         rootfs = tmp_path / "rootfs.ext4"
@@ -826,7 +826,7 @@ class TestFacadeWorkspaceGuards:
             workspace_mounts=[WorkspaceMount(host_path=ws_dir)],
         )
 
-        with patch("smolvm.facade.SmolVMManager") as mock_sdk_cls:
+        with patch("celesto.facade.CelestoManager") as mock_sdk_cls:
             mock_sdk = MagicMock()
             mock_info = MagicMock(vm_id="vm-nonroot")
             mock_info.status = MagicMock()
@@ -841,12 +841,12 @@ class TestFacadeWorkspaceGuards:
             mock_sdk.start.return_value = running_info
             mock_sdk_cls.return_value = mock_sdk
 
-            vm = SmolVM(config, ssh_user="agent")
+            vm = Celesto(config, ssh_user="agent")
             with (
-                pytest.raises(SmolVMError, match="require ssh_user='root'"),
+                pytest.raises(CelestoError, match="require ssh_user='root'"),
                 patch.object(vm, "can_run_commands", return_value=True),
                 patch.object(vm, "wait_for_ssh"),
-                patch("smolvm.facade.SSHClient"),
+                patch("celesto.facade.SSHClient"),
             ):
                 vm.start()
 
@@ -869,7 +869,7 @@ class TestFacadeWorkspaceGuards:
             workspace_mounts=[WorkspaceMount(host_path=ws_dir)],
         )
 
-        vm = object.__new__(SmolVM)
+        vm = object.__new__(Celesto)
         vm._vm_id = "vm-repair"
         vm._ssh_user = "root"
         vm._info = MagicMock(config=config)
@@ -900,7 +900,7 @@ class TestFacadeWorkspaceGuards:
         tmp_path: Path,
     ) -> None:
         """Non-Ubuntu or unrepairable guests should fail before the mount loop."""
-        from smolvm.exceptions import SmolVMError
+        from celesto.exceptions import CelestoError
 
         ws_dir = tmp_path / "project"
         ws_dir.mkdir()
@@ -916,7 +916,7 @@ class TestFacadeWorkspaceGuards:
             workspace_mounts=[WorkspaceMount(host_path=ws_dir)],
         )
 
-        vm = object.__new__(SmolVM)
+        vm = object.__new__(Celesto)
         vm._vm_id = "vm-unrepairable"
         vm._ssh_user = "root"
         vm._info = MagicMock(config=config)
@@ -928,7 +928,7 @@ class TestFacadeWorkspaceGuards:
             CommandResult(exit_code=42, stdout="", stderr="not ubuntu"),
         ]
 
-        with pytest.raises(SmolVMError, match="missing 9p or overlay"):
+        with pytest.raises(CelestoError, match="missing 9p or overlay"):
             vm._mount_workspaces()
 
         assert vm._ssh.run.call_count == 3
@@ -952,7 +952,7 @@ class TestFacadeWorkspaceGuards:
             workspace_mounts=[WorkspaceMount(host_path=ws_dir, writable=True)],
         )
 
-        vm = object.__new__(SmolVM)
+        vm = object.__new__(Celesto)
         vm._vm_id = "vm-rw"
         vm._ssh_user = "root"
         vm._info = MagicMock(config=config)
@@ -978,9 +978,9 @@ class TestFacadeWorkspaceGuards:
         self,
         tmp_path: Path,
     ) -> None:
-        """Built-in 9p+overlay (SmolVM kernel) skips modprobe + apt-install.
+        """Built-in 9p+overlay (Celesto kernel) skips modprobe + apt-install.
 
-        The SmolVM-built universal kernel has all filesystems compiled =y
+        The Celesto-built universal kernel has all filesystems compiled =y
         and ships no /lib/modules, so modprobe always fails ("module not
         found"). /proc/filesystems is the source of truth for what's actually
         registered — short-circuit there before the modprobe probe.
@@ -999,7 +999,7 @@ class TestFacadeWorkspaceGuards:
             workspace_mounts=[WorkspaceMount(host_path=ws_dir)],
         )
 
-        vm = object.__new__(SmolVM)
+        vm = object.__new__(Celesto)
         vm._vm_id = "vm-builtin"
         vm._ssh_user = "root"
         vm._info = MagicMock(config=config)

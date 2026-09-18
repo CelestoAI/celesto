@@ -186,7 +186,7 @@ def test_one_line_installer_keeps_custom_directory_for_doctor() -> None:
     assert "FIRECRACKER_DIR_ARG" in text
     assert 'export SMOLVM_FIRECRACKER_DIR="${FIRECRACKER_DIR_ARG}"' in text
     assert "if ((${#SETUP_ARGS[@]})); then" in text
-    assert 'smolvm setup --skip-deps "${SETUP_ARGS[@]}"' in text
+    assert 'celesto setup --skip-deps "${SETUP_ARGS[@]}"' in text
 
 
 def test_runtime_sudo_policy_excludes_user_writable_programs() -> None:

@@ -9,7 +9,7 @@
 """QEMU argv tests for the pure backend command builder.
 
 The builder ``build_qemu_argv`` was extracted from
-``SmolVMManager._start_qemu`` so it can be unit-tested without spawning
+``CelestoManager._start_qemu`` so it can be unit-tested without spawning
 QEMU. The default Linux x86_64 direct-kernel path now uses the faster
 ``microvm`` machine, while ``qemu_machine="q35"`` preserves the legacy
 compatibility argv exactly.
@@ -20,14 +20,14 @@ from unittest.mock import patch
 
 import pytest
 
-from smolvm.exceptions import SmolVMError
-from smolvm.runtime.guest_platforms import (
+from celesto.exceptions import CelestoError
+from celesto.runtime.guest_platforms import (
     _LINUX_SPEC,
     FirmwareSpec,
     _build_windows_spec,
 )
-from smolvm.runtime.qemu_args import build_qemu_argv
-from smolvm.types import (
+from celesto.runtime.qemu_args import build_qemu_argv
+from celesto.types import (
     GuestOS,
     InternetSettings,
     NetworkConfig,
@@ -448,10 +448,10 @@ def test_firmware_mode_aarch64_needs_uefi_firmware(tmp_path: Path) -> None:
 
     with (
         patch(
-            "smolvm.runtime.qemu_args._find_aarch64_uefi_firmware",
+            "celesto.runtime.qemu_args._find_aarch64_uefi_firmware",
             return_value=None,
         ),
-        pytest.raises(SmolVMError, match="aarch64 firmware-boot requires UEFI firmware"),
+        pytest.raises(CelestoError, match="aarch64 firmware-boot requires UEFI firmware"),
     ):
         build_qemu_argv(
             vm_info,
@@ -472,7 +472,7 @@ def test_missing_ssh_host_port_raises(tmp_path: Path) -> None:
             "network": vm_info.network.model_copy(update={"ssh_host_port": None}),
         }
     )
-    with pytest.raises(SmolVMError, match="missing the port needed for SSH"):
+    with pytest.raises(CelestoError, match="missing the port needed for SSH"):
         build_qemu_argv(
             vm_info,
             qemu_bin=Path("/usr/bin/qemu-system-x86_64"),
@@ -516,7 +516,7 @@ def _fake_windows_spec() -> object:
         vars_template_path=Path("/usr/share/OVMF/OVMF_VARS_4M.ms.fd"),
     )
     with patch(
-        "smolvm.runtime.guest_platforms._find_x86_64_ovmf",
+        "celesto.runtime.guest_platforms._find_x86_64_ovmf",
         return_value=fake,
     ):
         return _build_windows_spec(host_system="Linux", arch="x86_64")
@@ -538,7 +538,7 @@ def test_build_windows_spec_raises_when_no_ovmf_found() -> None:
     """Missing OVMF Secure Boot firmware raises a plain-English install hint."""
     with (
         patch(
-            "smolvm.runtime.guest_platforms._find_x86_64_ovmf",
+            "celesto.runtime.guest_platforms._find_x86_64_ovmf",
             return_value=None,
         ),
         pytest.raises(ValueError, match="OVMF Secure Boot firmware"),
@@ -674,7 +674,7 @@ def test_windows_argv_omits_rtc_override(tmp_path: Path) -> None:
 def test_windows_argv_missing_firmware_vars_path_raises(tmp_path: Path) -> None:
     """Caller must provide a per-VM OVMF_VARS path when spec has firmware."""
     spec = _fake_windows_spec()
-    with pytest.raises(SmolVMError, match="OVMF_VARS"):
+    with pytest.raises(CelestoError, match="OVMF_VARS"):
         build_qemu_argv(
             _windows_vm_info(tmp_path),
             qemu_bin=Path("/usr/bin/qemu-system-x86_64"),
@@ -689,7 +689,7 @@ def test_windows_argv_missing_firmware_vars_path_raises(tmp_path: Path) -> None:
 def test_windows_argv_missing_swtpm_socket_raises(tmp_path: Path) -> None:
     """Caller must provide an swtpm socket when the spec requires TPM."""
     spec = _fake_windows_spec()
-    with pytest.raises(SmolVMError, match="swtpm"):
+    with pytest.raises(CelestoError, match="swtpm"):
         build_qemu_argv(
             _windows_vm_info(tmp_path),
             qemu_bin=Path("/usr/bin/qemu-system-x86_64"),

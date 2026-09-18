@@ -20,7 +20,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from smolvm.host.network import NetworkManager
+from celesto.host.network import NetworkManager
 
 
 def test_public_proxy_policy_allows_only_the_owned_listener() -> None:

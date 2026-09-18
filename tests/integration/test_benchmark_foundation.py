@@ -69,14 +69,14 @@ def test_preset_start_dry_run_json_plans_preset_start_and_cleanup(capsys) -> Non
     assert rc == 0
     report = json.loads(capsys.readouterr().out)
     record = report["records"][0]
-    assert record["start"]["command"][:3] == ["smolvm", "codex", "start"]
+    assert record["start"]["command"][:3] == ["celesto", "codex", "start"]
     assert "--no-attach" in record["start"]["command"]
     assert (
         record["start"]["command"][record["start"]["command"].index("--comm-channel") + 1]
         == "vsock"
     )
     assert report["parameters"]["comm_channel"] == "vsock"
-    assert record["cleanup"]["command"][:3] == ["smolvm", "sandbox", "delete"]
+    assert record["cleanup"]["command"][:3] == ["celesto", "sandbox", "delete"]
 
 
 def test_networking_arg_parser_and_human_lines_use_shared_report_shape() -> None:
@@ -115,9 +115,9 @@ def test_browser_ready_dry_run_json_plans_browser_start_and_stop(capsys) -> None
     assert rc == 0
     report = json.loads(capsys.readouterr().out)
     record = report["records"][0]
-    assert record["start"]["command"][:3] == ["smolvm", "browser", "start"]
+    assert record["start"]["command"][:3] == ["celesto", "browser", "start"]
     assert record["start"]["command"][3:5] == ["--session-id", "browser-bench"]
-    assert record["cleanup"]["command"] == ["smolvm", "browser", "stop", "browser-bench"]
+    assert record["cleanup"]["command"] == ["celesto", "browser", "stop", "browser-bench"]
 
 
 def test_runtime_control_dry_run_json_plans_noun_verb_lifecycle(capsys) -> None:
@@ -135,13 +135,13 @@ def test_runtime_control_dry_run_json_plans_noun_verb_lifecycle(capsys) -> None:
     assert rc == 0
     report = json.loads(capsys.readouterr().out)
     record = report["records"][0]
-    assert record["create"]["command"][:3] == ["smolvm", "sandbox", "create"]
+    assert record["create"]["command"][:3] == ["celesto", "sandbox", "create"]
     assert [step["command"][1:3] for step in record["operations"]] == [
         ["sandbox", "info"],
         ["sandbox", "stop"],
         ["sandbox", "start"],
     ]
-    assert record["cleanup"]["command"][:3] == ["smolvm", "sandbox", "delete"]
+    assert record["cleanup"]["command"][:3] == ["celesto", "sandbox", "delete"]
 
 
 def test_disk_io_dry_run_json_reports_variants_and_operations(capsys) -> None:

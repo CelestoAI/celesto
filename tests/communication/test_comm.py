@@ -14,8 +14,8 @@
 
 """Tests for the host↔guest transport abstraction."""
 
-from smolvm.comm import CommChannel
-from smolvm.ssh import SSHClient
+from celesto.comm import CommChannel
+from celesto.ssh import SSHClient
 
 
 class TestCommChannelProtocol:

@@ -7,8 +7,8 @@ Choose a [sandbox](sandboxes.md) for command-only work. Choose a browser sandbox
 ## Start and open a browser
 
 ```bash
-smolvm browser start --session-id research --live
-smolvm browser open research
+celesto browser start --session-id research --live
+celesto browser open research
 ```
 
 The first command starts Chromium and prints connection details. The second opens its browser view on your machine.
@@ -16,13 +16,13 @@ The first command starts Chromium and prints connection details. The second open
 List running browser sandboxes when you need to find a session:
 
 ```bash
-smolvm browser list
+celesto browser list
 ```
 
 Stop one when you are finished:
 
 ```bash
-smolvm browser stop research
+celesto browser stop research
 ```
 
 ## Keep a browser profile
@@ -30,7 +30,7 @@ smolvm browser stop research
 A normal browser sandbox is temporary. Use a persistent profile when you deliberately want later sessions to reuse browser state:
 
 ```bash
-smolvm browser start --profile-mode persistent --profile-id work
+celesto browser start --profile-mode persistent --profile-id work
 ```
 
 Use `--live` when you need the interactive display URLs, and `--record-video` when you need a recording. Browser downloads are enabled unless you pass `--no-downloads`.
@@ -46,9 +46,9 @@ pip install playwright
 Then connect to Chromium running inside the sandbox:
 
 ```python
-from smolvm import SmolVM
+from celesto import Celesto
 
-with SmolVM.browser() as browser:
+with Celesto.browser() as browser:
     remote_browser = browser.connect_playwright()
     page = remote_browser.contexts[0].new_page()
     page.goto("https://example.com")
@@ -101,4 +101,4 @@ The automation, viewer, and display endpoints are loopback-only, meaning they ac
 
 ## Implementation notes
 
-Python browser sessions, profile IDs, local viewer endpoints, artifacts, and Playwright connections are implemented in [`src/smolvm/browser.py`](../../src/smolvm/browser.py). The TypeScript session wrapper is in [`ts/src/browser-session.ts`](../../ts/src/browser-session.ts), and the private bridge routes are in [`src/smolvm/server/app.py`](../../src/smolvm/server/app.py). Public configuration types are in [`src/smolvm/types.py`](../../src/smolvm/types.py) and [`ts/src/types.ts`](../../ts/src/types.ts), with coverage in [`tests/e2e/test_browser.py`](../../tests/e2e/test_browser.py), [`tests/integration/test_server.py`](../../tests/integration/test_server.py), and [`ts/test/sdk.test.ts`](../../ts/test/sdk.test.ts).
+Python browser sessions, profile IDs, local viewer endpoints, artifacts, and Playwright connections are implemented in [`src/celesto/browser.py`](../../src/celesto/browser.py). The TypeScript session wrapper is in [`ts/src/browser-session.ts`](../../ts/src/browser-session.ts), and the private bridge routes are in [`src/celesto/server/app.py`](../../src/celesto/server/app.py). Public configuration types are in [`src/celesto/types.py`](../../src/celesto/types.py) and [`ts/src/types.ts`](../../ts/src/types.ts), with coverage in [`tests/e2e/test_browser.py`](../../tests/e2e/test_browser.py), [`tests/integration/test_server.py`](../../tests/integration/test_server.py), and [`ts/test/sdk.test.ts`](../../ts/test/sdk.test.ts).

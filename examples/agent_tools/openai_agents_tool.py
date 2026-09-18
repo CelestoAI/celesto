@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Use SmolVM as an OpenAI Agents SDK function tool.
+"""Use Celesto as an OpenAI Agents SDK function tool.
 
 Install:
     pip install smolvm openai-agents
@@ -26,7 +26,7 @@ Optional environment:
     export OPENAI_AGENTS_MODEL=gpt-4.1
 
 Before running:
-    smolvm doctor
+    celesto doctor
 
 Example:
     python examples/agent_tools/openai_agents_tool.py
@@ -38,7 +38,7 @@ import asyncio
 import os
 from typing import Any
 
-from smolvm import SmolVM
+from celesto import Celesto
 
 DEFAULT_MODEL = "gpt-4.1"
 
@@ -65,19 +65,19 @@ def _format_command_result(exit_code: int, stdout: str, stderr: str) -> str:
 
 
 def run_in_smolvm(command: str, timeout: int = 30) -> str:
-    """Run a shell command inside an ephemeral SmolVM sandbox.
+    """Run a shell command inside an ephemeral Celesto sandbox.
 
     Args:
         command: Shell command to execute inside the sandbox guest.
         timeout: Maximum number of seconds to wait for the command.
     """
-    with SmolVM() as vm:
+    with Celesto() as vm:
         result = vm.run(command, timeout=timeout)
         return _format_command_result(result.exit_code, result.stdout, result.stderr)
 
 
 async def main() -> None:
-    """Run a minimal OpenAI Agents SDK example with SmolVM as a tool."""
+    """Run a minimal OpenAI Agents SDK example with Celesto as a tool."""
     agent_cls = _require_dependency("agents:Agent", "pip install openai-agents")
     runner_cls = _require_dependency("agents:Runner", "pip install openai-agents")
     function_tool = _require_dependency(
@@ -85,10 +85,10 @@ async def main() -> None:
         "pip install openai-agents",
     )
     agent = agent_cls(
-        name="SmolVM Assistant",
+        name="Celesto Assistant",
         model=os.environ.get("OPENAI_AGENTS_MODEL", DEFAULT_MODEL),
         instructions=(
-            "You are a coding assistant with access to a secure SmolVM sandbox. "
+            "You are a coding assistant with access to a secure Celesto sandbox. "
             "For shell or Python inspection requests, call run_in_smolvm exactly "
             "once and then summarize the result."
         ),

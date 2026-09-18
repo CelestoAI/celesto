@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for smolvm.presets — agent-harness blueprints and applier."""
+"""Tests for celesto.presets — agent-harness blueprints and applier."""
 
 from __future__ import annotations
 
@@ -24,8 +24,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from smolvm.exceptions import SmolVMError
-from smolvm.presets import (
+from celesto.exceptions import CelestoError
+from celesto.presets import (
     CLAUDE_CODE_PRESET,
     CODEX_PRESET,
     GIT_HOST_CONFIGS,
@@ -46,8 +46,8 @@ from smolvm.presets import (
     public_preset_names,
     transfer_host_env,
 )
-from smolvm.presets._scripts import npm_install_global, uv_install_global
-from smolvm.types import CommandResult
+from celesto.presets._scripts import npm_install_global, uv_install_global
+from celesto.types import CommandResult
 
 
 def _ok(stdout: str = "", stderr: str = "") -> CommandResult:
@@ -144,7 +144,7 @@ class TestCodexPreset:
         )
 
     def test_codex_config_copy_is_filtered(self) -> None:
-        from smolvm.presets.codex import (
+        from celesto.presets.codex import (
             CODEX_CONFIG_EXCLUDE_PATTERNS,
             CODEX_CONFIG_INCLUDE_PATTERNS,
         )
@@ -319,7 +319,7 @@ class TestClaudeCodePreset:
         Claude Code on macOS keeps tokens in the keychain (not in
         ``~/.claude/.credentials.json``); without this entry the guest
         sees the user's profile but says "Not logged in"."""
-        from smolvm.presets.claude_code import CLAUDE_CODE_KEYCHAIN_SECRET
+        from celesto.presets.claude_code import CLAUDE_CODE_KEYCHAIN_SECRET
 
         assert CLAUDE_CODE_PRESET.host_keychain_secrets == (CLAUDE_CODE_KEYCHAIN_SECRET,)
         assert CLAUDE_CODE_KEYCHAIN_SECRET.service == "Claude Code-credentials"
@@ -335,7 +335,7 @@ class TestClaudeCodePreset:
         host copy is mostly per-host project history we don't want in the
         guest. The ~/.claude *directory* is intentionally not copied, but
         the single Linux on-disk credential file still needs to travel."""
-        from smolvm.presets.claude_code import minimize_claude_json
+        from celesto.presets.claude_code import minimize_claude_json
 
         pairs = [(cfg.host_path, cfg.guest_path) for cfg in CLAUDE_CODE_PRESET.host_configs]
         assert pairs == [
@@ -356,7 +356,7 @@ class TestClaudeCodePreset:
         install layout, not the guest's)."""
         import json
 
-        from smolvm.presets.claude_code import minimize_claude_json
+        from celesto.presets.claude_code import minimize_claude_json
 
         raw = json.dumps(
             {
@@ -386,7 +386,7 @@ class TestClaudeCodePreset:
         the allowlist projection never raises on a non-dict."""
         import json
 
-        from smolvm.presets.claude_code import minimize_claude_json
+        from celesto.presets.claude_code import minimize_claude_json
 
         for raw in (b"{not json", b"null", b"[]", b'"a string"', b"42"):
             assert json.loads(minimize_claude_json(raw)) == {}
@@ -418,7 +418,7 @@ class TestPiPreset:
         ]
 
     def test_pi_reuses_filtered_codex_copy_policy(self) -> None:
-        from smolvm.presets.codex import CODEX_HOST_CONFIGS
+        from celesto.presets.codex import CODEX_HOST_CONFIGS
 
         pi_codex_cfg = next(
             cfg for cfg in PI_PRESET.host_configs if cfg.guest_path == "/root/.codex"
@@ -430,7 +430,7 @@ class TestPiPreset:
         """Pi delegates Claude Pro/Max auth through Claude Code's
         ~/.claude/.credentials.json, so it must reuse the same keychain
         extraction."""
-        from smolvm.presets.claude_code import CLAUDE_CODE_KEYCHAIN_SECRET
+        from celesto.presets.claude_code import CLAUDE_CODE_KEYCHAIN_SECRET
 
         assert PI_PRESET.host_keychain_secrets == (CLAUDE_CODE_KEYCHAIN_SECRET,)
 
@@ -444,7 +444,7 @@ class TestPiPreset:
         host-specific ``installMethod`` (along with project history and
         caches) that would otherwise break claude's subscription path.
         It must also forward Linux's on-disk Claude token file."""
-        from smolvm.presets.claude_code import minimize_claude_json
+        from celesto.presets.claude_code import minimize_claude_json
 
         claude_cfg = next(
             cfg for cfg in PI_PRESET.host_configs if cfg.guest_path == "/root/.claude.json"
@@ -460,7 +460,7 @@ class TestPiPreset:
         assert token_cfg.file_mode == 0o600
 
     def test_pi_setup_uses_node20_bootstrap(self) -> None:
-        from smolvm.presets._scripts import NODE20_BOOTSTRAP
+        from celesto.presets._scripts import NODE20_BOOTSTRAP
 
         assert PI_PRESET.setup_script == NODE20_BOOTSTRAP
 
@@ -481,7 +481,7 @@ class TestOpenClawPreset:
         assert OPENCLAW_PRESET.host_configs == ()
 
     def test_openclaw_install_is_pinned_and_allows_lifecycle_scripts(self) -> None:
-        from smolvm.presets.openclaw import OPENCLAW_VERSION
+        from celesto.presets.openclaw import OPENCLAW_VERSION
 
         assert f"openclaw@{OPENCLAW_VERSION}" in OPENCLAW_PRESET.install_script
         assert "npm install -g" in OPENCLAW_PRESET.install_script
@@ -712,19 +712,19 @@ class TestNodeBootstrapFunction:
     """The parameterized node_bootstrap() helper."""
 
     def test_node_bootstrap_20_matches_legacy_constant(self) -> None:
-        from smolvm.presets._scripts import NODE20_BOOTSTRAP, node_bootstrap
+        from celesto.presets._scripts import NODE20_BOOTSTRAP, node_bootstrap
 
         assert node_bootstrap(20) == NODE20_BOOTSTRAP
 
     def test_node_bootstrap_22_uses_correct_version(self) -> None:
-        from smolvm.presets._scripts import node_bootstrap
+        from celesto.presets._scripts import node_bootstrap
 
         script = node_bootstrap(22)
         assert "setup_22.x" in script
         assert "current[0] > 22" in script
 
     def test_node_bootstrap_can_pin_a_minimum_patch_within_a_major(self) -> None:
-        from smolvm.presets._scripts import node_bootstrap
+        from celesto.presets._scripts import node_bootstrap
 
         script = node_bootstrap(24, minimum_version=(24, 15, 0))
 
@@ -733,7 +733,7 @@ class TestNodeBootstrapFunction:
         assert "current[0] === 24" in script
 
     def test_node_bootstrap_supports_alpine_packages(self) -> None:
-        from smolvm.presets._scripts import node_bootstrap
+        from celesto.presets._scripts import node_bootstrap
 
         script = node_bootstrap(20)
         assert "command -v apk" in script
@@ -746,13 +746,13 @@ class TestNodeBootstrapFunction:
         assert "Run '$SMOLVM_NODE_RECOVERY_COMMAND'" in script
 
     def test_node_bootstrap_rejects_too_low(self) -> None:
-        from smolvm.presets._scripts import node_bootstrap
+        from celesto.presets._scripts import node_bootstrap
 
         with pytest.raises(ValueError, match="Unsupported Node major version"):
             node_bootstrap(10)
 
     def test_node_bootstrap_rejects_mismatched_minimum_major(self) -> None:
-        from smolvm.presets._scripts import node_bootstrap
+        from celesto.presets._scripts import node_bootstrap
 
         with pytest.raises(ValueError, match="does not match major"):
             node_bootstrap(24, minimum_version=(22, 12, 0))
@@ -833,7 +833,7 @@ class TestApplyPreset:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        import smolvm.presets._install as install_mod
+        import celesto.presets._install as install_mod
 
         events: list[str] = []
         ssh = MagicMock()
@@ -918,7 +918,7 @@ class TestApplyPreset:
             ),
         )
 
-        with pytest.raises(SmolVMError, match="isn't there. Restore it"):
+        with pytest.raises(CelestoError, match="isn't there. Restore it"):
             apply_preset(ssh, preset)
 
     def test_copies_file_via_put_file(self, tmp_path: Path) -> None:
@@ -989,14 +989,14 @@ class TestApplyPreset:
             host_env_vars=("FOO_KEY",),
         )
 
-        with pytest.raises(SmolVMError, match="install failed"):
+        with pytest.raises(CelestoError, match="install failed"):
             apply_preset(ssh, preset)
 
         assert len(ssh.run.call_args_list) == 1
         assert "smolvm_env.sh" not in ssh.run.call_args.args[0]
 
     def test_setup_receives_exact_node_recovery_command(self) -> None:
-        from smolvm.presets._scripts import node_bootstrap
+        from celesto.presets._scripts import node_bootstrap
 
         ssh = MagicMock()
         ssh.run.return_value = _ok()
@@ -1011,7 +1011,7 @@ class TestApplyPreset:
 
         command = shlex.split(ssh.run.call_args_list[0].args[0])[2]
         assert (
-            "SMOLVM_NODE_RECOVERY_COMMAND='smolvm claude start --name sbx-claude --os ubuntu'"
+            "SMOLVM_NODE_RECOVERY_COMMAND='celesto claude start --name sbx-claude --os ubuntu'"
             in command
         )
         assert "Run '$SMOLVM_NODE_RECOVERY_COMMAND'" in command
@@ -1048,7 +1048,7 @@ class TestExtractKeychainSecret:
     """``security find-generic-password`` wrapper used on macOS hosts."""
 
     def test_returns_none_on_non_darwin(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import smolvm.presets._install as install_mod
+        import celesto.presets._install as install_mod
 
         monkeypatch.setattr(install_mod.sys, "platform", "linux")
 
@@ -1057,7 +1057,7 @@ class TestExtractKeychainSecret:
     def test_returns_none_when_security_binary_missing(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import smolvm.presets._install as install_mod
+        import celesto.presets._install as install_mod
 
         monkeypatch.setattr(install_mod.sys, "platform", "darwin")
 
@@ -1074,7 +1074,7 @@ class TestExtractKeychainSecret:
         the user can still authenticate inside the guest."""
         import subprocess as _subprocess
 
-        import smolvm.presets._install as install_mod
+        import celesto.presets._install as install_mod
 
         monkeypatch.setattr(install_mod.sys, "platform", "darwin")
 
@@ -1092,7 +1092,7 @@ class TestExtractKeychainSecret:
         skip rather than hanging sandbox provisioning forever."""
         import subprocess as _subprocess
 
-        import smolvm.presets._install as install_mod
+        import celesto.presets._install as install_mod
 
         monkeypatch.setattr(install_mod.sys, "platform", "darwin")
 
@@ -1110,7 +1110,7 @@ class TestExtractKeychainSecret:
         (a JSON blob for Claude Code) must be returned unchanged."""
         import subprocess as _subprocess
 
-        import smolvm.presets._install as install_mod
+        import celesto.presets._install as install_mod
 
         monkeypatch.setattr(install_mod.sys, "platform", "darwin")
 
@@ -1141,7 +1141,7 @@ class TestExtractKeychainSecret:
         reach the right one by passing ``-a``."""
         import subprocess as _subprocess
 
-        import smolvm.presets._install as install_mod
+        import celesto.presets._install as install_mod
 
         monkeypatch.setattr(install_mod.sys, "platform", "darwin")
 
@@ -1186,7 +1186,7 @@ class TestApplyPresetKeychain:
         ssh.run.return_value = _ok()
 
         monkeypatch.setattr(
-            "smolvm.presets._install._extract_keychain_secret",
+            "celesto.presets._install._extract_keychain_secret",
             lambda service, *, account=None: '{"oauth":"x"}' if service == "Test Service" else None,
         )
 
@@ -1224,7 +1224,7 @@ class TestApplyPresetKeychain:
         ssh.run.return_value = _ok()
 
         monkeypatch.setattr(
-            "smolvm.presets._install._extract_keychain_secret",
+            "celesto.presets._install._extract_keychain_secret",
             lambda _service, *, account=None: None,
         )
 
@@ -1242,7 +1242,7 @@ class TestApplyPresetKeychain:
         """When ``HostKeychainSecret.account`` is None, the applier
         must look up the keychain entry under the current user's login
         — that's the account claude-code uses for the main OAuth."""
-        import smolvm.presets._install as install_mod
+        import celesto.presets._install as install_mod
 
         ssh = MagicMock()
         ssh.run.return_value = _ok()
@@ -1265,7 +1265,7 @@ class TestApplyPresetKeychain:
         assert seen == {"service": "svc", "account": "alice"}
 
     def test_explicit_account_overrides_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import smolvm.presets._install as install_mod
+        import celesto.presets._install as install_mod
 
         ssh = MagicMock()
         ssh.run.return_value = _ok()
@@ -1298,7 +1298,7 @@ class TestApplyPresetKeychain:
 
         # Two secrets: one found, one missing.
         monkeypatch.setattr(
-            "smolvm.presets._install._extract_keychain_secret",
+            "celesto.presets._install._extract_keychain_secret",
             lambda service, *, account=None: "blob" if service == "found" else None,
         )
 
@@ -1325,7 +1325,7 @@ class TestGitCredentialInjection:
     declares so a fresh sandbox has working ``git``, ``gh``, and
     ``ssh git@github.com`` without the agent re-authenticating. Missing
     files are skipped silently — a host with no ``~/.gitconfig`` should
-    not break ``smolvm codex start``.
+    not break ``celesto codex start``.
     """
 
     def test_git_host_configs_constant_shape(self) -> None:
@@ -1499,7 +1499,7 @@ class TestGitCredentialInjection:
     def test_git_ssh_copy_preserves_guest_authorized_keys(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Host login policy must not replace SmolVM's guest access key."""
+        """Host login policy must not replace Celesto's guest access key."""
         import tarfile
 
         monkeypatch.setenv("HOME", str(tmp_path))

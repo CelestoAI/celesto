@@ -12,13 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Give an OpenAI agent a SmolVM sandbox.
+"""Give an OpenAI agent a Celesto sandbox.
 
 This example gives an OpenAI agent its own local computer for work. The agent
 can inspect files, run commands, and write a report without running those
 commands on your machine.
 
-The SmolVM provider lives in the Celesto SDK. This example shows how SmolVM
+The Celesto provider lives in the Celesto SDK. This example shows how Celesto
 users can consume that provider instead of carrying provider code in every app.
 """
 
@@ -69,7 +69,7 @@ def _build_manifest() -> Manifest:
 
 
 async def main() -> None:
-    """Run one OpenAI agent task in a SmolVM sandbox."""
+    """Run one OpenAI agent task in a Celesto sandbox."""
     manifest = _build_manifest()
     client = SmolVMSandboxClient()
     session = await client.create(
@@ -81,7 +81,7 @@ async def main() -> None:
     )
 
     agent = SandboxAgent(
-        name="SmolVM Renewal Analyst",
+        name="Celesto Renewal Analyst",
         model=os.environ.get("OPENAI_AGENTS_MODEL", DEFAULT_MODEL),
         instructions=(
             "Inspect the sandbox files before answering. "
@@ -104,7 +104,7 @@ async def main() -> None:
                 "Summarize the renewal blockers and recommend the next two actions.",
                 run_config=RunConfig(
                     sandbox=SandboxRunConfig(session=session),
-                    workflow_name="SmolVM SandboxAgent tutorial",
+                    workflow_name="Celesto SandboxAgent tutorial",
                 ),
             )
 

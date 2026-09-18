@@ -12,16 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""QEMU-specific SmolVM manager tests."""
+"""QEMU-specific Celesto manager tests."""
 
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smolvm.exceptions import NetworkError, SmolVMError, VMNotFoundError
-from smolvm.types import NetworkConfig, PortForwardConfig, VMConfig, VMInfo, VMState, VsockConfig
-from smolvm.vm import SmolVMManager
+from celesto.exceptions import CelestoError, NetworkError, VMNotFoundError
+from celesto.types import NetworkConfig, PortForwardConfig, VMConfig, VMInfo, VMState, VsockConfig
+from celesto.vm import CelestoManager
 
 
 def _qemu_vm_info(tmp_path: Path) -> VMInfo:
@@ -64,22 +64,24 @@ def test_live_qemu_vsock_cids_reads_proc_cmdline_without_subprocess(tmp_path: Pa
     (proc / "not-a-pid").mkdir()
 
     with (
-        patch("smolvm.vm.platform.system", return_value="Linux"),
-        patch("smolvm.vm.subprocess.run", side_effect=AssertionError("must not spawn ps")),
+        patch("celesto.vm.platform.system", return_value="Linux"),
+        patch("celesto.vm.subprocess.run", side_effect=AssertionError("must not spawn ps")),
     ):
-        assert SmolVMManager._live_qemu_vsock_cids(proc) == {7, 8}
+        assert CelestoManager._live_qemu_vsock_cids(proc) == {7, 8}
 
 
 def test_start_qemu_missing_binary_uses_linux_install_hint(tmp_path: Path) -> None:
     """Linux users should get a Linux package-manager hint, not Homebrew."""
-    sdk = SmolVMManager(data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu")
+    sdk = CelestoManager(
+        data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu"
+    )
 
     with (
-        patch.object(SmolVMManager, "_find_qemu_binary", return_value=None),
-        patch("smolvm.vm.platform.system", return_value="Linux"),
-        patch("smolvm.vm.platform.machine", return_value="x86_64"),
-        patch("smolvm.vm._linux_os_release_ids", return_value={"ubuntu", "debian"}),
-        pytest.raises(SmolVMError) as exc_info,
+        patch.object(CelestoManager, "_find_qemu_binary", return_value=None),
+        patch("celesto.vm.platform.system", return_value="Linux"),
+        patch("celesto.vm.platform.machine", return_value="x86_64"),
+        patch("celesto.vm._linux_os_release_ids", return_value={"ubuntu", "debian"}),
+        pytest.raises(CelestoError) as exc_info,
     ):
         sdk._start_qemu(_qemu_vm_info(tmp_path), tmp_path / "vm-qemu.log")
 
@@ -101,12 +103,14 @@ def test_create_qemu_skips_local_ssh_port_that_is_already_in_use(tmp_path: Path)
         backend="qemu",
         comm_channel="ssh",
     )
-    sdk = SmolVMManager(data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu")
+    sdk = CelestoManager(
+        data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu"
+    )
 
     with (
-        patch.object(SmolVMManager, "_create_qemu_overlay_disk") as mock_overlay,
+        patch.object(CelestoManager, "_create_qemu_overlay_disk") as mock_overlay,
         patch.object(
-            SmolVMManager,
+            CelestoManager,
             "_local_ssh_port_is_available",
             side_effect=lambda port: port != 2200,
         ),
@@ -120,20 +124,22 @@ def test_create_qemu_skips_local_ssh_port_that_is_already_in_use(tmp_path: Path)
 
 def test_local_tcp_port_probe_handles_invalid_ports() -> None:
     """Invalid TCP ports should be treated as unavailable, not crash the probe."""
-    assert SmolVMManager._local_tcp_port_is_available("127.0.0.1", 65536) is False
+    assert CelestoManager._local_tcp_port_is_available("127.0.0.1", 65536) is False
 
 
 def test_start_qemu_slirp_reports_busy_ssh_port_before_launch(tmp_path: Path) -> None:
     """A stopped QEMU slirp VM should fail clearly before QEMU exits early."""
     vm_info = _qemu_vm_info(tmp_path)
-    sdk = SmolVMManager(data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu")
+    sdk = CelestoManager(
+        data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu"
+    )
     sdk.state.create_vm(vm_info.config)
     sdk.state.update_vm(vm_info.vm_id, network=vm_info.network)
 
     with (
-        patch.object(SmolVMManager, "_local_ssh_port_is_available", return_value=False),
+        patch.object(CelestoManager, "_local_ssh_port_is_available", return_value=False),
         patch.object(sdk, "_runtime_adapter_for_backend") as mock_adapter_factory,
-        pytest.raises(SmolVMError, match="Local SSH port 2200 is already in use"),
+        pytest.raises(CelestoError, match="Local SSH port 2200 is already in use"),
     ):
         sdk.start(vm_info.vm_id)
 
@@ -148,18 +154,20 @@ def test_start_qemu_slirp_reports_busy_custom_forward_before_launch(tmp_path: Pa
         update={"port_forwards": [PortForwardConfig(host_port=39011, guest_port=9222)]}
     )
     vm_info = vm_info.model_copy(update={"config": config})
-    sdk = SmolVMManager(data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu")
+    sdk = CelestoManager(
+        data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu"
+    )
     sdk.state.create_vm(vm_info.config)
     sdk.state.update_vm(vm_info.vm_id, network=vm_info.network)
 
     with (
         patch.object(
-            SmolVMManager,
+            CelestoManager,
             "_local_tcp_port_is_available",
             side_effect=lambda _host, port: port != 39011,
         ),
         patch.object(sdk, "_runtime_adapter_for_backend") as mock_adapter_factory,
-        pytest.raises(SmolVMError, match="Local port 127.0.0.1:39011 is already in use"),
+        pytest.raises(CelestoError, match="Local port 127.0.0.1:39011 is already in use"),
     ):
         sdk.start(vm_info.vm_id)
 
@@ -167,9 +175,9 @@ def test_start_qemu_slirp_reports_busy_custom_forward_before_launch(tmp_path: Pa
     assert sdk.state.get_vm(vm_info.vm_id).status == VMState.CREATED
 
 
-@patch("smolvm.vm.subprocess.Popen")
+@patch("celesto.vm.subprocess.Popen")
 @patch.object(
-    SmolVMManager,
+    CelestoManager,
     "_find_qemu_binary",
     return_value=Path("/opt/homebrew/bin/qemu-system-aarch64"),
 )
@@ -177,8 +185,10 @@ def test_start_qemu_includes_configured_hostfwd_rules(
     _mock_find_qemu_binary: MagicMock,
     mock_popen: MagicMock,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """QEMU launch should include configured user-network host forwards."""
+    monkeypatch.setattr(CelestoManager, "_local_ssh_port_is_available", lambda *args: True)
     kernel = tmp_path / "vmlinux"
     rootfs = tmp_path / "rootfs.ext4"
     kernel.touch()
@@ -197,8 +207,10 @@ def test_start_qemu_includes_configured_hostfwd_rules(
         ],
     )
 
-    sdk = SmolVMManager(data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu")
-    with patch.object(SmolVMManager, "_create_qemu_overlay_disk") as mock_convert:
+    sdk = CelestoManager(
+        data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu"
+    )
+    with patch.object(CelestoManager, "_create_qemu_overlay_disk") as mock_convert:
         mock_convert.side_effect = lambda source, target, **_kwargs: target.touch()
         vm_info = sdk.create(config)
 
@@ -206,7 +218,7 @@ def test_start_qemu_includes_configured_hostfwd_rules(
     proc.pid = 12345
     mock_popen.return_value = proc
 
-    with patch("smolvm.vm.platform.system", return_value="Darwin"):
+    with patch("celesto.vm.platform.system", return_value="Darwin"):
         sdk._start_qemu(vm_info, tmp_path / "vm-qemu1.log")
 
     cmd = mock_popen.call_args.args[0]
@@ -216,9 +228,9 @@ def test_start_qemu_includes_configured_hostfwd_rules(
     assert "hostfwd=tcp:127.0.0.1:39012-:6080" in netdev_arg
 
 
-@patch("smolvm.vm.subprocess.Popen")
+@patch("celesto.vm.subprocess.Popen")
 @patch.object(
-    SmolVMManager,
+    CelestoManager,
     "_find_qemu_binary",
     return_value=Path("/opt/homebrew/bin/qemu-system-aarch64"),
 )
@@ -241,8 +253,10 @@ def test_start_qemu_uses_distinct_block_backend_and_node_names(
         boot_args="console=ttyAMA0 reboot=k panic=1 init=/init",
     )
 
-    sdk = SmolVMManager(data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu")
-    with patch.object(SmolVMManager, "_create_qemu_overlay_disk") as mock_convert:
+    sdk = CelestoManager(
+        data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu"
+    )
+    with patch.object(CelestoManager, "_create_qemu_overlay_disk") as mock_convert:
         mock_convert.side_effect = lambda source, target, **_kwargs: target.touch()
         vm_info = sdk.create(config)
 
@@ -250,7 +264,7 @@ def test_start_qemu_uses_distinct_block_backend_and_node_names(
     proc.pid = 12345
     mock_popen.return_value = proc
 
-    with patch("smolvm.vm.platform.system", return_value="Darwin"):
+    with patch("celesto.vm.platform.system", return_value="Darwin"):
         sdk._start_qemu(vm_info, tmp_path / "vm-qemu-nodes.log")
 
     cmd = mock_popen.call_args.args[0]
@@ -279,11 +293,13 @@ def test_create_qemu_preserves_requested_vsock_cid(tmp_path: Path) -> None:
         comm_channel="vsock",
         vsock=VsockConfig(guest_cid=42, uds_path="/tmp/vm-qemu-vsock.sock"),
     )
-    sdk = SmolVMManager(data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu")
+    sdk = CelestoManager(
+        data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu"
+    )
 
     with (
-        patch("smolvm.comm.select.host_supports_vsock", return_value=True),
-        patch.object(SmolVMManager, "_create_qemu_overlay_disk") as mock_overlay,
+        patch("celesto.comm.select.host_supports_vsock", return_value=True),
+        patch.object(CelestoManager, "_create_qemu_overlay_disk") as mock_overlay,
     ):
         mock_overlay.side_effect = lambda source, target, **_kwargs: target.write_text("overlay")
         vm_info = sdk.create(config)
@@ -309,12 +325,14 @@ def test_create_qemu_auto_vsock_skips_live_qemu_cids(tmp_path: Path) -> None:
         backend="qemu",
         comm_channel="vsock",
     )
-    sdk = SmolVMManager(data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu")
+    sdk = CelestoManager(
+        data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu"
+    )
 
     with (
-        patch("smolvm.comm.select.host_supports_vsock", return_value=True),
-        patch.object(SmolVMManager, "_live_qemu_vsock_cids", return_value={3, 4, 5}),
-        patch.object(SmolVMManager, "_create_qemu_overlay_disk") as mock_overlay,
+        patch("celesto.comm.select.host_supports_vsock", return_value=True),
+        patch.object(CelestoManager, "_live_qemu_vsock_cids", return_value={3, 4, 5}),
+        patch.object(CelestoManager, "_create_qemu_overlay_disk") as mock_overlay,
     ):
         mock_overlay.side_effect = lambda source, target, **_kwargs: target.write_text("overlay")
         vm_info = sdk.create(config)
@@ -338,18 +356,20 @@ def test_create_qemu_explicit_vsock_cid_rejects_live_qemu_conflict(tmp_path: Pat
         comm_channel="vsock",
         vsock=VsockConfig(guest_cid=42),
     )
-    sdk = SmolVMManager(data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu")
+    sdk = CelestoManager(
+        data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu"
+    )
 
     with (
-        patch("smolvm.comm.select.host_supports_vsock", return_value=True),
-        patch.object(SmolVMManager, "_live_qemu_vsock_cids", return_value={42}),
-        patch.object(SmolVMManager, "_create_qemu_overlay_disk") as mock_overlay,
+        patch("celesto.comm.select.host_supports_vsock", return_value=True),
+        patch.object(CelestoManager, "_live_qemu_vsock_cids", return_value={42}),
+        patch.object(CelestoManager, "_create_qemu_overlay_disk") as mock_overlay,
         pytest.raises(NetworkError, match="Vsock CID 42 is already in use") as exc_info,
     ):
         mock_overlay.side_effect = lambda source, target, **_kwargs: target.write_text("overlay")
         sdk.create(config)
 
-    assert "smolvm sandbox delete vm-qemu-vsock-conflict" in str(exc_info.value)
+    assert "celesto sandbox delete vm-qemu-vsock-conflict" in str(exc_info.value)
     assert sdk.state.get_vsock_cid("vm-qemu-vsock-conflict") is None
     with pytest.raises(VMNotFoundError):
         sdk.state.get_vm("vm-qemu-vsock-conflict")
@@ -370,9 +390,11 @@ def test_create_qemu_reserves_vsock_even_when_control_channel_is_ssh(tmp_path: P
         comm_channel="ssh",
         vsock=VsockConfig(guest_cid=43),
     )
-    sdk = SmolVMManager(data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu")
+    sdk = CelestoManager(
+        data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu"
+    )
 
-    with patch.object(SmolVMManager, "_create_qemu_overlay_disk") as mock_overlay:
+    with patch.object(CelestoManager, "_create_qemu_overlay_disk") as mock_overlay:
         mock_overlay.side_effect = lambda source, target, **_kwargs: target.write_text("overlay")
         vm_info = sdk.create(config)
 
@@ -396,9 +418,11 @@ def test_create_qemu_uses_declared_backing_format_with_misleading_suffix(
         rootfs_format="raw-ext4",
         backend="qemu",
     )
-    sdk = SmolVMManager(data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu")
+    sdk = CelestoManager(
+        data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu"
+    )
 
-    with patch.object(SmolVMManager, "_create_qemu_overlay_disk") as mock_overlay:
+    with patch.object(CelestoManager, "_create_qemu_overlay_disk") as mock_overlay:
         mock_overlay.side_effect = lambda source, target, **_kwargs: target.write_text("overlay")
         vm_info = sdk.create(config)
 
@@ -423,14 +447,16 @@ def test_create_qemu_raw_grow_uses_managed_raw_disk(tmp_path: Path) -> None:
         disk_size_mib=2,
         grow_filesystem=True,
     )
-    sdk = SmolVMManager(data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu")
+    sdk = CelestoManager(
+        data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu"
+    )
 
     def _copy(source: Path, target: Path) -> None:
         target.write_bytes(source.read_bytes())
 
     with (
-        patch.object(SmolVMManager, "_create_qemu_overlay_disk") as mock_overlay,
-        patch.object(SmolVMManager, "_copy_with_reflink", side_effect=_copy),
+        patch.object(CelestoManager, "_create_qemu_overlay_disk") as mock_overlay,
+        patch.object(CelestoManager, "_copy_with_reflink", side_effect=_copy),
         patch.object(sdk, "_grow_raw_ext4_filesystem") as mock_grow,
     ):
         vm_info = sdk.create(config)
@@ -458,8 +484,10 @@ def test_create_qemu_uses_managed_qcow2_disk(tmp_path: Path) -> None:
         boot_args="console=ttyAMA0 reboot=k panic=1 init=/init",
     )
 
-    sdk = SmolVMManager(data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu")
-    with patch.object(SmolVMManager, "_create_qemu_overlay_disk") as mock_convert:
+    sdk = CelestoManager(
+        data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu"
+    )
+    with patch.object(CelestoManager, "_create_qemu_overlay_disk") as mock_convert:
         mock_convert.side_effect = lambda source, target, **_kwargs: target.write_text(
             "managed-qcow2"
         )
@@ -483,7 +511,7 @@ def test_materialize_firmware_noop_for_linux_guests(tmp_path: Path) -> None:
         backend="qemu",
     )
 
-    sdk = SmolVMManager(
+    sdk = CelestoManager(
         data_dir=tmp_path / "data",
         socket_dir=tmp_path / "sockets",
         backend="qemu",
@@ -495,8 +523,8 @@ def test_materialize_firmware_noop_for_linux_guests(tmp_path: Path) -> None:
 
 def test_materialize_firmware_copies_ovmf_template_for_windows(tmp_path: Path) -> None:
     """Windows guests get a per-VM OVMF_VARS.fd copied from the system template."""
-    from smolvm.runtime.guest_platforms import FirmwareSpec
-    from smolvm.types import GuestOS
+    from celesto.runtime.guest_platforms import FirmwareSpec
+    from celesto.types import GuestOS
 
     rootfs = tmp_path / "win11.qcow2"
     rootfs.touch()
@@ -518,18 +546,18 @@ def test_materialize_firmware_copies_ovmf_template_for_windows(tmp_path: Path) -
         disk_mode="shared",  # don't try to overlay a Windows qcow2
     )
 
-    sdk = SmolVMManager(
+    sdk = CelestoManager(
         data_dir=tmp_path / "data",
         socket_dir=tmp_path / "sockets",
         backend="qemu",
     )
     with (
         patch(
-            "smolvm.runtime.guest_platforms._find_x86_64_ovmf",
+            "celesto.runtime.guest_platforms._find_x86_64_ovmf",
             return_value=fake_spec_firmware,
         ),
-        patch("smolvm.vm.platform.system", return_value="Linux"),
-        patch("smolvm.vm.platform.machine", return_value="x86_64"),
+        patch("celesto.vm.platform.system", return_value="Linux"),
+        patch("celesto.vm.platform.machine", return_value="x86_64"),
     ):
         sdk._materialize_firmware(config)
 
@@ -542,7 +570,7 @@ def test_materialize_firmware_copies_ovmf_template_for_windows(tmp_path: Path) -
 
 def test_materialize_firmware_raises_with_install_hint_when_no_ovmf(tmp_path: Path) -> None:
     """Missing OVMF gives a plain-English install hint at create time."""
-    from smolvm.types import GuestOS
+    from celesto.types import GuestOS
 
     rootfs = tmp_path / "win11.qcow2"
     rootfs.touch()
@@ -556,27 +584,27 @@ def test_materialize_firmware_raises_with_install_hint_when_no_ovmf(tmp_path: Pa
         disk_mode="shared",
     )
 
-    sdk = SmolVMManager(
+    sdk = CelestoManager(
         data_dir=tmp_path / "data",
         socket_dir=tmp_path / "sockets",
         backend="qemu",
     )
     with (
         patch(
-            "smolvm.runtime.guest_platforms._find_x86_64_ovmf",
+            "celesto.runtime.guest_platforms._find_x86_64_ovmf",
             return_value=None,
         ),
-        patch("smolvm.vm.platform.system", return_value="Linux"),
-        patch("smolvm.vm.platform.machine", return_value="x86_64"),
-        pytest.raises(SmolVMError, match="OVMF"),
+        patch("celesto.vm.platform.system", return_value="Linux"),
+        patch("celesto.vm.platform.machine", return_value="x86_64"),
+        pytest.raises(CelestoError, match="OVMF"),
     ):
         sdk._materialize_firmware(config)
 
 
 def test_windows_local_image_uses_per_vm_overlay_disk(tmp_path: Path) -> None:
     """Windows VMs get a per-VM overlay, baseline qcow2 stays untouched."""
-    from smolvm.runtime.guest_platforms import FirmwareSpec
-    from smolvm.types import GuestOS
+    from celesto.runtime.guest_platforms import FirmwareSpec
+    from celesto.types import GuestOS
 
     baseline = tmp_path / "win11-baseline.qcow2"
     baseline.write_bytes(b"baseline-bytes")
@@ -598,19 +626,19 @@ def test_windows_local_image_uses_per_vm_overlay_disk(tmp_path: Path) -> None:
         disk_mode="isolated",  # Phase 3a: new default for Windows local-image
     )
 
-    sdk = SmolVMManager(
+    sdk = CelestoManager(
         data_dir=tmp_path / "data",
         socket_dir=tmp_path / "sockets",
         backend="qemu",
     )
     with (
         patch(
-            "smolvm.runtime.guest_platforms._find_x86_64_ovmf",
+            "celesto.runtime.guest_platforms._find_x86_64_ovmf",
             return_value=fake_firmware,
         ),
-        patch("smolvm.vm.platform.system", return_value="Linux"),
-        patch("smolvm.vm.platform.machine", return_value="x86_64"),
-        patch.object(SmolVMManager, "_create_qemu_overlay_disk") as mock_overlay,
+        patch("celesto.vm.platform.system", return_value="Linux"),
+        patch("celesto.vm.platform.machine", return_value="x86_64"),
+        patch.object(CelestoManager, "_create_qemu_overlay_disk") as mock_overlay,
     ):
         mock_overlay.side_effect = lambda source, target, **_kwargs: target.write_text(
             "overlay-bytes"
@@ -635,8 +663,8 @@ def test_two_windows_vms_from_same_baseline_get_distinct_overlays(
     tmp_path: Path,
 ) -> None:
     """Concurrent Windows sandboxes from the same image use separate overlays."""
-    from smolvm.runtime.guest_platforms import FirmwareSpec
-    from smolvm.types import GuestOS
+    from celesto.runtime.guest_platforms import FirmwareSpec
+    from celesto.types import GuestOS
 
     baseline = tmp_path / "win11-baseline.qcow2"
     baseline.write_bytes(b"baseline-bytes")
@@ -658,19 +686,19 @@ def test_two_windows_vms_from_same_baseline_get_distinct_overlays(
             disk_mode="isolated",
         )
 
-    sdk = SmolVMManager(
+    sdk = CelestoManager(
         data_dir=tmp_path / "data",
         socket_dir=tmp_path / "sockets",
         backend="qemu",
     )
     with (
         patch(
-            "smolvm.runtime.guest_platforms._find_x86_64_ovmf",
+            "celesto.runtime.guest_platforms._find_x86_64_ovmf",
             return_value=fake_firmware,
         ),
-        patch("smolvm.vm.platform.system", return_value="Linux"),
-        patch("smolvm.vm.platform.machine", return_value="x86_64"),
-        patch.object(SmolVMManager, "_create_qemu_overlay_disk") as mock_overlay,
+        patch("celesto.vm.platform.system", return_value="Linux"),
+        patch("celesto.vm.platform.machine", return_value="x86_64"),
+        patch.object(CelestoManager, "_create_qemu_overlay_disk") as mock_overlay,
     ):
         mock_overlay.side_effect = lambda source, target, **_kwargs: target.write_text(target.name)
         vm_alpha = sdk.create(_windows_config("vm-win-alpha"))
@@ -701,8 +729,10 @@ def test_delete_qemu_retains_isolated_disk_when_enabled(tmp_path: Path) -> None:
         retain_disk_on_delete=True,
     )
 
-    sdk = SmolVMManager(data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu")
-    with patch.object(SmolVMManager, "_create_qemu_overlay_disk") as mock_convert:
+    sdk = CelestoManager(
+        data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu"
+    )
+    with patch.object(CelestoManager, "_create_qemu_overlay_disk") as mock_convert:
         mock_convert.side_effect = lambda source, target, **_kwargs: target.write_text(
             "managed-qcow2"
         )

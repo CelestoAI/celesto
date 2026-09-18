@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for SmolVM utils module."""
+"""Tests for Celesto utils module."""
 
 import shutil
 import subprocess
@@ -20,8 +20,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smolvm.exceptions import SmolVMError
-from smolvm.utils import ensure_ssh_key, run_command, tail_file, which
+from celesto.exceptions import CelestoError
+from celesto.utils import ensure_ssh_key, run_command, tail_file, which
 
 
 class TestTailFile:
@@ -85,7 +85,7 @@ class TestTailFile:
 class TestRunCommand:
     """Tests for run_command utility."""
 
-    @patch("smolvm.utils.subprocess.run")
+    @patch("celesto.utils.subprocess.run")
     def test_run_command_success(self, mock_run: MagicMock) -> None:
         """Test successful command execution."""
         mock_run.return_value = subprocess.CompletedProcess(
@@ -98,26 +98,26 @@ class TestRunCommand:
         assert result.stdout == "hi\n"
         mock_run.assert_called_once()
 
-    @patch("smolvm.utils.subprocess.run")
+    @patch("celesto.utils.subprocess.run")
     def test_run_command_failure_raises(self, mock_run: MagicMock) -> None:
-        """Test that non-zero exit code raises SmolVMError."""
+        """Test that non-zero exit code raises CelestoError."""
         mock_run.side_effect = subprocess.CalledProcessError(
             returncode=1, cmd=["false"], stderr="bad"
         )
 
-        with pytest.raises(SmolVMError, match="Command failed"):
+        with pytest.raises(CelestoError, match="Command failed"):
             run_command(["false"], use_sudo=False)
 
-    @patch("smolvm.utils.subprocess.run")
+    @patch("celesto.utils.subprocess.run")
     def test_run_command_timeout_raises(self, mock_run: MagicMock) -> None:
-        """Test that timeout raises SmolVMError."""
+        """Test that timeout raises CelestoError."""
         mock_run.side_effect = subprocess.TimeoutExpired(cmd=["sleep", "99"], timeout=30)
 
-        with pytest.raises(SmolVMError, match="Command timed out"):
+        with pytest.raises(CelestoError, match="Command timed out"):
             run_command(["sleep", "99"], use_sudo=False)
 
-    @patch("smolvm.utils.os.geteuid", return_value=1000)
-    @patch("smolvm.utils.subprocess.run")
+    @patch("celesto.utils.os.geteuid", return_value=1000)
+    @patch("celesto.utils.subprocess.run")
     def test_run_command_sudo_when_not_root(
         self, mock_run: MagicMock, mock_geteuid: MagicMock
     ) -> None:
@@ -132,8 +132,8 @@ class TestRunCommand:
         assert call_args[0][0][0] == "sudo"
         assert call_args[0][0][1] == "-n"
 
-    @patch("smolvm.utils.os.geteuid", return_value=1000)
-    @patch("smolvm.utils.subprocess.run")
+    @patch("celesto.utils.os.geteuid", return_value=1000)
+    @patch("celesto.utils.subprocess.run")
     def test_run_command_sudo_auth_failure_has_setup_hint(
         self, mock_run: MagicMock, mock_geteuid: MagicMock
     ) -> None:
@@ -144,11 +144,11 @@ class TestRunCommand:
             stderr="sudo: a password is required",
         )
 
-        with pytest.raises(SmolVMError, match="smolvm setup"):
+        with pytest.raises(CelestoError, match="celesto setup"):
             run_command(["ip", "link", "show"], use_sudo=True)
 
-    @patch("smolvm.utils.os.geteuid", return_value=0)
-    @patch("smolvm.utils.subprocess.run")
+    @patch("celesto.utils.os.geteuid", return_value=0)
+    @patch("celesto.utils.subprocess.run")
     def test_run_command_no_sudo_when_root(
         self, mock_run: MagicMock, mock_geteuid: MagicMock
     ) -> None:
@@ -176,7 +176,7 @@ class TestRunCommand:
 class TestWhich:
     """Tests for which utility."""
 
-    @patch("smolvm.utils.shutil.which", return_value="/usr/bin/python3")
+    @patch("celesto.utils.shutil.which", return_value="/usr/bin/python3")
     def test_which_found(self, mock_which: MagicMock) -> None:
         """Test finding an existing binary."""
         from pathlib import Path
@@ -186,7 +186,7 @@ class TestWhich:
         assert result == Path("/usr/bin/python3")
         mock_which.assert_called_once_with("python3")
 
-    @patch("smolvm.utils.shutil.which", return_value=None)
+    @patch("celesto.utils.shutil.which", return_value=None)
     def test_which_not_found(self, mock_which: MagicMock) -> None:
         """Test that missing binary returns None."""
         result = which("nonexistent-binary")
@@ -202,8 +202,8 @@ class TestWhich:
 class TestEnsureSSHKey:
     """Tests for ensure_ssh_key utility."""
 
-    @patch("smolvm.utils.subprocess.run")
-    @patch("smolvm.utils.Path.home")
+    @patch("celesto.utils.subprocess.run")
+    @patch("celesto.utils.Path.home")
     def test_default_path_uses_keys_subdir(
         self,
         mock_home: MagicMock,
@@ -221,7 +221,7 @@ class TestEnsureSSHKey:
         assert expected_dir.exists()
         mock_run.assert_called_once()
 
-    @patch("smolvm.utils.subprocess.run")
+    @patch("celesto.utils.subprocess.run")
     def test_explicit_key_dir_does_not_require_sudo_context(
         self,
         mock_run: MagicMock,
@@ -243,7 +243,7 @@ class TestEnsureSSHKey:
         (key_dir / "id_ed25519").write_text("private")
         (key_dir / "id_ed25519.pub").write_text("public")
 
-        with patch("smolvm.utils.subprocess.run") as mock_run:
+        with patch("celesto.utils.subprocess.run") as mock_run:
             ensure_ssh_key(key_dir=key_dir)
 
         mock_run.assert_not_called()
@@ -261,7 +261,7 @@ class TestEnsureSSHKey:
         key_dir.mkdir()
         (key_dir / "id_ed25519.pub").write_text("orphaned")
 
-        with patch("smolvm.utils.subprocess.run") as mock_run:
+        with patch("celesto.utils.subprocess.run") as mock_run:
             ensure_ssh_key(key_dir=key_dir)
 
         mock_run.assert_called_once()
@@ -309,7 +309,7 @@ class TestEnsureSSHKey:
         private_key = key_dir / "id_ed25519"
         private_key.write_text("this is not a key")
 
-        with pytest.raises(SmolVMError, match="could not be read"):
+        with pytest.raises(CelestoError, match="could not be read"):
             ensure_ssh_key(key_dir=key_dir)
 
         # The unreadable key is left exactly where it was for the user to save.

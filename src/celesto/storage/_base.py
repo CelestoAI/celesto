@@ -1,0 +1,172 @@
+# Copyright 2026 Celesto AI
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Shared helpers and constants for Celesto storage backends."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from celesto.types import (
+    BrowserSessionInfo,
+    BrowserSessionState,
+    NetworkConfig,
+    SnapshotArtifacts,
+    SnapshotInfo,
+    SnapshotType,
+    VMConfig,
+)
+
+# ---------------------------------------------------------------------------
+# IP allocation pool — 172.16.0.0/16
+#
+# Each guest IP is derived from a *pool index* (2 … 65 534):
+#     172.16.<index >> 8>.<index & 0xFF>
+#
+# Index 0 (172.16.0.0 — network) and 1 (172.16.0.1 — host gateway) are
+# reserved, as is 65 535 (172.16.255.255 — broadcast).
+# ---------------------------------------------------------------------------
+IP_POOL_START = 2  # 172.16.0.2
+IP_POOL_END = 65534  # 172.16.255.254
+
+# SSH host-port forwarding pool. Keep the upper bound within the TCP port range.
+SSH_PORT_START = 2200
+SSH_PORT_END = 65535
+
+# vsock guest-CID pool. CIDs 0/1/2 are reserved (hypervisor/local/host), so
+# allocation starts at 3. The upper bound is well within the 32-bit CID space
+# and gives ample headroom for concurrent VMs.
+VSOCK_CID_START = 3
+VSOCK_CID_END = 1_000_000
+
+
+def pool_index_to_ip(index: int) -> str:
+    """Convert a pool index to an IP in the ``172.16.0.0/16`` range."""
+    if index < 0 or index > 65535:
+        raise ValueError(f"pool index out of range: {index}")
+    return f"172.16.{index >> 8}.{index & 0xFF}"
+
+
+def ip_to_pool_index(ip: str) -> int:
+    """Convert a ``172.16.x.y`` IP back to its pool index."""
+    parts = ip.split(".")
+    return (int(parts[2]) << 8) | int(parts[3])
+
+
+def now_iso() -> str:
+    """Return the current UTC time as an ISO 8601 string."""
+    return datetime.now(UTC).isoformat()
+
+
+def vm_config_from_json(raw: str) -> VMConfig:
+    """Deserialize VM config while trusting persisted filesystem paths."""
+    return VMConfig.model_validate_json(raw, context={"validate_paths": False})
+
+
+def snapshot_info_from_row(row: Any) -> SnapshotInfo:
+    """Convert a database row (dict-like) into a SnapshotInfo."""
+    backend = row["backend"] if row["backend"] else "firecracker"
+    if row["artifacts"]:
+        artifacts = SnapshotArtifacts.model_validate_json(row["artifacts"])
+    else:
+        artifacts = SnapshotArtifacts(
+            state_path=Path(row["snapshot_path"]) if row["snapshot_path"] else None,
+            memory_path=Path(row["mem_file_path"]) if row["mem_file_path"] else None,
+            disk_path=Path(row["disk_path"]),
+        )
+    # ``snapshot_type`` is a newer column; rows predating it (or fakes built in
+    # tests) may not carry it, so default to a full snapshot.
+    try:
+        raw_snapshot_type = row["snapshot_type"]
+    except (KeyError, IndexError):
+        raw_snapshot_type = None
+    try:
+        snapshot_type = SnapshotType(raw_snapshot_type) if raw_snapshot_type else SnapshotType.FULL
+    except ValueError:
+        # Unknown value persisted by a newer/other writer — treat as full.
+        snapshot_type = SnapshotType.FULL
+
+    def optional_value(name: str) -> Any:
+        try:
+            return row[name]
+        except (KeyError, IndexError):
+            return None
+
+    def optional_int(name: str, *, positive: bool) -> int | None:
+        value = optional_value(name)
+        if isinstance(value, bool):
+            return None
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if isinstance(value, float) and not value.is_integer():
+            return None
+        if normalized < (1 if positive else 0):
+            return None
+        return normalized
+
+    raw_artifact_kind = optional_value("artifact_kind")
+    artifact_kind = raw_artifact_kind if raw_artifact_kind in {"full", "incremental"} else None
+    raw_bitmap_name = optional_value("bitmap_name")
+    bitmap_name = raw_bitmap_name if isinstance(raw_bitmap_name, str) else None
+    virtual_size_bytes = optional_int("virtual_size_bytes", positive=True)
+    changed_bytes = optional_int("changed_bytes", positive=False)
+    bitmap_granularity_bytes = optional_int("bitmap_granularity_bytes", positive=True)
+    return SnapshotInfo(
+        snapshot_id=row["snapshot_id"],
+        vm_id=row["vm_id"],
+        backend=backend,
+        artifacts=artifacts,
+        vm_config=vm_config_from_json(row["vm_config"]),
+        network_config=NetworkConfig.model_validate_json(row["network_config"]),
+        created_at=datetime.fromisoformat(row["created_at"]),
+        snapshot_type=snapshot_type,
+        artifact_kind=artifact_kind,
+        virtual_size_bytes=virtual_size_bytes,
+        changed_bytes=changed_bytes,
+        bitmap_granularity_bytes=bitmap_granularity_bytes,
+        bitmap_name=bitmap_name,
+        restored=bool(row["restored"]),
+        restored_vm_id=row["restored_vm_id"],
+    )
+
+
+def browser_session_info_from_row(row: Any) -> BrowserSessionInfo:
+    """Convert a database row (dict-like) into a BrowserSessionInfo."""
+    expires_at = datetime.fromisoformat(row["expires_at"]) if row["expires_at"] else None
+    artifacts_dir = Path(row["artifacts_dir"]) if row["artifacts_dir"] else None
+    try:
+        vnc_url = row["vnc_url"]
+    except (KeyError, IndexError):
+        vnc_url = None
+    try:
+        vnc_port = row["vnc_port"]
+    except (KeyError, IndexError):
+        vnc_port = None
+    return BrowserSessionInfo(
+        session_id=row["session_id"],
+        vm_id=row["vm_id"],
+        status=BrowserSessionState(row["status"]),
+        cdp_url=row["cdp_url"],
+        live_url=row["live_url"],
+        vnc_url=vnc_url,
+        debug_port=row["debug_port"],
+        vnc_port=vnc_port,
+        profile_id=row["profile_id"],
+        expires_at=expires_at,
+        artifacts_dir=artifacts_dir,
+    )

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for `smolvm image save` / `smolvm image load`."""
+"""Tests for `celesto image save` / `celesto image load`."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ from typing import Any
 import pytest
 import zstandard
 
-from smolvm.cli.main import main
+from celesto.cli.main import main
 
 _DEFAULT_HOLE_BYTES = 1 * 1024 * 1024
 _TRAILING_HOLE_BYTES = 1 * 1024 * 1024
@@ -307,7 +307,7 @@ class TestLoadRejectsMaliciousArchives:
         )
         assert ret == 2
         payload = json.loads(capsys.readouterr().out)
-        assert "smolvm update" in payload["error"]["recovery"]
+        assert "celesto update" in payload["error"]["recovery"]
 
     def test_not_a_tar(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
         bogus = tmp_path / "bogus.tar"
@@ -318,7 +318,7 @@ class TestLoadRejectsMaliciousArchives:
         )
         assert ret == 2
         payload = json.loads(capsys.readouterr().out)
-        assert "smolvm image save" in payload["error"]["recovery"]
+        assert "celesto image save" in payload["error"]["recovery"]
 
 
 class TestArchiveRobustness:

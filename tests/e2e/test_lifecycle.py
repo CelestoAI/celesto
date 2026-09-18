@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""End-to-end lifecycle of real sandboxes via the public ``SmolVM`` API.
+"""End-to-end lifecycle of real sandboxes via the public ``Celesto`` API.
 
 The shared-sandbox tests are a deliberately *ordered, stateful* smoke: the one
 VM from the ``vm`` fixture (booted once per variant) is walked through its
@@ -42,10 +42,10 @@ from _util import (
     selected_backend,
 )
 
-from smolvm import SmolVM
-from smolvm.exceptions import VMNotFoundError
-from smolvm.runtime.backends import BACKEND_FIRECRACKER
-from smolvm.types import SnapshotType, VMState
+from celesto import Celesto
+from celesto.exceptions import VMNotFoundError
+from celesto.runtime.backends import BACKEND_FIRECRACKER
+from celesto.types import SnapshotType, VMState
 
 pytestmark = pytest.mark.e2e
 
@@ -54,26 +54,26 @@ pytestmark = pytest.mark.e2e
 # ---------------------------------------------------------------------------
 
 
-def test_start(vm: SmolVM) -> None:
+def test_start(vm: Celesto) -> None:
     """The fixture booted; the VM is running and ready to take commands."""
     assert vm.status == VMState.RUNNING
     assert vm.can_run_commands()
 
 
-def test_exec(vm: SmolVM) -> None:
+def test_exec(vm: Celesto) -> None:
     """A command runs and its stdout comes back."""
     result = vm.run("echo hello")
     assert result.exit_code == 0
     assert result.stdout.strip() == "hello"
 
 
-def test_exec_exit_code(vm: SmolVM) -> None:
+def test_exec_exit_code(vm: Celesto) -> None:
     """Non-zero exit codes propagate faithfully (not just the happy path)."""
     result = vm.run("exit 7")
     assert result.exit_code == 7
 
 
-def test_upload_download(vm: SmolVM, tmp_path: Path) -> None:
+def test_upload_download(vm: Celesto, tmp_path: Path) -> None:
     """A file round-trips host -> guest -> host byte-for-byte."""
     payload = os.urandom(4096)
     src = tmp_path / "payload.bin"
@@ -91,7 +91,7 @@ def test_upload_download(vm: SmolVM, tmp_path: Path) -> None:
     assert dest.read_bytes() == payload
 
 
-def test_pause_resume(vm: SmolVM) -> None:
+def test_pause_resume(vm: Celesto) -> None:
     """Pause halts the VM; resume brings it back and it still runs commands."""
     vm.pause()
     assert vm.status == VMState.PAUSED
@@ -101,7 +101,7 @@ def test_pause_resume(vm: SmolVM) -> None:
     assert vm.run("echo back").stdout.strip() == "back"
 
 
-def test_stop_and_cleanup(vm: SmolVM) -> None:
+def test_stop_and_cleanup(vm: Celesto) -> None:
     """Stop transitions to STOPPED; delete removes the VM for good.
 
     This is the shared sandbox's final step; the fixture teardown is just a
@@ -136,8 +136,8 @@ def test_snapshot_restore(backend: E2EBackend, request: pytest.FixtureRequest) -
         )
     require_backend_available(backend, request.config, sandbox_name=f"snapshot-{backend}")
 
-    sandbox = SmolVM(backend=backend, os="alpine", comm_channel="ssh")
-    restored: SmolVM | None = None
+    sandbox = Celesto(backend=backend, os="alpine", comm_channel="ssh")
+    restored: Celesto | None = None
     try:
         sandbox.start(boot_timeout=BOOT_TIMEOUT)
         assert sandbox.run("echo sentinel-content > /root/sentinel.txt").exit_code == 0
@@ -147,7 +147,7 @@ def test_snapshot_restore(backend: E2EBackend, request: pytest.FixtureRequest) -
         sandbox.stop()
         sandbox.delete()
 
-        restored = SmolVM.from_snapshot(snap.snapshot_id, backend=backend, resume_vm=True)
+        restored = Celesto.from_snapshot(snap.snapshot_id, backend=backend, resume_vm=True)
         result = restored.run("cat /root/sentinel.txt")
         assert result.exit_code == 0
         assert result.stdout.strip() == "sentinel-content"

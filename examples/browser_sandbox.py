@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Start a disposable SmolVM browser sandbox.
+"""Start a disposable Celesto browser sandbox.
 
 Run:
     python examples/browser_sandbox.py
@@ -29,14 +29,14 @@ for humans and a display URL for VNC-compatible tools.
 
 from pathlib import Path
 
-from smolvm import SmolVM, SmolVMError
+from celesto import Celesto, CelestoError
 
 
 def main() -> int:
     output_dir = Path("artifacts/browser-example")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    with SmolVM.browser(
+    with Celesto.browser(
         headless=False,
         record_video=True,
         viewport={"width": 1440, "height": 900},
@@ -50,7 +50,7 @@ def main() -> int:
 
         try:
             browser = session.connect_playwright()
-        except SmolVMError as error:
+        except CelestoError as error:
             print(f"Skipping Playwright automation: {error}")
             return 0
 

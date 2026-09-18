@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for SmolVM CLI commands."""
+"""Tests for Celesto CLI commands."""
 
 import ast
 import json
@@ -29,14 +29,14 @@ import pytest
 from rich.panel import Panel
 from rich.text import Text
 
-from smolvm.cli.main import (
+from celesto.cli.main import (
     DASHBOARD_ALLOW_BETA_ENV,
     _current_version_is_prerelease,
     build_cli,
     main,
 )
-from smolvm.exceptions import VMNotFoundError
-from smolvm.types import (
+from celesto.exceptions import VMNotFoundError
+from celesto.types import (
     BrowserSessionState,
     CommandResult,
     GuestOS,
@@ -126,7 +126,7 @@ def test_top_level_help_mentions_json_for_agents() -> None:
     """Command help should describe the machine-readable JSON mode."""
     from click.testing import CliRunner
 
-    from smolvm.cli.main import build_cli
+    from celesto.cli.main import build_cli
 
     result = CliRunner().invoke(build_cli(), ["sandbox", "create", "--help"])
 
@@ -193,7 +193,7 @@ def test_all_commands_have_short_descriptions() -> None:
 
 def test_json_error_preserves_empty_details(capsys: pytest.CaptureFixture) -> None:
     """Explicit empty error details should survive JSON normalization."""
-    from smolvm.cli.output import emit_json
+    from celesto.cli.output import emit_json
 
     emit_json(
         "sandbox.test",
@@ -210,23 +210,23 @@ def test_json_error_preserves_empty_details(capsys: pytest.CaptureFixture) -> No
     [
         (
             ["sandbox", "list", "--all", "--status", "running"],
-            ["smolvm sandbox list --all", "smolvm sandbox list --status running"],
+            ["celesto sandbox list --all", "celesto sandbox list --status running"],
         ),
         (
             ["sandbox", "delete", "my-sandbox", "--all"],
-            ["smolvm sandbox delete my-sandbox", "smolvm sandbox delete --all --force"],
+            ["celesto sandbox delete my-sandbox", "celesto sandbox delete --all --force"],
         ),
         (
             ["sandbox", "delete"],
-            ["smolvm sandbox delete my-sandbox", "smolvm sandbox delete --all --force"],
+            ["celesto sandbox delete my-sandbox", "celesto sandbox delete --all --force"],
         ),
         (
             ["browser", "stop"],
-            ["smolvm browser stop browser-id", "smolvm browser stop --all"],
+            ["celesto browser stop browser-id", "celesto browser stop --all"],
         ),
         (
             ["browser", "stop", "browser-id", "--all"],
-            ["smolvm browser stop browser-id", "smolvm browser stop --all"],
+            ["celesto browser stop browser-id", "celesto browser stop --all"],
         ),
     ],
 )
@@ -245,11 +245,11 @@ def test_usage_errors_include_recovery_commands(
 
 
 class TestCliEnv:
-    """Tests for `smolvm sandbox env` subcommands."""
+    """Tests for `celesto sandbox env` subcommands."""
 
     @pytest.fixture
     def mock_vm_cls(self) -> MagicMock:
-        with patch("smolvm.facade.SmolVM") as m:
+        with patch("celesto.facade.Celesto") as m:
             yield m
 
     def _setup_vm(self, mock_vm_cls: MagicMock, vm_id: str = "vm001") -> MagicMock:
@@ -263,7 +263,7 @@ class TestCliEnv:
         mock_vm_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """Test `smolvm sandbox env set` success path."""
+        """Test `celesto sandbox env set` success path."""
         vm = self._setup_vm(mock_vm_cls)
         vm.set_env_vars.return_value = ["FOO"]
 
@@ -287,7 +287,7 @@ class TestCliEnv:
         mock_vm_cls: MagicMock,
         channel: str,
     ) -> None:
-        """`--comm-channel` is forwarded to SmolVM.from_id."""
+        """`--comm-channel` is forwarded to Celesto.from_id."""
         vm = self._setup_vm(mock_vm_cls)
         vm.set_env_vars.return_value = ["FOO"]
 
@@ -306,7 +306,7 @@ class TestCliEnv:
         self,
         mock_vm_cls: MagicMock,
     ) -> None:
-        """Test `smolvm sandbox env set` with multiple variables."""
+        """Test `celesto sandbox env set` with multiple variables."""
         vm = self._setup_vm(mock_vm_cls)
         vm.set_env_vars.return_value = ["A", "B"]
 
@@ -332,7 +332,7 @@ class TestCliEnv:
         mock_vm_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """Test `smolvm sandbox env unset` success path."""
+        """Test `celesto sandbox env unset` success path."""
         vm = self._setup_vm(mock_vm_cls)
         vm.unset_env_vars.return_value = {"FOO": "bar"}
 
@@ -347,7 +347,7 @@ class TestCliEnv:
         mock_vm_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """Test `smolvm sandbox env list` success path (masked by default)."""
+        """Test `celesto sandbox env list` success path (masked by default)."""
         vm = self._setup_vm(mock_vm_cls)
         vm.list_env_vars.return_value = {"FOO": "bar", "SECRET": "xyz"}
 
@@ -365,7 +365,7 @@ class TestCliEnv:
         mock_vm_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """Test `smolvm sandbox env list --show-values` reveals values."""
+        """Test `celesto sandbox env list --show-values` reveals values."""
         vm = self._setup_vm(mock_vm_cls)
         vm.list_env_vars.return_value = {"FOO": "bar"}
 
@@ -381,7 +381,7 @@ class TestCliEnv:
         mock_vm_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox env set --json` should emit the shared envelope."""
+        """`celesto sandbox env set --json` should emit the shared envelope."""
         vm = self._setup_vm(mock_vm_cls)
         vm.set_env_vars.return_value = ["FOO"]
 
@@ -401,7 +401,7 @@ class TestCliEnv:
         mock_vm_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox env unset --json` should emit removed and missing keys."""
+        """`celesto sandbox env unset --json` should emit removed and missing keys."""
         vm = self._setup_vm(mock_vm_cls)
         vm.unset_env_vars.return_value = {"FOO": "bar"}
 
@@ -418,7 +418,7 @@ class TestCliEnv:
         mock_vm_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox env list --json` should mask values by default."""
+        """`celesto sandbox env list --json` should mask values by default."""
         vm = self._setup_vm(mock_vm_cls)
         vm.list_env_vars.return_value = {"FOO": "bar"}
 
@@ -435,7 +435,7 @@ class TestCliEnv:
         mock_vm_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox env list --json --show-values` should reveal values."""
+        """`celesto sandbox env list --json --show-values` should reveal values."""
         vm = self._setup_vm(mock_vm_cls)
         vm.list_env_vars.return_value = {"FOO": "bar"}
 
@@ -505,11 +505,11 @@ class TestCliEnv:
 
 
 class TestCliFile:
-    """Tests for `smolvm sandbox file` subcommands."""
+    """Tests for `celesto sandbox file` subcommands."""
 
     @pytest.fixture
     def mock_vm_cls(self) -> MagicMock:
-        with patch("smolvm.facade.SmolVM") as m:
+        with patch("celesto.facade.Celesto") as m:
             yield m
 
     def test_file_upload_success(
@@ -518,7 +518,7 @@ class TestCliFile:
         tmp_path: Path,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox file upload` should copy a local file into a sandbox."""
+        """`celesto sandbox file upload` should copy a local file into a sandbox."""
         source = tmp_path / "note.txt"
         source.write_text("hello")
         vm = MagicMock()
@@ -550,7 +550,7 @@ class TestCliFile:
         tmp_path: Path,
         channel: str,
     ) -> None:
-        """`--comm-channel` is forwarded to SmolVM.from_id."""
+        """`--comm-channel` is forwarded to Celesto.from_id."""
         source = tmp_path / "note.txt"
         source.write_text("hello")
         vm = MagicMock()
@@ -576,7 +576,7 @@ class TestCliFile:
         tmp_path: Path,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox file upload --json` should emit the upload destination."""
+        """`celesto sandbox file upload --json` should emit the upload destination."""
         source = tmp_path / "note.txt"
         source.write_text("hello")
         vm = MagicMock()
@@ -639,7 +639,7 @@ class TestCliFile:
         tmp_path: Path,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox file download` should copy a guest file to the host."""
+        """`celesto sandbox file download` should copy a guest file to the host."""
         destination = tmp_path / "note.txt"
         vm = MagicMock()
         vm.download_file.return_value = str(destination)
@@ -669,7 +669,7 @@ class TestCliFile:
         tmp_path: Path,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox file download --json` should emit the resolved local path."""
+        """`celesto sandbox file download --json` should emit the resolved local path."""
         destination = tmp_path / "note.txt"
         vm = MagicMock()
         vm.download_file.return_value = str(destination)
@@ -736,11 +736,11 @@ class TestCliFile:
 
 
 class TestCliCreate:
-    """Tests for `smolvm sandbox create`."""
+    """Tests for `celesto sandbox create`."""
 
-    @patch("smolvm.facade._build_auto_config")
-    @patch("smolvm.facade.SmolVM")
-    @patch("smolvm.runtime.backends.platform.system", return_value="Darwin")
+    @patch("celesto.facade._build_auto_config")
+    @patch("celesto.facade.Celesto")
+    @patch("celesto.runtime.backends.platform.system", return_value="Darwin")
     def test_create_auto_generated_name(
         self,
         _: MagicMock,
@@ -749,7 +749,7 @@ class TestCliCreate:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox create` should auto-generate a VM name when omitted."""
+        """`celesto sandbox create` should auto-generate a VM name when omitted."""
         monkeypatch.delenv("SMOLVM_BACKEND", raising=False)
         config = MagicMock(vm_id="vm-a1b2c3d4")
         mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
@@ -792,16 +792,16 @@ class TestCliCreate:
         assert "OS" in out
         assert "ubuntu" in out
         assert "Started" in out
-        assert "smolvm sandbox shell vm-a1b2c3d4" in out
-        assert "smolvm sandbox ssh vm-a1b2c3d4" in out
-        assert "smolvm sandbox info vm-a1b2c3d4" in out
+        assert "celesto sandbox shell vm-a1b2c3d4" in out
+        assert "celesto sandbox ssh vm-a1b2c3d4" in out
+        assert "celesto sandbox info vm-a1b2c3d4" in out
         assert "Backend" not in out
         assert "IP Address" not in out
         assert "SSH Port" not in out
 
-    @patch("smolvm.facade._build_auto_config")
-    @patch("smolvm.facade.SmolVM")
-    @patch("smolvm.runtime.backends.platform.system", return_value="Darwin")
+    @patch("celesto.facade._build_auto_config")
+    @patch("celesto.facade.Celesto")
+    @patch("celesto.runtime.backends.platform.system", return_value="Darwin")
     def test_create_success(
         self,
         _: MagicMock,
@@ -810,7 +810,7 @@ class TestCliCreate:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox create` should build, start, and report a named VM."""
+        """`celesto sandbox create` should build, start, and report a named VM."""
         monkeypatch.delenv("SMOLVM_BACKEND", raising=False)
         config = MagicMock(vm_id="project-spacex")
         mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
@@ -872,16 +872,16 @@ class TestCliCreate:
         assert "OS" in out
         assert "ubuntu" in out
         assert "Started" in out
-        assert "smolvm sandbox shell project-spacex" in out
-        assert "smolvm sandbox ssh project-spacex" in out
-        assert "smolvm sandbox info project-spacex" in out
+        assert "celesto sandbox shell project-spacex" in out
+        assert "celesto sandbox ssh project-spacex" in out
+        assert "celesto sandbox info project-spacex" in out
         assert "Backend" not in out
         assert "172.16.0.2" not in out
         assert "2200" not in out
 
-    @patch("smolvm.facade._build_auto_config")
-    @patch("smolvm.facade.SmolVM")
-    @patch("smolvm.runtime.backends.platform.system", return_value="Darwin")
+    @patch("celesto.facade._build_auto_config")
+    @patch("celesto.facade.Celesto")
+    @patch("celesto.runtime.backends.platform.system", return_value="Darwin")
     def test_create_explicit_ssh_waits_for_ssh(
         self,
         _: MagicMock,
@@ -889,7 +889,7 @@ class TestCliCreate:
         mock_build_auto_config: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """`smolvm sandbox create --comm-channel ssh` preserves the SSH-ready contract."""
+        """`celesto sandbox create --comm-channel ssh` preserves the SSH-ready contract."""
         monkeypatch.delenv("SMOLVM_BACKEND", raising=False)
         config = MagicMock(vm_id="project-spacex")
         mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
@@ -917,9 +917,9 @@ class TestCliCreate:
         vm.wait_for_ssh.assert_called_once_with(timeout=30.0, on_progress=ANY)
         vm.wait_for_ready.assert_not_called()
 
-    @patch("smolvm.facade._build_auto_config")
-    @patch("smolvm.facade.SmolVM")
-    @patch("smolvm.runtime.backends.platform.system", return_value="Darwin")
+    @patch("celesto.facade._build_auto_config")
+    @patch("celesto.facade.Celesto")
+    @patch("celesto.runtime.backends.platform.system", return_value="Darwin")
     def test_create_success_with_short_name_flag(
         self,
         _: MagicMock,
@@ -927,7 +927,7 @@ class TestCliCreate:
         mock_build_auto_config: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """`smolvm sandbox create -n ...` should behave the same as `--name`."""
+        """`celesto sandbox create -n ...` should behave the same as `--name`."""
         monkeypatch.delenv("SMOLVM_BACKEND", raising=False)
         config = MagicMock(vm_id="computer")
         mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
@@ -966,9 +966,9 @@ class TestCliCreate:
         vm.wait_for_ssh.assert_not_called()
         vm.close.assert_called_once()
 
-    @patch("smolvm.facade._build_auto_config")
-    @patch("smolvm.facade.SmolVM")
-    @patch("smolvm.runtime.backends.platform.system", return_value="Darwin")
+    @patch("celesto.facade._build_auto_config")
+    @patch("celesto.facade.Celesto")
+    @patch("celesto.runtime.backends.platform.system", return_value="Darwin")
     def test_create_json(
         self,
         _: MagicMock,
@@ -977,7 +977,7 @@ class TestCliCreate:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox create --json` should emit the shared envelope."""
+        """`celesto sandbox create --json` should emit the shared envelope."""
         monkeypatch.delenv("SMOLVM_BACKEND", raising=False)
         config = MagicMock(vm_id="project-spacex")
         mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
@@ -1000,13 +1000,13 @@ class TestCliCreate:
         assert payload["data"]["vm"]["name"] == "project-spacex"
         assert payload["data"]["vm"]["os"] == "ubuntu"
         assert payload["data"]["vm"]["started_at"]
-        assert payload["data"]["next"]["shell_command"] == "smolvm sandbox shell project-spacex"
-        assert payload["data"]["next"]["ssh_command"] == "smolvm sandbox ssh project-spacex"
-        assert payload["data"]["next"]["info_command"] == "smolvm sandbox info project-spacex"
+        assert payload["data"]["next"]["shell_command"] == "celesto sandbox shell project-spacex"
+        assert payload["data"]["next"]["ssh_command"] == "celesto sandbox ssh project-spacex"
+        assert payload["data"]["next"]["info_command"] == "celesto sandbox info project-spacex"
         assert payload["data"]["warnings"] == []
 
-    @patch("smolvm.facade._build_auto_config")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.facade._build_auto_config")
+    @patch("celesto.facade.Celesto")
     def test_create_bridge_does_not_recommend_unsupported_ssh(
         self,
         mock_vm_cls: MagicMock,
@@ -1037,16 +1037,16 @@ class TestCliCreate:
 
         assert ret == 0
         payload = json.loads(capsys.readouterr().out)
-        assert payload["data"]["next"]["shell_command"] == ("smolvm sandbox shell bridge-demo")
+        assert payload["data"]["next"]["shell_command"] == ("celesto sandbox shell bridge-demo")
         assert payload["data"]["next"]["ssh_command"] is None
-        assert "smolvm sandbox shell bridge-demo" in payload["data"]["warnings"][0]
+        assert "celesto sandbox shell bridge-demo" in payload["data"]["warnings"][0]
 
-    @patch("smolvm.facade.platform.machine", return_value="x86_64")
-    @patch("smolvm.facade.build_seed_iso")
-    @patch("smolvm.facade.ImageManager")
-    @patch("smolvm.facade.SmolVM")
-    @patch("smolvm.utils.ensure_ssh_key")
-    @patch("smolvm.images.published.ensure_published_image")
+    @patch("celesto.facade.platform.machine", return_value="x86_64")
+    @patch("celesto.facade.build_seed_iso")
+    @patch("celesto.facade.ImageManager")
+    @patch("celesto.facade.Celesto")
+    @patch("celesto.utils.ensure_ssh_key")
+    @patch("celesto.images.published.ensure_published_image")
     def test_create_ubuntu_qemu_uses_published_image_config(
         self,
         mock_ensure_published: MagicMock,
@@ -1058,7 +1058,7 @@ class TestCliCreate:
         tmp_path: Path,
     ) -> None:
         """`create --os ubuntu --backend qemu` should use the published Ubuntu rootfs."""
-        from smolvm.images.manager import LocalImage
+        from celesto.images.manager import LocalImage
 
         kernel = tmp_path / "vmlinuz.image"
         rootfs = tmp_path / "ubuntu-rootfs.ext4"
@@ -1084,8 +1084,10 @@ class TestCliCreate:
         # This test covers config building, not host hypervisor detection, so
         # make QEMU look installed and let the real preflight pass through.
         with (
-            patch("smolvm.runtime.backends._qemu_system_binary", return_value="qemu-system-x86_64"),
-            patch("smolvm.runtime.backends._qemu_img_present", return_value=True),
+            patch(
+                "celesto.runtime.backends._qemu_system_binary", return_value="qemu-system-x86_64"
+            ),
+            patch("celesto.runtime.backends._qemu_img_present", return_value=True),
         ):
             ret = main(
                 [
@@ -1115,8 +1117,8 @@ class TestCliCreate:
         mock_image_manager_cls.assert_not_called()
         mock_build_seed_iso.assert_not_called()
 
-    @patch("smolvm.facade._build_auto_config")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.facade._build_auto_config")
+    @patch("celesto.facade.Celesto")
     def test_create_alpine_does_not_get_disk_size_default(
         self,
         mock_vm_cls: MagicMock,
@@ -1152,8 +1154,8 @@ class TestCliCreate:
         vm.wait_for_ssh.assert_not_called()
         vm.close.assert_called_once()
 
-    @patch("smolvm.facade._build_auto_config")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.facade._build_auto_config")
+    @patch("celesto.facade.Celesto")
     def test_create_duplicate_name_failure(
         self,
         mock_vm_cls: MagicMock,
@@ -1169,7 +1171,7 @@ class TestCliCreate:
         assert ret == 1
         assert "already exists" in capsys.readouterr().err
 
-    @patch("smolvm.facade._build_auto_config")
+    @patch("celesto.facade._build_auto_config")
     def test_create_invalid_name_failure(
         self,
         mock_build_auto_config: MagicMock,
@@ -1183,7 +1185,7 @@ class TestCliCreate:
         assert ret == 1
         assert "validation error" in capsys.readouterr().err
 
-    @patch("smolvm.facade._build_auto_config")
+    @patch("celesto.facade._build_auto_config")
     def test_create_image_build_failure(
         self,
         mock_build_auto_config: MagicMock,
@@ -1211,13 +1213,13 @@ class TestCliCreate:
 class TestCliBridgeCheck:
     """Tests for the read-only bridge preflight command."""
 
-    @patch("smolvm.host.network.NetworkManager.inspect_bridge")
+    @patch("celesto.host.network.NetworkManager.inspect_bridge")
     def test_bridge_check_json_uses_shared_envelope(
         self,
         inspect_bridge: MagicMock,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        from smolvm.host.network import BridgeInspection
+        from celesto.host.network import BridgeInspection
 
         inspect_bridge.return_value = BridgeInspection("br10", True)
 
@@ -1229,9 +1231,9 @@ class TestCliBridgeCheck:
 
 
 class TestCliCreateImage:
-    """Tests for `smolvm sandbox create --image`."""
+    """Tests for `celesto sandbox create --image`."""
 
-    @patch("smolvm.cli.main._build_and_boot_with_progress")
+    @patch("celesto.cli.main._build_and_boot_with_progress")
     def test_s3_human_create_propagates_bridge_options(
         self,
         mock_build_and_boot: MagicMock,
@@ -1258,7 +1260,7 @@ class TestCliCreateImage:
         assert mock_build_and_boot.call_args.kwargs["bridge_name"] == "br10"
         facade.close.assert_called_once()
 
-    @patch("smolvm.cli.main._run_create", return_value=0)
+    @patch("celesto.cli.main._run_create", return_value=0)
     def test_image_flag_parsed(self, mock_run_create: MagicMock) -> None:
         """--image flag should be wired into the create handler."""
         ret = main(["sandbox", "create", "--image", "s3://bucket/images/test/"])
@@ -1268,7 +1270,7 @@ class TestCliCreateImage:
         assert args.image == "s3://bucket/images/test/"
         assert args.os is None
 
-    @patch("smolvm.cli.main._run_create", return_value=0)
+    @patch("celesto.cli.main._run_create", return_value=0)
     def test_image_and_os_parsed_together(self, mock_run_create: MagicMock) -> None:
         """--image and --os now both parse (Windows guests need both); the
         facade rejects illegal combos at runtime with a clearer message."""
@@ -1289,7 +1291,7 @@ class TestCliCreateImage:
         err = capsys.readouterr().err
         assert "--image (S3) and --os are mutually exclusive" in err
 
-    @patch("smolvm.cli.main._run_create", return_value=0)
+    @patch("celesto.cli.main._run_create", return_value=0)
     def test_image_with_name_and_memory(self, mock_run_create: MagicMock) -> None:
         """--image should work alongside --name, --memory, and --disk-size."""
         ret = main(
@@ -1336,13 +1338,13 @@ class TestCliCreateImage:
 
 
 class TestCliCreateWindows:
-    """Tests for `smolvm sandbox create --os windows` routing."""
+    """Tests for `celesto sandbox create --os windows` routing."""
 
     def test_windows_backend_explicit_firecracker_rejected(
         self,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """`smolvm sandbox create --os windows --backend firecracker` fails cleanly."""
+        """`celesto sandbox create --os windows --backend firecracker` fails cleanly."""
         ret = main(
             [
                 "sandbox",
@@ -1385,14 +1387,14 @@ class TestCliCreateWindows:
         self,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """`smolvm sandbox create --os windows` (no --image) fires the facade error."""
+        """`celesto sandbox create --os windows` (no --image) fires the facade error."""
         ret = main(["sandbox", "create", "--os", "windows"])
         assert ret == 1
         err = capsys.readouterr().err
         assert "Windows guests need a pre-installed disk image" in err
 
-    @patch("smolvm.facade._build_local_image_config")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.facade._build_local_image_config")
+    @patch("celesto.facade.Celesto")
     def test_windows_auto_selects_qemu_backend_and_routes_local_image(
         self,
         mock_vm_cls: MagicMock,
@@ -1440,7 +1442,7 @@ class TestCliCreateWindows:
             vm_name="win-vm-1",
         )
 
-    @patch("smolvm.cli.main._run_create", return_value=0)
+    @patch("celesto.cli.main._run_create", return_value=0)
     def test_windows_with_explicit_backend_qemu_is_accepted(
         self,
         mock_run_create: MagicMock,
@@ -1467,13 +1469,13 @@ class TestCliCreateWindows:
 
 
 class TestCliWindowsBuildImage:
-    """Tests for `smolvm windows build-image`."""
+    """Tests for `celesto windows build-image`."""
 
     def test_help_is_listed(self) -> None:
-        """`smolvm windows --help` advertises the build-image verb."""
+        """`celesto windows --help` advertises the build-image verb."""
         assert main(["windows", "--help"]) == 0
 
-    @patch("smolvm.cli.main._run_windows_build_image", return_value=0)
+    @patch("celesto.cli.main._run_windows_build_image", return_value=0)
     def test_build_image_flag_parsing(self, mock_run_windows: MagicMock, tmp_path: Path) -> None:
         win = tmp_path / "Win11.iso"
         virtio = tmp_path / "virtio-win.iso"
@@ -1525,7 +1527,7 @@ class TestCliWindowsBuildImage:
         err = capsys.readouterr().err
         assert "--virtio-win-iso" in err or "--output" in err
 
-    @patch("smolvm.windows.WindowsImageBuilder")
+    @patch("celesto.windows.WindowsImageBuilder")
     def test_build_image_invokes_builder_and_renders_success_panel(
         self,
         mock_builder_cls: MagicMock,
@@ -1568,14 +1570,14 @@ class TestCliWindowsBuildImage:
         assert "Windows image ready" in out_text
         # The panel shows the working Python path, not the CLI path that cannot
         # accept Windows login credentials. The password is never leaked.
-        assert 'SmolVM(os="windows"' in out_text
-        assert "smolvm sandbox create --os windows" not in out_text
+        assert 'Celesto(os="windows"' in out_text
+        assert "celesto sandbox create --os windows" not in out_text
         assert 'ssh_password="<hidden>"' in out_text
         assert 'ssh_password="smolvm"' not in out_text
 
     @pytest.mark.parametrize("username", [r"DOMAIN\user", 'name"quoted'])
-    @patch("smolvm.cli.main.console_stdout")
-    @patch("smolvm.windows.WindowsImageBuilder")
+    @patch("celesto.cli.main.console_stdout")
+    @patch("celesto.windows.WindowsImageBuilder")
     def test_build_image_python_snippet_preserves_username(
         self,
         mock_builder_cls: MagicMock,
@@ -1611,7 +1613,7 @@ class TestCliWindowsBuildImage:
         assert isinstance(panel, Panel)
         assert isinstance(panel.renderable, str)
         rendered = Text.from_markup(panel.renderable).plain
-        snippet = next(line.strip() for line in rendered.splitlines() if "SmolVM(" in line)
+        snippet = next(line.strip() for line in rendered.splitlines() if "Celesto(" in line)
         expression = ast.parse(snippet, mode="eval").body
         assert isinstance(expression, ast.Call)
         ssh_user = next(
@@ -1619,7 +1621,7 @@ class TestCliWindowsBuildImage:
         )
         assert ast.literal_eval(ssh_user) == username
 
-    @patch("smolvm.windows.WindowsImageBuilder")
+    @patch("celesto.windows.WindowsImageBuilder")
     def test_build_image_json_mode_emits_envelope(
         self,
         mock_builder_cls: MagicMock,
@@ -1660,15 +1662,15 @@ class TestCliWindowsBuildImage:
 
 
 class TestCliStop:
-    """Tests for `smolvm sandbox stop`."""
+    """Tests for `celesto sandbox stop`."""
 
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.facade.Celesto")
     def test_stop_success(
         self,
         mock_vm_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox stop` should stop an existing VM and report the result."""
+        """`celesto sandbox stop` should stop an existing VM and report the result."""
         vm = MagicMock()
         vm.vm_id = "vm001"
         mock_vm_cls.from_id.return_value = vm
@@ -1683,13 +1685,13 @@ class TestCliStop:
         assert "Stopped VM 'vm001'." in out
         assert "stopped" in out
 
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.facade.Celesto")
     def test_stop_json(
         self,
         mock_vm_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox stop --json` should emit the shared envelope."""
+        """`celesto sandbox stop --json` should emit the shared envelope."""
         vm = MagicMock()
         vm.vm_id = "vm001"
         mock_vm_cls.from_id.return_value = vm
@@ -1703,7 +1705,7 @@ class TestCliStop:
         assert payload["data"]["vm"]["name"] == "vm001"
         assert payload["data"]["vm"]["status"] == "stopped"
 
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.facade.Celesto")
     def test_stop_missing_vm_prints_error(
         self,
         mock_vm_cls: MagicMock,
@@ -1719,15 +1721,15 @@ class TestCliStop:
 
 
 class TestCliPauseResume:
-    """Tests for `smolvm sandbox pause` and `smolvm sandbox resume`."""
+    """Tests for `celesto sandbox pause` and `celesto sandbox resume`."""
 
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.facade.Celesto")
     def test_pause_success(
         self,
         mock_vm_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox pause` should pause an existing VM and report the result."""
+        """`celesto sandbox pause` should pause an existing VM and report the result."""
         vm = MagicMock()
         vm.vm_id = "vm001"
         mock_vm_cls.from_id.return_value = vm
@@ -1742,13 +1744,13 @@ class TestCliPauseResume:
         assert "Paused VM 'vm001'." in out
         assert "paused" in out
 
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.facade.Celesto")
     def test_resume_json(
         self,
         mock_vm_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox resume --json` should emit the shared envelope."""
+        """`celesto sandbox resume --json` should emit the shared envelope."""
         vm = MagicMock()
         vm.vm_id = "vm001"
         mock_vm_cls.from_id.return_value = vm
@@ -1764,15 +1766,15 @@ class TestCliPauseResume:
 
 
 class TestCliVmStart:
-    """Tests for `smolvm sandbox start`."""
+    """Tests for `celesto sandbox start`."""
 
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.facade.Celesto")
     def test_start_success(
         self,
         mock_vm_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox start` should start a stopped VM and report the result."""
+        """`celesto sandbox start` should start a stopped VM and report the result."""
         vm = MagicMock()
         vm.vm_id = "vm001"
         mock_vm_cls.from_id.return_value = vm
@@ -1787,13 +1789,13 @@ class TestCliVmStart:
         assert "Started VM 'vm001'." in out
         assert "running" in out
 
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.facade.Celesto")
     def test_start_json(
         self,
         mock_vm_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox start --json` should emit the shared envelope."""
+        """`celesto sandbox start --json` should emit the shared envelope."""
         vm = MagicMock()
         vm.vm_id = "vm001"
         mock_vm_cls.from_id.return_value = vm
@@ -1807,12 +1809,12 @@ class TestCliVmStart:
         assert payload["data"]["vm"]["name"] == "vm001"
         assert payload["data"]["vm"]["status"] == "running"
 
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.facade.Celesto")
     def test_start_forwards_boot_timeout(
         self,
         mock_vm_cls: MagicMock,
     ) -> None:
-        """`smolvm sandbox start --boot-timeout` should forward the value to the facade."""
+        """`celesto sandbox start --boot-timeout` should forward the value to the facade."""
         vm = MagicMock()
         vm.vm_id = "vm001"
         mock_vm_cls.from_id.return_value = vm
@@ -1825,15 +1827,15 @@ class TestCliVmStart:
 
 
 class TestCliSnapshot:
-    """Tests for `smolvm sandbox snapshot` subcommands."""
+    """Tests for `celesto sandbox snapshot` subcommands."""
 
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.facade.Celesto")
     def test_snapshot_create_success(
         self,
         mock_vm_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox snapshot create` should create a snapshot from an existing VM."""
+        """`celesto sandbox snapshot create` should create a snapshot from an existing VM."""
         vm = MagicMock()
         vm.snapshot.return_value = _make_snapshot_info()
         mock_vm_cls.from_id.return_value = vm
@@ -1853,7 +1855,7 @@ class TestCliSnapshot:
         out = capsys.readouterr().out
         assert "Created snapshot 'snap-001'" in out
 
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.facade.Celesto")
     def test_snapshot_create_live_only_forwards_policy(
         self,
         mock_vm_cls: MagicMock,
@@ -1887,13 +1889,13 @@ class TestCliSnapshot:
             flush_policy="best-effort",
         )
 
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.facade.Celesto")
     def test_snapshot_create_json(
         self,
         mock_vm_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox snapshot create --json` should emit snapshot metadata."""
+        """`celesto sandbox snapshot create --json` should emit snapshot metadata."""
         vm = MagicMock()
         vm.snapshot.return_value = _make_snapshot_info()
         mock_vm_cls.from_id.return_value = vm
@@ -1908,15 +1910,15 @@ class TestCliSnapshot:
         assert payload["data"]["snapshot"]["backend"] == "firecracker"
         assert payload["data"]["snapshot"]["artifacts"]["disk_path"].endswith("disk.ext4")
 
-    @patch("smolvm.facade.SmolVM")
-    @patch("smolvm.vm.SmolVMManager")
+    @patch("celesto.facade.Celesto")
+    @patch("celesto.vm.CelestoManager")
     def test_snapshot_restore_json(
         self,
         mock_sdk_cls: MagicMock,
         mock_vm_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox snapshot restore --json` should report both snapshot and VM state."""
+        """`celesto sandbox snapshot restore --json` should report both snapshot and VM state."""
         sdk = mock_sdk_cls.return_value
         sdk.__enter__.return_value = sdk
         sdk.__exit__.side_effect = lambda *args: sdk.close()
@@ -1944,13 +1946,13 @@ class TestCliSnapshot:
         assert payload["data"]["vm"]["name"] == "vm001"
         assert payload["data"]["vm"]["status"] == "paused"
 
-    @patch("smolvm.vm.SmolVMManager")
+    @patch("celesto.vm.CelestoManager")
     def test_snapshot_delete_success(
         self,
         mock_sdk_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox snapshot delete` should delete snapshot metadata and files."""
+        """`celesto sandbox snapshot delete` should delete snapshot metadata and files."""
         sdk = mock_sdk_cls.return_value
         sdk.__enter__.return_value = sdk
         sdk.__exit__.side_effect = lambda *args: sdk.close()
@@ -1963,14 +1965,14 @@ class TestCliSnapshot:
         sdk.delete_snapshot.assert_called_once_with("snap-001")
         assert "Deleted snapshot 'snap-001'." in capsys.readouterr().out
 
-    @patch("smolvm.vm.SmolVMManager")
+    @patch("celesto.vm.CelestoManager")
     def test_snapshot_delete_clears_recovered_artifact(
         self,
         mock_sdk_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
         """Snapshot delete should expose the recovery-record cleanup action."""
-        from smolvm.exceptions import SnapshotNotFoundError
+        from celesto.exceptions import SnapshotNotFoundError
 
         sdk = mock_sdk_cls.return_value
         sdk.__enter__.return_value = sdk
@@ -1987,13 +1989,13 @@ class TestCliSnapshot:
             "recovery_record_cleared": True,
         }
 
-    @patch("smolvm.vm.SmolVMManager")
+    @patch("celesto.vm.CelestoManager")
     def test_snapshot_list_json(
         self,
         mock_sdk_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox snapshot list --json` should emit snapshot rows."""
+        """`celesto sandbox snapshot list --json` should emit snapshot rows."""
         sdk = mock_sdk_cls.return_value
         sdk.__enter__.return_value = sdk
         sdk.__exit__.side_effect = lambda *args: sdk.close()
@@ -2015,9 +2017,9 @@ class TestCliSnapshot:
 
 
 class TestCliPort:
-    """Tests for `smolvm sandbox port` subcommands."""
+    """Tests for `celesto sandbox port` subcommands."""
 
-    @patch("smolvm.cli.main._run_port_expose", return_value=0)
+    @patch("celesto.cli.main._run_port_expose", return_value=0)
     def test_port_expose_forwards_nested_command_name(
         self,
         mock_run_port_expose: MagicMock,
@@ -2031,7 +2033,7 @@ class TestCliPort:
         assert args.command_name == "sandbox.port.expose"
         assert args.json is True
 
-    @patch("smolvm.cli.main._run_port_close", return_value=0)
+    @patch("celesto.cli.main._run_port_close", return_value=0)
     def test_port_close_forwards_nested_command_name(
         self,
         mock_run_port_close: MagicMock,
@@ -2045,7 +2047,7 @@ class TestCliPort:
         assert args.command_name == "sandbox.port.close"
         assert args.json is True
 
-    @patch("smolvm.cli.main._run_port_list", return_value=0)
+    @patch("celesto.cli.main._run_port_list", return_value=0)
     def test_port_list_forwards_nested_command_name(
         self,
         mock_run_port_list: MagicMock,
@@ -2082,15 +2084,15 @@ class TestCliPort:
             "pid": 4321,
         }
         with (
-            patch("smolvm.cli.main._port_forward_operation_lock", return_value=nullcontext()),
-            patch("smolvm.cli.main._load_port_forwards", return_value=[entry]),
-            patch("smolvm.cli.main._remove_port_forward") as mock_remove,
-            patch("smolvm.cli.main._cli_vm_from_id", return_value=vm) as mock_vm_from_id,
+            patch("celesto.cli.main._port_forward_operation_lock", return_value=nullcontext()),
+            patch("celesto.cli.main._load_port_forwards", return_value=[entry]),
+            patch("celesto.cli.main._remove_port_forward") as mock_remove,
+            patch("celesto.cli.main._cli_vm_from_id", return_value=vm) as mock_vm_from_id,
             patch(
-                "smolvm.cli.main.subprocess.run",
+                "celesto.cli.main.subprocess.run",
                 return_value=SimpleNamespace(stdout=process_command),
             ),
-            patch("smolvm.cli.main.os.kill") as mock_kill,
+            patch("celesto.cli.main.os.kill") as mock_kill,
         ):
             ret = main(["sandbox", "port", "close", "vm001", "8080:3000", "--json"])
 
@@ -2104,10 +2106,10 @@ class TestCliPort:
         vm = MagicMock()
         entry = {"host_port": 8080, "guest_port": 3000, "transport": "qemu_hostfwd"}
         with (
-            patch("smolvm.cli.main._port_forward_operation_lock", return_value=nullcontext()),
-            patch("smolvm.cli.main._load_port_forwards", return_value=[entry]),
-            patch("smolvm.cli.main._remove_port_forward") as mock_remove,
-            patch("smolvm.cli.main._cli_vm_from_id", return_value=vm),
+            patch("celesto.cli.main._port_forward_operation_lock", return_value=nullcontext()),
+            patch("celesto.cli.main._load_port_forwards", return_value=[entry]),
+            patch("celesto.cli.main._remove_port_forward") as mock_remove,
+            patch("celesto.cli.main._cli_vm_from_id", return_value=vm),
         ):
             ret = main(["sandbox", "port", "close", "vm001", "8080:3000", "--json"])
 
@@ -2117,10 +2119,10 @@ class TestCliPort:
 
 
 class TestCliShell:
-    """Tests for `smolvm sandbox shell`."""
+    """Tests for `celesto sandbox shell`."""
 
-    @patch("smolvm.cli.main.subprocess.run")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.cli.main.subprocess.run")
+    @patch("celesto.facade.Celesto")
     def test_shell_running_vm_uses_control_channel(
         self,
         mock_vm_cls: MagicMock,
@@ -2143,7 +2145,7 @@ class TestCliShell:
         vm.close.assert_called_once()
 
     @pytest.mark.parametrize("status", [VMState.CREATED, VMState.STOPPED])
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.facade.Celesto")
     def test_shell_auto_starts_created_or_stopped_vm(
         self,
         mock_vm_cls: MagicMock,
@@ -2163,21 +2165,21 @@ class TestCliShell:
         vm.attach_shell.assert_called_once_with(timeout=30.0)
         vm.close.assert_called_once()
 
-    @patch("smolvm.cli.main.subprocess.run")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.cli.main.subprocess.run")
+    @patch("celesto.facade.Celesto")
     def test_shell_rejects_unsupported_vm_without_ssh_fallback(
         self,
         mock_vm_cls: MagicMock,
         mock_run: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        from smolvm.exceptions import SmolVMError
+        from celesto.exceptions import CelestoError
 
         vm = MagicMock()
         vm.status = VMState.STOPPED
-        vm.ensure_shell_supported.side_effect = SmolVMError(
-            "Sandbox 'vm001' cannot use 'smolvm sandbox shell'; "
-            "run 'smolvm sandbox ssh vm001' to open an SSH shell."
+        vm.ensure_shell_supported.side_effect = CelestoError(
+            "Sandbox 'vm001' cannot use 'celesto sandbox shell'; "
+            "run 'celesto sandbox ssh vm001' to open an SSH shell."
         )
         mock_vm_cls.from_id.return_value = vm
 
@@ -2196,8 +2198,8 @@ class TestCliShell:
         assert "vm001" in err
 
     @pytest.mark.parametrize("status", [VMState.RUNNING, VMState.STOPPED])
-    @patch("smolvm.cli.main.subprocess.run")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.cli.main.subprocess.run")
+    @patch("celesto.facade.Celesto")
     def test_shell_old_image_fails_with_recreate_commands(
         self,
         mock_vm_cls: MagicMock,
@@ -2205,14 +2207,14 @@ class TestCliShell:
         status: VMState,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        from smolvm.exceptions import SmolVMError
+        from celesto.exceptions import CelestoError
 
         vm = MagicMock()
         vm.status = status
-        vm.attach_shell.side_effect = SmolVMError(
+        vm.attach_shell.side_effect = CelestoError(
             "Sandbox vm001 was created from an older image and cannot use fast shell access; "
-            "run `smolvm sandbox delete vm001`, then run "
-            "`smolvm sandbox create --name vm001` after updating SmolVM."
+            "run `celesto sandbox delete vm001`, then run "
+            "`celesto sandbox create --name vm001` after updating Celesto."
         )
         mock_vm_cls.from_id.return_value = vm
 
@@ -2229,10 +2231,10 @@ class TestCliShell:
         mock_run.assert_not_called()
         vm.close.assert_called_once()
         err = " ".join(capsys.readouterr().err.replace("│", "").split())
-        assert "smolvm sandbox delete vm001" in err
-        assert "smolvm sandbox create --name vm001" in err
+        assert "celesto sandbox delete vm001" in err
+        assert "celesto sandbox create --name vm001" in err
 
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.facade.Celesto")
     def test_shell_resumes_paused_vm(self, mock_vm_cls: MagicMock) -> None:
         vm = MagicMock()
         vm.status = VMState.PAUSED
@@ -2249,7 +2251,7 @@ class TestCliShell:
         vm.attach_shell.assert_called_once_with(timeout=30.0)
         vm.close.assert_called_once()
 
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.facade.Celesto")
     def test_shell_error_state_fails_fast(
         self,
         mock_vm_cls: MagicMock,
@@ -2269,22 +2271,22 @@ class TestCliShell:
         vm.close.assert_called_once()
         err = " ".join(capsys.readouterr().err.replace("│", "").split())
         assert "error state" in err
-        assert "smolvm sandbox logs vm001" in err
-        assert "smolvm sandbox delete vm001" in err
-        assert "smolvm sandbox create --name vm001" in err
+        assert "celesto sandbox logs vm001" in err
+        assert "celesto sandbox delete vm001" in err
+        assert "celesto sandbox create --name vm001" in err
 
 
 class TestCliSSH:
-    """Tests for `smolvm sandbox ssh`."""
+    """Tests for `celesto sandbox ssh`."""
 
-    @patch("smolvm.cli.main.subprocess.run")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.cli.main.subprocess.run")
+    @patch("celesto.facade.Celesto")
     def test_ssh_running_vm_launches_subprocess(
         self,
         mock_vm_cls: MagicMock,
         mock_run: MagicMock,
     ) -> None:
-        """`smolvm sandbox ssh` should attach to a running VM without restarting it."""
+        """`celesto sandbox ssh` should attach to a running VM without restarting it."""
         vm = MagicMock()
         vm.status = VMState.RUNNING
         vm._ssh_attach_command.return_value = [
@@ -2330,15 +2332,15 @@ class TestCliSSH:
         vm.close.assert_called_once()
 
     @pytest.mark.parametrize("status", [VMState.CREATED, VMState.STOPPED])
-    @patch("smolvm.cli.main.subprocess.run")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.cli.main.subprocess.run")
+    @patch("celesto.facade.Celesto")
     def test_ssh_auto_starts_created_or_stopped_vm(
         self,
         mock_vm_cls: MagicMock,
         mock_run: MagicMock,
         status: VMState,
     ) -> None:
-        """`smolvm sandbox ssh` should auto-start attachable non-running VMs."""
+        """`celesto sandbox ssh` should auto-start attachable non-running VMs."""
         vm = MagicMock()
         vm.status = status
         vm._ssh_attach_command.return_value = ["sandbox", "ssh", "root@127.0.0.1"]
@@ -2352,14 +2354,14 @@ class TestCliSSH:
         vm.wait_for_ssh.assert_called_once_with(timeout=30.0)
         mock_run.assert_called_once_with(["sandbox", "ssh", "root@127.0.0.1"], check=False)
 
-    @patch("smolvm.cli.main.subprocess.run")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.cli.main.subprocess.run")
+    @patch("celesto.facade.Celesto")
     def test_ssh_resumes_paused_vm(
         self,
         mock_vm_cls: MagicMock,
         mock_run: MagicMock,
     ) -> None:
-        """`smolvm sandbox ssh` should resume paused VMs before attaching."""
+        """`celesto sandbox ssh` should resume paused VMs before attaching."""
         vm = MagicMock()
         vm.status = VMState.PAUSED
         vm._ssh_attach_command.return_value = ["sandbox", "ssh", "root@127.0.0.1"]
@@ -2374,8 +2376,8 @@ class TestCliSSH:
         vm.wait_for_ssh.assert_called_once_with(timeout=30.0)
         mock_run.assert_called_once_with(["sandbox", "ssh", "root@127.0.0.1"], check=False)
 
-    @patch("smolvm.cli.main.subprocess.run")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.cli.main.subprocess.run")
+    @patch("celesto.facade.Celesto")
     def test_ssh_error_state_fails_fast(
         self,
         mock_vm_cls: MagicMock,
@@ -2396,8 +2398,8 @@ class TestCliSSH:
         vm.close.assert_called_once()
         assert "error state" in capsys.readouterr().err
 
-    @patch("smolvm.cli.main.subprocess.run")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.cli.main.subprocess.run")
+    @patch("celesto.facade.Celesto")
     def test_ssh_missing_vm_prints_error(
         self,
         mock_vm_cls: MagicMock,
@@ -2413,8 +2415,8 @@ class TestCliSSH:
         mock_run.assert_not_called()
         assert "VM 'missing' not found" in capsys.readouterr().err
 
-    @patch("smolvm.cli.main.subprocess.run", side_effect=FileNotFoundError)
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.cli.main.subprocess.run", side_effect=FileNotFoundError)
+    @patch("celesto.facade.Celesto")
     def test_ssh_missing_local_ssh_binary(
         self,
         mock_vm_cls: MagicMock,
@@ -2433,8 +2435,8 @@ class TestCliSSH:
         assert "openssh-client" in capsys.readouterr().err
         vm.close.assert_called_once()
 
-    @patch("smolvm.cli.main.subprocess.run")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.cli.main.subprocess.run")
+    @patch("celesto.facade.Celesto")
     def test_ssh_propagates_child_exit_code(
         self,
         mock_vm_cls: MagicMock,
@@ -2453,9 +2455,9 @@ class TestCliSSH:
 
 
 class TestCliDoctor:
-    """Tests for `smolvm doctor`."""
+    """Tests for `celesto doctor`."""
 
-    @patch("smolvm.cli.commands.app.run_doctor")
+    @patch("celesto.cli.commands.app.run_doctor")
     def test_doctor_default(self, mock_run_doctor: MagicMock) -> None:
         """Default doctor invocation should call run_doctor with defaults."""
         mock_run_doctor.return_value = 0
@@ -2469,7 +2471,7 @@ class TestCliDoctor:
             strict=False,
         )
 
-    @patch("smolvm.cli.commands.app.run_doctor")
+    @patch("celesto.cli.commands.app.run_doctor")
     def test_doctor_with_flags(self, mock_run_doctor: MagicMock) -> None:
         """Doctor flags should be forwarded to run_doctor."""
         mock_run_doctor.return_value = 1
@@ -2485,16 +2487,16 @@ class TestCliDoctor:
 
 
 class TestCliSetup:
-    """Tests for `smolvm setup` CLI wiring."""
+    """Tests for `celesto setup` CLI wiring."""
 
-    @patch("smolvm.cli.main._run_setup")
-    @patch("smolvm.cli.main.platform.system", return_value="Linux")
+    @patch("celesto.cli.main._run_setup")
+    @patch("celesto.cli.main.platform.system", return_value="Linux")
     def test_setup_dispatches_to_runner(
         self,
         mock_platform_system: MagicMock,
         mock_run_setup: MagicMock,
     ) -> None:
-        """`smolvm setup` should dispatch through the setup handler."""
+        """`celesto setup` should dispatch through the setup handler."""
         mock_run_setup.return_value = 0
 
         ret = main(["setup"])
@@ -2502,7 +2504,7 @@ class TestCliSetup:
         assert ret == 0
         mock_run_setup.assert_called_once()
 
-    @patch("smolvm.cli.commands.options.platform.system", return_value="Darwin")
+    @patch("celesto.cli.commands.options.platform.system", return_value="Darwin")
     def test_setup_rejects_linux_only_flags_on_macos(
         self,
         mock_platform_system: MagicMock,
@@ -2515,10 +2517,10 @@ class TestCliSetup:
         assert mock_platform_system.called
         err = capsys.readouterr().err
         assert "only supported on Linux" in err
-        assert "smolvm setup" in err
+        assert "celesto setup" in err
 
-    @patch("smolvm.cli.main._run_setup")
-    @patch("smolvm.cli.main.platform.system", return_value="Darwin")
+    @patch("celesto.cli.main._run_setup")
+    @patch("celesto.cli.main.platform.system", return_value="Darwin")
     def test_setup_skip_deps_accepted_on_macos(
         self,
         mock_platform_system: MagicMock,
@@ -2532,7 +2534,7 @@ class TestCliSetup:
         assert ret == 0
         mock_run_setup.assert_called_once()
 
-    @patch("smolvm.cli.commands.options.platform.system", return_value="Windows")
+    @patch("celesto.cli.commands.options.platform.system", return_value="Windows")
     def test_setup_rejects_linux_only_flags_on_unsupported_os(
         self,
         mock_platform_system: MagicMock,
@@ -2544,7 +2546,7 @@ class TestCliSetup:
         assert ret == 2
         assert "only supported on Linux" in capsys.readouterr().err
 
-    @patch("smolvm.cli.commands.options.platform.system", return_value="Darwin")
+    @patch("celesto.cli.commands.options.platform.system", return_value="Darwin")
     def test_setup_help_hides_linux_only_flags_on_macos(
         self,
         mock_platform_system: MagicMock,
@@ -2564,7 +2566,7 @@ class TestCliSetup:
         # Cross-platform flags should still appear
         assert "--skip-deps" in help_text
 
-    @patch("smolvm.cli.commands.options.platform.system", return_value="Linux")
+    @patch("celesto.cli.commands.options.platform.system", return_value="Linux")
     def test_setup_remove_runtime_config_conflicts_with_other_modes(
         self,
         mock_platform_system: MagicMock,
@@ -2577,8 +2579,8 @@ class TestCliSetup:
         assert mock_platform_system.called
         assert "not allowed with --with-docker" in capsys.readouterr().err
 
-    @patch("smolvm.cli.main.platform.system", return_value="Linux")
-    @patch("smolvm.host.setup.run_setup")
+    @patch("celesto.cli.main.platform.system", return_value="Linux")
+    @patch("celesto.host.setup.run_setup")
     def test_setup_for_bake_forwards_options(
         self,
         mock_run_setup: MagicMock,
@@ -2596,10 +2598,10 @@ class TestCliSetup:
         assert options.for_bake is True
         assert options.runtime_user == "ubuntu"
         # User-facing notice about doctor follow-up.
-        assert "smolvm doctor" in capsys.readouterr().out
+        assert "celesto doctor" in capsys.readouterr().out
 
-    @patch("smolvm.cli.main.platform.system", return_value="Linux")
-    @patch("smolvm.host.setup.run_setup")
+    @patch("celesto.cli.main.platform.system", return_value="Linux")
+    @patch("celesto.host.setup.run_setup")
     def test_setup_firecracker_version_forwarded(
         self,
         mock_run_setup: MagicMock,
@@ -2614,8 +2616,8 @@ class TestCliSetup:
         options = mock_run_setup.call_args.args[0]
         assert options.firecracker_version == "v1.15.0"
 
-    @patch("smolvm.cli.main.platform.system", return_value="Linux")
-    @patch("smolvm.host.setup.run_setup")
+    @patch("celesto.cli.main.platform.system", return_value="Linux")
+    @patch("celesto.host.setup.run_setup")
     def test_setup_firecracker_dir_forwarded(
         self,
         mock_run_setup: MagicMock,
@@ -2632,8 +2634,8 @@ class TestCliSetup:
         options = mock_run_setup.call_args.args[0]
         assert options.firecracker_dir == selected
 
-    @patch("smolvm.cli.main.platform.system", return_value="Linux")
-    @patch("smolvm.host.setup.run_setup")
+    @patch("celesto.cli.main.platform.system", return_value="Linux")
+    @patch("celesto.host.setup.run_setup")
     def test_setup_custom_firecracker_dir_warns_when_not_discoverable(
         self,
         mock_run_setup: MagicMock,
@@ -2654,7 +2656,7 @@ class TestCliSetup:
         output = "".join(capsys.readouterr().out.split())
         assert f"runexportSMOLVM_FIRECRACKER_DIR={selected}" in output
 
-    @patch("smolvm.cli.commands.options.platform.system", return_value="Linux")
+    @patch("celesto.cli.commands.options.platform.system", return_value="Linux")
     def test_setup_remove_runtime_config_rejects_firecracker_dir(
         self,
         mock_platform_system: MagicMock,
@@ -2674,8 +2676,8 @@ class TestCliSetup:
         assert ret == 2
         assert "not allowed with --firecracker-dir" in capsys.readouterr().err
 
-    @patch("smolvm.cli.main.platform.system", return_value="Linux")
-    @patch("smolvm.host.setup.run_setup")
+    @patch("celesto.cli.main.platform.system", return_value="Linux")
+    @patch("celesto.host.setup.run_setup")
     def test_setup_assets_dir_prints_path_without_running_bash(
         self,
         mock_run_setup: MagicMock,
@@ -2694,9 +2696,9 @@ class TestCliSetup:
             Path(out) / "system-setup-macos.sh"
         ).is_file()
 
-    @patch("smolvm.cli.commands.app.maybe_print_update_notice")
-    @patch("smolvm.cli.main.platform.system", return_value="Linux")
-    @patch("smolvm.host.setup.run_setup")
+    @patch("celesto.cli.commands.app.maybe_print_update_notice")
+    @patch("celesto.cli.main.platform.system", return_value="Linux")
+    @patch("celesto.host.setup.run_setup")
     def test_setup_assets_dir_suppresses_update_notice(
         self,
         mock_run_setup: MagicMock,
@@ -2710,9 +2712,9 @@ class TestCliSetup:
         mock_notice.assert_called_once()
         assert mock_notice.call_args.kwargs.get("json_output") is True
 
-    @patch("smolvm.cli.commands.app.maybe_print_update_notice")
-    @patch("smolvm.cli.main.platform.system", return_value="Linux")
-    @patch("smolvm.host.setup.run_setup")
+    @patch("celesto.cli.commands.app.maybe_print_update_notice")
+    @patch("celesto.cli.main.platform.system", return_value="Linux")
+    @patch("celesto.host.setup.run_setup")
     def test_setup_without_assets_dir_does_not_suppress_update_notice(
         self,
         mock_run_setup: MagicMock,
@@ -2732,25 +2734,25 @@ class TestCliSetup:
 class TestCurrentVersionIsPrerelease:
     """Tests for _current_version_is_prerelease helper."""
 
-    @patch("smolvm.cli.main.importlib.metadata.version", return_value="0.0.5.a1")
+    @patch("celesto.cli.main.importlib.metadata.version", return_value="0.0.5.a1")
     def test_alpha_version_is_prerelease(self, _: MagicMock) -> None:
         """Alpha versions (e.g. 0.0.5.a1) should be detected as pre-release."""
         assert _current_version_is_prerelease() is True
 
-    @patch("smolvm.cli.main.importlib.metadata.version", return_value="0.0.5.dev1")
+    @patch("celesto.cli.main.importlib.metadata.version", return_value="0.0.5.dev1")
     def test_dev_version_is_prerelease(self, _: MagicMock) -> None:
         """Dev versions (e.g. 0.0.5.dev1) should be detected as pre-release."""
         assert _current_version_is_prerelease() is True
 
 
 class TestCliBrowser:
-    """Tests for `smolvm browser` commands."""
+    """Tests for `celesto browser` commands."""
 
-    @patch("smolvm.browser._BrowserSandbox")
+    @patch("celesto.browser._BrowserSandbox")
     def test_browser_start_json(
         self, mock_browser_cls: MagicMock, capsys: pytest.CaptureFixture
     ) -> None:
-        """`smolvm browser start --json` should emit machine-readable sandbox details."""
+        """`celesto browser start --json` should emit machine-readable sandbox details."""
         session = MagicMock()
         session.session_id = "browser-abc123"
         session.vm_id = "browser-abc123"
@@ -2775,9 +2777,9 @@ class TestCliBrowser:
         assert payload["data"]["viewer_url"] == "http://127.0.0.1:36080/vnc.html"
         assert payload["data"]["display_url"] == "vnc://127.0.0.1:35900"
 
-    @patch("smolvm.browser._BrowserSandbox")
+    @patch("celesto.browser._BrowserSandbox")
     def test_browser_start_live_shortcut(self, mock_browser_cls: MagicMock) -> None:
-        """`smolvm browser start --live` should map to live mode."""
+        """`celesto browser start --live` should map to live mode."""
         session = MagicMock()
         session.session_id = "browser-abc123"
         session.vm_id = "browser-abc123"
@@ -2797,13 +2799,13 @@ class TestCliBrowser:
         assert config.mode == "live"
         session.start.assert_called_once_with(boot_timeout=30.0)
 
-    @patch("smolvm.browser._BrowserSandbox")
+    @patch("celesto.browser._BrowserSandbox")
     def test_browser_open_requires_viewer_url(
         self,
         mock_browser_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm browser open` should fail cleanly for headless sessions."""
+        """`celesto browser open` should fail cleanly for headless sessions."""
         session = MagicMock()
         session.viewer_url = None
         mock_browser_cls.from_id.return_value = session
@@ -2813,9 +2815,9 @@ class TestCliBrowser:
         assert ret == 1
         assert "does not have a viewer_url" in capsys.readouterr().err
 
-    @patch("smolvm.browser._BrowserSandbox")
-    @patch("smolvm.vm.resolve_data_dir", return_value=Path("/tmp"))
-    @patch("smolvm.cli.state.create_cli_state_manager")
+    @patch("celesto.browser._BrowserSandbox")
+    @patch("celesto.vm.resolve_data_dir", return_value=Path("/tmp"))
+    @patch("celesto.cli.state.create_cli_state_manager")
     def test_browser_stop_all(
         self,
         mock_state_manager_cls: MagicMock,
@@ -2823,7 +2825,7 @@ class TestCliBrowser:
         mock_browser_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm browser stop --all` should stop every persisted sandbox."""
+        """`celesto browser stop --all` should stop every persisted sandbox."""
         state_manager = MagicMock()
         state_manager.list_browser_sessions.return_value = [
             MagicMock(session_id="browser-001"),
@@ -2849,9 +2851,9 @@ class TestCliBrowser:
         second_session.close.assert_called_once_with()
         assert "Stopped 2 browser sandbox(es)." in capsys.readouterr().out
 
-    @patch("smolvm.browser._BrowserSandbox")
-    @patch("smolvm.vm.resolve_data_dir", return_value=Path("/tmp"))
-    @patch("smolvm.cli.state.create_cli_state_manager")
+    @patch("celesto.browser._BrowserSandbox")
+    @patch("celesto.vm.resolve_data_dir", return_value=Path("/tmp"))
+    @patch("celesto.cli.state.create_cli_state_manager")
     def test_browser_stop_all_failure_names_recovery_command(
         self,
         mock_state_manager_cls: MagicMock,
@@ -2859,7 +2861,7 @@ class TestCliBrowser:
         mock_browser_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm browser stop --all` should show a concrete recovery command."""
+        """`celesto browser stop --all` should show a concrete recovery command."""
         state_manager = MagicMock()
         state_manager.list_browser_sessions.return_value = [
             MagicMock(session_id="browser-001"),
@@ -2875,17 +2877,17 @@ class TestCliBrowser:
         assert ret == 1
         assert mock_browser_cls.from_id.call_args.kwargs["state_manager"] is state_manager
         error = capsys.readouterr().err
-        assert "smolvm browser" in error
+        assert "celesto browser" in error
         assert "stop browser-001" in error
         assert "internal failure" not in error
 
-    @patch("smolvm.browser._BrowserSandbox")
+    @patch("celesto.browser._BrowserSandbox")
     def test_browser_stop_failure_names_recovery_command(
         self,
         mock_browser_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm browser stop <id>` should show a concrete recovery command."""
+        """`celesto browser stop <id>` should show a concrete recovery command."""
         session = MagicMock()
         session.stop.side_effect = RuntimeError("internal failure")
         mock_browser_cls.from_id.return_value = session
@@ -2895,11 +2897,11 @@ class TestCliBrowser:
         assert ret == 1
         error = capsys.readouterr().err
         compact_error = " ".join(error.replace("│", " ").split())
-        assert "smolvm browser stop browser-001" in compact_error
+        assert "celesto browser stop browser-001" in compact_error
         assert "internal failure" not in error
 
-    @patch("smolvm.browser._BrowserSandbox")
-    @patch("smolvm.cli.state.create_cli_state_manager")
+    @patch("celesto.browser._BrowserSandbox")
+    @patch("celesto.cli.state.create_cli_state_manager")
     def test_browser_stop_computer_names_computer_delete_recovery(
         self,
         mock_state_manager_cls: MagicMock,
@@ -2919,18 +2921,18 @@ class TestCliBrowser:
         )
         error = capsys.readouterr().err
         compact_error = " ".join(error.replace("│", " ").split())
-        assert "smolvm computer delete computer-demo" in compact_error
+        assert "celesto computer delete computer-demo" in compact_error
         session.stop.assert_not_called()
 
-    @patch("smolvm.vm.resolve_data_dir", return_value=Path("/tmp"))
-    @patch("smolvm.cli.state.create_cli_state_manager")
+    @patch("celesto.vm.resolve_data_dir", return_value=Path("/tmp"))
+    @patch("celesto.cli.state.create_cli_state_manager")
     def test_browser_stop_all_empty(
         self,
         mock_state_manager_cls: MagicMock,
         _mock_resolve_data_dir: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm browser stop --all` should be a no-op when nothing is persisted."""
+        """`celesto browser stop --all` should be a no-op when nothing is persisted."""
         state_manager = MagicMock()
         state_manager.list_browser_sessions.return_value = []
         mock_state_manager_cls.return_value = state_manager
@@ -2941,15 +2943,15 @@ class TestCliBrowser:
         state_manager.list_browser_sessions.assert_called_once_with()
         assert "No browser sandboxes found." in capsys.readouterr().out
 
-    @patch("smolvm.vm.resolve_data_dir", return_value=Path("/tmp"))
-    @patch("smolvm.cli.state.create_cli_state_manager")
+    @patch("celesto.vm.resolve_data_dir", return_value=Path("/tmp"))
+    @patch("celesto.cli.state.create_cli_state_manager")
     def test_browser_list_json(
         self,
         mock_state_manager_cls: MagicMock,
         _mock_resolve_data_dir: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm browser list --json` should serialize stored browser sandboxes."""
+        """`celesto browser list --json` should serialize stored browser sandboxes."""
         state_manager = MagicMock()
         session = MagicMock()
         session.session_id = "browser-abc123"
@@ -2974,22 +2976,22 @@ class TestCliBrowser:
         assert payload["data"]["sessions"][0]["viewer_url"] == "http://127.0.0.1:36080/vnc.html"
         assert payload["data"]["sessions"][0]["display_url"] == "vnc://127.0.0.1:35900"
 
-    @patch("smolvm.cli.main.importlib.metadata.version", return_value="0.0.5b2")
+    @patch("celesto.cli.main.importlib.metadata.version", return_value="0.0.5b2")
     def test_beta_version_is_prerelease(self, _: MagicMock) -> None:
         """Beta versions (e.g. 0.0.5b2) should be detected as pre-release."""
         assert _current_version_is_prerelease() is True
 
-    @patch("smolvm.cli.main.importlib.metadata.version", return_value="0.0.5rc1")
+    @patch("celesto.cli.main.importlib.metadata.version", return_value="0.0.5rc1")
     def test_rc_version_is_prerelease(self, _: MagicMock) -> None:
         """Release candidates (e.g. 0.0.5rc1) should be detected as pre-release."""
         assert _current_version_is_prerelease() is True
 
-    @patch("smolvm.cli.main.importlib.metadata.version", return_value="0.0.5")
+    @patch("celesto.cli.main.importlib.metadata.version", return_value="0.0.5")
     def test_stable_version_is_not_prerelease(self, _: MagicMock) -> None:
         """Stable versions (e.g. 0.0.5) should NOT be detected as pre-release."""
         assert _current_version_is_prerelease() is False
 
-    @patch("smolvm.cli.main.importlib.metadata.version", return_value="1.2.3")
+    @patch("celesto.cli.main.importlib.metadata.version", return_value="1.2.3")
     def test_stable_semver_is_not_prerelease(self, _: MagicMock) -> None:
         """Stable semantic versions (e.g. 1.2.3) should NOT be detected as pre-release."""
         assert _current_version_is_prerelease() is False
@@ -2999,7 +3001,7 @@ class TestCliBrowser:
         import importlib.metadata
 
         with patch(
-            "smolvm.cli.main.importlib.metadata.version",
+            "celesto.cli.main.importlib.metadata.version",
             side_effect=importlib.metadata.PackageNotFoundError("smolvm"),
         ):
             assert _current_version_is_prerelease() is False
@@ -3008,7 +3010,7 @@ class TestCliBrowser:
 class TestCliComputer:
     """Tests for complete desktop computer commands."""
 
-    @patch("smolvm.computer._ComputerSandbox")
+    @patch("celesto.computer._ComputerSandbox")
     def test_computer_start_json(
         self,
         mock_computer_cls: MagicMock,
@@ -3055,10 +3057,10 @@ class TestCliComputer:
         ret = main(["computer", "start", option, value])
 
         assert ret == 2
-        assert f"smolvm computer start {example}" in capsys.readouterr().err
+        assert f"celesto computer start {example}" in capsys.readouterr().err
 
-    @patch("smolvm.vm.resolve_data_dir", return_value=Path("/tmp"))
-    @patch("smolvm.cli.state.create_cli_state_manager")
+    @patch("celesto.vm.resolve_data_dir", return_value=Path("/tmp"))
+    @patch("celesto.cli.state.create_cli_state_manager")
     def test_computer_list_json_uses_computer_identifiers(
         self,
         mock_state_manager_cls: MagicMock,
@@ -3099,7 +3101,7 @@ class TestCliComputer:
 class TestCliUi:
     """Tests for `smolvm ui`."""
 
-    @patch("smolvm.cli.main.importlib.import_module")
+    @patch("celesto.cli.main.importlib.import_module")
     def test_ui_defaults(self, mock_import: MagicMock) -> None:
         """`smolvm ui` should launch uvicorn with defaults."""
         mock_uvicorn = MagicMock()
@@ -3110,12 +3112,12 @@ class TestCliUi:
         assert ret == 0
         mock_import.assert_called_once_with("uvicorn")
         mock_uvicorn.run.assert_called_once_with(
-            "smolvm.dashboard.server:app",
+            "celesto.dashboard.server:app",
             host="127.0.0.1",
             port=8080,
         )
 
-    @patch("smolvm.cli.main.importlib.import_module")
+    @patch("celesto.cli.main.importlib.import_module")
     def test_ui_custom_port(self, mock_import: MagicMock) -> None:
         """Custom host/port should be forwarded to uvicorn."""
         mock_uvicorn = MagicMock()
@@ -3125,12 +3127,12 @@ class TestCliUi:
 
         assert ret == 0
         mock_uvicorn.run.assert_called_once_with(
-            "smolvm.dashboard.server:app",
+            "celesto.dashboard.server:app",
             host="0.0.0.0",
             port=9090,
         )
 
-    @patch("smolvm.cli.main.importlib.import_module")
+    @patch("celesto.cli.main.importlib.import_module")
     def test_ui_allow_beta_sets_env(self, mock_import: MagicMock) -> None:
         """--allow-beta should set env flag while uvicorn starts."""
         mock_uvicorn = MagicMock()
@@ -3147,7 +3149,7 @@ class TestCliUi:
         assert ret == 0
         assert DASHBOARD_ALLOW_BETA_ENV not in os.environ
 
-    @patch("smolvm.cli.main.importlib.import_module", side_effect=ImportError)
+    @patch("celesto.cli.main.importlib.import_module", side_effect=ImportError)
     def test_ui_missing_dependency(
         self,
         _: MagicMock,
@@ -3159,7 +3161,7 @@ class TestCliUi:
         assert ret == 1
         assert "smolvm[dashboard]" in capsys.readouterr().err
 
-    @patch("smolvm.cli.main.importlib.import_module")
+    @patch("celesto.cli.main.importlib.import_module")
     def test_ui_invalid_port(
         self,
         mock_import: MagicMock,
@@ -3173,7 +3175,7 @@ class TestCliUi:
         assert ret == 2
         assert "invalid port" in capsys.readouterr().err
 
-    @patch("smolvm.cli.main.importlib.import_module")
+    @patch("celesto.cli.main.importlib.import_module")
     def test_ui_auto_beta_for_prerelease_version(
         self,
         mock_import: MagicMock,
@@ -3197,7 +3199,7 @@ class TestCliUi:
         assert DASHBOARD_ALLOW_BETA_ENV not in os.environ
         assert "auto-enabled" in capsys.readouterr().out
 
-    @patch("smolvm.cli.main.importlib.import_module")
+    @patch("celesto.cli.main.importlib.import_module")
     def test_ui_no_auto_beta_for_stable_version(
         self,
         mock_import: MagicMock,
@@ -3218,11 +3220,11 @@ class TestCliUi:
 
 
 class TestCliList:
-    """Tests for `smolvm sandbox list`."""
+    """Tests for `celesto sandbox list`."""
 
     @pytest.fixture
     def mock_sdk_cls(self) -> MagicMock:
-        with patch("smolvm.vm.SmolVMManager") as m:
+        with patch("celesto.vm.CelestoManager") as m:
             m.return_value.__enter__.return_value = m.return_value
             m.return_value.__exit__.side_effect = lambda *args: m.return_value.close()
             # `_run_list` now calls `sdk.refresh_status(vm)` on every row.
@@ -3235,7 +3237,7 @@ class TestCliList:
         mock_sdk_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox list` with no running VMs should print a friendly message."""
+        """`celesto sandbox list` with no running VMs should print a friendly message."""
         mock_sdk_cls.return_value.list_vms.return_value = []
 
         ret = main(["sandbox", "list"])
@@ -3250,7 +3252,7 @@ class TestCliList:
         mock_sdk_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox list` should show sandbox identity and provenance."""
+        """`celesto sandbox list` should show sandbox identity and provenance."""
         vms = [_make_vm_info("vm-abc123", VMState.RUNNING, "172.16.0.2", 2200, 12345)]
         mock_sdk_cls.return_value.list_vms.return_value = vms
 
@@ -3261,7 +3263,7 @@ class TestCliList:
         assert "vm-abc123" in out
         assert "running" in out
         assert "12345" in out
-        assert "SmolVM Instances" in out
+        assert "Celesto Instances" in out
         assert "Name" in out
         assert "Preset" in out
         assert "Status" in out
@@ -3274,7 +3276,7 @@ class TestCliList:
         mock_sdk_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox list --all` should include stopped VMs."""
+        """`celesto sandbox list --all` should include stopped VMs."""
         vms = [
             _make_vm_info("vm-abc123", VMState.RUNNING, "172.16.0.2", 2200, 12345),
             _make_vm_info("vm-def456", VMState.STOPPED, "172.16.0.3", None, None),
@@ -3296,7 +3298,7 @@ class TestCliList:
         mock_sdk_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox list` should show '-' for a missing PID."""
+        """`celesto sandbox list` should show '-' for a missing PID."""
         vms = [_make_vm_info("vm-abc123", VMState.RUNNING, "", None, None)]
         vms[0].network = None
         mock_sdk_cls.return_value.list_vms.return_value = vms
@@ -3315,7 +3317,7 @@ class TestCliList:
         self,
         mock_sdk_cls: MagicMock,
     ) -> None:
-        """`smolvm sandbox list --status running` passes status to list_vms."""
+        """`celesto sandbox list --status running` passes status to list_vms."""
         mock_sdk_cls.return_value.list_vms.return_value = []
 
         ret = main(["sandbox", "list", "--status", "running"])
@@ -3328,7 +3330,7 @@ class TestCliList:
         mock_sdk_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox list --json` should emit structured data for running VMs."""
+        """`celesto sandbox list --json` should emit structured data for running VMs."""
         mock_sdk_cls.return_value.list_vms.return_value = [
             _make_vm_info("vm-abc123", VMState.RUNNING, "172.16.0.2", 2200, 12345),
         ]
@@ -3362,7 +3364,7 @@ class TestCliList:
         mock_sdk_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox list --json` should emit an empty JSON array when nothing matches."""
+        """`celesto sandbox list --json` should emit an empty JSON array when nothing matches."""
         mock_sdk_cls.return_value.list_vms.return_value = []
 
         ret = main(["sandbox", "list", "--json"])
@@ -3382,7 +3384,7 @@ class TestCliList:
         mock_sdk_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox list --all --json` should emit all VM rows."""
+        """`celesto sandbox list --all --json` should emit all VM rows."""
         mock_sdk_cls.return_value.list_vms.return_value = [
             _make_vm_info("vm-abc123", VMState.RUNNING, "172.16.0.2", 2200, 12345),
             _make_vm_info("vm-def456", VMState.STOPPED, "172.16.0.3", None, None),
@@ -3529,20 +3531,20 @@ class TestCliList:
             (
                 ["openclaw", "list"],
                 "No running 'openclaw' sandboxes found.",
-                ("smolvm openclaw list --all",),
+                ("celesto openclaw list --all",),
             ),
             (
                 ["openclaw", "list", "--all"],
                 "No 'openclaw' sandboxes found.",
                 (
                     "To include older or manually prepared sandboxes, run",
-                    "'smolvm sandbox list --all'; to create one, run 'smolvm openclaw start'.",
+                    "'celesto sandbox list --all'; to create one, run 'celesto openclaw start'.",
                 ),
             ),
             (
                 ["openclaw", "list", "--status", "stopped"],
                 "No 'openclaw' sandboxes with status 'stopped'.",
-                ("smolvm openclaw list --all",),
+                ("celesto openclaw list --all",),
             ),
         ],
     )
@@ -3575,8 +3577,8 @@ class TestCliList:
 
         assert ret == 0
         output = " ".join(capsys.readouterr().out.split())
-        assert "smolvm sandbox list --preset codex --all" in output
-        assert "smolvm codex list" not in output
+        assert "celesto sandbox list --preset codex --all" in output
+        assert "celesto codex list" not in output
 
     def test_list_rejects_unknown_preset(self, capsys: pytest.CaptureFixture) -> None:
         ret = main(["sandbox", "list", "--preset", "unknown"])
@@ -3591,7 +3593,7 @@ class TestCliList:
         mock_sdk_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox list --status stopped` with no results shows filtered message."""
+        """`celesto sandbox list --status stopped` with no results shows filtered message."""
         mock_sdk_cls.return_value.list_vms.return_value = []
 
         ret = main(["sandbox", "list", "--status", "stopped"])
@@ -3604,7 +3606,7 @@ class TestCliList:
         mock_sdk_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox list` prints error and returns 1 on unexpected failure."""
+        """`celesto sandbox list` prints error and returns 1 on unexpected failure."""
         mock_sdk_cls.return_value.list_vms.side_effect = RuntimeError("db unavailable")
 
         ret = main(["sandbox", "list"])
@@ -3619,7 +3621,7 @@ class TestCliList:
         capsys: pytest.CaptureFixture,
         tmp_path: Path,
     ) -> None:
-        """`smolvm sandbox list` should keep listing VMs whose host mount is gone,
+        """`celesto sandbox list` should keep listing VMs whose host mount is gone,
         and print a warning naming the missing path."""
         vm, missing = _make_vm_with_stale_mount(tmp_path)
         mock_sdk_cls.return_value.list_vms.return_value = [vm]
@@ -3633,7 +3635,7 @@ class TestCliList:
         assert "Warnings:" in out
         assert str(missing) in out
         # The warning explains what to do, not just what's wrong.
-        assert "smolvm sandbox delete vm-abc123" in out
+        assert "celesto sandbox delete vm-abc123" in out
 
     def test_list_warning_does_not_claim_running_sandbox_cannot_start(
         self,
@@ -3664,7 +3666,7 @@ class TestCliList:
         capsys: pytest.CaptureFixture,
         tmp_path: Path,
     ) -> None:
-        """`smolvm sandbox list --json` should expose stale mounts via `warnings`."""
+        """`celesto sandbox list --json` should expose stale mounts via `warnings`."""
         vm, missing = _make_vm_with_stale_mount(tmp_path)
         mock_sdk_cls.return_value.list_vms.return_value = [vm]
 
@@ -3678,15 +3680,15 @@ class TestCliList:
         # what's wrong, the missing path, and how to recover.
         assert str(missing) in warnings[0]
         assert "missing" in warnings[0]
-        assert "smolvm sandbox delete vm-abc123" in warnings[0]
+        assert "celesto sandbox delete vm-abc123" in warnings[0]
 
 
 class TestCliInfo:
-    """Tests for `smolvm sandbox info`."""
+    """Tests for `celesto sandbox info`."""
 
     @pytest.fixture
     def mock_sdk_cls(self) -> MagicMock:
-        with patch("smolvm.vm.SmolVMManager") as m:
+        with patch("celesto.vm.CelestoManager") as m:
             m.return_value.__enter__.return_value = m.return_value
             m.return_value.__exit__.side_effect = lambda *args: m.return_value.close()
             yield m
@@ -3731,7 +3733,7 @@ class TestCliInfo:
         tmp_path: Path,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox info <name>` should show the full details table."""
+        """`celesto sandbox info <name>` should show the full details table."""
         rootfs = tmp_path / "ubuntu-noble-minimal-qemu-x86_64" / "rootfs.qcow2"
         rootfs.parent.mkdir(parents=True)
         rootfs.write_bytes(b"\0" * (5 * 1024 * 1024))  # 5 MiB
@@ -3766,7 +3768,7 @@ class TestCliInfo:
         """For running VMs, info should overlay OS and used memory from SSH."""
         vm_info = self._make_info_vm(status=VMState.RUNNING)
         mock_sdk_cls.return_value.state.get_vm.return_value = vm_info
-        with patch("smolvm.cli.main._query_live_vm_info") as mock_query:
+        with patch("celesto.cli.main._query_live_vm_info") as mock_query:
             mock_query.return_value = {
                 "os": "Ubuntu 24.04.1 LTS",
                 "memory_used": 312,
@@ -3789,7 +3791,7 @@ class TestCliInfo:
         mock_sdk_cls.return_value.state.get_vm.return_value = self._make_info_vm(
             status=VMState.RUNNING
         )
-        with patch("smolvm.cli.main._query_live_vm_info") as mock_query:
+        with patch("celesto.cli.main._query_live_vm_info") as mock_query:
             mock_query.return_value = {}
 
             ret = main(["sandbox", "info", "sbx-pauling"])
@@ -3805,7 +3807,7 @@ class TestCliInfo:
         mock_sdk_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox info` should render '-' when the VM has no network."""
+        """`celesto sandbox info` should render '-' when the VM has no network."""
         mock_sdk_cls.return_value.state.get_vm.return_value = self._make_info_vm(
             status=VMState.STOPPED, guest_ip=None, ssh_host_port=None, pid=None
         )
@@ -3823,7 +3825,7 @@ class TestCliInfo:
         tmp_path: Path,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox info --json` should emit a structured envelope."""
+        """`celesto sandbox info --json` should emit a structured envelope."""
         rootfs = tmp_path / "alpine-virt" / "rootfs.ext4"
         rootfs.parent.mkdir(parents=True)
         rootfs.write_bytes(b"\0" * (3 * 1024 * 1024))  # 3 MiB
@@ -3883,7 +3885,7 @@ class TestCliInfo:
         mock_sdk_cls: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox info` returns 1 and an error message when the VM is missing."""
+        """`celesto sandbox info` returns 1 and an error message when the VM is missing."""
         mock_sdk_cls.return_value.state.get_vm.side_effect = RuntimeError("VM 'ghost' not found")
 
         ret = main(["sandbox", "info", "ghost"])
@@ -3905,7 +3907,7 @@ class TestCliInfo:
         mock_sdk_cls.return_value.state.get_vm.return_value = self._make_info_vm(
             status=VMState.STOPPED, rootfs_path=rootfs
         )
-        with patch("smolvm.facade._qcow2_virtual_size_mib", return_value=8192) as mock_qsize:
+        with patch("celesto.facade._qcow2_virtual_size_mib", return_value=8192) as mock_qsize:
             ret = main(["sandbox", "info", "sbx-pauling", "--json"])
 
         assert ret == 0
@@ -3928,7 +3930,7 @@ class TestCliStart:
         return vm
 
     def test_top_level_help_lists_known_presets(self, capsys: pytest.CaptureFixture) -> None:
-        """`smolvm --help` should list every registered preset as a top-level command."""
+        """`celesto --help` should list every registered preset as a top-level command."""
         ret = main(["--help"])
         assert ret == 0
         out = capsys.readouterr().out
@@ -3944,7 +3946,7 @@ class TestCliStart:
         self,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm sandbox --help` should expose sandbox-owned resources."""
+        """`celesto sandbox --help` should expose sandbox-owned resources."""
         ret = main(["sandbox", "--help"])
         assert ret == 0
         out = capsys.readouterr().out
@@ -3966,7 +3968,7 @@ class TestCliStart:
         assert "No such command" in capsys.readouterr().err
 
     def test_preset_help_lists_start_action(self, capsys: pytest.CaptureFixture) -> None:
-        """`smolvm codex --help` should list the `start` action."""
+        """`celesto codex --help` should list the `start` action."""
         ret = main(["codex", "--help"])
         assert ret == 0
         out = capsys.readouterr().out
@@ -3987,7 +3989,7 @@ class TestCliStart:
         nothing and the file is never created."""
         import subprocess
 
-        from smolvm.cli.main import _exec_launch_command
+        from celesto.cli.main import _exec_launch_command
 
         captured: list[list[str]] = []
 
@@ -4003,7 +4005,7 @@ class TestCliStart:
             result.returncode = 0
             return result
 
-        with patch("smolvm.cli.main.subprocess.run", side_effect=fake_run):
+        with patch("celesto.cli.main.subprocess.run", side_effect=fake_run):
             _exec_launch_command(_StubSshVm(), "claude")
 
         remote = captured[0][-1]
@@ -4029,7 +4031,7 @@ class TestCliStart:
         SSH shell, which otherwise inherits root's default PATH."""
         import subprocess
 
-        from smolvm.cli.main import _exec_launch_command
+        from celesto.cli.main import _exec_launch_command
 
         captured: list[list[str]] = []
 
@@ -4043,7 +4045,7 @@ class TestCliStart:
             result.returncode = 0
             return result
 
-        with patch("smolvm.cli.main.subprocess.run", side_effect=fake_run):
+        with patch("celesto.cli.main.subprocess.run", side_effect=fake_run):
             _exec_launch_command(_StubSshVm(), "claude")
 
         remote = captured[0][-1]
@@ -4087,10 +4089,10 @@ class TestCliStart:
         assert ret == 2
         assert "No such command" in capsys.readouterr().err
 
-    @patch("smolvm.images.published.is_preset_published", return_value=False)
-    @patch("smolvm.cli.main._apply_preset_with_progress")
-    @patch("smolvm.facade._build_auto_config")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.images.published.is_preset_published", return_value=False)
+    @patch("celesto.cli.main._apply_preset_with_progress")
+    @patch("celesto.facade._build_auto_config")
+    @patch("celesto.facade.Celesto")
     def test_start_codex_default_path(
         self,
         mock_vm_cls: MagicMock,
@@ -4099,13 +4101,13 @@ class TestCliStart:
         _mock_is_published: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm codex start` boots ubuntu/qemu with preset defaults and applies the preset.
+        """`celesto codex start` boots ubuntu/qemu with preset defaults and applies the preset.
 
         Forces the install-at-boot path (is_preset_published=False) since
         codex now has a published image and would otherwise take the fast
         path. The published-path coverage is exercised in separate tests.
         """
-        from smolvm.types import GuestOS
+        from celesto.types import GuestOS
 
         config = MagicMock(vm_id="sbx-codex")
         mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
@@ -4149,13 +4151,13 @@ class TestCliStart:
         assert "sbx-codex" in out
         assert "codex" in out
         assert "OPENAI_API_KEY" in out
-        assert "smolvm sandbox shell sbx-codex" in out
-        assert "smolvm sandbox ssh sbx-codex" in out
+        assert "celesto sandbox shell sbx-codex" in out
+        assert "celesto sandbox ssh sbx-codex" in out
 
-    @patch("smolvm.images.published.is_preset_published", return_value=False)
-    @patch("smolvm.presets.apply_preset")
-    @patch("smolvm.facade._build_auto_config")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.images.published.is_preset_published", return_value=False)
+    @patch("celesto.presets.apply_preset")
+    @patch("celesto.facade._build_auto_config")
+    @patch("celesto.facade.Celesto")
     def test_start_codex_json(
         self,
         mock_vm_cls: MagicMock,
@@ -4164,7 +4166,7 @@ class TestCliStart:
         _mock_is_published: MagicMock,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """`smolvm codex start --json` should emit the start envelope."""
+        """`celesto codex start --json` should emit the start envelope."""
         config = MagicMock(vm_id="sbx-1")
         mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
         vm = self._make_vm_mock("sbx-1")
@@ -4185,16 +4187,16 @@ class TestCliStart:
         assert payload["data"]["vm"]["os"] == "ubuntu"
         assert payload["data"]["preset"]["name"] == "codex"
         assert payload["data"]["preset"]["injected_env_keys"] == ["OPENAI_API_KEY"]
-        assert payload["data"]["next"]["shell_command"] == "smolvm sandbox shell sbx-1"
-        assert payload["data"]["next"]["ssh_command"] == "smolvm sandbox ssh sbx-1"
+        assert payload["data"]["next"]["shell_command"] == "celesto sandbox shell sbx-1"
+        assert payload["data"]["next"]["ssh_command"] == "celesto sandbox ssh sbx-1"
         assert mock_build_auto_config.call_args.kwargs["preset_name"] == "codex"
         assert mock_apply_fn.call_args.kwargs["preset_command"] == "codex"
         assert mock_apply_fn.call_args.kwargs["sandbox_name"] == "sbx-1"
 
-    @patch("smolvm.images.published.is_preset_published", return_value=False)
-    @patch("smolvm.presets.apply_preset")
-    @patch("smolvm.facade._build_auto_config")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.images.published.is_preset_published", return_value=False)
+    @patch("celesto.presets.apply_preset")
+    @patch("celesto.facade._build_auto_config")
+    @patch("celesto.facade.Celesto")
     def test_start_codex_json_threads_explicit_comm_channel(
         self,
         mock_vm_cls: MagicMock,
@@ -4227,7 +4229,7 @@ class TestCliStart:
         json.loads(capsys.readouterr().out)
 
     def test_preset_control_channel_uses_resolved_control_without_ssh_fallback(self) -> None:
-        from smolvm.cli.main import _preset_control_channel
+        from celesto.cli.main import _preset_control_channel
 
         channel = object()
         vm = MagicMock()
@@ -4240,10 +4242,10 @@ class TestCliStart:
         )
         vm.wait_for_ssh.assert_not_called()
 
-    @patch("smolvm.images.published.is_preset_published", return_value=False)
-    @patch("smolvm.cli.main._apply_preset_with_progress")
-    @patch("smolvm.facade._build_auto_config")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.images.published.is_preset_published", return_value=False)
+    @patch("celesto.cli.main._apply_preset_with_progress")
+    @patch("celesto.facade._build_auto_config")
+    @patch("celesto.facade.Celesto")
     def test_start_alpine_falls_through_to_install_at_boot(
         self,
         mock_vm_cls: MagicMock,
@@ -4255,7 +4257,7 @@ class TestCliStart:
         """When no Alpine row is published yet, ``--os alpine`` must thread
         the OS through ``_build_auto_config`` (install-at-boot path) and
         echo the flag value back in the JSON envelope."""
-        from smolvm.types import GuestOS
+        from celesto.types import GuestOS
 
         config = MagicMock(vm_id="sbx-claude")
         mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
@@ -4285,8 +4287,8 @@ class TestCliStart:
         payload = json.loads(capsys.readouterr().out)
         assert payload["data"]["vm"]["os"] == "alpine"
 
-    @patch("smolvm.cli.main._run_start_with_published_image", return_value=0)
-    @patch("smolvm.images.published.is_preset_published")
+    @patch("celesto.cli.main._run_start_with_published_image", return_value=0)
+    @patch("celesto.images.published.is_preset_published")
     def test_start_alpine_uses_published_fast_path_when_available(
         self,
         mock_is_published: MagicMock,
@@ -4317,10 +4319,10 @@ class TestCliStart:
         last_call = mock_is_published.call_args
         assert "alpine" in last_call.args or last_call.kwargs.get("os") == "alpine"
 
-    @patch("smolvm.images.published.is_preset_published", return_value=False)
-    @patch("smolvm.cli.main._apply_preset_with_progress")
-    @patch("smolvm.facade._build_auto_config")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.images.published.is_preset_published", return_value=False)
+    @patch("celesto.cli.main._apply_preset_with_progress")
+    @patch("celesto.facade._build_auto_config")
+    @patch("celesto.facade.Celesto")
     def test_start_default_os_is_ubuntu(
         self,
         mock_vm_cls: MagicMock,
@@ -4329,7 +4331,7 @@ class TestCliStart:
         _mock_is_published: MagicMock,
     ) -> None:
         """Omitting --os keeps the historical Ubuntu default for presets."""
-        from smolvm.types import GuestOS
+        from celesto.types import GuestOS
 
         config = MagicMock(vm_id="sbx-claude")
         mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
@@ -4366,13 +4368,13 @@ class TestCliStart:
         assert ret == 2
         payload = json.loads(capsys.readouterr().out)
         assert payload["exit_code"] == 2
-        assert "smolvm openclaw start --os ubuntu" in payload["error"]["message"]
+        assert "celesto openclaw start --os ubuntu" in payload["error"]["message"]
 
-    @patch("smolvm.images.published.is_preset_published", return_value=True)
-    @patch("smolvm.cli.main._run_start_with_published_image")
-    @patch("smolvm.presets.apply_preset")
-    @patch("smolvm.facade._build_auto_config")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.images.published.is_preset_published", return_value=True)
+    @patch("celesto.cli.main._run_start_with_published_image")
+    @patch("celesto.presets.apply_preset")
+    @patch("celesto.facade._build_auto_config")
+    @patch("celesto.facade.Celesto")
     def test_openclaw_skips_the_stale_published_image(
         self,
         mock_vm_cls: MagicMock,
@@ -4397,10 +4399,10 @@ class TestCliStart:
         mock_published_path.assert_not_called()
         mock_apply.assert_called_once()
 
-    @patch("smolvm.images.published.is_preset_published", return_value=False)
-    @patch("smolvm.cli.main._apply_preset_with_progress")
-    @patch("smolvm.facade._build_auto_config")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.images.published.is_preset_published", return_value=False)
+    @patch("celesto.cli.main._apply_preset_with_progress")
+    @patch("celesto.facade._build_auto_config")
+    @patch("celesto.facade.Celesto")
     def test_start_claude_code_overrides_memory(
         self,
         mock_vm_cls: MagicMock,
@@ -4427,9 +4429,9 @@ class TestCliStart:
         assert kwargs["disk_size_mib"] == 16384
         assert mock_apply.call_args.kwargs["preset_command"] == "claude"
 
-    @patch("smolvm.images.published.is_preset_published", return_value=False)
-    @patch("smolvm.facade._build_auto_config")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.images.published.is_preset_published", return_value=False)
+    @patch("celesto.facade._build_auto_config")
+    @patch("celesto.facade.Celesto")
     def test_start_rejects_non_qemu_backend(
         self,
         mock_vm_cls: MagicMock,
@@ -4453,11 +4455,11 @@ class TestCliStart:
         mock_build_auto_config.assert_not_called()
         mock_vm_cls.assert_not_called()
 
-    @patch("smolvm.images.published.is_preset_published", return_value=False)
-    @patch("smolvm.cli.main.subprocess.run")
-    @patch("smolvm.cli.main._apply_preset_with_progress")
-    @patch("smolvm.facade._build_auto_config")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.images.published.is_preset_published", return_value=False)
+    @patch("celesto.cli.main.subprocess.run")
+    @patch("celesto.cli.main._apply_preset_with_progress")
+    @patch("celesto.facade._build_auto_config")
+    @patch("celesto.facade.Celesto")
     def test_start_attach_runs_codex_via_ssh(
         self,
         mock_vm_cls: MagicMock,
@@ -4504,11 +4506,11 @@ class TestCliStart:
         )
         assert "[ -r " in remote, "env file source must be guarded with a file-existence check"
 
-    @patch("smolvm.images.published.is_preset_published", return_value=False)
-    @patch("smolvm.cli.main.subprocess.run")
-    @patch("smolvm.cli.main._apply_preset_with_progress")
-    @patch("smolvm.facade._build_auto_config")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.images.published.is_preset_published", return_value=False)
+    @patch("celesto.cli.main.subprocess.run")
+    @patch("celesto.cli.main._apply_preset_with_progress")
+    @patch("celesto.facade._build_auto_config")
+    @patch("celesto.facade.Celesto")
     def test_start_no_attach_skips_subprocess(
         self,
         mock_vm_cls: MagicMock,
@@ -4532,13 +4534,13 @@ class TestCliStart:
         assert ret == 0
         mock_subprocess_run.assert_not_called()
 
-    @patch("smolvm.images.published.is_preset_published", return_value=False)
-    @patch("smolvm.cli.main.subprocess.run")
-    @patch("smolvm.cli.main.sys.stdin")
+    @patch("celesto.images.published.is_preset_published", return_value=False)
+    @patch("celesto.cli.main.subprocess.run")
+    @patch("celesto.cli.main.sys.stdin")
     @patch("builtins.input", return_value="y")
-    @patch("smolvm.cli.main._apply_preset_with_progress")
-    @patch("smolvm.facade._build_auto_config")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.cli.main._apply_preset_with_progress")
+    @patch("celesto.facade._build_auto_config")
+    @patch("celesto.facade.Celesto")
     def test_start_prompt_yes_attaches(
         self,
         mock_vm_cls: MagicMock,
@@ -4572,13 +4574,13 @@ class TestCliStart:
         mock_input.assert_called_once()
         mock_subprocess_run.assert_called_once()
 
-    @patch("smolvm.images.published.is_preset_published", return_value=False)
-    @patch("smolvm.cli.main.subprocess.run")
-    @patch("smolvm.cli.main.sys.stdin")
+    @patch("celesto.images.published.is_preset_published", return_value=False)
+    @patch("celesto.cli.main.subprocess.run")
+    @patch("celesto.cli.main.sys.stdin")
     @patch("builtins.input", return_value="n")
-    @patch("smolvm.cli.main._apply_preset_with_progress")
-    @patch("smolvm.facade._build_auto_config")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.cli.main._apply_preset_with_progress")
+    @patch("celesto.facade._build_auto_config")
+    @patch("celesto.facade.Celesto")
     def test_start_prompt_no_skips_attach(
         self,
         mock_vm_cls: MagicMock,
@@ -4607,11 +4609,11 @@ class TestCliStart:
         mock_input.assert_called_once()
         mock_subprocess_run.assert_not_called()
 
-    @patch("smolvm.images.published.is_preset_published", return_value=False)
-    @patch("smolvm.cli.main.subprocess.run")
-    @patch("smolvm.presets.apply_preset")
-    @patch("smolvm.facade._build_auto_config")
-    @patch("smolvm.facade.SmolVM")
+    @patch("celesto.images.published.is_preset_published", return_value=False)
+    @patch("celesto.cli.main.subprocess.run")
+    @patch("celesto.presets.apply_preset")
+    @patch("celesto.facade._build_auto_config")
+    @patch("celesto.facade.Celesto")
     def test_start_json_never_attaches(
         self,
         mock_vm_cls: MagicMock,
@@ -4659,7 +4661,7 @@ class TestOpenClawCommands:
         assert "Include OpenClaw sandboxes in every state." in output
         assert "Show only OpenClaw sandboxes in this state." in output
 
-    @patch("smolvm.cli.main._run_list", return_value=0)
+    @patch("celesto.cli.main._run_list", return_value=0)
     def test_list_routes_filters_to_the_shared_sandbox_inventory(
         self,
         mock_run: MagicMock,
@@ -4676,7 +4678,7 @@ class TestOpenClawCommands:
             command_name="openclaw.list",
         )
 
-    @patch("smolvm.cli.main._run_list", return_value=0)
+    @patch("celesto.cli.main._run_list", return_value=0)
     def test_list_rejects_conflicting_filters(self, mock_run: MagicMock) -> None:
         ret = main(["openclaw", "list", "--all", "--status", "running"])
 
@@ -4695,7 +4697,7 @@ class TestOpenClawCommands:
         assert "--os [ubuntu]" in output
         assert "alpine" not in output
         assert "windows" not in output
-        assert "Sandbox name; SmolVM generates one when omitted." in normalized_output
+        assert "Sandbox name; Celesto generates one when omitted." in normalized_output
         assert "Seconds to wait for each agent installation step." in normalized_output
 
     def test_open_command_has_been_replaced_by_open_ui(
@@ -4706,7 +4708,7 @@ class TestOpenClawCommands:
         assert ret == 2
         assert "No such command 'open'" in capsys.readouterr().err
 
-    @patch("smolvm.cli.main._cli_vm_from_id", side_effect=VMNotFoundError("missing-claw"))
+    @patch("celesto.cli.main._cli_vm_from_id", side_effect=VMNotFoundError("missing-claw"))
     @pytest.mark.parametrize("json_output", [False, True])
     def test_open_ui_missing_sandbox_names_recovery_commands(
         self,
@@ -4724,10 +4726,12 @@ class TestOpenClawCommands:
         captured = capsys.readouterr()
         error = json.loads(captured.out)["error"]["message"] if json_output else captured.err
         assert "Sandbox 'missing-claw' was not found" in error
-        assert "smolvm sandbox list --all" in error
-        assert "smolvm openclaw start --name missing-claw --no-attach" in error
+        assert "celestosandboxlist--all" in "".join(error.split()).replace("│", "")
+        assert "celestoopenclawstart--namemissing-claw--no-attach" in (
+            "".join(error.split()).replace("│", "")
+        )
 
-    @patch("smolvm.cli.main._run_openclaw_open_ui", return_value=0)
+    @patch("celesto.cli.main._run_openclaw_open_ui", return_value=0)
     def test_open_ui_routes_options_to_handler(self, mock_run: MagicMock) -> None:
         ret = main(
             [
@@ -4751,9 +4755,9 @@ class TestOpenClawCommands:
         assert args.comm_channel == "ssh"
         assert args.json is True
 
-    @patch("smolvm.cli.main.webbrowser.open", return_value=True)
-    @patch("smolvm.cli.main._track_port_forward")
-    @patch("smolvm.cli.main._cli_vm_from_id")
+    @patch("celesto.cli.main.webbrowser.open", return_value=True)
+    @patch("celesto.cli.main._track_port_forward")
+    @patch("celesto.cli.main._cli_vm_from_id")
     def test_open_starts_gateway_and_hides_one_time_token_after_browser_opens(
         self,
         mock_vm_from_id: MagicMock,
@@ -4794,12 +4798,12 @@ class TestOpenClawCommands:
         output = capsys.readouterr().out
         assert "http://127.0.0.1:39876/" in output
         assert "one-time-secret" not in output
-        assert "smolvm sandbox port close sbx-claw 39876:18789" in output
+        assert "celesto sandbox port close sbx-claw 39876:18789" in output
         vm.close.assert_called_once()
 
-    @patch("smolvm.cli.main.webbrowser.open")
-    @patch("smolvm.cli.main._track_port_forward")
-    @patch("smolvm.cli.main._cli_vm_from_id")
+    @patch("celesto.cli.main.webbrowser.open")
+    @patch("celesto.cli.main._track_port_forward")
+    @patch("celesto.cli.main._cli_vm_from_id")
     def test_json_returns_rewritten_dashboard_links_without_opening_browser(
         self,
         mock_vm_from_id: MagicMock,
@@ -4836,13 +4840,13 @@ class TestOpenClawCommands:
             "browser_url": "http://127.0.0.1:39877/#token=secret",
             "ws_url": None,
             "opened": False,
-            "close_command": "smolvm sandbox port close sbx-claw 39877:18789",
+            "close_command": "celesto sandbox port close sbx-claw 39877:18789",
         }
         vm.close.assert_called_once()
 
-    @patch("smolvm.cli.main.webbrowser.open")
-    @patch("smolvm.cli.main._track_port_forward")
-    @patch("smolvm.cli.main._cli_vm_from_id")
+    @patch("celesto.cli.main.webbrowser.open")
+    @patch("celesto.cli.main._track_port_forward")
+    @patch("celesto.cli.main._cli_vm_from_id")
     def test_no_browser_prints_the_one_time_link(
         self,
         mock_vm_from_id: MagicMock,
@@ -4874,7 +4878,7 @@ class TestOpenClawCommands:
         mock_browser_open.assert_not_called()
         assert "http://127.0.0.1:39876/#token=one-time-secret" in capsys.readouterr().out
 
-    @patch("smolvm.cli.main._cli_vm_from_id")
+    @patch("celesto.cli.main._cli_vm_from_id")
     def test_open_rejects_non_loopback_dashboard_url_before_exposing_port(
         self,
         mock_vm_from_id: MagicMock,
@@ -4897,11 +4901,11 @@ class TestOpenClawCommands:
         assert ret == 1
         message = json.loads(capsys.readouterr().out)["error"]["message"]
         assert "unexpected dashboard address" in message
-        assert "smolvm sandbox shell sbx-claw" in message
+        assert "celesto sandbox shell sbx-claw" in message
         vm.expose_local.assert_not_called()
         vm.close.assert_called_once()
 
-    @patch("smolvm.cli.main._cli_vm_from_id")
+    @patch("celesto.cli.main._cli_vm_from_id")
     def test_open_rejects_the_wrong_loopback_port_before_exposing(
         self,
         mock_vm_from_id: MagicMock,
@@ -4993,7 +4997,7 @@ class TestOpenClawCommands:
             ),
         ],
     )
-    @patch("smolvm.cli.main._cli_vm_from_id")
+    @patch("celesto.cli.main._cli_vm_from_id")
     def test_open_failure_paths_are_actionable_and_do_not_expose_a_port(
         self,
         mock_vm_from_id: MagicMock,
@@ -5012,15 +5016,15 @@ class TestOpenClawCommands:
         assert message in error
         assert "sbx-claw" in error
         if message in {"OpenClaw is not installed", "requires OpenClaw 2026.9.1"}:
-            assert "smolvm sandbox snapshot create sbx-claw" in error
-            assert "smolvm sandbox delete sbx-claw" in error
-            assert "smolvm openclaw start --name sbx-claw --no-attach" in error
+            assert "celesto sandbox snapshot create sbx-claw" in error
+            assert "celesto sandbox delete sbx-claw" in error
+            assert "celesto openclaw start --name sbx-claw --no-attach" in error
         vm.expose_local.assert_not_called()
         vm.close.assert_called_once()
 
-    @patch("smolvm.cli.main._remove_port_forward")
-    @patch("smolvm.cli.main._track_port_forward", side_effect=RuntimeError("state corrupt"))
-    @patch("smolvm.cli.main._cli_vm_from_id")
+    @patch("celesto.cli.main._remove_port_forward")
+    @patch("celesto.cli.main._track_port_forward", side_effect=RuntimeError("state corrupt"))
+    @patch("celesto.cli.main._cli_vm_from_id")
     def test_open_rolls_back_exposure_when_tracking_fails(
         self,
         mock_vm_from_id: MagicMock,
@@ -5051,9 +5055,9 @@ class TestOpenClawCommands:
         mock_remove.assert_called_once_with("sbx-claw", 39876, 18789)
         vm.close.assert_called_once()
 
-    @patch("smolvm.cli.main.webbrowser.open", side_effect=OSError("no browser"))
-    @patch("smolvm.cli.main._track_port_forward")
-    @patch("smolvm.cli.main._cli_vm_from_id")
+    @patch("celesto.cli.main.webbrowser.open", side_effect=OSError("no browser"))
+    @patch("celesto.cli.main._track_port_forward")
+    @patch("celesto.cli.main._cli_vm_from_id")
     def test_open_prints_link_when_browser_launch_fails(
         self,
         mock_vm_from_id: MagicMock,
@@ -5083,13 +5087,13 @@ class TestOpenClawCommands:
         vm.unexpose_local.assert_not_called()
         vm.close.assert_called_once()
 
-    @patch("smolvm.cli.main._port_forwards_path")
+    @patch("celesto.cli.main._port_forwards_path")
     def test_track_port_forward_persists_transport_pid_and_replaces_stale_pair(
         self,
         mock_path: MagicMock,
         tmp_path: Path,
     ) -> None:
-        from smolvm.cli.main import _track_port_forward
+        from celesto.cli.main import _track_port_forward
 
         state_path = tmp_path / "forwards.json"
         state_path.write_text(
@@ -5118,13 +5122,13 @@ class TestOpenClawCommands:
             },
         ]
 
-    @patch("smolvm.cli.main._port_forwards_path")
+    @patch("celesto.cli.main._port_forwards_path")
     def test_track_port_forward_defaults_to_nftables_without_runtime_record(
         self,
         mock_path: MagicMock,
         tmp_path: Path,
     ) -> None:
-        from smolvm.cli.main import _track_port_forward
+        from celesto.cli.main import _track_port_forward
 
         state_path = tmp_path / "forwards.json"
         mock_path.return_value = state_path
@@ -5151,7 +5155,7 @@ class TestOpenClawCommands:
         records: list[object],
         tmp_path: Path,
     ) -> None:
-        from smolvm.cli.main import _load_port_forwards_unlocked
+        from celesto.cli.main import _load_port_forwards_unlocked
 
         state_path = tmp_path / "forward state.json"
         state_path.write_text(json.dumps(records))
@@ -5168,7 +5172,7 @@ class TestOpenClawCommands:
         self,
         tmp_path: Path,
     ) -> None:
-        from smolvm.cli.main import _load_port_forwards_unlocked
+        from celesto.cli.main import _load_port_forwards_unlocked
 
         state_path = tmp_path / "forward state.json"
         state_path.write_text("{")
@@ -5199,19 +5203,19 @@ class TestPublishedImageLaunchPath:
         """Exercise the path directly while production skips the stale OpenClaw image."""
         from dataclasses import replace
 
-        from smolvm.presets import OPENCLAW_PRESET
+        from celesto.presets import OPENCLAW_PRESET
 
         for key in OPENCLAW_PRESET.host_env_vars:
             monkeypatch.delenv(key, raising=False)
         with patch.dict(
-            "smolvm.presets._REGISTRY",
+            "celesto.presets._REGISTRY",
             {"openclaw": replace(OPENCLAW_PRESET, prefer_published_image=True)},
         ):
             yield
 
-    @patch("smolvm.cli.main.platform.machine")
+    @patch("celesto.cli.main.platform.machine")
     def test_arch_helper_normalizes(self, mock_machine: MagicMock) -> None:
-        from smolvm.cli.main import _host_arch_for_published
+        from celesto.cli.main import _host_arch_for_published
 
         for raw, expected in [
             ("x86_64", "amd64"),
@@ -5224,14 +5228,14 @@ class TestPublishedImageLaunchPath:
             mock_machine.return_value = raw
             assert _host_arch_for_published() == expected, raw
 
-    @patch("smolvm.cli.main.platform.machine", return_value="riscv64")
+    @patch("celesto.cli.main.platform.machine", return_value="riscv64")
     def test_arch_helper_rejects_unsupported(self, _mock_machine: MagicMock) -> None:
-        from smolvm.cli.main import _host_arch_for_published
+        from celesto.cli.main import _host_arch_for_published
 
         with pytest.raises(RuntimeError, match="Unsupported host architecture"):
             _host_arch_for_published()
 
-    @patch("smolvm.cli.main._run_start_with_published_image")
+    @patch("celesto.cli.main._run_start_with_published_image")
     def test_start_routes_to_published_path_when_env_set(
         self,
         mock_published_path: MagicMock,
@@ -5247,9 +5251,9 @@ class TestPublishedImageLaunchPath:
         called_args = mock_published_path.call_args[0]
         assert called_args[1].name == "openclaw"
 
-    @patch("smolvm.utils.ensure_ssh_key")
-    @patch("smolvm.cli.main.platform.system", return_value="Linux")
-    @patch("smolvm.images.published.ensure_published_image")
+    @patch("celesto.utils.ensure_ssh_key")
+    @patch("celesto.cli.main.platform.system", return_value="Linux")
+    @patch("celesto.images.published.ensure_published_image")
     def test_published_path_surfaces_missing_manifest_error(
         self,
         mock_ensure: MagicMock,
@@ -5264,7 +5268,7 @@ class TestPublishedImageLaunchPath:
         without ssh-keygen on PATH the test would fail there instead of
         reaching the ImageError it's meant to verify.
         """
-        from smolvm.exceptions import ImageError
+        from celesto.exceptions import ImageError
 
         priv = tmp_path / "id_ed25519"
         pub = tmp_path / "id_ed25519.pub"
@@ -5288,21 +5292,21 @@ class TestPublishedImageLaunchPath:
             ("Darwin", "qemu"),
         ],
     )
-    @patch("smolvm.cli.main.platform.system")
+    @patch("celesto.cli.main.platform.system")
     def test_vmm_for_host_maps_os_to_kernel_variant(
         self,
         mock_system: MagicMock,
         system: str,
         expected_vmm: str,
     ) -> None:
-        from smolvm.cli.main import _vmm_for_host
+        from celesto.cli.main import _vmm_for_host
 
         mock_system.return_value = system
         assert _vmm_for_host() == expected_vmm
 
-    @patch("smolvm.cli.main.platform.system", return_value="FreeBSD")
+    @patch("celesto.cli.main.platform.system", return_value="FreeBSD")
     def test_vmm_for_host_rejects_unsupported_os(self, _mock_system: MagicMock) -> None:
-        from smolvm.cli.main import _vmm_for_host
+        from celesto.cli.main import _vmm_for_host
 
         with pytest.raises(RuntimeError, match="Unsupported host OS"):
             _vmm_for_host()
@@ -5322,14 +5326,14 @@ class TestPublishedImageLaunchPath:
         arch: str,
         expected_console: str,
     ) -> None:
-        from smolvm.cli.main import _boot_args_for
+        from celesto.cli.main import _boot_args_for
 
         result = _boot_args_for("openclaw", vmm, arch)  # type: ignore[arg-type]
         assert expected_console in result
         assert "init=/init" in result
 
     def test_boot_args_for_firecracker_omits_console_arg(self) -> None:
-        from smolvm.cli.main import _boot_args_for
+        from celesto.cli.main import _boot_args_for
 
         # Firecracker's base string already disables 8250 and uses its own
         # console wiring — no console= should be added by the helper.
@@ -5338,9 +5342,9 @@ class TestPublishedImageLaunchPath:
             assert "console=" not in result
             assert "8250.nr_uarts=0" in result
 
-    @patch("smolvm.cli.main.platform.system", return_value="Linux")
+    @patch("celesto.cli.main.platform.system", return_value="Linux")
     @patch(
-        "smolvm.cli.main._PUBLISHED_IMAGE_BOOT_ARGS",
+        "celesto.cli.main._PUBLISHED_IMAGE_BOOT_ARGS",
         new={},  # nothing registered → unconditional miss
     )
     def test_published_path_rejects_unconfigured_preset_vmm(
@@ -5366,12 +5370,12 @@ class TestPublishedImageLaunchPath:
             ("Darwin", "x86_64", "amd64", "qemu", "qemu"),
         ],
     )
-    @patch("smolvm.cli.main.subprocess.run")
-    @patch("smolvm.facade.SmolVM")
-    @patch("smolvm.utils.ensure_ssh_key")
-    @patch("smolvm.images.published.ensure_published_image")
-    @patch("smolvm.cli.main.platform.machine")
-    @patch("smolvm.cli.main.platform.system")
+    @patch("celesto.cli.main.subprocess.run")
+    @patch("celesto.facade.Celesto")
+    @patch("celesto.utils.ensure_ssh_key")
+    @patch("celesto.images.published.ensure_published_image")
+    @patch("celesto.cli.main.platform.machine")
+    @patch("celesto.cli.main.platform.system")
     def test_published_path_happy_path_skips_apply_preset(
         self,
         mock_system: MagicMock,
@@ -5390,7 +5394,7 @@ class TestPublishedImageLaunchPath:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """End-to-end: download → VMConfig → start, no apply_preset call."""
-        from smolvm.images.manager import LocalImage
+        from celesto.images.manager import LocalImage
 
         mock_system.return_value = system
         mock_machine.return_value = machine
@@ -5425,7 +5429,7 @@ class TestPublishedImageLaunchPath:
         monkeypatch.setenv("OPENAI_API_KEY", "published-secret")
 
         # If apply_preset gets called, this test should fail loudly.
-        with patch("smolvm.presets.apply_preset") as mock_apply:
+        with patch("celesto.presets.apply_preset") as mock_apply:
             ret = main(["openclaw", "start", "--json"])
 
             mock_apply.assert_not_called()
@@ -5455,12 +5459,12 @@ class TestPublishedImageLaunchPath:
         mock_vm.delete.assert_not_called()
         mock_vm.close.assert_called_once()
 
-    @patch("smolvm.cli.main.subprocess.run")
-    @patch("smolvm.facade.SmolVM")
-    @patch("smolvm.utils.ensure_ssh_key")
-    @patch("smolvm.images.published.ensure_published_image")
-    @patch("smolvm.cli.main.platform.machine", return_value="x86_64")
-    @patch("smolvm.cli.main.platform.system", return_value="Linux")
+    @patch("celesto.cli.main.subprocess.run")
+    @patch("celesto.facade.Celesto")
+    @patch("celesto.utils.ensure_ssh_key")
+    @patch("celesto.images.published.ensure_published_image")
+    @patch("celesto.cli.main.platform.machine", return_value="x86_64")
+    @patch("celesto.cli.main.platform.system", return_value="Linux")
     def test_published_path_threads_explicit_comm_channel(
         self,
         _mock_system: MagicMock,
@@ -5472,7 +5476,7 @@ class TestPublishedImageLaunchPath:
         tmp_path: Path,
     ) -> None:
         """Published images must honor an explicit control-channel choice."""
-        from smolvm.images.manager import LocalImage
+        from celesto.images.manager import LocalImage
 
         kernel = tmp_path / "vmlinux.bin"
         rootfs = tmp_path / "rootfs.ext4"
@@ -5502,12 +5506,12 @@ class TestPublishedImageLaunchPath:
         assert ret == 0
         assert mock_vm_cls.call_args.kwargs["comm_channel"] == "ssh"
 
-    @patch("smolvm.cli.main.subprocess.run")
-    @patch("smolvm.facade.SmolVM")
-    @patch("smolvm.utils.ensure_ssh_key")
-    @patch("smolvm.images.published.ensure_published_image")
-    @patch("smolvm.cli.main.platform.machine", return_value="arm64")
-    @patch("smolvm.cli.main.platform.system", return_value="Darwin")
+    @patch("celesto.cli.main.subprocess.run")
+    @patch("celesto.facade.Celesto")
+    @patch("celesto.utils.ensure_ssh_key")
+    @patch("celesto.images.published.ensure_published_image")
+    @patch("celesto.cli.main.platform.machine", return_value="arm64")
+    @patch("celesto.cli.main.platform.system", return_value="Darwin")
     def test_published_path_reaps_vm_on_failure(
         self,
         _mock_system: MagicMock,
@@ -5521,8 +5525,8 @@ class TestPublishedImageLaunchPath:
         """If wait_for_ssh fails, the VM (and its QEMU process) must be
         stopped and deleted — not just close()d, which only releases SDK
         handles and leaves the runtime burning CPU."""
-        from smolvm.exceptions import OperationTimeoutError
-        from smolvm.images.manager import LocalImage
+        from celesto.exceptions import OperationTimeoutError
+        from celesto.images.manager import LocalImage
 
         kernel = tmp_path / "vmlinux.bin"
         rootfs = tmp_path / "rootfs.ext4"
@@ -5555,7 +5559,7 @@ class TestPublishedImageLaunchPath:
 
 
 class TestCliImage:
-    """Tests for the `smolvm image` command group."""
+    """Tests for the `celesto image` command group."""
 
     def test_image_group_help(self) -> None:
         from click.testing import CliRunner
@@ -5565,9 +5569,9 @@ class TestCliImage:
         for verb in ("pull", "list", "ls", "inspect", "build", "save", "load", "rm", "prune"):
             assert verb in result.output
 
-    @patch("smolvm.images.published.ensure_published_image")
-    @patch("smolvm.cli.main._vmm_for_host", return_value="firecracker")
-    @patch("smolvm.cli.main._host_arch_for_published", return_value="amd64")
+    @patch("celesto.images.published.ensure_published_image")
+    @patch("celesto.cli.main._vmm_for_host", return_value="firecracker")
+    @patch("celesto.cli.main._host_arch_for_published", return_value="amd64")
     def test_image_pull_json_already_cached(
         self,
         mock_arch: MagicMock,
@@ -5579,8 +5583,8 @@ class TestCliImage:
         """A true no-op (cache dir untouched, nothing downloaded) reports
         already_cached, and pulling to a non-default dir warns that
         sandboxes won't read it."""
-        from smolvm.images.manager import LocalImage
-        from smolvm.images.published import cache_name
+        from celesto.images.manager import LocalImage
+        from celesto.images.published import cache_name
 
         kernel = tmp_path / "vmlinux.bin"
         rootfs = tmp_path / "rootfs.ext4"
@@ -5614,9 +5618,9 @@ class TestCliImage:
         assert call.args == ("codex", "amd64", "firecracker", "ubuntu")
         assert call.kwargs["cache_dir"] == tmp_path
 
-    @patch("smolvm.images.published.ensure_published_image")
-    @patch("smolvm.cli.main._vmm_for_host", return_value="firecracker")
-    @patch("smolvm.cli.main._host_arch_for_published", return_value="amd64")
+    @patch("celesto.images.published.ensure_published_image")
+    @patch("celesto.cli.main._vmm_for_host", return_value="firecracker")
+    @patch("celesto.cli.main._host_arch_for_published", return_value="amd64")
     def test_image_pull_decompression_is_not_already_cached(
         self,
         mock_arch: MagicMock,
@@ -5627,8 +5631,8 @@ class TestCliImage:
     ) -> None:
         """Work without downloads (e.g. rootfs decompression) must not be
         reported as a cache hit (regression)."""
-        from smolvm.images.manager import LocalImage
-        from smolvm.images.published import cache_name
+        from celesto.images.manager import LocalImage
+        from celesto.images.published import cache_name
 
         cache_dir = tmp_path / cache_name("codex", "amd64", "firecracker")
         cache_dir.mkdir()
@@ -5655,9 +5659,9 @@ class TestCliImage:
         payload = json.loads(capsys.readouterr().out)
         assert payload["data"]["already_cached"] is False
 
-    @patch("smolvm.images.published.ensure_published_image")
-    @patch("smolvm.cli.main._vmm_for_host", return_value="firecracker")
-    @patch("smolvm.cli.main._host_arch_for_published", return_value="amd64")
+    @patch("celesto.images.published.ensure_published_image")
+    @patch("celesto.cli.main._vmm_for_host", return_value="firecracker")
+    @patch("celesto.cli.main._host_arch_for_published", return_value="amd64")
     def test_image_pull_unfingerprintable_cache_is_not_a_cache_hit(
         self,
         mock_arch: MagicMock,
@@ -5672,8 +5676,8 @@ class TestCliImage:
         match while the cache actually changed, so an unreadable entry has to
         fail closed rather than silently shrink the comparison.
         """
-        from smolvm.images.manager import LocalImage
-        from smolvm.images.published import cache_name
+        from celesto.images.manager import LocalImage
+        from celesto.images.published import cache_name
 
         cache_dir = tmp_path / cache_name("codex", "amd64", "firecracker")
         cache_dir.mkdir()
@@ -5698,9 +5702,9 @@ class TestCliImage:
         payload = json.loads(capsys.readouterr().out)
         assert payload["data"]["already_cached"] is False
 
-    @patch("smolvm.images.published.ensure_published_image")
-    @patch("smolvm.cli.main._vmm_for_host", return_value="firecracker")
-    @patch("smolvm.cli.main._host_arch_for_published", return_value="amd64")
+    @patch("celesto.images.published.ensure_published_image")
+    @patch("celesto.cli.main._vmm_for_host", return_value="firecracker")
+    @patch("celesto.cli.main._host_arch_for_published", return_value="amd64")
     def test_image_pull_unreadable_subdirectory_is_not_a_cache_hit(
         self,
         mock_arch: MagicMock,
@@ -5715,8 +5719,8 @@ class TestCliImage:
         that missed a whole subtree would otherwise compare equal to the next
         one and report a real pull as cached.
         """
-        from smolvm.images.manager import LocalImage
-        from smolvm.images.published import cache_name
+        from celesto.images.manager import LocalImage
+        from celesto.images.published import cache_name
 
         cache_dir = tmp_path / cache_name("codex", "amd64", "firecracker")
         layers = cache_dir / "layers"
@@ -5738,16 +5742,16 @@ class TestCliImage:
                 raise PermissionError(13, "Permission denied", str(layers))
             return real_scandir(path)
 
-        with patch("smolvm.cli.image.os.scandir", side_effect=unreadable):
+        with patch("celesto.cli.image.os.scandir", side_effect=unreadable):
             ret = main(["image", "pull", "codex", "--image-dir", str(tmp_path), "--json"])
 
         assert ret == 0
         payload = json.loads(capsys.readouterr().out)
         assert payload["data"]["already_cached"] is False
 
-    @patch("smolvm.images.published.ensure_published_image")
-    @patch("smolvm.cli.main._vmm_for_host", return_value="firecracker")
-    @patch("smolvm.cli.main._host_arch_for_published", return_value="amd64")
+    @patch("celesto.images.published.ensure_published_image")
+    @patch("celesto.cli.main._vmm_for_host", return_value="firecracker")
+    @patch("celesto.cli.main._host_arch_for_published", return_value="amd64")
     def test_image_pull_disk_error_names_disk_recovery(
         self,
         mock_arch: MagicMock,
@@ -5766,9 +5770,9 @@ class TestCliImage:
         assert "network" not in payload["error"]["recovery"].lower()
         assert "disk space" in payload["error"]["recovery"]
 
-    @patch("smolvm.images.published.ensure_published_image")
-    @patch("smolvm.cli.main._vmm_for_host", return_value="firecracker")
-    @patch("smolvm.cli.main._host_arch_for_published", return_value="amd64")
+    @patch("celesto.images.published.ensure_published_image")
+    @patch("celesto.cli.main._vmm_for_host", return_value="firecracker")
+    @patch("celesto.cli.main._host_arch_for_published", return_value="amd64")
     def test_image_pull_retry_command_keeps_flags(
         self,
         mock_arch: MagicMock,
@@ -5779,7 +5783,7 @@ class TestCliImage:
     ) -> None:
         """The suggested retry reproduces the user's invocation (regression:
         it used to drop --os/--image-dir)."""
-        from smolvm.exceptions import ImageError
+        from celesto.exceptions import ImageError
 
         mock_ensure_published.side_effect = ImageError("Download failed")
 
@@ -5792,9 +5796,9 @@ class TestCliImage:
         assert "--os alpine" in payload["error"]["recovery"]
         assert "--image-dir" in payload["error"]["recovery"]
 
-    @patch("smolvm.images.published.ensure_published_image")
-    @patch("smolvm.cli.main._vmm_for_host", return_value="firecracker")
-    @patch("smolvm.cli.main._host_arch_for_published", return_value="amd64")
+    @patch("celesto.images.published.ensure_published_image")
+    @patch("celesto.cli.main._vmm_for_host", return_value="firecracker")
+    @patch("celesto.cli.main._host_arch_for_published", return_value="amd64")
     def test_image_pull_json_downloads(
         self,
         mock_arch: MagicMock,
@@ -5804,7 +5808,7 @@ class TestCliImage:
         capsys: pytest.CaptureFixture,
     ) -> None:
         """A fresh download (callback fired) reports already_cached=False."""
-        from smolvm.images.manager import LocalImage
+        from celesto.images.manager import LocalImage
 
         kernel = tmp_path / "vmlinux.bin"
         rootfs = tmp_path / "rootfs.ext4"
@@ -5826,9 +5830,9 @@ class TestCliImage:
         payload = json.loads(capsys.readouterr().out)
         assert payload["data"]["already_cached"] is False
 
-    @patch("smolvm.images.published.ensure_published_image")
-    @patch("smolvm.cli.main._vmm_for_host", return_value="qemu")
-    @patch("smolvm.cli.main._host_arch_for_published", return_value="arm64")
+    @patch("celesto.images.published.ensure_published_image")
+    @patch("celesto.cli.main._vmm_for_host", return_value="qemu")
+    @patch("celesto.cli.main._host_arch_for_published", return_value="arm64")
     def test_image_pull_claude_alias(
         self,
         mock_arch: MagicMock,
@@ -5838,7 +5842,7 @@ class TestCliImage:
         capsys: pytest.CaptureFixture,
     ) -> None:
         """The public `claude` name maps to the claude-code manifest preset."""
-        from smolvm.images.manager import LocalImage
+        from celesto.images.manager import LocalImage
 
         kernel = tmp_path / "vmlinux.bin"
         rootfs = tmp_path / "rootfs.ext4"
@@ -5855,9 +5859,9 @@ class TestCliImage:
         assert payload["data"]["preset"] == "claude-code"
         assert mock_ensure_published.call_args.args == ("claude-code", "arm64", "qemu", "ubuntu")
 
-    @patch("smolvm.images.published.ensure_published_image")
-    @patch("smolvm.cli.main._vmm_for_host", return_value="firecracker")
-    @patch("smolvm.cli.main._host_arch_for_published", return_value="amd64")
+    @patch("celesto.images.published.ensure_published_image")
+    @patch("celesto.cli.main._vmm_for_host", return_value="firecracker")
+    @patch("celesto.cli.main._host_arch_for_published", return_value="amd64")
     def test_image_pull_registry_alias(
         self,
         mock_arch: MagicMock,
@@ -5868,7 +5872,7 @@ class TestCliImage:
     ) -> None:
         """Aliases resolve from the presets registry, so openclaw's 'claw'
         works without a hand-maintained map (regression)."""
-        from smolvm.images.manager import LocalImage
+        from celesto.images.manager import LocalImage
 
         kernel = tmp_path / "vmlinux.bin"
         rootfs = tmp_path / "rootfs.ext4"
@@ -5890,8 +5894,8 @@ class TestCliImage:
             "ubuntu",
         )
 
-    @patch("smolvm.cli.main._vmm_for_host", return_value="firecracker")
-    @patch("smolvm.cli.main._host_arch_for_published", return_value="amd64")
+    @patch("celesto.cli.main._vmm_for_host", return_value="firecracker")
+    @patch("celesto.cli.main._host_arch_for_published", return_value="amd64")
     def test_image_pull_unknown_preset_json(
         self,
         mock_arch: MagicMock,
@@ -5907,8 +5911,8 @@ class TestCliImage:
         assert payload["error"]["code"] == "invalid_input"
         assert "codex" in payload["error"]["message"]
 
-    @patch("smolvm.cli.main._vmm_for_host", return_value="firecracker")
-    @patch("smolvm.cli.main._host_arch_for_published", return_value="amd64")
+    @patch("celesto.cli.main._vmm_for_host", return_value="firecracker")
+    @patch("celesto.cli.main._host_arch_for_published", return_value="amd64")
     def test_image_pull_unpublished_combo_json(
         self,
         mock_arch: MagicMock,
@@ -5921,10 +5925,10 @@ class TestCliImage:
         assert ret == 2
         payload = json.loads(capsys.readouterr().out)
         assert payload["error"]["code"] == "invalid_input"
-        assert "smolvm image pull hermes" in payload["error"]["message"]
+        assert "celesto image pull hermes" in payload["error"]["message"]
 
     @patch(
-        "smolvm.cli.main._host_arch_for_published",
+        "celesto.cli.main._host_arch_for_published",
         side_effect=RuntimeError("Unsupported host architecture for published images: 'mips'."),
     )
     def test_image_pull_unsupported_host_json(
@@ -5940,9 +5944,9 @@ class TestCliImage:
         assert payload["error"]["code"] == "invalid_input"
         assert "--arch amd64 --vmm firecracker" in payload["error"]["message"]
 
-    @patch("smolvm.images.published.ensure_published_image")
-    @patch("smolvm.cli.main._vmm_for_host", return_value="firecracker")
-    @patch("smolvm.cli.main._host_arch_for_published", return_value="amd64")
+    @patch("celesto.images.published.ensure_published_image")
+    @patch("celesto.cli.main._vmm_for_host", return_value="firecracker")
+    @patch("celesto.cli.main._host_arch_for_published", return_value="amd64")
     def test_image_pull_download_failure_json(
         self,
         mock_arch: MagicMock,
@@ -5951,7 +5955,7 @@ class TestCliImage:
         tmp_path: Path,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        from smolvm.exceptions import ImageError
+        from celesto.exceptions import ImageError
 
         mock_ensure_published.side_effect = ImageError("Download failed for https://…: 403")
 
@@ -5960,7 +5964,7 @@ class TestCliImage:
         assert ret == 1
         payload = json.loads(capsys.readouterr().out)
         assert payload["ok"] is False
-        assert "smolvm image pull codex" in payload["error"]["recovery"]
+        assert "celesto image pull codex" in payload["error"]["recovery"]
 
     def test_image_pull_parse_error_command_name(self, capsys: pytest.CaptureFixture) -> None:
         """Parse-time errors carry the dotted image.pull command name."""
@@ -5969,15 +5973,15 @@ class TestCliImage:
         assert ret == 2
         payload = json.loads(capsys.readouterr().out)
         assert payload["command"] == "image.pull"
-        assert "smolvm image pull --help" in payload["error"]["recovery"]
+        assert "celesto image pull --help" in payload["error"]["recovery"]
 
 
 class TestCliExec:
-    """Tests for `smolvm sandbox exec`."""
+    """Tests for `celesto sandbox exec`."""
 
     @pytest.fixture
     def mock_vm_cls(self) -> MagicMock:
-        with patch("smolvm.facade.SmolVM") as m:
+        with patch("celesto.facade.Celesto") as m:
             yield m
 
     def _setup_vm(self, mock_vm_cls: MagicMock) -> MagicMock:
@@ -5993,7 +5997,7 @@ class TestCliExec:
         capsys: pytest.CaptureFixture,
     ) -> None:
         """`sandbox exec` runs the command and passes output/exit code through."""
-        from smolvm.types import CommandResult
+        from celesto.types import CommandResult
 
         vm = self._setup_vm(mock_vm_cls)
         vm.run.return_value = CommandResult(exit_code=0, stdout="hi\n", stderr="")
@@ -6008,7 +6012,7 @@ class TestCliExec:
 
     def test_exec_preserves_quoting(self, mock_vm_cls: MagicMock) -> None:
         """Command tokens are re-joined with shell quoting preserved."""
-        from smolvm.types import CommandResult
+        from celesto.types import CommandResult
 
         vm = self._setup_vm(mock_vm_cls)
         vm.run.return_value = CommandResult(exit_code=0, stdout="", stderr="")
@@ -6023,7 +6027,7 @@ class TestCliExec:
         capsys: pytest.CaptureFixture,
     ) -> None:
         """A failing guest command surfaces its exit code and stderr."""
-        from smolvm.types import CommandResult
+        from celesto.types import CommandResult
 
         vm = self._setup_vm(mock_vm_cls)
         vm.run.return_value = CommandResult(exit_code=3, stdout="", stderr="boom\n")
@@ -6039,7 +6043,7 @@ class TestCliExec:
         capsys: pytest.CaptureFixture,
     ) -> None:
         """`--json` emits the command result as a JSON envelope."""
-        from smolvm.types import CommandResult
+        from celesto.types import CommandResult
 
         vm = self._setup_vm(mock_vm_cls)
         vm.run.return_value = CommandResult(exit_code=0, stdout="out", stderr="err")
@@ -6053,7 +6057,7 @@ class TestCliExec:
 
     def test_exec_custom_timeout(self, mock_vm_cls: MagicMock) -> None:
         """`--timeout` is forwarded to the facade run call."""
-        from smolvm.types import CommandResult
+        from celesto.types import CommandResult
 
         vm = self._setup_vm(mock_vm_cls)
         vm.run.return_value = CommandResult(exit_code=0, stdout="", stderr="")
@@ -6115,7 +6119,7 @@ class TestCliExec:
         mock_vm_cls: MagicMock,
     ) -> None:
         """`--start` starts a stopped sandbox before running the command."""
-        from smolvm.types import CommandResult
+        from celesto.types import CommandResult
 
         vm = self._setup_vm(mock_vm_cls)
         vm.status = VMState.STOPPED
@@ -6133,7 +6137,7 @@ class TestCliExec:
         capsys: pytest.CaptureFixture,
     ) -> None:
         """A non-zero guest exit keeps the envelope's ok<->error invariant."""
-        from smolvm.types import CommandResult
+        from celesto.types import CommandResult
 
         vm = self._setup_vm(mock_vm_cls)
         vm.run.return_value = CommandResult(exit_code=2, stdout="partial", stderr="nope")
@@ -6150,7 +6154,7 @@ class TestCliExec:
 
     def test_exec_broken_pipe_exits_cleanly(self, mock_vm_cls: MagicMock) -> None:
         """A reader closing the pipe (`| head`) does not surface as an error."""
-        from smolvm.types import CommandResult
+        from celesto.types import CommandResult
 
         vm = self._setup_vm(mock_vm_cls)
         vm.run.return_value = CommandResult(exit_code=0, stdout="data", stderr="")
@@ -6158,8 +6162,8 @@ class TestCliExec:
         fake_stdout.write.side_effect = BrokenPipeError()
 
         with (
-            patch("smolvm.cli.main.sys.stdout", fake_stdout),
-            patch("smolvm.cli.main._suppress_broken_pipe") as suppress_pipe,
+            patch("celesto.cli.main.sys.stdout", fake_stdout),
+            patch("celesto.cli.main._suppress_broken_pipe") as suppress_pipe,
         ):
             ret = main(["sandbox", "exec", "vm001", "--", "echo", "data"])
 
@@ -6172,7 +6176,7 @@ class TestCliExec:
         capsys: pytest.CaptureFixture,
     ) -> None:
         """A closed stdout pipe must not swallow the command's stderr."""
-        from smolvm.types import CommandResult
+        from celesto.types import CommandResult
 
         vm = self._setup_vm(mock_vm_cls)
         vm.run.return_value = CommandResult(exit_code=0, stdout="out", stderr="err\n")
@@ -6180,8 +6184,8 @@ class TestCliExec:
         fake_stdout.write.side_effect = BrokenPipeError()
 
         with (
-            patch("smolvm.cli.main.sys.stdout", fake_stdout),
-            patch("smolvm.cli.main._suppress_broken_pipe"),
+            patch("celesto.cli.main.sys.stdout", fake_stdout),
+            patch("celesto.cli.main._suppress_broken_pipe"),
         ):
             ret = main(["sandbox", "exec", "vm001", "--", "x"])
 
@@ -6191,14 +6195,14 @@ class TestCliExec:
 
     def test_exec_json_broken_pipe_suppressed(self, mock_vm_cls: MagicMock) -> None:
         """A closed pipe during the JSON emit is handled, not left to noise at exit."""
-        from smolvm.types import CommandResult
+        from celesto.types import CommandResult
 
         vm = self._setup_vm(mock_vm_cls)
         vm.run.return_value = CommandResult(exit_code=0, stdout="x", stderr="")
 
         with (
-            patch("smolvm.cli.main.emit_json", side_effect=BrokenPipeError),
-            patch("smolvm.cli.main._suppress_broken_pipe") as suppress_pipe,
+            patch("celesto.cli.main.emit_json", side_effect=BrokenPipeError),
+            patch("celesto.cli.main._suppress_broken_pipe") as suppress_pipe,
         ):
             ret = main(["sandbox", "exec", "vm001", "--json", "--", "echo", "x"])
 
@@ -6207,11 +6211,11 @@ class TestCliExec:
 
 
 class TestCliLogs:
-    """Tests for `smolvm sandbox logs`."""
+    """Tests for `celesto sandbox logs`."""
 
     @pytest.fixture
     def mock_vm_cls(self) -> MagicMock:
-        with patch("smolvm.facade.SmolVM") as m:
+        with patch("celesto.facade.Celesto") as m:
             yield m
 
     def _setup_vm(self, mock_vm_cls: MagicMock, data_dir: Path) -> MagicMock:
@@ -6283,7 +6287,7 @@ class TestCliLogs:
         payload = json.loads(capsys.readouterr().out)
         assert payload["ok"] is False
         assert payload["error"]["code"] == "not_found"
-        assert "smolvm sandbox start vm001" in payload["error"]["recovery"]
+        assert "celesto sandbox start vm001" in payload["error"]["recovery"]
 
     def test_logs_follow_rejected_in_json(
         self,
@@ -6331,8 +6335,8 @@ class TestCliLogs:
         fake_stdout.write.side_effect = BrokenPipeError()
 
         with (
-            patch("smolvm.cli.main.sys.stdout", fake_stdout),
-            patch("smolvm.cli.main._suppress_broken_pipe") as suppress_pipe,
+            patch("celesto.cli.main.sys.stdout", fake_stdout),
+            patch("celesto.cli.main._suppress_broken_pipe") as suppress_pipe,
         ):
             ret = main(["sandbox", "logs", "vm001"])
 
@@ -6349,8 +6353,8 @@ class TestCliLogs:
         (tmp_path / "vm001.log").write_text("a\nb\n")
 
         with (
-            patch("smolvm.cli.main.emit_json", side_effect=BrokenPipeError),
-            patch("smolvm.cli.main._suppress_broken_pipe") as suppress_pipe,
+            patch("celesto.cli.main.emit_json", side_effect=BrokenPipeError),
+            patch("celesto.cli.main._suppress_broken_pipe") as suppress_pipe,
         ):
             ret = main(["sandbox", "logs", "vm001", "--json"])
 
@@ -6359,14 +6363,14 @@ class TestCliLogs:
 
 
 class TestCliCompletion:
-    """Tests for `smolvm completion` and dynamic sandbox-name completion."""
+    """Tests for `celesto completion` and dynamic sandbox-name completion."""
 
     def test_completion_bash_emits_script(self, capsys: pytest.CaptureFixture) -> None:
-        """`smolvm completion bash` prints a sourceable completion script."""
+        """`celesto completion bash` prints a sourceable completion script."""
         ret = main(["completion", "bash"])
 
         assert ret == 0
-        assert "_SMOLVM_COMPLETE" in capsys.readouterr().out
+        assert "_CELESTO_COMPLETE" in capsys.readouterr().out
 
     @pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
     def test_completion_supported_shells(
@@ -6405,12 +6409,12 @@ class TestCliCompletion:
         """`completion bash --install` persists the script and sources it from ~/.bashrc."""
         # Pin the platform: ~/.bashrc is the Linux answer, and the macOS answer
         # has its own test below. Without this the assertion tracks the host.
-        with patch("smolvm.cli.completion.platform.system", return_value="Linux"):
+        with patch("celesto.cli.completion.platform.system", return_value="Linux"):
             ret = main(["completion", "bash", "--install"])
 
         assert ret == 0
         script_path = fake_home / ".smolvm" / "completions" / "smolvm.bash"
-        assert "_SMOLVM_COMPLETE" in script_path.read_text()
+        assert "_CELESTO_COMPLETE" in script_path.read_text()
         bashrc = (fake_home / ".bashrc").read_text()
         assert str(script_path) in bashrc
         out = " ".join(capsys.readouterr().out.split())
@@ -6418,7 +6422,7 @@ class TestCliCompletion:
 
     def test_completion_install_is_idempotent(self, fake_home: Path) -> None:
         """Re-running --install refreshes the script without duplicating the rc line."""
-        with patch("smolvm.cli.completion.platform.system", return_value="Linux"):
+        with patch("celesto.cli.completion.platform.system", return_value="Linux"):
             main(["completion", "bash", "--install"])
             ret = main(["completion", "bash", "--install"])
 
@@ -6449,8 +6453,8 @@ class TestCliCompletion:
         ret = main(["completion", "fish", "--install"])
 
         assert ret == 0
-        target = fake_home / ".config" / "fish" / "completions" / "smolvm.fish"
-        assert "smolvm" in target.read_text()
+        target = fake_home / ".config" / "fish" / "completions" / "celesto.fish"
+        assert "celesto" in target.read_text()
         # fish autoloads the directory; no startup-file edit should happen.
         assert not (fake_home / ".bashrc").exists()
 
@@ -6481,7 +6485,7 @@ class TestCliCompletion:
         quirky_home.mkdir()
         with pytest.MonkeyPatch.context() as mp:
             mp.setenv("HOME", str(quirky_home))
-            with patch("smolvm.cli.completion.platform.system", return_value="Linux"):
+            with patch("celesto.cli.completion.platform.system", return_value="Linux"):
                 ret = main(["completion", "bash", "--install"])
 
         assert ret == 0
@@ -6568,14 +6572,14 @@ class TestCliCompletion:
         script = (fake_home / ".smolvm" / "completions" / "smolvm.zsh").read_text()
         # The compinit guard must run before click's `compdef` registration.
         assert "autoload -Uz compinit" in script
-        assert script.index("autoload -Uz compinit") < script.index("compdef _smolvm_completion")
+        assert script.index("autoload -Uz compinit") < script.index("compdef _celesto_completion")
 
     def test_completion_install_bash_on_macos_uses_bash_profile(
         self,
         fake_home: Path,
     ) -> None:
         """On macOS, bash login shells read ~/.bash_profile, so install targets it."""
-        with patch("smolvm.cli.completion.platform.system", return_value="Darwin"):
+        with patch("celesto.cli.completion.platform.system", return_value="Darwin"):
             ret = main(["completion", "bash", "--install"])
 
         assert ret == 0
@@ -6596,8 +6600,8 @@ class TestCliCompletion:
         sudo_info.pw_gid = os.getgid()
 
         with (
-            patch("smolvm.vm._get_sudo_user_info", return_value=sudo_info),
-            patch("smolvm.cli.completion.platform.system", return_value="Linux"),
+            patch("celesto.vm._get_sudo_user_info", return_value=sudo_info),
+            patch("celesto.cli.completion.platform.system", return_value="Linux"),
         ):
             ret = main(["completion", "bash", "--install"])
 
@@ -6641,9 +6645,9 @@ class TestCliCompletion:
 
         chowned: list[str] = []
         with (
-            patch("smolvm.vm._get_sudo_user_info", return_value=sudo_info),
+            patch("celesto.vm._get_sudo_user_info", return_value=sudo_info),
             patch(
-                "smolvm.cli.completion.os.chown",
+                "celesto.cli.completion.os.chown",
                 side_effect=lambda p, *_: chowned.append(str(p)),
             ),
         ):
@@ -6652,7 +6656,7 @@ class TestCliCompletion:
         assert ret == 0
         base = sudo_home / "nested" / "cfg" / "fish" / "completions"
         for expected in (
-            base / "smolvm.fish",
+            base / "celesto.fish",
             base,
             base.parent,
             sudo_home / "nested" / "cfg",
@@ -6662,34 +6666,34 @@ class TestCliCompletion:
 
     def test_complete_sandbox_names_filters_by_prefix(self) -> None:
         """The completion callback returns matching sandbox names."""
-        from smolvm.cli.commands.options import complete_sandbox_names
+        from celesto.cli.commands.options import complete_sandbox_names
 
         state = MagicMock()
         state.list_vms.return_value = [_make_vm_info("web-1"), _make_vm_info("api-2")]
 
         with (
-            patch("smolvm.cli.state.create_cli_state_manager", return_value=state),
-            patch("smolvm.vm.resolve_data_dir", return_value=Path("/tmp")),
+            patch("celesto.cli.state.create_cli_state_manager", return_value=state),
+            patch("celesto.vm.resolve_data_dir", return_value=Path("/tmp")),
         ):
             items = complete_sandbox_names(MagicMock(), MagicMock(), "web")
 
         assert [item.value for item in items] == ["web-1"]
-        # The lighter state store is used, not SmolVMManager (which would
+        # The lighter state store is used, not CelestoManager (which would
         # create disk/snapshot dirs just to complete a name).
         state.close.assert_called_once()
 
     def test_complete_sandbox_names_never_raises(self) -> None:
         """A backend failure yields no suggestions instead of a traceback."""
-        from smolvm.cli.commands.options import complete_sandbox_names
+        from celesto.cli.commands.options import complete_sandbox_names
 
-        with patch("smolvm.cli.state.create_cli_state_manager", side_effect=Exception("no db")):
+        with patch("celesto.cli.state.create_cli_state_manager", side_effect=Exception("no db")):
             items = complete_sandbox_names(MagicMock(), MagicMock(), "")
 
         assert items == []
 
     def test_complete_browser_session_names_uses_browser_namespace(self) -> None:
         """Browser completion lists browser session ids, not sandbox vm_ids."""
-        from smolvm.cli.commands.options import complete_browser_session_names
+        from celesto.cli.commands.options import complete_browser_session_names
 
         state = MagicMock()
         session_a = MagicMock()
@@ -6699,8 +6703,8 @@ class TestCliCompletion:
         state.list_browser_sessions.return_value = [session_a, session_b]
 
         with (
-            patch("smolvm.cli.state.create_cli_state_manager", return_value=state),
-            patch("smolvm.vm.resolve_data_dir", return_value=Path("/tmp")),
+            patch("celesto.cli.state.create_cli_state_manager", return_value=state),
+            patch("celesto.vm.resolve_data_dir", return_value=Path("/tmp")),
         ):
             items = complete_browser_session_names(MagicMock(), MagicMock(), "brs-a")
 
@@ -6709,9 +6713,9 @@ class TestCliCompletion:
 
     def test_complete_browser_session_names_never_raises(self) -> None:
         """A failure to open the state store yields no suggestions."""
-        from smolvm.cli.commands.options import complete_browser_session_names
+        from celesto.cli.commands.options import complete_browser_session_names
 
-        with patch("smolvm.cli.state.create_cli_state_manager", side_effect=Exception("no db")):
+        with patch("celesto.cli.state.create_cli_state_manager", side_effect=Exception("no db")):
             items = complete_browser_session_names(MagicMock(), MagicMock(), "")
 
         assert items == []

@@ -2,15 +2,15 @@
 
 import pytest
 
-from smolvm._network_policy import validate_network_policy_options
-from smolvm.exceptions import ValidationError
-from smolvm.types import InternetSettings
+from celesto._network_policy import validate_network_policy_options
+from celesto.exceptions import ValidationError
+from celesto.types import InternetSettings
 
 
 @pytest.mark.parametrize("host", ["linux", "darwin"])
 @pytest.mark.parametrize("mode", ["open", "off"])
 def test_portable_slirp_accepts_folders_and_forwarding(monkeypatch, host, mode):
-    monkeypatch.setattr("smolvm._network_policy.sys.platform", host)
+    monkeypatch.setattr("celesto._network_policy.sys.platform", host)
     validate_network_policy_options(
         InternetSettings(mode=mode),
         backend="qemu",
@@ -24,7 +24,7 @@ def test_portable_slirp_accepts_folders_and_forwarding(monkeypatch, host, mode):
 @pytest.mark.parametrize("mode", ["off", "restricted"])
 @pytest.mark.parametrize("channel", [None, "ssh", "vsock"])
 def test_linux_tap_accepts_folders_and_control_channels(monkeypatch, mode, channel):
-    monkeypatch.setattr("smolvm._network_policy.sys.platform", "linux")
+    monkeypatch.setattr("celesto._network_policy.sys.platform", "linux")
     validate_network_policy_options(
         InternetSettings(mode=mode, allowed_cidrs=["203.0.113.1"] if mode == "restricted" else []),
         backend="qemu",
@@ -37,7 +37,7 @@ def test_linux_tap_accepts_folders_and_control_channels(monkeypatch, mode, chann
 
 @pytest.mark.parametrize("host", ["linux", "darwin"])
 def test_cidrs_never_silently_switch_slirp_to_tap(monkeypatch, host):
-    monkeypatch.setattr("smolvm._network_policy.sys.platform", host)
+    monkeypatch.setattr("celesto._network_policy.sys.platform", host)
     with pytest.raises(ValidationError, match="network='tap'.*qemu_network='tap'"):
         validate_network_policy_options(
             InternetSettings(mode="restricted", allowed_cidrs=["203.0.113.1"]),
@@ -47,7 +47,7 @@ def test_cidrs_never_silently_switch_slirp_to_tap(monkeypatch, host):
 
 
 def test_macos_tap_restrictions_fail_with_portable_example(monkeypatch):
-    monkeypatch.setattr("smolvm._network_policy.sys.platform", "darwin")
+    monkeypatch.setattr("celesto._network_policy.sys.platform", "darwin")
     with pytest.raises(ValidationError, match="mode='off'.*network='slirp'"):
         validate_network_policy_options(
             InternetSettings(mode="off"),
@@ -58,7 +58,7 @@ def test_macos_tap_restrictions_fail_with_portable_example(monkeypatch):
 
 
 def test_tap_launch_time_forwarding_names_supported_alternative(monkeypatch):
-    monkeypatch.setattr("smolvm._network_policy.sys.platform", "linux")
+    monkeypatch.setattr("celesto._network_policy.sys.platform", "linux")
     with pytest.raises(ValidationError, match=r"expose_local\(8080\)"):
         validate_network_policy_options(
             InternetSettings(mode="off"),
