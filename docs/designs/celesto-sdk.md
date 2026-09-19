@@ -13,10 +13,13 @@ repeatable. This supersedes the isolated-export and filtered-artifact machinery
 proposed below; no custom export framework was added.
 
 The private client is in `_celesto_cloud_api`; the public `Computer` now routes
-cloud create/get/run/delete through it. Local behavior remains unchanged.
-Streaming is documented correctly in the schema but not exposed by the public
-wrapper yet. Server-side expiry, a cloud-only dependency/distribution split,
-TypeScript, and the other cloud APIs remain deferred. See [Python cloud usage](../python-cloud.md)
+cloud create/get/run/delete and published-port operations through it. Local behavior
+remains unchanged; local published-port calls explicitly fail before starting a VM.
+Command streaming is exposed through `run_stream()` for both providers. Published
+ports return the handwritten `PublishedPort` type; see the [published-port plan](published-ports.md).
+Server-side expiry, a cloud-only dependency/distribution split, TypeScript, file
+transfer, browser/display connections, and interactive terminals remain deferred.
+See [Python cloud usage](../python-cloud.md)
 for implemented behavior and limitations; the historical proposal below is not
 a claim that those deferred features exist.
 
