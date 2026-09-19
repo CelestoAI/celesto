@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from celesto import Computer, VMNotFoundError
+from celesto import CommandExitEvent, CommandOutputEvent, Computer, VMNotFoundError
 
 
 @pytest.mark.skipif(
@@ -30,6 +30,23 @@ def test_cloud_live_lifecycle():
             print(f"Created cloud smoke-test computer: {comp.id}")
             result = comp.run("printf celesto-smoke")
             assert (result.stdout, result.stderr, result.exit_code) == ("celesto-smoke", "", 0)
+
+            events = list(
+                comp.run_stream("printf 'stream-out\\n'; printf 'stream-err\\n' >&2; exit 3")
+            )
+            stdout = "".join(
+                event.data
+                for event in events
+                if isinstance(event, CommandOutputEvent) and event.type == "stdout"
+            )
+            stderr = "".join(
+                event.data
+                for event in events
+                if isinstance(event, CommandOutputEvent) and event.type == "stderr"
+            )
+            exits = [event for event in events if isinstance(event, CommandExitEvent)]
+            assert (stdout, stderr) == ("stream-out\n", "stream-err\n")
+            assert len(exits) == 1 and exits[0].exit_code == 3
 
             attached = Computer.get(comp.id)
             assert attached.id == comp.id

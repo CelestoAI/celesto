@@ -7,7 +7,15 @@ import httpx
 import pytest
 
 from _celesto_cloud_api.client import AuthenticatedClient
-from celesto import CelestoError, CloudAPIError, Computer, VMNotFoundError
+from celesto import (
+    CelestoError,
+    CloudAPIError,
+    CommandExitEvent,
+    CommandOutputEvent,
+    CommandStartedEvent,
+    Computer,
+    VMNotFoundError,
+)
 from celesto._cloud import _CloudComputer
 
 
@@ -72,6 +80,80 @@ def test_cloud_context_runs_and_confirms_cleanup(cloud):
     with pytest.raises(CelestoError, match="deleted"):
         comp.run("again")
     assert not replies
+
+
+def test_cloud_run_stream_yields_typed_events(cloud):
+    requests, replies = cloud
+    stream = (
+        'data: {"type":"started","command_id":"cmd-1",'
+        '"started_at_unix_ms":1,"timeout_seconds":30}\n'
+        'data: {"type":"stdout","data":"hello\\n"}\n'
+        'data: {"type":"stderr","data":"warning\\n"}\n'
+        'data: {"type":"exit","exit_code":0,"command_id":"cmd-1",'
+        '"timed_out":false}\n'
+    )
+    replies.extend(
+        [
+            (201, computer()),
+            httpx.Response(200, text=stream, headers={"content-type": "text/event-stream"}),
+        ]
+    )
+
+    events = list(Computer(organization_id="org-test").run_stream("echo hello"))
+
+    assert [type(event) for event in events] == [
+        CommandStartedEvent,
+        CommandOutputEvent,
+        CommandOutputEvent,
+        CommandExitEvent,
+    ]
+    assert [event.type for event in events] == ["started", "stdout", "stderr", "exit"]
+    assert requests[1].url.path == "/v1/computers/cloud-test/exec/stream"
+    assert requests[1].headers["x-current-organization"] == "org-test"
+    assert json.loads(requests[1].content) == {"command": "echo hello", "timeout": 30}
+
+
+def test_cloud_run_stream_rejects_incomplete_stream(cloud):
+    _, replies = cloud
+    replies.extend(
+        [
+            (201, computer()),
+            httpx.Response(
+                200,
+                text='data: {"type":"stdout","data":"partial"}\n\n',
+                headers={"content-type": "text/event-stream"},
+            ),
+        ]
+    )
+
+    with pytest.raises(CelestoError, match="before the command exited"):
+        list(Computer().run_stream("echo hello"))
+
+
+def test_cloud_run_stream_transport_error_is_not_replayed(cloud):
+    requests, replies = cloud
+    replies.extend([(201, computer()), httpx.ReadTimeout("stream lost")])
+
+    with pytest.raises(CelestoError, match="may still be running"):
+        list(Computer(lifetime="persistent").run_stream("charge-card"))
+
+    assert [request.method for request in requests] == ["POST", "POST"]
+
+
+def test_cloud_run_stream_retains_only_documented_bad_request_detail(cloud):
+    _, replies = cloud
+    replies.extend(
+        [
+            (201, computer()),
+            httpx.Response(400, json={"detail": "Invalid command", "private": "hidden"}),
+        ]
+    )
+
+    with pytest.raises(CloudAPIError) as exc:
+        list(Computer(lifetime="persistent").run_stream("echo hello"))
+
+    assert exc.value.status_code == 400
+    assert exc.value.details == {"detail": "Invalid command"}
 
 
 def test_persistent_rejects_context_without_allocating(cloud):
@@ -189,6 +271,8 @@ def test_invalid_cloud_command_does_not_allocate(cloud):
     for command, timeout in [("x" * 10001, 30), ("hello", 301)]:
         with pytest.raises(ValueError):
             comp.run(command, timeout=timeout)
+        with pytest.raises(ValueError):
+            comp.run_stream(command, timeout=timeout)
     comp.delete()
     assert not requests
 

@@ -54,7 +54,11 @@ from celesto.sdk import Computer
 from celesto.ssh import SSHClient
 from celesto.types import (
     BrowserViewport,
+    CommandEvent,
+    CommandExitEvent,
+    CommandOutputEvent,
     CommandResult,
+    CommandStartedEvent,
     ComputerEvent,
     ComputerSandboxProtocol,
     DesktopEndpoint,
@@ -121,6 +125,10 @@ __all__ = [
     "SnapshotType",
     "GuestFlushPolicy",
     "CommandResult",
+    "CommandEvent",
+    "CommandStartedEvent",
+    "CommandOutputEvent",
+    "CommandExitEvent",
     "ComputerEvent",
     "ComputerSandboxProtocol",
     "DesktopEndpoint",
