@@ -12,11 +12,11 @@ downloaded from the running backend. A pinned Ruff formatter makes regeneration
 repeatable. This supersedes the isolated-export and filtered-artifact machinery
 proposed below; no custom export framework was added.
 
-The private client is in `celesto._generated`; the public `Computer` now routes
+The private client is in `_celesto_cloud_api`; the public `Computer` now routes
 cloud create/get/run/delete through it. Local behavior remains unchanged.
 Streaming is documented correctly in the schema but not exposed by the public
-wrapper yet. Server-side expiry, installation/package restructuring, TypeScript,
-and the other cloud APIs remain deferred. See [Python cloud usage](../python-cloud.md)
+wrapper yet. Server-side expiry, a cloud-only dependency/distribution split,
+TypeScript, and the other cloud APIs remain deferred. See [Python cloud usage](../python-cloud.md)
 for implemented behavior and limitations; the historical proposal below is not
 a claim that those deferred features exist.
 
@@ -135,7 +135,7 @@ Export the description from FastAPI in backend CI, using `app.openapi()` or Fast
 
 Start with public computer operations and their referenced schemas, security definitions, and errors. Exclude internal host registration, heartbeat, telemetry, and other operator routes. Preserve an explicit operation inventory and stable unique operation IDs. Define missing error responses, streaming media types, and authentication declarations in the backend source instead of patching the exported JSON by hand.
 
-Recommended first generator trial: OpenAPI Generator, because it supports both Python now and TypeScript later. Pin its exact version and configuration after testing against the real schema. Generate into private `celesto._generated` code, never over the handwritten package entry point or `Computer`. `openapi-python-client` is a Python-focused fallback if its generated output handles this schema better. A shared OpenAPI artifact does not require every future language to use the same generator.
+Recommended first generator trial: OpenAPI Generator, because it supports both Python now and TypeScript later. Pin its exact version and configuration after testing against the real schema. Generate into private `_celesto_cloud_api` code, never over the handwritten package entry point or `Computer`. `openapi-python-client` is a Python-focused fallback if its generated output handles this schema better. A shared OpenAPI artifact does not require every future language to use the same generator.
 
 Generated code owns endpoint paths, payload serialization, request/response models, and ordinary HTTP calls. The cloud adapter owns readiness polling, lifecycle orchestration, result/error normalization, and retry policy. `Computer` owns the public local/cloud contract. Generated models remain private so backend schema changes do not automatically redefine the public SDK.
 

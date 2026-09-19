@@ -30,9 +30,9 @@ jobs:
 
       - name: Fail if the committed client is stale
         run: |
-          if [[ -n "$(git status --porcelain --untracked-files=all -- src/celesto/_generated)" ]]; then
-            git diff --stat -- src/celesto/_generated
-            git ls-files --others --exclude-standard -- src/celesto/_generated
+          if [[ -n "$(git status --porcelain --untracked-files=all -- src/_celesto_cloud_api)" ]]; then
+            git diff --stat -- src/_celesto_cloud_api
+            git ls-files --others --exclude-standard -- src/_celesto_cloud_api
             echo "::error::Cloud Python client is out of date. Run 'bash scripts/generate_cloud_client.sh' and commit the result."
             exit 1
           fi

@@ -76,7 +76,7 @@ celesto = "celesto.cli.main:main"
 smolvm = "celesto.cli.main:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/celesto"]
+packages = ["src/celesto", "src/_celesto_cloud_api"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "scripts/system-setup.sh" = "celesto/_setup_assets/system-setup.sh"
@@ -90,7 +90,7 @@ packages = ["src/celesto"]
 exclude = ["/ui", "/smolvm-core"]
 
 [tool.ruff]
-extend-exclude = ["src/celesto/_generated"]
+extend-exclude = ["src/_celesto_cloud_api"]
 target-version = "py311"
 line-length = 100
 
