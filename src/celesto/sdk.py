@@ -140,7 +140,7 @@ class Computer:
         return self._ensure_started().run(command, timeout=timeout)
 
     def run_stream(self, command: str, timeout: int = 30) -> Iterator[CommandEvent]:
-        """Run a command and yield output and exit events as they arrive."""
+        """Yield started, stdout, stderr, and exit events as a command runs."""
         self._validate_run(command, timeout)
         if self._cloud is not None:
             self._cloud.validate_command(command, timeout)

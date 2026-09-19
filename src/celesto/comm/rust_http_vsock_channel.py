@@ -40,7 +40,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from celesto._streaming import iter_sse_data, parse_command_event
+from celesto._streaming import iter_bounded_lines, iter_sse_data, parse_command_event
 from celesto.comm.base import CommChannelKind, ShellMode
 from celesto.exceptions import CelestoError, OperationTimeoutError
 from celesto.types import CommandEvent, CommandExitEvent, CommandResult
@@ -775,7 +775,8 @@ class RustHttpVsockChannel:
             if response.status >= 400:
                 response.read(_DEFAULT_MAX_AGENT_RESPONSE_BYTES + 1)
                 raise CelestoError(f"guest agent HTTP {response.status} for POST /exec/stream")
-            for data in iter_sse_data(iter(response.readline, b"")):
+            chunks = iter(lambda: response.read1(64 * 1024), b"")
+            for data in iter_sse_data(iter_bounded_lines(chunks)):
                 event = parse_command_event(data)
                 if isinstance(event, CommandExitEvent):
                     saw_exit = True

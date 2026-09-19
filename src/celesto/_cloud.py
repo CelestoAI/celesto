@@ -31,7 +31,7 @@ from _celesto_cloud_api.models.computer_exec_request import ComputerExecRequest
 from _celesto_cloud_api.models.computer_exec_response import ComputerExecResponse
 from _celesto_cloud_api.models.computer_response import ComputerResponse
 from _celesto_cloud_api.types import UNSET
-from celesto._streaming import iter_sse_data, parse_command_event
+from celesto._streaming import iter_bounded_lines, iter_sse_data, parse_command_event
 from celesto.exceptions import CelestoError, CloudAPIError, VMNotFoundError
 from celesto.types import CommandEvent, CommandExitEvent, CommandResult
 
@@ -205,7 +205,8 @@ class _CloudComputer:
                     if response.status_code == 404 and self.vm_id is not None:
                         raise VMNotFoundError(self.vm_id)
                     raise self._api_error(response.status_code, bytes(content))
-                for data in iter_sse_data(response.iter_lines()):
+                lines = iter_bounded_lines(response.iter_bytes(chunk_size=64 * 1024))
+                for data in iter_sse_data(lines):
                     event = parse_command_event(data)
                     if isinstance(event, CommandExitEvent):
                         saw_exit = True

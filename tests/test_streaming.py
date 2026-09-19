@@ -2,7 +2,7 @@
 
 import pytest
 
-from celesto._streaming import iter_sse_data, parse_command_event
+from celesto._streaming import iter_bounded_lines, iter_sse_data, parse_command_event
 from celesto.exceptions import CelestoError
 
 
@@ -40,3 +40,22 @@ def test_iter_sse_data_splits_deployed_json_lines_without_blank_delimiters() -> 
 def test_iter_sse_data_rejects_oversized_event_before_json_parsing() -> None:
     with pytest.raises(CelestoError, match="too large"):
         list(iter_sse_data(["data: " + "x" * (1024 * 1024 + 1)]))
+
+
+def test_iter_bounded_lines_preserves_chunked_crlf_records() -> None:
+    lines = list(iter_bounded_lines([b"data: one\r", b"\n\r\ndata: ", b"two\n"]))
+
+    assert lines == [b"data: one\r\n", b"\r\n", b"data: two\n"]
+
+
+def test_iter_bounded_lines_rejects_oversized_newline_less_record() -> None:
+    chunks = [b"x" * (512 * 1024), b"x" * (512 * 1024), b"x"]
+
+    with pytest.raises(CelestoError, match="too large"):
+        list(iter_bounded_lines(chunks))
+
+
+def test_iter_bounded_lines_allows_limit_sized_record_with_split_crlf() -> None:
+    chunks = [b"x" * (1024 * 1024) + b"\r", b"\n"]
+
+    assert list(iter_bounded_lines(chunks)) == [chunks[0] + chunks[1]]

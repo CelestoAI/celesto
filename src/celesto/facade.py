@@ -2097,7 +2097,7 @@ class Celesto:
         timeout: int = 30,
         shell: Literal["login", "raw"] = "login",
     ) -> Iterator[CommandEvent]:
-        """Execute a command and yield stdout, stderr, and exit events."""
+        """Yield started, stdout, stderr, and exit events as a command runs."""
         channel, ctx = self._prepare_run(command, timeout, shell)
         collect_result = len(self._callbacks) > 0
 

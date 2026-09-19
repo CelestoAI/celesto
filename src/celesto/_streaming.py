@@ -26,6 +26,36 @@ def _is_json_object(value: str) -> bool:
         return False
 
 
+def iter_bounded_lines(chunks: Iterable[bytes]) -> Iterator[bytes]:
+    """Split byte chunks into SSE lines without buffering oversized records."""
+    line = bytearray()
+    for chunk in chunks:
+        start = 0
+        while start < len(chunk):
+            newline = chunk.find(b"\n", start)
+            end = len(chunk) if newline < 0 else newline + 1
+            part = chunk[start:end]
+            content_size = len(line) + len(part)
+            if newline >= 0:
+                content_size -= 1
+                if part.endswith(b"\r\n") or (part == b"\n" and line.endswith(b"\r")):
+                    content_size -= 1
+            elif part.endswith(b"\r"):
+                # The matching LF may arrive in the next transport chunk.
+                content_size -= 1
+            if content_size > _MAX_EVENT_BYTES:
+                raise CelestoError("Command stream returned an event that was too large.")
+            line.extend(part)
+            if newline >= 0:
+                yield bytes(line)
+                line.clear()
+            start = end
+    if len(line) > _MAX_EVENT_BYTES:
+        raise CelestoError("Command stream returned an event that was too large.")
+    if line:
+        yield bytes(line)
+
+
 def parse_command_event(data: str) -> CommandEvent:
     """Parse one JSON SSE payload without exposing untrusted response content."""
     if len(data.encode("utf-8")) > _MAX_EVENT_BYTES:
@@ -74,7 +104,7 @@ def iter_sse_data(lines: Iterable[str | bytes]) -> Iterator[str]:
         # Some deployed proxies preserve each JSON ``data`` line but drop the
         # blank SSE delimiter between events. Split only when both sides are
         # independently complete JSON objects, preserving valid multiline SSE.
-        if data_lines and _is_json_object("\n".join(data_lines)) and _is_json_object(value):
+        if data_lines and _is_json_object(value) and _is_json_object("\n".join(data_lines)):
             yield "\n".join(data_lines)
             data_lines = []
             size = 0
