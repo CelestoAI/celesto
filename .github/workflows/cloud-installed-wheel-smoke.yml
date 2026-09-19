@@ -1,0 +1,100 @@
+name: Celesto cloud installed-wheel smoke
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: celesto-cloud-installed-wheel-smoke
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CELESTO_API_KEY: ${{ secrets.CELESTO_API_KEY }}
+      CELESTO_LIVE_TEST: "1"
+      CELESTO_LIVE_COMPUTER_ID_FILE: ${{ runner.temp }}/celesto-cloud-computer-id
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3.2.4
+
+      - name: Check cloud credentials
+        run: |
+          if [[ -z "$CELESTO_API_KEY" ]]; then
+            echo "::error::Add CELESTO_API_KEY as a repository secret before running this workflow."
+            exit 1
+          fi
+
+      - name: Build wheel
+        run: uv build --package smolvm --wheel --out-dir "$RUNNER_TEMP/cloud-wheel"
+
+      - name: Install wheel in a clean environment
+        run: |
+          uv venv "$RUNNER_TEMP/cloud-smoke-venv" --python 3.13
+          uv pip install \
+            --python "$RUNNER_TEMP/cloud-smoke-venv/bin/python" \
+            "$RUNNER_TEMP/cloud-wheel/"*.whl \
+            pytest
+          echo "CLOUD_SMOKE_PYTHON=$RUNNER_TEMP/cloud-smoke-venv/bin/python" >> "$GITHUB_ENV"
+
+      - name: Verify imports come from the installed wheel
+        run: |
+          "$CLOUD_SMOKE_PYTHON" - <<'PY'
+          import os
+          from pathlib import Path
+
+          import _celesto_cloud_api
+          import celesto
+
+          environment = Path(os.environ["CLOUD_SMOKE_PYTHON"]).parent.parent.resolve()
+          for package in (celesto, _celesto_cloud_api):
+              location = Path(package.__file__).resolve()
+              assert location.is_relative_to(environment), (
+                  f"{package.__name__} was imported from {location}, not {environment}"
+              )
+              print(f"Imported {package.__name__} from {location}")
+          PY
+
+      - name: Run cloud lifecycle smoke test
+        run: $CLOUD_SMOKE_PYTHON -m pytest tests/test_cloud_live.py -q -s
+
+      - name: Retry cloud cleanup
+        if: always()
+        run: |
+          if [[ ! -x "${CLOUD_SMOKE_PYTHON:-}" || ! -s "$CELESTO_LIVE_COMPUTER_ID_FILE" ]]; then
+            exit 0
+          fi
+          "$CLOUD_SMOKE_PYTHON" - <<'PY'
+          import os
+          from pathlib import Path
+
+          from celesto import Computer, VMNotFoundError
+
+          id_file = Path(os.environ["CELESTO_LIVE_COMPUTER_ID_FILE"])
+          computer_id = id_file.read_text().strip()
+          if not computer_id:
+              raise SystemExit
+
+          try:
+              Computer.get(computer_id).delete()
+          except VMNotFoundError:
+              pass
+          else:
+              print(f"Deleted cloud smoke-test computer: {computer_id}")
+          id_file.unlink(missing_ok=True)
+          PY

@@ -52,6 +52,12 @@ CELESTO_LIVE_TEST=1 uv run --extra dev pytest tests/test_cloud_live.py -q -s
 The test retries cleanup on failure but cannot guarantee cleanup if the process
 is killed or a create response is lost. Check the cloud dashboard in those cases.
 
+The manually dispatched **Celesto cloud installed-wheel smoke** GitHub Actions
+workflow builds the wheel, installs it in a clean environment, and runs the same
+test. Add `CELESTO_API_KEY` as a repository secret before running the workflow.
+Run it from the `main` branch. The workflow records the created computer ID and
+makes a final cleanup attempt even when the test fails.
+
 ## Generated client
 
 The private `_celesto_cloud_api` package contains generated requests and models. It ships
