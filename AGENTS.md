@@ -22,15 +22,15 @@ Celesto is specifically designed to provide a secure "sandbox" for AI agents to 
 - Also update `src/celesto/images/builder.py::_GUEST_AGENT_RELEASE_SHA256`
   from the `smolvm-guest-agent-linux-<arch>.sha256` release assets. This is a
   separate pin from the rootfs manifest.
-- Verify both paths: `uv run smolvm ...` from a source checkout may build or use
-  the local guest-agent binary, while `smolvm ...` from `uv tool` uses the
+- Verify both paths: `uv run celesto ...` from a source checkout may build or use
+  the local guest-agent binary, while `celesto ...` from `uv tool` uses the
   installed wheel and downloads the standalone guest-agent release binary.
 - Only tag the Celesto package release after the image manifest, guest-agent
   binary SHA pins, image smoke, and focused tests are complete.
 
 ### CLI design
 
-- New CLI commands follow a **NOUN-VERB** structure: `smolvm <noun> <verb>`,
+- New CLI commands follow a **NOUN-VERB** structure: `celesto <noun> <verb>`,
   e.g. `celesto codex start`, not `smolvm start codex`.
 - The noun names the resource (a sandbox, a harness, a browser session); the
   verb names the action on it (`start`, `stop`, `ssh`).
@@ -39,7 +39,7 @@ Celesto is specifically designed to provide a secure "sandbox" for AI agents to 
 - When adding a new harness or resource, register it as a top-level
   subcommand and put its actions underneath, instead of overloading a
   global verb.
-- Documented exceptions: the top-level `celesto prune` and `smolvm images`
+- Documented exceptions: the top-level `celesto prune` and `celesto images`
   aliases exist for muscle memory (`images` mirrors `docker images`); both
   delegate to their NOUN-VERB homes (`image prune`, `image list`). Do not
   add further top-level aliases without discussion.

@@ -41,7 +41,7 @@ The installer adds the Python tooling SmolVM needs, installs SmolVM, prepares th
 Download and verify the desktop image now so the first task does not pause without terminal progress:
 
 ```bash
-smolvm image pull linux-desktop
+celesto image pull linux-desktop
 ```
 
 The download is needed only once. Later runs reuse the local image.
