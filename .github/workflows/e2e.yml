@@ -173,8 +173,8 @@ jobs:
         run: |
           sudo -n -E -u "$USER" -g kvm -- env "PATH=$PATH" "$(command -v uv)" run python -c "from smolvm_core import network; assert network.available(), 'Native extension reports native networking unavailable on Linux'; print('smolvm-core: OK')"
 
-      - name: Diagnostics (smolvm doctor)
-        run: sudo -n -E -u "$USER" -g kvm -- env "PATH=$PATH" "$(command -v uv)" run smolvm doctor --backend "${{ matrix.backend }}" || true
+      - name: Diagnostics (celesto doctor)
+        run: sudo -n -E -u "$USER" -g kvm -- env "PATH=$PATH" "$(command -v uv)" run celesto doctor --backend "${{ matrix.backend }}" || true
 
       - name: Run e2e suite
         env:

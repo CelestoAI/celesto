@@ -43,7 +43,7 @@ jobs:
           fi
 
       - name: Build wheel
-        run: uv build --package smolvm --wheel --out-dir "$RUNNER_TEMP/cloud-wheel"
+        run: uv build --package celesto --wheel --out-dir "$RUNNER_TEMP/cloud-wheel"
 
       - name: Install wheel in a clean environment
         run: |

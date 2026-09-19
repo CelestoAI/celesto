@@ -2,7 +2,11 @@
 
 Run commands on a Celesto Cloud computer using the same Python interface as local execution. Your machine does not boot a virtual machine when you use the cloud.
 
-Install the existing `smolvm` package from this checkout and set `CELESTO_API_KEY` in your environment. The distribution name and native installation dependencies have not changed in this increment.
+Install `celesto==0.0.15a0` and set `CELESTO_API_KEY` in your environment.
+
+```bash
+pip install 'celesto==0.0.15a0'
+```
 
 ```python
 from celesto import Computer

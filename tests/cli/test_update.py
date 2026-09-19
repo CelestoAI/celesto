@@ -24,6 +24,7 @@ import pytest
 from celesto.cli.update import (
     _check_for_stable_update,
     _is_uv_tool_install,
+    _run_upgrade,
     run_update,
 )
 
@@ -71,16 +72,16 @@ class TestIsUvToolInstall:
         with patch("celesto.cli.update.shutil.which", return_value=None):
             assert _is_uv_tool_install() is False
 
-    def test_returns_true_when_smolvm_in_uv_tool_list(self) -> None:
+    def test_returns_true_when_celesto_in_uv_tool_list(self) -> None:
         mock_result = MagicMock()
-        mock_result.stdout = "smolvm v0.0.19\n"
+        mock_result.stdout = "celesto v0.0.19\n"
         with (
             patch("celesto.cli.update.shutil.which", return_value="/usr/bin/uv"),
             patch("celesto.cli.update.subprocess.run", return_value=mock_result),
         ):
             assert _is_uv_tool_install() is True
 
-    def test_returns_false_when_only_smolvm_core_in_uv_tool_list(self) -> None:
+    def test_returns_false_when_only_celesto_core_in_uv_tool_list(self) -> None:
         mock_result = MagicMock()
         mock_result.stdout = "smolvm-core v0.0.14\n"
         with (
@@ -89,7 +90,7 @@ class TestIsUvToolInstall:
         ):
             assert _is_uv_tool_install() is False
 
-    def test_returns_false_when_smolvm_not_in_uv_tool_list(self) -> None:
+    def test_returns_false_when_celesto_not_in_uv_tool_list(self) -> None:
         mock_result = MagicMock()
         mock_result.stdout = "other-tool v1.0\n"
         with (
@@ -117,7 +118,7 @@ class TestRunUpdate:
         assert rc == 1
         err = capsys.readouterr().err
         assert "Could not determine" in err
-        assert "pip install --upgrade smolvm" in err
+        assert "pip install --upgrade celesto" in err
 
     def test_check_only_update_available(self, capsys: pytest.CaptureFixture[str]) -> None:
         with (
@@ -170,7 +171,7 @@ class TestRunUpdate:
             patch("celesto.cli.update._check_for_stable_update", return_value=("0.9.0", "1.0.0")),
             patch(
                 "celesto.cli.update._run_upgrade",
-                return_value=(0, "Successfully installed smolvm-1.0.0"),
+                return_value=(0, "Successfully installed celesto-1.0.0"),
             ),
             patch("celesto.cli.update._get_current_version", return_value="1.0.0"),
         ):
@@ -180,3 +181,17 @@ class TestRunUpdate:
         assert payload["data"]["upgraded"] is True
         assert payload["data"]["current"] == "1.0.0"
         assert payload["data"]["previous"] == "0.9.0"
+
+
+@pytest.mark.parametrize("uv_tool", [True, False])
+def test_upgrade_targets_celesto_distribution(uv_tool: bool) -> None:
+    result = MagicMock(returncode=0, stdout="", stderr="")
+    with (
+        patch("celesto.cli.update._is_uv_tool_install", return_value=uv_tool),
+        patch("celesto.cli.update.shutil.which", return_value="/usr/bin/uv"),
+        patch("celesto.cli.update.subprocess.run", return_value=result) as run,
+    ):
+        assert _run_upgrade(json_output=True) == (0, "")
+    command = run.call_args.args[0]
+    assert command[-1] == "celesto"
+    assert command[1:3] == (["tool", "upgrade"] if uv_tool else ["-m", "pip"])

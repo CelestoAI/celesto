@@ -12,14 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""One-shot installation of shell tab-completion for the smolvm CLI.
+"""One-shot installation of shell tab-completion for the celesto CLI.
 
 fish autoloads per-command completion files from its completions
 directory, so a single file write is enough there. bash and zsh do have
 autoload mechanisms too (bash-completion's drop-in directory, zsh's
 ``fpath``), but both only work when the machine has them set up, so for
 a setup that works everywhere we write the script under
-``~/.smolvm/completions`` and manage one marker-tagged ``source`` line
+``~/.celesto/completions`` and manage one marker-tagged ``source`` line
 in the shell's startup file instead.
 """
 
@@ -36,7 +36,7 @@ from celesto.cli.output import console_stdout, render_error
 # Trailing tag on the rc line this tool manages. Install looks for this
 # marker to find (and replace) its own line without touching lines the
 # user wrote themselves.
-_MARKER = "# smolvm tab completion"
+_MARKER = "# celesto tab completion"
 
 # zsh's `compdef` only exists after `compinit` has run; a minimal .zshrc
 # never runs it, so the installed script initializes completion first.
@@ -151,7 +151,8 @@ def _install_rc_line(shell: str, rc_path: Path, script_path: Path) -> str:
     kept = [line for line in lines if _MARKER not in line]
     marker_lines = [line for line in lines if _MARKER in line]
     user_written = any(
-        f"completions/smolvm.{shell}" in line and not line.lstrip().startswith("#") for line in kept
+        f"completions/celesto.{shell}" in line and not line.lstrip().startswith("#")
+        for line in kept
     )
 
     # Exact-list comparison so duplicated copies of the current line still
@@ -187,7 +188,7 @@ def _install_rc_line(shell: str, rc_path: Path, script_path: Path) -> str:
     # with one fresh line.
     _write_rc(rc_path, [*kept, managed_line])
     return (
-        f"Tab completion for {shell} is set up: updated the smolvm line in "
+        f"Tab completion for {shell} is set up: updated the celesto line in "
         f"'{rc_path}'. Open a new shell to use it."
     )
 
@@ -214,7 +215,7 @@ def run_completion_install(shell: str, script: str) -> int:
         if shell == "zsh":
             script = _ZSH_COMPINIT_GUARD + script
 
-        script_path = home / ".smolvm" / "completions" / f"smolvm.{shell}"
+        script_path = home / ".celesto" / "completions" / f"celesto.{shell}"
         script_path.parent.mkdir(parents=True, exist_ok=True)
         script_path.write_text(script, encoding="utf-8")
 

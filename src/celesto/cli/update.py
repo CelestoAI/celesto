@@ -44,10 +44,10 @@ def _check_for_stable_update() -> tuple[str | None, str | None]:
 
 
 def _is_uv_tool_install() -> bool:
-    """Return True if smolvm was installed as a uv tool.
+    """Return True if celesto was installed as a uv tool.
 
-    Checks whether the running smolvm executable lives inside uv's tool
-    bin directory, which is how ``uv tool install smolvm`` places it.
+    Checks whether the running celesto executable lives inside uv's tool
+    bin directory, which is how ``uv tool install celesto`` places it.
     """
     uv = shutil.which("uv")
     if uv is None:
@@ -58,24 +58,24 @@ def _is_uv_tool_install() -> bool:
             capture_output=True,
             text=True,
         )
-        return bool(re.search(r"^smolvm[ \t]", result.stdout, re.MULTILINE))
+        return bool(re.search(r"^celesto[ \t]", result.stdout, re.MULTILINE))
     except OSError:
         return False
 
 
 def _run_upgrade(*, json_output: bool) -> tuple[int, str]:
-    """Upgrade smolvm using the appropriate package manager and return ``(returncode, output)``.
+    """Upgrade celesto using the appropriate package manager and return ``(returncode, output)``.
 
-    Detects whether smolvm was installed via ``uv tool`` or ``pip`` and
+    Detects whether celesto was installed via ``uv tool`` or ``pip`` and
     calls the matching upgrade command. In terminal mode subprocess stdio
     is inherited so output streams live to the user. In JSON mode
     stdout+stderr are captured for embedding in the response payload.
     """
     if _is_uv_tool_install():
         uv = shutil.which("uv") or "uv"
-        cmd = [uv, "tool", "upgrade", "smolvm"]
+        cmd = [uv, "tool", "upgrade", "celesto"]
     else:
-        cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "smolvm"]
+        cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "celesto"]
 
     try:
         if json_output:
@@ -107,8 +107,8 @@ def run_update(*, check: bool = False, json_output: bool = False) -> int:
                     emit_json("update", 1, data=data)
                 else:
                     sys.stderr.write(
-                        "Could not determine the installed smolvm version. "
-                        "Run: pip install --upgrade smolvm\n"
+                        "Could not determine the installed celesto version. "
+                        "Run: pip install --upgrade celesto\n"
                     )
                 return 1
             data = {"current": current, "latest": None, "update_available": False}
@@ -146,7 +146,7 @@ def run_update(*, check: bool = False, json_output: bool = False) -> int:
         if latest:
             console.print(f"Upgrading celesto {current} → {latest} …")
         else:
-            console.print("Upgrading smolvm to the latest stable release …")
+            console.print("Upgrading celesto to the latest stable release …")
 
     returncode, pip_output = _run_upgrade(json_output=json_output)
 
@@ -165,5 +165,5 @@ def run_update(*, check: bool = False, json_output: bool = False) -> int:
         return returncode
 
     if returncode != 0:
-        sys.stderr.write("celesto update failed. To retry, run: pip install --upgrade smolvm\n")
+        sys.stderr.write("celesto update failed. To retry, run: pip install --upgrade celesto\n")
     return returncode

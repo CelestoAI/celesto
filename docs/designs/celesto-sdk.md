@@ -24,7 +24,10 @@ a claim that those deferred features exist.
 
 These bullets record the original local-only release, not the current cloud
 implementation described above. Its cloud failure and deferral requirements
-were superseded by the 2026-09-19 implementation update.
+were superseded by the 2026-09-19 implementation update. The `0.0.15a0` alpha
+also supersedes the original package and executable naming: install `celesto`,
+import from `celesto`, and invoke `celesto`. There is no `smolvm` import or
+executable alias. The separate TypeScript package retains its public names.
 
 - Keep the distribution named `smolvm`; replace its Python import namespace with `celesto` without an import shim.
 - Provide `Computer(local=True)` for local execution. `Computer()` fails with a local-only explanation until cloud support ships.
@@ -106,10 +109,10 @@ A remote self-hosted service is distinct from `local=True`, which means this mac
 
 ## Existing implementation evidence
 
-- `src/smolvm/facade.py` implements Python VM construction and command execution.
+- `src/celesto/facade.py` implements Python VM construction and command execution.
 - `ts/src/index.ts` exposes client-owned local sandbox, browser, and computer collections.
 - `open-muse/server/computer-provider.ts` already adapts local and cloud computers, but local reconnect is absent and deletion behavior differs.
-- `pyproject.toml` publishes `smolvm` and requires native `smolvm-core` dependencies.
+- `pyproject.toml` publishes `celesto` and requires native `smolvm-core` dependencies.
 
 These are reusable implementation inputs, not evidence that the new contract already works.
 

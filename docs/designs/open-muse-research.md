@@ -106,7 +106,7 @@ The server keeps completed artifacts available for download for 15 minutes, then
 
 Keep completed artifacts visible when a later phase fails. Show one short fact and one action. Examples:
 
-- `OpenMuse Research could not start a private computer. Run 'smolvm doctor' and try again.`
+- `OpenMuse Research could not start a private computer. Run 'celesto doctor' and try again.`
 - `Research stopped after 8 minutes. Remove one constraint, then select Prepare plan.`
 - `The model did not produce a valid budget. Select Start research to run verification again.`
 
@@ -416,7 +416,7 @@ At minimum, map:
 
 - unsupported Node or protocol mismatch → rerun the official installer;
 - missing runtime → install SmolVM;
-- backend unavailable → run `smolvm doctor` and show its exact backend recovery when available;
+- backend unavailable → run `celesto doctor` and show its exact backend recovery when available;
 - image or sandbox creation failure → retry after the reported recovery command;
 - timeout or abort → state whether the sandbox was deleted;
 - bridge exit or cleanup failure → stop the run and show the exact local cleanup command.

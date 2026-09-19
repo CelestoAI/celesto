@@ -17,7 +17,7 @@
 """Use Celesto as a reusable PydanticAI tool-backed sandbox.
 
 Install:
-    pip install smolvm pydantic-ai
+    pip install 'celesto==0.0.15a0' pydantic-ai
 
 Required environment:
     export OPENAI_API_KEY=...

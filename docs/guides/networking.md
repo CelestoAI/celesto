@@ -21,7 +21,7 @@ The host must already have a Linux bridge, a host network interface that joins s
 Check bridge `br10` before creating a sandbox:
 
 ```bash
-smolvm bridge check br10
+celesto bridge check br10
 # Bridge 'br10' is ready for bridged networking.
 ```
 

@@ -89,6 +89,9 @@ PY
 # Prints /tmp/qemu-policy-bench.<generated suffix>/vm-config.json
 ```
 
+This historical comparison uses `smolvm==0.0.32` as its baseline; it is not an
+installation command for the current Celesto release.
+
 Prepare separate installed-wheel environments with the same locked dependencies.
 Keep this checkout's benchmark script for both versions.
 

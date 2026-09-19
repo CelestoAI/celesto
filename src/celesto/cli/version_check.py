@@ -34,14 +34,14 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 DISABLE_ENV = "SMOLVM_DISABLE_VERSION_CHECK"
-PYPI_URL = "https://pypi.org/pypi/smolvm/json"
+PYPI_URL = "https://pypi.org/pypi/celesto/json"
 CACHE_TTL_SECONDS = 60 * 60  # 1h
 NETWORK_TIMEOUT_SECONDS = 2.0
 
 
 def _cache_path() -> Path:
     """Return the path used to cache the last-seen PyPI version."""
-    return Path.home() / ".smolvm" / ".version_check.json"
+    return Path.home() / ".smolvm" / ".celesto_version_check.json"
 
 
 def _read_cache() -> tuple[str, float] | None:
@@ -116,9 +116,9 @@ def _is_newer(current: str, latest: str) -> bool:
 
 
 def _get_current_version() -> str | None:
-    """Return the installed smolvm version, or None if it cannot be determined."""
+    """Return the installed celesto version, or None if it cannot be determined."""
     try:
-        return importlib.metadata.version("smolvm")
+        return importlib.metadata.version("celesto")
     except importlib.metadata.PackageNotFoundError:
         return None
 
@@ -203,9 +203,9 @@ def maybe_print_update_notice(*, json_output: bool = False) -> None:
 
     current = _get_current_version() or "?"
     message = (
-        f"Hey, there is a new version of smolvm ({latest}, you have {current}). "
+        f"Hey, there is a new version of celesto ({latest}, you have {current}). "
         "We recommend you upgrade to the latest version.\n"
-        f"  Run: pip install --upgrade smolvm\n"
+        f"  Run: pip install --upgrade celesto\n"
         f"  (silence this with {DISABLE_ENV}=1)\n"
     )
     try:

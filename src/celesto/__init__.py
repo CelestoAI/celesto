@@ -81,7 +81,7 @@ from celesto.types import (
 )
 from celesto.vm import CelestoManager
 
-__version__ = _pkg_version("smolvm")
+__version__ = _pkg_version("celesto")
 
 __all__ = [
     # Core classes

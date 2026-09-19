@@ -17,7 +17,7 @@
 """Drive a Celesto browser from PydanticAI through agent-browser.
 
 Prerequisites:
-    pip install smolvm pydantic-ai
+    pip install 'celesto==0.0.15a0' pydantic-ai
     brew install agent-browser or npm install -g agent-browser
     agent-browser install
     export OPENAI_API_KEY=...
@@ -287,7 +287,7 @@ def main() -> None:
     finally:
         if deps.session is not None:
             stop_result = subprocess.run(
-                ["smolvm", "browser", "stop", str(deps.session["session_id"])],
+                ["celesto", "browser", "stop", str(deps.session["session_id"])],
                 cwd=REPO_ROOT,
                 capture_output=True,
                 text=True,

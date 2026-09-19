@@ -17,7 +17,7 @@
 """Use Celesto as a LangChain tool.
 
 Install:
-    pip install smolvm langchain langchain-openai
+    pip install 'celesto==0.0.15a0' langchain langchain-openai
 
 Required environment:
     export OPENAI_API_KEY=...

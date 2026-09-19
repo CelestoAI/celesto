@@ -56,7 +56,7 @@ Time allowed for ordinary bridge requests that do not manage a VM lifecycle oper
 
 > `optional` **runtimePath?**: `string`
 
-Runtime executable path. Defaults to `smolvm` on PATH.
+Runtime executable path. Defaults to `celesto` on PATH.
 
 ***
 

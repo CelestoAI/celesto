@@ -597,24 +597,38 @@ test("rejects an incompatible runtime protocol with a stable error", async () =>
   );
 });
 
-test("recognizes an installed runtime that predates SDK sessions", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "smolvm-old-runtime-"));
-  const runtime = join(directory, "smolvm");
-  await writeFile(runtime, "#!/bin/sh\necho \"Error: No such option '--sdk-session'.\" >&2\nexit 2\n");
-  await chmod(runtime, 0o755);
-  const transport = new ProcessTransport(runtime, 1_000, 1_000, 1_000, false, () => {});
+for (const selection of ["option", "environment", "path"] as const) {
+  test(`launches the Celesto runtime selected by ${selection}`, async () => {
+    const directory = await mkdtemp(join(tmpdir(), "celesto-old-runtime-"));
+    const runtime = join(directory, "celesto");
+    await writeFile(runtime, "#!/bin/sh\necho \"Error: No such option '--sdk-session'.\" >&2\nexit 2\n");
+    await chmod(runtime, 0o755);
+    const originalPath = process.env.PATH;
+    const originalRuntime = process.env.CELESTO_RUNTIME;
+    if (selection === "environment") process.env.CELESTO_RUNTIME = runtime;
+    else delete process.env.CELESTO_RUNTIME;
+    if (selection === "path") process.env.PATH = directory;
+    const client = new SmolVM({
+      ...(selection === "option" ? { runtimePath: runtime } : {}),
+      startupTimeoutMs: 1_000,
+    });
 
-  try {
-    await assert.rejects(() => transport.request("/sdk/v1/capabilities"), (error: unknown) =>
-      error instanceof SmolVMError
-        && error.code === "protocol_incompatible"
-        && error.recoveryCommand === "curl -sSL https://celesto.ai/install.sh | bash",
-    );
-  } finally {
-    await transport.close();
-    await rm(directory, { recursive: true, force: true });
-  }
-});
+    try {
+      await assert.rejects(() => client.sandboxes.create(), (error: unknown) =>
+        error instanceof SmolVMError
+          && error.code === "protocol_incompatible"
+          && error.recoveryCommand === "curl -sSL https://celesto.ai/install.sh | bash",
+      );
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH;
+      else process.env.PATH = originalPath;
+      if (originalRuntime === undefined) delete process.env.CELESTO_RUNTIME;
+      else process.env.CELESTO_RUNTIME = originalRuntime;
+      await client.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+}
 
 test("abort confirms sandbox deletion before rejecting", async () => {
   class AbortTransport extends FakeTransport {

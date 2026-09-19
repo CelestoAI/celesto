@@ -71,7 +71,7 @@ off. `file_transfer.py` starts one sandbox and times upload/download for several
 file sizes plus a directory tar round trip, meaning pack a folder into one tar
 archive, send it, and unpack or fetch it again, when the selected control
 channel supports it.
-`preset_start.py` times `smolvm <preset> start` and cleans up the sandbox unless
+`preset_start.py` times `celesto <preset> start` and cleans up the sandbox unless
 `--keep` is set. Use `--comm-channel vsock` or `--comm-channel ssh` when you
 want preset startup numbers for a specific control path. `browser_ready.py`
 starts a browser sandbox, then polls the CDP endpoint, which is the local

@@ -12,16 +12,25 @@ class TestVersion:
 
     def test_init_version_matches_metadata(self) -> None:
         """celesto.__version__ should match importlib.metadata."""
-        metadata_version = importlib.metadata.version("smolvm")
+        metadata_version = importlib.metadata.version("celesto")
         assert celesto.__version__ == metadata_version
 
+    def test_only_celesto_console_entry_point(self) -> None:
+        distribution = importlib.metadata.distribution("celesto")
+        commands = {
+            entry.name: entry.value
+            for entry in distribution.entry_points
+            if entry.group == "console_scripts"
+        }
+        assert commands == {"celesto": "celesto.cli.main:main"}
+
     def test_cli_version_flag(self, capsys) -> None:
-        """smolvm --version should print the package version."""
+        """celesto --version should print the package version."""
         assert main(["--version"]) == 0
         assert celesto.__version__ in capsys.readouterr().out
 
     def test_cli_short_version_flag(self, capsys) -> None:
-        """smolvm -V should also trigger version output."""
+        """celesto -V should also trigger version output."""
         assert main(["-V"]) == 0
         assert celesto.__version__ in capsys.readouterr().out
 

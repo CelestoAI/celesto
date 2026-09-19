@@ -102,7 +102,7 @@ export class SmolVM implements SmolVMClient {
     const createTimeoutMs = timeoutOption(options.createTimeoutMs, 600_000, "createTimeoutMs");
     const requestTimeoutMs = timeoutOption(options.requestTimeoutMs, 30_000, "requestTimeoutMs");
     this.transport = options.transport ?? new ProcessTransport(
-      options.runtimePath ?? process.env.SMOLVM_RUNTIME ?? "smolvm",
+      options.runtimePath ?? process.env.CELESTO_RUNTIME ?? "celesto",
       startupTimeoutMs,
       createTimeoutMs,
       requestTimeoutMs,
@@ -152,7 +152,7 @@ export class SmolVM implements SmolVMClient {
         const capabilities = Array.isArray(result.capabilities) ? result.capabilities : [];
         const protocolVersion = result.protocol_version ?? -1;
         if (protocolVersion !== 1) {
-          throw new SmolVMError("protocol_incompatible", "The installed SmolVM runtime is incompatible with this SDK.", {
+          throw new SmolVMError("protocol_incompatible", "The installed Celesto runtime is incompatible with this SDK.", {
             operation: "runtime.negotiate",
             actual: { protocolVersion },
             recoveryCommand: "curl -sSL https://celesto.ai/install.sh | bash",
@@ -168,7 +168,7 @@ export class SmolVM implements SmolVMClient {
     const capabilities = await this.negotiation;
     const missing = required.filter((capability) => !capabilities.has(capability));
     if (missing.length > 0) {
-      throw new SmolVMError("protocol_incompatible", "The installed SmolVM runtime is incompatible with this SDK.", {
+      throw new SmolVMError("protocol_incompatible", "The installed Celesto runtime is incompatible with this SDK.", {
         operation: "runtime.negotiate",
         actual: { protocolVersion: 1, missingCapabilities: missing.join(",") },
         recoveryCommand: "curl -sSL https://celesto.ai/install.sh | bash",

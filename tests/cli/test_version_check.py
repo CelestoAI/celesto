@@ -74,7 +74,7 @@ class TestCheckForUpdate:
 
     def test_uses_fresh_cache(self, home_dir: Path) -> None:
         """A fresh cache entry short-circuits the PyPI call."""
-        cache = home_dir / ".smolvm" / ".version_check.json"
+        cache = home_dir / ".smolvm" / ".celesto_version_check.json"
         cache.parent.mkdir(parents=True, exist_ok=True)
         cache.write_text(json.dumps({"latest": "0.2.0", "checked_at": time.time()}))
 
@@ -85,8 +85,19 @@ class TestCheckForUpdate:
             assert version_check.check_for_update() == "0.2.0"
             fetch.assert_not_called()
 
-    def test_stale_cache_is_refreshed(self, home_dir: Path) -> None:
+    def test_ignores_legacy_smolvm_cache(self, home_dir: Path) -> None:
         cache = home_dir / ".smolvm" / ".version_check.json"
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({"latest": "0.0.36", "checked_at": time.time()}))
+        with (
+            patch.object(version_check, "_get_current_version", return_value="0.0.15"),
+            patch.object(version_check, "_fetch_latest_from_pypi", return_value="0.0.15") as fetch,
+        ):
+            assert version_check.check_for_update() is None
+            fetch.assert_called_once()
+
+    def test_stale_cache_is_refreshed(self, home_dir: Path) -> None:
+        cache = home_dir / ".smolvm" / ".celesto_version_check.json"
         cache.parent.mkdir(parents=True, exist_ok=True)
         stale_ts = time.time() - (version_check.CACHE_TTL_SECONDS + 1)
         cache.write_text(json.dumps({"latest": "0.0.5", "checked_at": stale_ts}))
