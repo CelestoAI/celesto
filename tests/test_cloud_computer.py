@@ -6,9 +6,9 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+from _celesto_cloud_api.client import AuthenticatedClient
 from celesto import CelestoError, CloudAPIError, Computer, VMNotFoundError
 from celesto._cloud import _CloudComputer
-from celesto._generated.client import AuthenticatedClient
 
 
 def computer(status="running"):

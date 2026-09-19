@@ -12,25 +12,25 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from celesto._generated.api.computers import (
+from _celesto_cloud_api.api.computers import (
     create_computer_v1_computers_post as create,
 )
-from celesto._generated.api.computers import (
+from _celesto_cloud_api.api.computers import (
     delete_computer_v1_computers_computer_id_delete as delete,
 )
-from celesto._generated.api.computers import (
+from _celesto_cloud_api.api.computers import (
     exec_on_computer_v1_computers_computer_id_exec_post as execute,
 )
-from celesto._generated.api.computers import (
+from _celesto_cloud_api.api.computers import (
     get_computer_v1_computers_computer_id_get as retrieve,
 )
-from celesto._generated.client import AuthenticatedClient
-from celesto._generated.errors import UnexpectedStatus
-from celesto._generated.models.computer_create_request import ComputerCreateRequest
-from celesto._generated.models.computer_exec_request import ComputerExecRequest
-from celesto._generated.models.computer_exec_response import ComputerExecResponse
-from celesto._generated.models.computer_response import ComputerResponse
-from celesto._generated.types import UNSET
+from _celesto_cloud_api.client import AuthenticatedClient
+from _celesto_cloud_api.errors import UnexpectedStatus
+from _celesto_cloud_api.models.computer_create_request import ComputerCreateRequest
+from _celesto_cloud_api.models.computer_exec_request import ComputerExecRequest
+from _celesto_cloud_api.models.computer_exec_response import ComputerExecResponse
+from _celesto_cloud_api.models.computer_response import ComputerResponse
+from _celesto_cloud_api.types import UNSET
 from celesto.exceptions import CelestoError, CloudAPIError, VMNotFoundError
 from celesto.types import CommandResult
 

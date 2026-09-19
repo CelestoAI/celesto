@@ -94,7 +94,8 @@ jobs:
           "
 
       - name: Run pytest
-        run: uv run pytest
+        # Generated-client-only contracts have their own path-filtered workflow.
+        run: uv run pytest --ignore=tests/test_generated_cloud_client.py
 
       # The guest agent is pure Rust and does not link against Python, so
       # running it once is enough to cover the whole matrix.
@@ -183,12 +184,16 @@ jobs:
           from pathlib import Path
           from importlib.metadata import version as pkg_version
 
+          import _celesto_cloud_api
           from celesto.host._accel import HAS_NETLINK
           from celesto.host.setup import detect_setup_platform, resolve_setup_script
           from celesto.images import builder as image_builder
 
           assert pkg_version("smolvm") == "${VERSION}"
           assert pkg_version("smolvm-core") == "${CORE_VERSION}"
+          assert Path(_celesto_cloud_api.__file__).is_file(), (
+              "generated cloud API package missing from wheel"
+          )
           if platform.system() == "Linux":
               assert HAS_NETLINK, "smolvm-core native extension did not load from built wheel"
           setup_script = resolve_setup_script(detect_setup_platform())

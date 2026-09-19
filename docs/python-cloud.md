@@ -54,7 +54,11 @@ is killed or a create response is lost. Check the cloud dashboard in those cases
 
 ## Generated client
 
-The private `celesto._generated` package contains generated requests and models. It is not a public SDK interface. The public `Computer` keeps these types out of its API and uses the ordinary command endpoint; streaming, browser, terminal, and file APIs are not exposed by this wrapper yet.
+The private `_celesto_cloud_api` package contains generated requests and models. It ships
+inside the same Python distribution as `celesto`; it is not a separate PyPI package or a
+public SDK interface. The public `Computer` keeps these types out of its API and uses the
+ordinary command endpoint; streaming, browser, terminal, and file APIs are not exposed by
+this wrapper yet.
 
 The generator consumes the committed `openapi/cloud.json` snapshot. After updating that snapshot from the backend's exported document, regenerate with:
 
@@ -62,4 +66,4 @@ The generator consumes the committed `openapi/cloud.json` snapshot. After updati
 bash scripts/generate_cloud_client.sh
 ```
 
-Review and commit the snapshot and generated diff together. The script pins `openapi-python-client==0.29.1` and replaces only `src/celesto/_generated`. Never hand-edit those generated files. No schema export service, custom templates, or separate SDK publication is needed.
+Review and commit the snapshot and generated diff together. The script pins `openapi-python-client==0.29.1` and replaces only `src/_celesto_cloud_api`. Never hand-edit those generated files. No schema export service, custom templates, or separate SDK publication is needed.
