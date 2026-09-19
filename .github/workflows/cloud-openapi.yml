@@ -28,6 +28,7 @@ permissions:
 
 jobs:
   drift:
+    name: Cloud client drift and contracts
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository

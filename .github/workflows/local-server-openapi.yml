@@ -24,6 +24,7 @@ permissions:
 
 jobs:
   drift:
+    name: Local server OpenAPI drift
     runs-on: ubuntu-latest
 
     steps:
