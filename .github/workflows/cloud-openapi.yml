@@ -3,13 +3,32 @@ name: Celesto cloud Python client sync
 on:
   push:
     branches: [main]
+    paths:
+      - "openapi/cloud.json"
+      - "openapi/python-client.yaml"
+      - "scripts/generate_cloud_client.sh"
+      - "src/_celesto_cloud_api/**"
+      - "tests/test_generated_cloud_client.py"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/cloud-openapi.yml"
   pull_request:
+    paths:
+      - "openapi/cloud.json"
+      - "openapi/python-client.yaml"
+      - "scripts/generate_cloud_client.sh"
+      - "src/_celesto_cloud_api/**"
+      - "tests/test_generated_cloud_client.py"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/cloud-openapi.yml"
 
 permissions:
   contents: read
 
 jobs:
   drift:
+    name: Cloud client drift and contracts
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -36,3 +55,11 @@ jobs:
             echo "::error::Cloud Python client is out of date. Run 'bash scripts/generate_cloud_client.sh' and commit the result."
             exit 1
           fi
+
+      - name: Install generated client test dependencies
+        run: uv sync --extra dev --no-install-workspace --python 3.13
+
+      - name: Run generated client tests
+        env:
+          PYTHONPATH: src
+        run: uv run --no-sync pytest tests/test_generated_cloud_client.py

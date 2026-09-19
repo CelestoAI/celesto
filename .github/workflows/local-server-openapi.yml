@@ -3,13 +3,28 @@ name: Celesto local server OpenAPI sync
 on:
   push:
     branches: [main]
+    paths:
+      - "src/celesto/server/**"
+      - "scripts/dump_openapi.py"
+      - "ts/celesto-local-server.openapi.json"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/local-server-openapi.yml"
   pull_request:
+    paths:
+      - "src/celesto/server/**"
+      - "scripts/dump_openapi.py"
+      - "ts/celesto-local-server.openapi.json"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/local-server-openapi.yml"
 
 permissions:
   contents: read
 
 jobs:
   drift:
+    name: Local server OpenAPI drift
     runs-on: ubuntu-latest
 
     steps:
