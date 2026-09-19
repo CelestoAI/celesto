@@ -123,6 +123,7 @@ class _CloudComputer:
         expected: type[T],
         *,
         retain_error_detail: bool = True,
+        uncertain_mutation: str | None = None,
         **kwargs: Any,
     ) -> T:
         try:
@@ -141,19 +142,28 @@ class _CloudComputer:
                 "Check your computers before retrying; no request was replayed."
             ) from None
         except (ValueError, KeyError, TypeError):
-            raise CelestoError(
-                "Cloud returned an invalid response; check the API version before retrying."
-            ) from None
+            raise self._invalid_response(uncertain_mutation) from None
         if response.status_code >= 400:
             raise self._api_error(
                 response.status_code, response.content if retain_error_detail else b""
             )
         if not isinstance(response.parsed, expected):
-            raise CelestoError("Cloud returned an unexpected response; check the API version.")
+            raise self._invalid_response(uncertain_mutation)
         # Generated list parsers iterate any JSON value, including an empty object.
         if expected is list and not isinstance(json.loads(response.content), list):
-            raise CelestoError("Cloud returned an unexpected response; check the API version.")
+            raise self._invalid_response(uncertain_mutation)
         return response.parsed
+
+    @staticmethod
+    def _invalid_response(uncertain_mutation: str | None = None) -> CelestoError:
+        if uncertain_mutation is not None:
+            return CelestoError(
+                f"Cloud returned an invalid response after trying to {uncertain_mutation}. "
+                "The operation may have succeeded; call published_ports() before retrying."
+            )
+        return CelestoError(
+            "Cloud returned an invalid response; check the API version before retrying."
+        )
 
     @staticmethod
     def _api_error(status_code: int, content: bytes) -> CloudAPIError:
@@ -204,7 +214,9 @@ class _CloudComputer:
         return CommandResult(stdout=result.stdout, stderr=result.stderr, exit_code=result.exit_code)
 
     @staticmethod
-    def _published_port(result: ComputerPublishedPortResponse) -> PublishedPort:
+    def _published_port(
+        result: ComputerPublishedPortResponse, *, uncertain_mutation: str | None = None
+    ) -> PublishedPort:
         try:
             # Convert only documented fields; generated UNSET and extra fields stay private.
             return PublishedPort(
@@ -216,16 +228,16 @@ class _CloudComputer:
                 created_at=None if isinstance(result.created_at, Unset) else result.created_at,
             )
         except ValueError:
-            raise CelestoError(
-                "Cloud returned an invalid published port; check the API version before retrying."
-            ) from None
+            raise _CloudComputer._invalid_response(uncertain_mutation) from None
 
     def publish_port(self, port: int) -> PublishedPort:
+        mutation = f"publish port {port}"
         try:
             result = self._call(
                 publish_port.sync_detailed,
                 ComputerPublishedPortResponse,
                 retain_error_detail=False,
+                uncertain_mutation=mutation,
                 computer_id=self.vm_id,
                 body=ComputerPublishedPortCreateRequest(port=port),
             )
@@ -236,7 +248,7 @@ class _CloudComputer:
                     recovery=f"Port {port} cannot be published; choose another port and retry.",
                 ) from None
             raise
-        return self._published_port(result)
+        return self._published_port(result, uncertain_mutation=mutation)
 
     def published_ports(self) -> list[PublishedPort]:
         results = self._call(
@@ -248,14 +260,16 @@ class _CloudComputer:
         return [self._published_port(result) for result in results]
 
     def unpublish_port(self, port: int) -> PublishedPort:
+        mutation = f"unpublish port {port}"
         result = self._call(
             unpublish_port.sync_detailed,
             ComputerPublishedPortResponse,
             retain_error_detail=False,
+            uncertain_mutation=mutation,
             computer_id=self.vm_id,
             port=port,
         )
-        return self._published_port(result)
+        return self._published_port(result, uncertain_mutation=mutation)
 
     def run_stream(self, command: str, timeout: int = 30) -> Iterator[CommandEvent]:
         """Execute a command and yield parsed cloud SSE events as they arrive."""

@@ -313,6 +313,11 @@ def test_malformed_published_port_responses_are_sanitized(cloud, method, args, b
     with pytest.raises(CelestoError, match="invalid") as exc:
         getattr(Computer(), method)(*args)
     assert "credential-secret" not in str(exc.value)
+    if method in {"publish_port", "unpublish_port"}:
+        assert "operation may have succeeded" in str(exc.value)
+        assert "call published_ports() before retrying" in str(exc.value)
+    else:
+        assert "may have succeeded" not in str(exc.value)
     assert len(requests) == 2 and not replies
 
 

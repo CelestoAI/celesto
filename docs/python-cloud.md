@@ -62,9 +62,7 @@ For example, this serves a small demo page from its own directory:
 from celesto import Computer
 
 with Computer() as comp:
-    comp.run(
-        "mkdir -p /tmp/demo && printf 'Hello from Celesto' > /tmp/demo/index.html"
-    )
+    comp.run("mkdir -p /tmp/demo && printf 'Hello from Celesto' > /tmp/demo/index.html")
     comp.run(
         "nohup python3 -m http.server 8000 --bind 0.0.0.0 --directory /tmp/demo "
         ">/tmp/demo.log 2>&1 </dev/null &"
