@@ -165,6 +165,21 @@ Cloud creation and commands can incur charges. Missing credentials raise an
 error; they never switch execution to your machine. See [Python cloud usage](docs/python-cloud.md)
 for connection options, persistence, and cleanup limits.
 
+### Open an interactive terminal
+
+Use `terminal()` when a person needs to work directly inside the computer. The
+same API works locally and in Celesto Cloud.
+
+```python
+with Computer() as comp:
+    terminal = comp.terminal()
+    terminal.attach()
+```
+
+Press Ctrl+] to detach from a cloud terminal without ending its shell. Save
+`terminal.terminal_id` to reattach later while the computer still exists. Local
+terminals do not support reattachment.
+
 ### Start a sandbox in TypeScript (alpha)
 
 The TypeScript SDK gives Node.js agents a disposable computer on the same machine. It starts the local runtime automatically, so there is no server command or cloud credential to configure.

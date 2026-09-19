@@ -1,6 +1,8 @@
 """Opt-in smoke test that creates one billable Celesto Cloud computer."""
 
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -47,6 +49,36 @@ def test_cloud_live_lifecycle():
             exits = [event for event in events if isinstance(event, CommandExitEvent)]
             assert (stdout, stderr) == ("stream-out\n", "stream-err\n")
             assert len(exits) == 1 and exits[0].exit_code == 3
+
+            terminal = comp.terminal()
+            assert terminal.terminal_id is not None
+            assert terminal.expires_at is not None
+            assert "token" not in repr(terminal).lower()
+            reattached_terminal = comp.terminal(terminal_id=terminal.terminal_id)
+            assert reattached_terminal.terminal_id == terminal.terminal_id
+
+            terminal_child = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    """
+import sys
+from celesto import Computer
+
+computer = Computer.get(sys.argv[1])
+computer.terminal(terminal_id=sys.argv[2]).attach()
+""",
+                    comp.id,
+                    terminal.terminal_id,
+                ],
+                input="printf celesto-terminal-smoke; exit\n",
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+            assert terminal_child.returncode == 0, terminal_child.stderr
+            assert "celesto-terminal-smoke" in terminal_child.stdout
 
             attached = Computer.get(comp.id)
             assert attached.id == comp.id

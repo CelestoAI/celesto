@@ -16,6 +16,9 @@ from _celesto_cloud_api.api.computers import (
     create_computer_v1_computers_post as create,
 )
 from _celesto_cloud_api.api.computers import (
+    create_terminal_session_v1_computers_computer_id_terminals_post as create_terminal,
+)
+from _celesto_cloud_api.api.computers import (
     delete_computer_v1_computers_computer_id_delete as delete,
 )
 from _celesto_cloud_api.api.computers import (
@@ -30,8 +33,15 @@ from _celesto_cloud_api.models.computer_create_request import ComputerCreateRequ
 from _celesto_cloud_api.models.computer_exec_request import ComputerExecRequest
 from _celesto_cloud_api.models.computer_exec_response import ComputerExecResponse
 from _celesto_cloud_api.models.computer_response import ComputerResponse
+from _celesto_cloud_api.models.computer_terminal_session_request import (
+    ComputerTerminalSessionRequest,
+)
+from _celesto_cloud_api.models.computer_terminal_session_response import (
+    ComputerTerminalSessionResponse,
+)
 from _celesto_cloud_api.types import UNSET
 from celesto._streaming import iter_bounded_lines, iter_sse_data, parse_command_event
+from celesto._terminal import TerminalConnection, cloud_terminal_connection
 from celesto.exceptions import CelestoError, CloudAPIError, VMNotFoundError
 from celesto.types import CommandEvent, CommandExitEvent, CommandResult
 
@@ -180,6 +190,23 @@ class _CloudComputer:
         """Execute a command and yield parsed cloud SSE events as they arrive."""
         self.validate_command(command, timeout)
         return self._iter_command_events(command, timeout)
+
+    def terminal(self, *, terminal_id: str | None = None) -> TerminalConnection:
+        """Create or reauthorize a durable cloud terminal session."""
+        response = self._call(
+            create_terminal.sync_detailed,
+            ComputerTerminalSessionResponse,
+            computer_id=self.vm_id,
+            body=ComputerTerminalSessionRequest(
+                terminal_id=terminal_id if terminal_id is not None else UNSET
+            ),
+        )
+        return cloud_terminal_connection(
+            terminal_id=response.terminal_id,
+            gateway_url=response.gateway_url,
+            token=response.token,
+            expires_at=response.expires_at,
+        )
 
     def _iter_command_events(self, command: str, timeout: int) -> Iterator[CommandEvent]:
         client = self._client.get_httpx_client()

@@ -1,6 +1,7 @@
 """Exercise the public facade through real generated code and mock HTTP only."""
 
 import json
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import httpx
@@ -14,6 +15,7 @@ from celesto import (
     CommandOutputEvent,
     CommandStartedEvent,
     Computer,
+    TerminalConnection,
     VMNotFoundError,
 )
 from celesto._cloud import _CloudComputer
@@ -154,6 +156,71 @@ def test_cloud_run_stream_retains_only_documented_bad_request_detail(cloud):
 
     assert exc.value.status_code == 400
     assert exc.value.details == {"detail": "Invalid command"}
+
+
+def terminal_response(**overrides):
+    response = {
+        "terminal_id": "term_test123",
+        "gateway_url": "wss://terminal.example/connect?region=test",
+        "token": "secret-token",
+        "expires_at": "2026-09-19T12:00:00Z",
+    }
+    response.update(overrides)
+    return response
+
+
+def test_cloud_terminal_uses_generated_endpoint_and_safe_public_type(cloud):
+    requests, replies = cloud
+    replies.extend([(201, computer()), (201, terminal_response())])
+
+    terminal = Computer(organization_id="org-test").terminal()
+
+    assert isinstance(terminal, TerminalConnection)
+    assert terminal.terminal_id == "term_test123"
+    assert terminal.expires_at == datetime(2026, 9, 19, 12, tzinfo=UTC)
+    assert "secret-token" not in repr(terminal)
+    assert requests[1].url.path == "/v1/computers/cloud-test/terminals"
+    assert requests[1].headers["x-current-organization"] == "org-test"
+    assert json.loads(requests[1].content) == {}
+
+
+def test_cloud_terminal_reattaches_with_existing_id(cloud):
+    requests, replies = cloud
+    replies.extend([(201, computer()), (201, terminal_response())])
+
+    terminal = Computer().terminal(terminal_id="term_test123")
+
+    assert terminal.terminal_id == "term_test123"
+    assert json.loads(requests[1].content) == {"terminal_id": "term_test123"}
+
+
+def test_cloud_terminal_transport_error_is_not_replayed(cloud):
+    requests, replies = cloud
+    replies.extend([(201, computer()), httpx.ReadTimeout("lost response")])
+
+    with pytest.raises(CelestoError, match="outcome may be unknown"):
+        Computer(lifetime="persistent").terminal()
+
+    assert [request.method for request in requests] == ["POST", "POST"]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("terminal_id", "bad"),
+        ("gateway_url", "https://terminal.example/connect"),
+        ("gateway_url", "wss://user@terminal.example/connect"),
+        ("token", ""),
+        ("expires_at", "not-a-date"),
+        ("expires_at", "2026-09-19T12:00:00"),
+    ],
+)
+def test_cloud_terminal_rejects_invalid_connection_details(cloud, field, value):
+    _, replies = cloud
+    replies.extend([(201, computer()), (201, terminal_response(**{field: value}))])
+
+    with pytest.raises(CelestoError, match="invalid terminal connection details"):
+        Computer(lifetime="persistent").terminal()
 
 
 def test_persistent_rejects_context_without_allocating(cloud):

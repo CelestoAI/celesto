@@ -7,8 +7,9 @@ from collections.abc import Iterator
 from contextlib import suppress
 from pathlib import Path
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
+from celesto._terminal import TerminalConnection, local_terminal_connection, validate_terminal_id
 from celesto.exceptions import CelestoError, VMNotFoundError
 from celesto.facade import Celesto
 from celesto.types import CommandEvent, CommandResult
@@ -146,6 +147,22 @@ class Computer:
             self._cloud.validate_command(command, timeout)
         runtime = self._ensure_started()
         return runtime.run_stream(command, timeout=timeout)
+
+    def terminal(self, *, terminal_id: str | None = None) -> TerminalConnection:
+        """Create an interactive terminal connection.
+
+        Call ``attach()`` on the returned connection to bridge this process's
+        stdin and stdout. Cloud terminal IDs can be supplied later to reattach.
+        Local terminal sessions don't support reattachment.
+        """
+        validate_terminal_id(terminal_id)
+        if self._local and terminal_id is not None:
+            raise ValueError("terminal_id reattachment is only supported for cloud computers.")
+        runtime = self._ensure_started()
+        if self._local:
+            return local_terminal_connection(cast(Celesto, runtime).attach_shell)
+        assert self._cloud is not None
+        return self._cloud.terminal(terminal_id=terminal_id)
 
     @staticmethod
     def _validate_run(command: str, timeout: int) -> None:
