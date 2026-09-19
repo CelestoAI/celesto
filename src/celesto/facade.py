@@ -37,7 +37,7 @@ import socket
 import subprocess
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -101,6 +101,9 @@ from celesto.storage import StateManagerProtocol
 from celesto.types import (
     BrowserSessionConfig,
     BrowserViewport,
+    CommandEvent,
+    CommandExitEvent,
+    CommandOutputEvent,
     CommandResult,
     ComputerEvent,
     ComputerSandboxProtocol,
@@ -1985,32 +1988,13 @@ class Celesto:
     # Command execution
     # ------------------------------------------------------------------
 
-    def run(
+    def _prepare_run(
         self,
         command: str,
-        timeout: int = 30,
-        shell: Literal["login", "raw"] = "login",
-    ) -> CommandResult:
-        """Execute a command on the guest via SSH.
-
-        Lazily creates an :class:`~celesto.ssh.SSHClient` on first call
-        and reuses it for subsequent invocations.
-
-        Args:
-            command: Shell command to execute.
-            timeout: Maximum seconds to wait for the command.
-            shell: Command execution mode:
-                - ``"login"`` (default): run via guest login shell.
-                - ``"raw"``: execute command directly with no shell wrapping.
-
-        Returns:
-            :class:`~celesto.types.CommandResult`.
-
-        Raises:
-            CelestoError: If the VM is not running or has no network.
-            CommandBlockedError: If an ``on_pre_run`` callback vetoes the
-                command (or any other exception a pre-run callback raises).
-        """
+        timeout: int,
+        shell: Literal["login", "raw"],
+    ) -> tuple[CommChannel, RunContext]:
+        """Prepare the shared local execution path and fire pre-run callbacks."""
         self._refresh_info()
 
         if self._info.status != VMState.RUNNING:
@@ -2042,7 +2026,7 @@ class Celesto:
         if not self._control_ready:
             try:
                 self._wait_for_ready(timeout=_DEFAULT_RUN_READY_TIMEOUT)
-            except OperationTimeoutError as e:
+            except OperationTimeoutError as exc:
                 reason = "The guest control channel did not become ready."
                 with suppress(Exception):
                     if self._resolve_channel().kind == "ssh":
@@ -2051,7 +2035,7 @@ class Celesto:
                     vm_id=self._vm_id,
                     reason=reason,
                     remediation=self._command_exec_remediation(),
-                ) from e
+                ) from exc
 
         if self._control_channel is None:
             raise CelestoError(
@@ -2059,18 +2043,45 @@ class Celesto:
                 {"vm_id": self._vm_id},
             )
 
-        ctx = RunContext(
+        context = RunContext(
             vm_id=self._vm_id,
             command=command,
             shell=shell,
             timeout=timeout,
         )
-        # Pre-run hooks may veto: any exception they raise (e.g.
-        # CommandBlockedError) propagates and the command never runs.
-        self._callbacks.fire("on_pre_run", ctx, propagate=True)
+        self._callbacks.fire("on_pre_run", context, propagate=True)
+        return self._control_channel, context
+
+    def run(
+        self,
+        command: str,
+        timeout: int = 30,
+        shell: Literal["login", "raw"] = "login",
+    ) -> CommandResult:
+        """Execute a command on the guest via SSH.
+
+        Lazily creates an :class:`~celesto.ssh.SSHClient` on first call
+        and reuses it for subsequent invocations.
+
+        Args:
+            command: Shell command to execute.
+            timeout: Maximum seconds to wait for the command.
+            shell: Command execution mode:
+                - ``"login"`` (default): run via guest login shell.
+                - ``"raw"``: execute command directly with no shell wrapping.
+
+        Returns:
+            :class:`~celesto.types.CommandResult`.
+
+        Raises:
+            CelestoError: If the VM is not running or has no network.
+            CommandBlockedError: If an ``on_pre_run`` callback vetoes the
+                command (or any other exception a pre-run callback raises).
+        """
+        channel, ctx = self._prepare_run(command, timeout, shell)
 
         try:
-            result = self._control_channel.run(command, timeout=timeout, shell=shell)
+            result = channel.run(command, timeout=timeout, shell=shell)
         except Exception as exc:
             ctx.error = exc
             self._callbacks.fire("on_run_error", ctx, propagate=False)
@@ -2079,6 +2090,52 @@ class Celesto:
         ctx.result = result
         self._callbacks.fire("on_post_run", ctx, propagate=False)
         return result
+
+    def run_stream(
+        self,
+        command: str,
+        timeout: int = 30,
+        shell: Literal["login", "raw"] = "login",
+    ) -> Iterator[CommandEvent]:
+        """Yield started, stdout, stderr, and exit events as a command runs."""
+        channel, ctx = self._prepare_run(command, timeout, shell)
+        collect_result = len(self._callbacks) > 0
+
+        def stream() -> Iterator[CommandEvent]:
+            stdout: list[str] = []
+            stderr: list[str] = []
+            completed = False
+            events = channel.run_stream(command, timeout=timeout, shell=shell)
+            try:
+                for event in events:
+                    if collect_result and isinstance(event, CommandOutputEvent):
+                        (stdout if event.type == "stdout" else stderr).append(event.data)
+                    elif isinstance(event, CommandExitEvent):
+                        if collect_result:
+                            ctx.result = CommandResult(
+                                exit_code=event.exit_code,
+                                stdout="".join(stdout),
+                                stderr="".join(stderr),
+                            )
+                            self._callbacks.fire("on_post_run", ctx, propagate=False)
+                        completed = True
+                    yield event
+            except Exception as exc:
+                ctx.error = exc
+                self._callbacks.fire("on_run_error", ctx, propagate=False)
+                raise
+            finally:
+                close = getattr(events, "close", None)
+                if callable(close):
+                    with suppress(Exception):
+                        close()
+            if not completed:
+                error = CelestoError("Command stream ended before the command exited.")
+                ctx.error = error
+                self._callbacks.fire("on_run_error", ctx, propagate=False)
+                raise error
+
+        return stream()
 
     def add_callback(self, callback: Callback) -> Celesto:
         """Register a :class:`~celesto.callbacks.Callback` on this VM.

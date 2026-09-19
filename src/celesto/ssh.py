@@ -21,6 +21,7 @@ eliminating the ~170ms overhead of forking a new ``ssh`` process per call.
 """
 
 import base64
+import codecs
 import logging
 import math
 import shlex
@@ -28,14 +29,22 @@ import socket
 import stat
 import time
 import warnings
+from collections.abc import Iterator
 from contextlib import suppress
 from pathlib import Path
 from typing import BinaryIO, Literal
+from uuid import uuid4
 
 import paramiko
 
 from celesto.exceptions import CelestoError, OperationTimeoutError
-from celesto.types import CommandResult
+from celesto.types import (
+    CommandEvent,
+    CommandExitEvent,
+    CommandOutputEvent,
+    CommandResult,
+    CommandStartedEvent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -441,6 +450,88 @@ class SSHClient:
             raise CelestoError(f"SSH command failed: {e}") from e
         except Exception as e:
             raise CelestoError(f"SSH command failed: {e}") from e
+
+    def run_stream(
+        self,
+        command: str,
+        timeout: int = 30,
+        shell: ShellMode = "login",
+    ) -> Iterator[CommandEvent]:
+        """Execute a command over SSH and yield output chunks as they arrive."""
+        if not command or not command.strip():
+            raise ValueError("command cannot be empty")
+        if timeout < 1:
+            raise ValueError("timeout must be >= 1")
+
+        remote_command = self._prepare_remote_command(command, shell=shell)
+        client = self._ensure_connected()
+        channel = None
+        started_at_unix_ms = int(time.time() * 1000)
+        started = time.monotonic()
+        command_id = f"local-{uuid4().hex}"
+        stdout_decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        stderr_decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        try:
+            _, stdout_ch, _ = client.exec_command(remote_command, timeout=timeout)
+            channel = stdout_ch.channel
+            yield CommandStartedEvent(
+                command_id=command_id,
+                started_at_unix_ms=started_at_unix_ms,
+                timeout_seconds=timeout,
+            )
+            while True:
+                emitted = False
+                while channel.recv_ready():
+                    emitted = True
+                    data = stdout_decoder.decode(channel.recv(65536))
+                    if data:
+                        yield CommandOutputEvent(type="stdout", data=data)
+                while channel.recv_stderr_ready():
+                    emitted = True
+                    data = stderr_decoder.decode(channel.recv_stderr(65536))
+                    if data:
+                        yield CommandOutputEvent(type="stderr", data=data)
+                if (
+                    channel.exit_status_ready()
+                    and not channel.recv_ready()
+                    and not channel.recv_stderr_ready()
+                ):
+                    break
+                if time.monotonic() - started >= timeout:
+                    channel.close()
+                    raise OperationTimeoutError(f"ssh {self.host}:{self.port}: {command}", timeout)
+                if not emitted:
+                    time.sleep(0.01)
+
+            stdout_tail = stdout_decoder.decode(b"", final=True)
+            stderr_tail = stderr_decoder.decode(b"", final=True)
+            if stdout_tail:
+                yield CommandOutputEvent(type="stdout", data=stdout_tail)
+            if stderr_tail:
+                yield CommandOutputEvent(type="stderr", data=stderr_tail)
+            ended_at_unix_ms = int(time.time() * 1000)
+            exit_code = channel.recv_exit_status()
+            channel.close()
+            channel = None
+            yield CommandExitEvent(
+                exit_code=exit_code,
+                command_id=command_id,
+                started_at_unix_ms=started_at_unix_ms,
+                ended_at_unix_ms=ended_at_unix_ms,
+                duration_ms=int((time.monotonic() - started) * 1000),
+            )
+        except OperationTimeoutError:
+            raise
+        except TimeoutError as exc:
+            raise OperationTimeoutError(f"ssh {self.host}:{self.port}: {command}", timeout) from exc
+        except paramiko.SSHException as exc:
+            self.close()
+            raise CelestoError(f"SSH command failed: {exc}") from exc
+        except Exception as exc:
+            raise CelestoError(f"SSH command failed: {exc}") from exc
+        finally:
+            if channel is not None:
+                channel.close()
 
     def sync(self, timeout: float = 10) -> None:
         """Flush guest filesystem buffers through the SSH control channel."""

@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from celesto import CommandResult, Computer
+from celesto import CommandExitEvent, CommandOutputEvent, CommandResult, Computer
 from celesto.exceptions import CelestoError, VMNotFoundError
 
 
@@ -12,6 +12,12 @@ from celesto.exceptions import CelestoError, VMNotFoundError
 def runtime(monkeypatch):
     vm = Mock(vm_id="sbx-test")
     vm.run.return_value = CommandResult(stdout="hello\n", stderr="", exit_code=0)
+    vm.run_stream.return_value = iter(
+        [
+            CommandOutputEvent(type="stdout", data="hello\n"),
+            CommandExitEvent(exit_code=0),
+        ]
+    )
     factory = Mock(return_value=vm)
     monkeypatch.setattr("celesto.sdk.Celesto", factory)
     monkeypatch.setattr(Computer, "_runtime_options", lambda self: self._options)
@@ -44,6 +50,20 @@ def test_context_creates_once_and_deletes(runtime):
     vm.delete.assert_called_once()
     with pytest.raises(CelestoError, match="deleted"):
         comp.run("echo no")
+
+
+def test_local_run_stream_uses_same_lazy_lifecycle(runtime):
+    factory, vm = runtime
+    comp = Computer(local=True)
+
+    stream = comp.run_stream("echo hello")
+
+    factory.assert_called_once()
+    assert [(event.type, getattr(event, "data", None)) for event in stream] == [
+        ("stdout", "hello\n"),
+        ("exit", None),
+    ]
+    vm.run_stream.assert_called_once_with("echo hello", timeout=30)
 
 
 def test_exceptional_exit_deletes_and_preserves_error(runtime):

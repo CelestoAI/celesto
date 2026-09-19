@@ -14,6 +14,27 @@ with Computer() as comp:
 
 The constructor validates configuration without contacting the server. Entering the block creates a computer and waits for it to run. Each command returns `stdout`, `stderr`, and `exit_code`; nonzero command exit codes do not raise an exception. Cloud commands support up to 10,000 characters and a timeout of 1–300 seconds.
 
+## Stream command output
+
+Use `run_stream()` when output should be handled as it arrives. It has the same
+interface for cloud and local computers and does not change the buffered `run()` API.
+
+```python
+from celesto import CommandExitEvent, CommandOutputEvent, Computer
+
+with Computer() as comp:
+    for event in comp.run_stream("python agent.py"):
+        if isinstance(event, CommandOutputEvent):
+            print(event.data, end="")
+        elif isinstance(event, CommandExitEvent):
+            print(f"exit code: {event.exit_code}")
+```
+
+The iterator normally begins with a `CommandStartedEvent`, yields `CommandOutputEvent`
+objects whose `type` is `"stdout"` or `"stderr"`, and ends with one
+`CommandExitEvent`. If you stop early, close the iterator to close its connection.
+The command must not be assumed to have stopped until the computer reports that separately.
+
 The block deletes the computer on exit, even if your code raises. Cleanup waits until the API reports deletion or no longer finds the computer. A cleanup error remains visible and you can retry `comp.delete()`. If both your code and cleanup fail, Python reports both in an exception group.
 
 ## Keep and reconnect
@@ -63,8 +84,9 @@ makes a final cleanup attempt even when the test fails.
 The private `_celesto_cloud_api` package contains generated requests and models. It ships
 inside the same Python distribution as `celesto`; it is not a separate PyPI package or a
 public SDK interface. The public `Computer` keeps these types out of its API and uses the
-ordinary command endpoint; streaming, browser, terminal, and file APIs are not exposed by
-this wrapper yet.
+generated ordinary command endpoint. Streaming uses a small handwritten SSE adapter because
+generated OpenAPI clients buffer `text/event-stream` responses. Browser, terminal, and file
+APIs are not exposed by this wrapper yet.
 
 The generator consumes the committed `openapi/cloud.json` snapshot. After updating that snapshot from the backend's exported document, regenerate with:
 

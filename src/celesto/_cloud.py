@@ -6,9 +6,9 @@ import json
 import math
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any, TypeVar
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import httpx
 
@@ -31,10 +31,12 @@ from _celesto_cloud_api.models.computer_exec_request import ComputerExecRequest
 from _celesto_cloud_api.models.computer_exec_response import ComputerExecResponse
 from _celesto_cloud_api.models.computer_response import ComputerResponse
 from _celesto_cloud_api.types import UNSET
+from celesto._streaming import iter_bounded_lines, iter_sse_data, parse_command_event
 from celesto.exceptions import CelestoError, CloudAPIError, VMNotFoundError
-from celesto.types import CommandResult
+from celesto.types import CommandEvent, CommandExitEvent, CommandResult
 
 T = TypeVar("T")
+_MAX_ERROR_BODY_BYTES = 64 * 1024
 
 
 class _CloudComputer:
@@ -173,6 +175,52 @@ class _CloudComputer:
         finally:
             self._client.get_httpx_client().timeout = httpx.Timeout(30)
         return CommandResult(stdout=result.stdout, stderr=result.stderr, exit_code=result.exit_code)
+
+    def run_stream(self, command: str, timeout: int = 30) -> Iterator[CommandEvent]:
+        """Execute a command and yield parsed cloud SSE events as they arrive."""
+        self.validate_command(command, timeout)
+        return self._iter_command_events(command, timeout)
+
+    def _iter_command_events(self, command: str, timeout: int) -> Iterator[CommandEvent]:
+        client = self._client.get_httpx_client()
+        headers = {"Accept": "text/event-stream"}
+        if isinstance(self._organization, str):
+            headers["x-current-organization"] = self._organization
+        path = f"/v1/computers/{quote(str(self.vm_id), safe='')}/exec/stream"
+        saw_exit = False
+        try:
+            with client.stream(
+                "POST",
+                path,
+                headers=headers,
+                json=ComputerExecRequest(command=command, timeout=timeout).to_dict(),
+                timeout=httpx.Timeout(timeout + 10),
+            ) as response:
+                if response.status_code >= 400:
+                    content = bytearray()
+                    for chunk in response.iter_bytes():
+                        content.extend(chunk[: _MAX_ERROR_BODY_BYTES - len(content)])
+                        if len(content) >= _MAX_ERROR_BODY_BYTES:
+                            break
+                    if response.status_code == 404 and self.vm_id is not None:
+                        raise VMNotFoundError(self.vm_id)
+                    raise self._api_error(response.status_code, bytes(content))
+                lines = iter_bounded_lines(response.iter_bytes(chunk_size=64 * 1024))
+                for data in iter_sse_data(lines):
+                    event = parse_command_event(data)
+                    if isinstance(event, CommandExitEvent):
+                        saw_exit = True
+                        response.close()
+                    yield event
+                    if saw_exit:
+                        break
+        except httpx.TransportError as exc:
+            raise CelestoError(
+                f"Cloud command stream failed ({type(exc).__name__}); the command may still "
+                "be running. Check your computers before retrying."
+            ) from None
+        if not saw_exit:
+            raise CelestoError("Command stream ended before the command exited.")
 
     def _wait(self, deadline: float, action: str) -> None:
         remaining = deadline - time.monotonic()
