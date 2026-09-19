@@ -1,4 +1,4 @@
-# Use SmolVM from TypeScript
+# Use Celesto from TypeScript
 
 The TypeScript SDK lets a Node.js agent create and control a disposable computer on the same machine. It needs no cloud account, API key, or manually managed server.
 
@@ -6,13 +6,19 @@ The TypeScript SDK lets a Node.js agent create and control a disposable computer
 
 ## Set up
 
-Install the SmolVM runtime, the preview package, and a TypeScript runner:
+Install the Celesto runtime, the preview package, and a TypeScript runner:
 
 ```bash
-curl -sSL https://celesto.ai/install.sh | bash
+pip install 'celesto[server]==0.0.15a0'
+celesto setup
+celesto doctor
 npm install https://github.com/CelestoAI/SmolVM/releases/download/typescript-v0.1.0-preview.1/celestoai-smolvm-0.1.0-preview.1.tgz
 npm install --save-dev tsx
 ```
+
+The separate TypeScript preview retains its `@celestoai/smolvm` package name
+and `SmolVM` class. Set `runtimePath: "celesto"` as shown below to use this alpha
+release of the Python runtime.
 
 The SDK starts a private local bridge on first use. Each client gets an isolated sandbox list and a random credential passed through a private process pipe. `close()` removes that client's sandboxes and stops the bridge.
 
@@ -23,7 +29,7 @@ Lead with `try/finally` so cleanup also runs after an error:
 ```ts
 import { SmolVM } from "@celestoai/smolvm";
 
-const smolvm = new SmolVM();
+const smolvm = new SmolVM({ runtimePath: "celesto" });
 const sandbox = await smolvm.sandboxes.create(); // Ubuntu, open network
 
 try {
@@ -74,7 +80,7 @@ The source tree includes the browser-session API planned for the next TypeScript
 import { chromium } from "playwright-core";
 import { SmolVM } from "@celestoai/smolvm";
 
-const smolvm = new SmolVM();
+const smolvm = new SmolVM({ runtimePath: "celesto" });
 const session = await smolvm.browsers.create({
   mode: "live",
   profile: { mode: "ephemeral" },

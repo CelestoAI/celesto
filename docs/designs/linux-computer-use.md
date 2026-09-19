@@ -44,7 +44,7 @@ Each public resource answers one user question:
 | `browser` | “I need to automate websites.” | Chromium and CDP; an optional live view does not make it a general desktop |
 | `computer` | “I need to see or operate a graphical desktop and its applications.” | display, input, exec, files, plus template capabilities such as Chromium CDP |
 
-A computer contains applications; it does not contain another billable or independently deletable SmolVM resource. `computer.browser` is a handle to Chromium running inside that same computer. Deleting the computer deletes the browser with it. Users never call `SmolVM.browser()` and `SmolVM.computer()` for the same VM.
+A computer contains applications; it does not contain another billable or independently deletable SmolVM resource. `computer.browser` is a handle to Chromium running inside that same computer. Deleting the computer deletes the browser with it. Users never call `Celesto.browser()` and `Celesto.computer()` for the same VM.
 
 The choice rule in every guide is:
 
@@ -56,8 +56,8 @@ Do not introduce “desktop session,” “graphical sandbox,” or “browser c
 
 ### Compatibility names without product confusion
 
-- `SmolVM.browser(headless=False)` remains a visible browser. It has a viewer because supervision is useful, but it does not promise a panel, terminal, file manager, or general desktop.
-- Python `SmolVM.desktop()` remains a legacy low-level display factory for compatibility. It is omitted from new quickstarts and points readers to `SmolVM.computer()` when they want a usable desktop.
+- `Celesto.browser(headless=False)` remains a visible browser. It has a viewer because supervision is useful, but it does not promise a panel, terminal, file manager, or general desktop.
+- Python `Celesto.desktop()` remains a legacy low-level display factory for compatibility. It is omitted from new quickstarts and points readers to `Celesto.computer()` when they want a usable desktop.
 - `mode="desktop"` remains accepted where it already exists but is not added to new APIs. A computer has no `headless` flag; callers needing headless Chromium use `browser`.
 - `computer.browser` never creates another VM. It only controls the browser application installed by the selected computer template.
 
@@ -65,7 +65,7 @@ Do not introduce “desktop session,” “graphical sandbox,” or “browser c
 
 | Situation | Required behavior |
 |---|---|
-| User requests `headless=True` on a computer | Reject before allocation: `Computers are visible desktops; call SmolVM.browser(headless=True) instead.` |
+| User requests `headless=True` on a computer | Reject before allocation: `Computers are visible desktops; call Celesto.browser(headless=True) instead.` |
 | User needs only a watched website | Documentation recommends a visible `browser`; watching pixels alone does not require a `computer`. |
 | User closes Chromium from the desktop | Keep the computer ready, report `computer.browser.status == "closed"`, set its CDP URL to `null`, and allow an explicit idempotent `launch()`. |
 | User closes Terminal, Files, or Text Editor | Keep the computer ready; applications can be reopened from the menu without changing endpoints. |
@@ -149,7 +149,7 @@ JSON output mirrors the nested API response with `display` and `browser` objects
 
 ### Compatibility documentation
 
-The Browser guide says that `headless=False` adds a live view but does not turn the browser into a general Linux desktop. The Computers guide mentions `SmolVM.desktop()` only in a short Python migration note and labels it a legacy low-level display factory, not a fourth resource. Existing browser and desktop documentation remains unchanged until the computer API is released; the release PR updates links and examples atomically with the implementation.
+The Browser guide says that `headless=False` adds a live view but does not turn the browser into a general Linux desktop. The Computers guide mentions `Celesto.desktop()` only in a short Python migration note and labels it a legacy low-level display factory, not a fourth resource. Existing browser and desktop documentation remains unchanged until the computer API is released; the release PR updates links and examples atomically with the implementation.
 
 Every error example uses the noun and recovery call for its surface. Browser failures point to browser creation, computer browser-application failures point to `computer.browser.launch()`, and complete desktop failures point to computer deletion and recreation.
 
@@ -275,9 +275,9 @@ interface ComputerCollection {
 ### Python
 
 ```python
-from smolvm import SmolVM
+from celesto import Celesto
 
-with SmolVM.computer(template="linux-desktop") as computer:
+with Celesto.computer(template="linux-desktop") as computer:
     print(computer.display.viewer_url)
     computer.run("python3 --version")
 ```
@@ -285,7 +285,7 @@ with SmolVM.computer(template="linux-desktop") as computer:
 The Python contract is deliberately parallel to TypeScript:
 
 ```python
-computer = SmolVM.computer(
+computer = Celesto.computer(
     template="linux-desktop",
     name="demo",
     backend="auto",
@@ -309,19 +309,19 @@ computer.run(...)
 computer.delete()
 ```
 
-`SmolVM.computer(...)` is a new class factory, matching the existing `SmolVM.browser(...)` and `SmolVM.desktop(...)` style without calling `SmolVM()` and accidentally creating an unrelated default VM. `on_event: Callable[[ComputerEvent], None] | None` receives the same ordered, best-effort event union as TypeScript. The context manager calls `delete()` on exit. `delete()` is idempotent and retryable after cleanup failure. Cross-process inventory remains a CLI concern in normal operation.
+`Celesto.computer(...)` is a new class factory, matching the existing `Celesto.browser(...)` and `Celesto.desktop(...)` style without calling `Celesto()` and accidentally creating an unrelated default VM. `on_event: Callable[[ComputerEvent], None] | None` receives the same ordered, best-effort event union as TypeScript. The context manager calls `delete()` on exit. `delete()` is idempotent and retryable after cleanup failure. Cross-process inventory remains a CLI concern in normal operation.
 
 ### CLI
 
 Commands follow the repository's noun-verb convention:
 
 ```bash
-smolvm computer start --template linux-desktop --name demo
-smolvm computer open demo
-smolvm computer list
-smolvm computer logs demo
-smolvm computer delete demo
-smolvm computer templates
+celesto computer start --template linux-desktop --name demo
+celesto computer open demo
+celesto computer list
+celesto computer logs demo
+celesto computer delete demo
+celesto computer templates
 ```
 
 `start` prints the computer ID, sandbox ID, template, status, viewer URL, display URL, and CDP URL. `open` opens the loopback noVNC viewer. JSON output carries the same fields without human-only formatting. A CLI-created computer remains available after the command exits and is removed only by `computer delete`. There is no `stop` or `restart` command in v1 because deletion is the only supported terminal operation.
@@ -338,7 +338,7 @@ smolvm computer templates
 - Backend: `auto`, choosing QEMU or Firecracker through the existing runtime rules. `libkrun` is excluded from the v1 type and rejected before image allocation.
 - Network: `open`, matching the current TypeScript browser default. The docs state plainly that this lets the computer reach the public internet; existing private-network and metadata-address protections still apply.
 - State: ephemeral. Persistent desktop state is not included in the first release.
-- Lifetime: no TTL in v1. A TypeScript computer is deleted by its handle or the owning client's `close()`; a Python computer is deleted by its handle or context-manager exit. CLI-created computers remain in the local registry until `smolvm computer delete <id>` succeeds.
+- Lifetime: no TTL in v1. A TypeScript computer is deleted by its handle or the owning client's `close()`; a Python computer is deleted by its handle or context-manager exit. CLI-created computers remain in the local registry until `celesto computer delete <id>` succeeds.
 
 ### Errors
 
@@ -346,16 +346,16 @@ Every public failure states the fact and the exact recovery for the surface that
 
 | Surface and failure | Message shape |
 |---|---|
-| CLI unknown template | `Computer template 'foo' is unavailable; run 'smolvm computer templates' to list supported templates.` |
-| CLI name collision | `Computer 'demo' already exists; run 'smolvm computer delete demo' or choose another name.` |
-| CLI display failure | `Linux computer 'demo' did not start its desktop; run 'smolvm computer logs demo', then 'smolvm computer delete demo'.` |
+| CLI unknown template | `Computer template 'foo' is unavailable; run 'celesto computer templates' to list supported templates.` |
+| CLI name collision | `Computer 'demo' already exists; run 'celesto computer delete demo' or choose another name.` |
+| CLI display failure | `Linux computer 'demo' did not start its desktop; run 'celesto computer logs demo', then 'celesto computer delete demo'.` |
 | TypeScript create failure, cleanup complete | `Linux computer 'demo' did not start Chromium; fix the reported problem and call smolvm.computers.create() again.` |
-| Python create failure, cleanup complete | `Linux computer 'demo' did not start Chromium; fix the reported problem and call SmolVM.computer() again.` |
+| Python create failure, cleanup complete | `Linux computer 'demo' did not start Chromium; fix the reported problem and call Celesto.computer() again.` |
 | SDK deleted handle | `Computer 'demo' has been deleted; create another computer before retrying this operation.` |
 | SDK delete incomplete | `Computer 'demo' was not fully deleted; call computer.delete() again.` |
 | Unsupported runtime | `This SmolVM runtime cannot create computers; run 'curl -sSL https://celesto.ai/install.sh \| bash' to update it.` |
 
-If SDK cleanup cannot finish before its owner exits normally, it promotes the existing ownership-journal entry—with only unresolved resource IDs and a redacted diagnostic path—to the CLI inventory as an `error` record. After an abrupt crash, the next SDK or CLI startup performs that promotion from the pre-existing journal. The surfaced error names `smolvm computer delete <id>` as the recovery. `logs`, `delete`, and `templates` ship in v1, so those exceptional recovery commands exist.
+If SDK cleanup cannot finish before its owner exits normally, it promotes the existing ownership-journal entry—with only unresolved resource IDs and a redacted diagnostic path—to the CLI inventory as an `error` record. After an abrupt crash, the next SDK or CLI startup performs that promotion from the pre-existing journal. The surfaced error names `celesto computer delete <id>` as the recovery. `logs`, `delete`, and `templates` ship in v1, so those exceptional recovery commands exist.
 
 ## Linux template contents
 
@@ -495,11 +495,11 @@ All errors use the existing `ErrorResponse`. It may contain a stable code, conci
 
 ### Compatibility
 
-- Keep `SmolVM.browsers.create()` and `smolvm browser ...` working.
+- Keep `SmolVM.browsers.create()` and `celesto browser ...` working.
 - Keep existing `BrowserSessionClient` names and event types for existing callers.
 - Implement browser creation through the shared graphical lifecycle after parity tests pass.
 - Do not silently translate `mode: "desktop"` into the new Linux template. Mark it deprecated only after `computers.create()` ships and documentation has migrated.
-- Keep the existing Python `SmolVM.desktop()` behavior unchanged in this release. Document TypeScript `smolvm.computers.create(...)` and Python `SmolVM.computer(...)` as the richer replacements, but do not alias or deprecate `desktop()` until a later major-version decision.
+- Keep the existing Python `Celesto.desktop()` behavior unchanged in this release. Document TypeScript `smolvm.computers.create(...)` and Python `Celesto.computer(...)` as the richer replacements, but do not alias or deprecate `desktop()` until a later major-version decision.
 
 ### Lifecycle and observability
 
@@ -556,19 +556,19 @@ A missing panel, unmapped Chromium window, permission mismatch, or partial endpo
 
 | Failure | Detection | Cleanup | User recovery |
 |---|---|---|---|
-| Image unavailable | verified download error | remove partial image file and retain error record | run `smolvm computer logs <id>`, delete it, then rerun the original start command |
-| VM boot timeout | bounded VM readiness deadline | close forwards and stop/delete the owned VM | run `smolvm computer logs <id>`, then `smolvm computer delete <id>` |
-| X server missing | display socket and process probe | enter `error` and run retryable cleanup | run `smolvm computer logs <id>`, then `smolvm computer delete <id>` |
-| X server, window manager, VNC, or noVNC exits after startup | owner health check and `computer.error` | mark `error` and keep cleanup explicit | run `smolvm computer logs <id>`, delete it, then start another computer |
+| Image unavailable | verified download error | remove partial image file and retain error record | run `celesto computer logs <id>`, delete it, then rerun the original start command |
+| VM boot timeout | bounded VM readiness deadline | close forwards and stop/delete the owned VM | run `celesto computer logs <id>`, then `celesto computer delete <id>` |
+| X server missing | display socket and process probe | enter `error` and run retryable cleanup | run `celesto computer logs <id>`, then `celesto computer delete <id>` |
+| X server, window manager, VNC, or noVNC exits after startup | owner health check and `computer.error` | mark `error` and keep cleanup explicit | run `celesto computer logs <id>`, delete it, then start another computer |
 | Chromium is closed | process probe | keep computer ready and set browser status to `closed` | call `computer.browser.launch()` or open Chromium from the menu |
 | Panel crashes | process probe | restart Tint2 once without disturbing applications | open the menu after the panel returns; inspect logs if it fails again |
-| VNC/noVNC unavailable | guest-port and host HTTP probes | enter `error` and run retryable cleanup | run `smolvm computer logs <id>`, then `smolvm computer delete <id>` |
-| Chromium/CDP unavailable | `/json/version` and framebuffer probes | enter `error` and run retryable cleanup | run `smolvm computer logs <id>`, then `smolvm computer delete <id>` |
+| VNC/noVNC unavailable | guest-port and host HTTP probes | enter `error` and run retryable cleanup | run `celesto computer logs <id>`, then `celesto computer delete <id>` |
+| Chromium/CDP unavailable | `/json/version` and framebuffer probes | enter `error` and run retryable cleanup | run `celesto computer logs <id>`, then `celesto computer delete <id>` |
 | Viewer disconnects | websocket close | keep computer running | reload the same viewer URL |
 | TypeScript owner closes cleanly | owner `close()` runs | delete SDK-owned ephemeral computer before closing transport | call `smolvm.computers.create()` again |
-| Python handle exits cleanly | context manager exits | delete SDK-owned ephemeral computer | call `SmolVM.computer()` again |
-| SDK owner crashes or cleanup stays incomplete | stale ownership journal or bounded retry exhaustion | promote a redacted orphan record to CLI inventory | run `smolvm computer delete <id>` |
-| Cleanup only partly succeeds | remaining-resource reconciliation | retain `error` record and diagnostics | rerun `smolvm computer delete <id>` |
+| Python handle exits cleanly | context manager exits | delete SDK-owned ephemeral computer | call `Celesto.computer()` again |
+| SDK owner crashes or cleanup stays incomplete | stale ownership journal or bounded retry exhaustion | promote a redacted orphan record to CLI inventory | run `celesto computer delete <id>` |
+| Cleanup only partly succeeds | remaining-resource reconciliation | retain `error` record and diagnostics | rerun `celesto computer delete <id>` |
 | Delete called twice | stored terminal state | no-op | none |
 
 ## Delivery plan
@@ -599,8 +599,8 @@ A missing panel, unmapped Chromium window, permission mismatch, or partial endpo
 
 - Add the internal `ComputerSandbox` lifecycle.
 - Add private bridge and REST routes.
-- Add TypeScript `computers.create()` and Python `SmolVM.computer()` clients with idempotent handle deletion.
-- Add `smolvm computer start/open/list/logs/delete/templates`; do not add `stop` or `restart` in v1.
+- Add TypeScript `computers.create()` and Python `Celesto.computer()` clients with idempotent handle deletion.
+- Add `celesto computer start/open/list/logs/delete/templates`; do not add `stop` or `restart` in v1.
 - Add the resource chooser and Computers guide, then update the README and Browser guide to preserve the sandbox/browser/computer boundary.
 - Regenerate the TypeScript client and API docs with `display` and `browser` nested beneath `ComputerSession`.
 - Add a documentation drift test that rejects the removed flat computer endpoint names in new computer examples.
@@ -609,7 +609,7 @@ A missing panel, unmapped Chromium window, permission mismatch, or partial endpo
 
 - Update OpenMuse to create `linux-desktop` through `computers.create()` while retaining its existing control broker.
 - Add a minimal standalone TypeScript example that opens the viewer and uses CDP, exec, and files.
-- Add `ComputerTemplate` image metadata and the `linux-desktop-<arch>-rootfs.ext4.zst` assets to `src/smolvm/images/published.py`, `src/smolvm/images/builder.py`, `.github/workflows/build-published-images.yml`, and `.github/workflows/smoke-published-images.yml`.
+- Add `ComputerTemplate` image metadata and the `linux-desktop-<arch>-rootfs.ext4.zst` assets to `src/celesto/images/published.py`, `src/celesto/images/builder.py`, `.github/workflows/build-published-images.yml`, and `.github/workflows/smoke-published-images.yml`.
 - Resolve the published image by template and architecture by default. Source checkouts may use an explicit developer-only local-build flag; production calls never silently invoke Docker.
 - For pull requests, the build job uploads one content-addressed candidate image and manifest override. QEMU and Firecracker smoke jobs download that exact artifact and set the test-only image override; neither job consults the published catalog. Only a candidate that passes both jobs can enter the release workflow.
 - Gate pull requests on Linux amd64 QEMU and Firecracker smoke jobs. Gate the image release on native amd64 and arm64 image builds and smokes for those two backends; `libkrun` remains unavailable for this template until it has an equivalent real-VM job.
@@ -671,7 +671,7 @@ Compatibility
   ├── existing browser headless mode unchanged
   ├── existing browser live mode unchanged
   ├── existing browser events and cleanup unchanged
-  ├── existing Python SmolVM.desktop() behavior unchanged
+  ├── existing Python Celesto.desktop() behavior unchanged
   └── no browser image-size regression from desktop packages
 
 Public surfaces

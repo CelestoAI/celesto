@@ -2,10 +2,11 @@
 
 Run TypeScript agent code in a disposable computer on your own machine. No cloud account or API key is required.
 
-This package is an alpha for Node.js 20.4 or newer on Linux x64 and Apple Silicon macOS. Install the SmolVM runtime first; the SDK starts its private local bridge automatically.
+This package is an alpha for Node.js 20.4 or newer on Linux x64 and Apple Silicon macOS. Install the Celesto runtime first; the SDK starts its private local bridge automatically.
 
 ```bash
-curl -sSL https://celesto.ai/install.sh | bash
+pip install 'celesto[server]==0.0.15a0'
+celesto setup
 npm install https://github.com/CelestoAI/SmolVM/releases/download/typescript-v0.1.0-preview.1/celestoai-smolvm-0.1.0-preview.1.tgz
 npm install --save-dev tsx
 ```
@@ -14,7 +15,7 @@ npm install --save-dev tsx
 import { SmolVM } from "@celestoai/smolvm";
 
 async function main() {
-  const smolvm = new SmolVM();
+  const smolvm = new SmolVM({ runtimePath: "celesto" });
   const sandbox = await smolvm.sandboxes.create({ network: { mode: "off" } });
 
   try {

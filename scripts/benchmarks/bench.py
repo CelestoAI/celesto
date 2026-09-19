@@ -459,7 +459,7 @@ def _smolvm_version() -> str:
     try:
         from importlib.metadata import version
 
-        return version("smolvm")
+        return version("celesto")
     except Exception:  # noqa: BLE001
         return "unknown"
 

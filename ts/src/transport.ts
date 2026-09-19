@@ -23,7 +23,7 @@ function detailFrom(body: unknown): string {
         .join("; ");
     }
   }
-  return "The local SmolVM runtime returned an unexpected response.";
+  return "The local Celesto runtime returned an unexpected response.";
 }
 
 const ERROR_CODES: ReadonlySet<string> = new Set<SmolVMErrorCode>([
@@ -129,10 +129,10 @@ export class ProcessTransport implements SmolVMTransport {
         settled = true;
         this.baseUrl = undefined;
         child.kill();
-        reject(new SmolVMError("bridge_exit", "The local SmolVM runtime did not become ready in time.", {
+        reject(new SmolVMError("bridge_exit", "The local Celesto runtime did not become ready in time.", {
           operation: "runtime.start",
           actual: { startupTimeoutMs: this.startupTimeoutMs },
-          recoveryCommand: "smolvm doctor --strict",
+          recoveryCommand: "celesto doctor --strict",
         }));
       }, this.startupTimeoutMs);
       child.stderr?.on("data", (chunk: Buffer) => {
@@ -146,7 +146,7 @@ export class ProcessTransport implements SmolVMTransport {
         try {
           const record = JSON.parse(stdout.slice(0, newline)) as ReadyRecord;
           if (record.type !== "smolvm.sdk.ready" || record.protocol_version !== 1) {
-            throw new SmolVMError("protocol_incompatible", "The installed SmolVM runtime uses an incompatible SDK protocol.", {
+            throw new SmolVMError("protocol_incompatible", "The installed Celesto runtime uses an incompatible SDK protocol.", {
               operation: "runtime.negotiate",
               actual: { protocolVersion: record.protocol_version },
               recoveryCommand: "curl -sSL https://celesto.ai/install.sh | bash",
@@ -167,7 +167,7 @@ export class ProcessTransport implements SmolVMTransport {
           this.baseUrl = undefined;
           clearTimeout(timer);
           child.kill();
-          reject(cause instanceof SmolVMError ? cause : new SmolVMError("bridge_exit", "The local SmolVM runtime returned an invalid readiness record.", { operation: "runtime.start", cause, debug: this.debug }));
+          reject(cause instanceof SmolVMError ? cause : new SmolVMError("bridge_exit", "The local Celesto runtime returned an invalid readiness record.", { operation: "runtime.start", cause, debug: this.debug }));
         }
       });
       child.once("error", (cause: NodeJS.ErrnoException) => {
@@ -177,10 +177,10 @@ export class ProcessTransport implements SmolVMTransport {
         clearTimeout(timer);
         const missing = cause.code === "ENOENT";
         reject(new SmolVMError(missing ? "runtime_missing" : "bridge_exit", missing
-          ? "SmolVM is not installed or is not on PATH."
-          : "The local SmolVM runtime could not start.", {
+          ? "Celesto is not installed or is not on PATH."
+          : "The local Celesto runtime could not start.", {
           operation: "runtime.start",
-          recoveryCommand: missing ? "curl -sSL https://celesto.ai/install.sh | bash" : "smolvm doctor --strict",
+          recoveryCommand: missing ? "curl -sSL https://celesto.ai/install.sh | bash" : "celesto doctor --strict",
           cause,
           debug: this.debug,
         }));
@@ -196,15 +196,15 @@ export class ProcessTransport implements SmolVMTransport {
         reject(new SmolVMError(
           dependenciesMissing ? "runtime_missing" : runtimeTooOld ? "protocol_incompatible" : "bridge_exit",
           dependenciesMissing
-            ? "SmolVM is installed without its local SDK server dependencies."
+            ? "Celesto is installed without its local SDK server dependencies."
             : runtimeTooOld
-              ? "The installed SmolVM runtime is too old for this TypeScript SDK."
-            : "The local SmolVM runtime exited before it was ready.", {
+              ? "The installed Celesto runtime is too old for this TypeScript SDK."
+            : "The local Celesto runtime exited before it was ready.", {
           operation: "runtime.start",
           actual: { exitCode: exitCode ?? -1 },
           recoveryCommand: dependenciesMissing || runtimeTooOld
             ? "curl -sSL https://celesto.ai/install.sh | bash"
-            : "smolvm doctor --strict",
+            : "celesto doctor --strict",
           cause: new Error(stderr.replaceAll(token, "[redacted]")),
           debug: this.debug,
         }));
@@ -230,7 +230,7 @@ export class ProcessTransport implements SmolVMTransport {
             error: new SmolVMError("bridge_exit", "The local SmolVM bridge event stream stopped.", {
               operation: "events.stream",
               actual: { status: response.status },
-              recoveryCommand: "smolvm doctor --strict",
+              recoveryCommand: "celesto doctor --strict",
             }),
           });
           return;
@@ -353,14 +353,14 @@ export class ProcessTransport implements SmolVMTransport {
           actual: createsResource
             ? { createTimeoutMs: this.createTimeoutMs, sessionClosed }
             : { requestTimeoutMs: this.requestTimeoutMs },
-          recoveryCommand: createsResource ? undefined : "smolvm doctor --strict",
+          recoveryCommand: createsResource ? undefined : "celesto doctor --strict",
           cause,
           debug: this.debug,
         });
       }
       throw new SmolVMError("bridge_exit", "The local SmolVM bridge stopped responding.", {
         operation: `${init.method ?? "GET"} ${path}`,
-        recoveryCommand: "smolvm doctor --strict",
+        recoveryCommand: "celesto doctor --strict",
         cause,
         debug: this.debug,
       });
@@ -377,7 +377,7 @@ export class ProcessTransport implements SmolVMTransport {
           status: response.status,
           ...(sandboxDeleted === null ? {} : { sandboxDeleted: sandboxDeleted === "true" }),
         },
-        recoveryCommand: response.status >= 500 ? "smolvm doctor --strict" : undefined,
+        recoveryCommand: response.status >= 500 ? "celesto doctor --strict" : undefined,
       });
     }
     return response;

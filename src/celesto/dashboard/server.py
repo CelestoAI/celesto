@@ -53,7 +53,7 @@ from celesto.vm import CelestoManager, resolve_data_dir
 logger = logging.getLogger(__name__)
 
 RELEASES_URL = "https://api.github.com/repos/CelestoAI/Celesto/releases"
-DASHBOARD_ASSET_PREFIX = "smolvm-dashboard-ui-"
+DASHBOARD_ASSET_PREFIX = "celesto-dashboard-ui-"
 DASHBOARD_ASSET_SUFFIX = ".tar.gz"
 UI_DIST_ENV = "SMOLVM_DASHBOARD_UI_DIST"
 ALLOW_BETA_ENV = "SMOLVM_DASHBOARD_ALLOW_BETA"

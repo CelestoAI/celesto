@@ -3159,7 +3159,7 @@ class TestCliUi:
         ret = main(["ui"])
 
         assert ret == 1
-        assert "smolvm[dashboard]" in capsys.readouterr().err
+        assert "celesto[dashboard]" in capsys.readouterr().err
 
     @patch("celesto.cli.main.importlib.import_module")
     def test_ui_invalid_port(
@@ -6413,7 +6413,7 @@ class TestCliCompletion:
             ret = main(["completion", "bash", "--install"])
 
         assert ret == 0
-        script_path = fake_home / ".smolvm" / "completions" / "smolvm.bash"
+        script_path = fake_home / ".celesto" / "completions" / "celesto.bash"
         assert "_CELESTO_COMPLETE" in script_path.read_text()
         bashrc = (fake_home / ".bashrc").read_text()
         assert str(script_path) in bashrc
@@ -6427,7 +6427,7 @@ class TestCliCompletion:
             ret = main(["completion", "bash", "--install"])
 
         assert ret == 0
-        script_path = fake_home / ".smolvm" / "completions" / "smolvm.bash"
+        script_path = fake_home / ".celesto" / "completions" / "celesto.bash"
         bashrc = (fake_home / ".bashrc").read_text()
         assert bashrc.count(str(script_path)) == 1
 
@@ -6445,7 +6445,7 @@ class TestCliCompletion:
         ret = main(["completion", "zsh", "--install"])
 
         assert ret == 0
-        script_path = fake_home / ".smolvm" / "completions" / "smolvm.zsh"
+        script_path = fake_home / ".celesto" / "completions" / "celesto.zsh"
         assert str(script_path) in (zdotdir / ".zshrc").read_text()
 
     def test_completion_install_fish_writes_autoload_file(self, fake_home: Path) -> None:
@@ -6489,21 +6489,21 @@ class TestCliCompletion:
                 ret = main(["completion", "bash", "--install"])
 
         assert ret == 0
-        script_path = quirky_home / ".smolvm" / "completions" / "smolvm.bash"
+        script_path = quirky_home / ".celesto" / "completions" / "celesto.bash"
         bashrc = (quirky_home / ".bashrc").read_text()
         assert f"source {shlex.quote(str(script_path))}" in bashrc
 
     def test_completion_install_reenables_commented_line(self, fake_home: Path) -> None:
         """A commented-out managed line is replaced by an active one, not kept."""
-        script_path = fake_home / ".smolvm" / "completions" / "smolvm.bash"
+        script_path = fake_home / ".celesto" / "completions" / "celesto.bash"
         bashrc = fake_home / ".bashrc"
-        bashrc.write_text(f"# source {script_path}  # smolvm tab completion\nalias ll='ls -la'\n")
+        bashrc.write_text(f"# source {script_path}  # celesto tab completion\nalias ll='ls -la'\n")
 
         ret = main(["completion", "bash", "--install"])
 
         assert ret == 0
         content = bashrc.read_text()
-        assert f"source {script_path}  # smolvm tab completion" in content
+        assert f"source {script_path}  # celesto tab completion" in content
         assert f"# source {script_path}" not in content
         # User content is untouched.
         assert "alias ll='ls -la'" in content
@@ -6512,7 +6512,7 @@ class TestCliCompletion:
         """A managed line pointing at an old path is replaced, not duplicated."""
         bashrc = fake_home / ".bashrc"
         bashrc.write_text(
-            "source /old/home/.smolvm/completions/smolvm.bash  # smolvm tab completion\n"
+            "source /old/home/.celesto/completions/celesto.bash  # celesto tab completion\n"
         )
 
         ret = main(["completion", "bash", "--install"])
@@ -6520,22 +6520,22 @@ class TestCliCompletion:
         assert ret == 0
         content = bashrc.read_text()
         assert "/old/home/" not in content
-        script_path = fake_home / ".smolvm" / "completions" / "smolvm.bash"
-        assert content.count("# smolvm tab completion") == 1
+        script_path = fake_home / ".celesto" / "completions" / "celesto.bash"
+        assert content.count("# celesto tab completion") == 1
         assert str(script_path) in content
 
     def test_completion_install_respects_user_written_line(self, fake_home: Path) -> None:
         """A source line the user wrote themselves is honored, not duplicated."""
         bashrc = fake_home / ".bashrc"
-        bashrc.write_text("source ~/.smolvm/completions/smolvm.bash\n")
+        bashrc.write_text("source ~/.celesto/completions/celesto.bash\n")
 
         ret = main(["completion", "bash", "--install"])
 
         assert ret == 0
         content = bashrc.read_text()
         # No managed line added; the user's own line is untouched.
-        assert "# smolvm tab completion" not in content
-        assert content == "source ~/.smolvm/completions/smolvm.bash\n"
+        assert "# celesto tab completion" not in content
+        assert content == "source ~/.celesto/completions/celesto.bash\n"
 
     def test_completion_install_preserves_non_utf8_rc(self, fake_home: Path) -> None:
         """An rc file with undecodable bytes is appended to without corruption."""
@@ -6547,7 +6547,7 @@ class TestCliCompletion:
         assert ret == 0
         raw = bashrc.read_bytes()
         assert b"\xff\xfe raw bytes" in raw
-        assert b"# smolvm tab completion" in raw
+        assert b"# celesto tab completion" in raw
 
     def test_completion_install_creates_missing_zdotdir(
         self,
@@ -6569,7 +6569,7 @@ class TestCliCompletion:
         ret = main(["completion", "zsh", "--install"])
 
         assert ret == 0
-        script = (fake_home / ".smolvm" / "completions" / "smolvm.zsh").read_text()
+        script = (fake_home / ".celesto" / "completions" / "celesto.zsh").read_text()
         # The compinit guard must run before click's `compdef` registration.
         assert "autoload -Uz compinit" in script
         assert script.index("autoload -Uz compinit") < script.index("compdef _celesto_completion")
@@ -6606,7 +6606,7 @@ class TestCliCompletion:
             ret = main(["completion", "bash", "--install"])
 
         assert ret == 0
-        script_path = sudo_home / ".smolvm" / "completions" / "smolvm.bash"
+        script_path = sudo_home / ".celesto" / "completions" / "celesto.bash"
         assert script_path.exists()
         assert str(script_path) in (sudo_home / ".bashrc").read_text()
         # Nothing written into the (fake) root home.
@@ -6617,15 +6617,15 @@ class TestCliCompletion:
         fake_home: Path,
     ) -> None:
         """Two identical managed lines (e.g. concurrent installs) collapse to one."""
-        script_path = fake_home / ".smolvm" / "completions" / "smolvm.bash"
-        line = f"source {script_path}  # smolvm tab completion"
+        script_path = fake_home / ".celesto" / "completions" / "celesto.bash"
+        line = f"source {script_path}  # celesto tab completion"
         bashrc = fake_home / ".bashrc"
         bashrc.write_text(f"{line}\n{line}\n")
 
         ret = main(["completion", "bash", "--install"])
 
         assert ret == 0
-        assert bashrc.read_text().count("# smolvm tab completion") == 1
+        assert bashrc.read_text().count("# celesto tab completion") == 1
 
     def test_completion_install_sudo_chowns_created_ancestors(
         self,

@@ -17,7 +17,7 @@
 """Run an autonomous browser task with Celesto and OpenAI computer use.
 
 Install:
-    pip install smolvm openai playwright
+    pip install 'celesto==0.0.15a0' openai playwright
 
 Required environment:
     export OPENAI_API_KEY=...

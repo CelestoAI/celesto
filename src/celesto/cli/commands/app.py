@@ -95,7 +95,7 @@ def _mounts(values: tuple[str, ...]) -> list[str] | None:
 
 @click.group(context_settings=CONTEXT_SETTINGS, invoke_without_command=True)
 @click.version_option(
-    importlib.metadata.version("smolvm"),
+    importlib.metadata.version("celesto"),
     "-V",
     "--version",
     prog_name="celesto",

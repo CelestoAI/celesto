@@ -39,7 +39,7 @@ flowchart TD
 ## Prerequisites
 
 ```bash
-pip install smolvm pydantic-ai
+pip install 'celesto==0.0.15a0' pydantic-ai
 brew install agent-browser  # or npm install -g agent-browser
 agent-browser install
 export OPENAI_API_KEY=...

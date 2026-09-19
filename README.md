@@ -98,24 +98,23 @@ Each microVM boots in milliseconds, runs any code or software you throw at it, p
 
 ## Quickstart
 
-Install Celesto with a single command:
+Install the Celesto alpha with Python 3.11 or newer:
 
 ```bash
-curl -sSL https://celesto.ai/install.sh | bash
+pip install 'celesto==0.0.15a0'
 ```
 
-This installs everything you need (including Python), configures your machine, and verifies the setup.
-
-<details>
-<summary>Manual installation</summary>
+Then prepare your machine and check that it is ready:
 
 ```bash
-pip install smolvm
 celesto setup
 celesto doctor
 ```
 
-On supported Linux and macOS systems, `pip install smolvm` also pulls in the matching `smolvm-core` wheel automatically. Most users do not need Rust installed.
+<details>
+<summary>Installation details</summary>
+
+On supported Linux and macOS systems, installing `celesto` also pulls in the matching `smolvm-core` wheel automatically. The `smolvm-core` package name is unchanged. Most users do not need Rust installed.
 
 Linux may prompt for `sudo` during setup so it can install host dependencies and configure runtime permissions.
 
@@ -133,8 +132,8 @@ with Computer(local=True) as comp:
     print(result.stdout)
 ```
 
-Install with `pip install smolvm`, then import from `celesto`. The package name
-has not changed yet; old `smolvm` Python imports are no longer supported.
+The Python package is now named `celesto`; import from `celesto` as shown above.
+Old `smolvm` Python imports are no longer supported.
 Use `celesto setup` and `celesto doctor` to prepare your machine.
 
 The computer is deleted when the `with` block ends, including when your code
@@ -150,7 +149,7 @@ cannot be used in a `with` block. Remove them with `delete()` or
 
 Advanced local APIs are available as `celesto.Celesto` and `celesto.CelestoManager`.
 Existing local data, environment settings, and image caches retain their current
-locations. The `smolvm` executable remains available for TypeScript integrations.
+locations. Use the `celesto` command; the `smolvm` command is no longer installed.
 
 To run in Celesto Cloud, set `CELESTO_API_KEY` in your environment, then omit
 `local=True`:
@@ -170,9 +169,13 @@ for connection options, persistence, and cleanup limits.
 
 The TypeScript SDK gives Node.js agents a disposable computer on the same machine. It starts the local runtime automatically, so there is no server command or cloud credential to configure.
 
+The separate TypeScript preview still uses the `@celestoai/smolvm` package and
+`SmolVM` class. Set `runtimePath: "celesto"` to use this Python release.
+
 The alpha supports Node.js 20.4 or newer on Linux x64 and Apple Silicon macOS. After installing Celesto above, install the preview package and `tsx`:
 
 ```bash
+pip install 'celesto[server]==0.0.15a0'
 npm install https://github.com/CelestoAI/SmolVM/releases/download/typescript-v0.1.0-preview.1/celestoai-smolvm-0.1.0-preview.1.tgz
 npm install --save-dev tsx
 ```
@@ -181,7 +184,7 @@ npm install --save-dev tsx
 import { SmolVM } from "@celestoai/smolvm";
 
 async function main() {
-  const smolvm = new SmolVM({ onEvent: (event) => console.log(event.type) });
+  const smolvm = new SmolVM({ runtimePath: "celesto", onEvent: (event) => console.log(event.type) });
   const sandbox = await smolvm.sandboxes.create({ network: { mode: "off" } });
 
   try {
@@ -284,7 +287,7 @@ with Celesto(
 Build your own image from a Windows ISO:
 
 ```bash
-smolvm windows build-image --iso ./Win11.iso \
+celesto windows build-image --iso ./Win11.iso \
     --virtio-win-iso ./virtio-win.iso \
     --output ~/.smolvm/images/win11.qcow2
 ```

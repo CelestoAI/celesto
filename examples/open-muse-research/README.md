@@ -43,7 +43,7 @@ npm run dev
 If the TypeScript SDK reports that the installed Celesto runtime is too old while developing from this repository, use the source runtime:
 
 ```dotenv
-SMOLVM_RUNTIME=./scripts/source-smolvm-runtime.sh
+CELESTO_RUNTIME=./scripts/source-smolvm-runtime.sh
 ```
 
 Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Prepare the built-in plan, review its three steps, then select **Start research**.

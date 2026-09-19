@@ -59,8 +59,8 @@ After both backend suites pass against the same candidate:
 2. Add browser and Linux computer entries to the published manifest, then copy every rootfs URL, size, and SHA-256 from the build output into `src/celesto/images/published.py`.
 3. Copy the standalone `smolvm-guest-agent-linux-<arch>.sha256` values into `src/celesto/images/builder.py::_GUEST_AGENT_RELEASE_SHA256`. These pins are separate from the rootfs manifest.
 4. Run `.github/workflows/smoke-published-images.yml` against the draft tag and make it smoke the new browser/computer assets on Firecracker and QEMU for `amd64` and `arm64`.
-5. Verify the source-checkout path with `uv run smolvm ...`, which may build or use a local guest-agent binary.
-6. Build and install the candidate wheel in a clean environment, then verify `smolvm ...` downloads the standalone guest-agent asset and the pinned rootfs.
+5. Verify the source-checkout path with `uv run celesto ...`, which may build or use a local guest-agent binary.
+6. Build and install the candidate wheel in a clean environment, then verify `celesto ...` downloads the standalone guest-agent asset and the pinned rootfs.
 7. Publish the draft image release only after its manifest and both SHA pin sets match the tested bytes. Do not tag the Python package before these checks pass.
 
 ## 5. Expose the API last

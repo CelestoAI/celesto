@@ -7,7 +7,7 @@ Celesto can run a Windows guest from a Windows disk image that you build yoursel
 Get a Windows ISO and a virtio driver ISO, then build a reusable qcow2 image. Choose a strong password instead of the development default.
 
 ```bash
-smolvm windows build-image \
+celesto windows build-image \
   --iso ./Win11.iso \
   --virtio-win-iso ./virtio-win.iso \
   --output ./win11.qcow2 \

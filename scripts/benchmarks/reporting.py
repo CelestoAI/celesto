@@ -118,7 +118,7 @@ def start_report(
             "created_at": utc_now_iso(),
             "git": git_info(),
             "host": host_info(),
-            "smolvm_version": package_version("smolvm"),
+            "smolvm_version": package_version("celesto"),
             "smolvm_core": package_version("smolvm-core"),
             "parameters": parameters,
             "thresholds": thresholds or {},

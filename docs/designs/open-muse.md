@@ -73,7 +73,7 @@ Node control server
   ├── Pi Agent (host-side model loop)
   ├── IntentLedger + ActionBroker
   ├── Playwright over private CDP URL
-  └── typed @celestoai/smolvm browser session
+  └── typed @celestoai/celesto browser session
                  │ private authenticated bridge
                  ▼
 Browser-capable SmolVM
@@ -327,7 +327,7 @@ Each event has a monotonic integer `id`, `conversationId`, `stateVersion`, times
 - On client refresh, reconstruct chat and activity from bounded manager state and reconnect SSE. After a Node restart, restore the bounded local checkpoint. Map approved-but-undispatched work to safe failure, map dispatched work to unknown outcome, normalize other in-flight work and human control to `interrupted`, discard pending approvals, and wait for an explicit **Continue** or **Start over** choice.
 - On browser disconnect, pause Pi, retry the CDP connection once, then show one fact plus an exact recovery action.
 - On noVNC failure with healthy CDP, keep the agent paused until the user explicitly chooses **Continue without live view** or stops. Do not silently operate an invisible authenticated browser.
-- On app shutdown, stop accepting work, abort Pi, close Playwright, stop the browser session, and close SmolVM. The private runtime bridge owns a lease tied to its authenticated control pipe; EOF or parent death triggers cleanup, and the next bridge startup reconciles expired session-owned records. A hard host failure is cleaned on reboot/startup, not synchronously. If cleanup cannot be confirmed, show the exact `smolvm browser stop <session-id>` recovery command.
+- On app shutdown, stop accepting work, abort Pi, close Playwright, stop the browser session, and close SmolVM. The private runtime bridge owns a lease tied to its authenticated control pipe; EOF or parent death triggers cleanup, and the next bridge startup reconciles expired session-owned records. A hard host failure is cleaned on reboot/startup, not synchronously. If cleanup cannot be confirmed, show the exact `celesto browser stop <session-id>` recovery command.
 - Milestone 2 makes the persistent profile opt-in and names it in the header. **Reset profile** is available only while exclusively locked and no session is active; its confirmation says saved logins and browser state will be removed.
 
 The serialized transition rules are:
@@ -391,7 +391,7 @@ ts/src/
 ├── index.ts
 └── types.ts
 
-src/smolvm/server/
+src/celesto/server/
 ├── app.py
 └── models.py
 ```

@@ -4,7 +4,7 @@
 Most users install `smolvm`; it pulls in the matching `smolvm-core` wheel automatically.
 
 ```bash
-pip install smolvm
+pip install 'celesto==0.0.15a0'
 ```
 
 Install `smolvm-core` directly only when you are developing the native helper package or testing a package release.

@@ -3,11 +3,11 @@ name: Publish Dashboard UI Dist
 on:
   push:
     tags:
-      - "v*.*.*"
+      - "celesto-v*.*.*"
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Package release tag to publish a dashboard for (for example, v0.0.35)."
+        description: "Package release tag to publish a dashboard for (for example, celesto-v0.0.15a0)."
         required: true
         type: string
 
@@ -42,18 +42,27 @@ jobs:
         env:
           REF_NAME: ${{ inputs.release_tag || github.ref_name }}
         run: |
-          tar -C ui -czf "smolvm-dashboard-ui-${REF_NAME}.tar.gz" dist
+          tar -C ui -czf "celesto-dashboard-ui-${REF_NAME}.tar.gz" dist
 
       - name: Upload release asset
         env:
           GH_TOKEN: ${{ github.token }}
           REF_NAME: ${{ inputs.release_tag || github.ref_name }}
         run: |
-          asset="smolvm-dashboard-ui-${REF_NAME}.tar.gz"
+          asset="celesto-dashboard-ui-${REF_NAME}.tar.gz"
+          prerelease=false
+          if [[ "$REF_NAME" =~ (a|b|rc)[0-9]+$ ]]; then
+            prerelease=true
+          fi
+          release_flags=("--prerelease=$prerelease")
+          if [ "$prerelease" = true ]; then
+            release_flags+=(--latest=false)
+          fi
 
           if ! gh release view "${REF_NAME}" >/dev/null 2>&1; then
             gh release create "${REF_NAME}" \
               --verify-tag \
+              "${release_flags[@]}" \
               --title "${REF_NAME}" \
               --generate-notes \
               "${asset}"
@@ -77,7 +86,7 @@ jobs:
           # asset to `gh release create` makes gh upload it while the release is
           # still a draft, before GitHub locks the published release.
           dashboard_tag="dashboard-${REF_NAME}"
-          dashboard_asset="smolvm-dashboard-ui-${dashboard_tag}.tar.gz"
+          dashboard_asset="celesto-dashboard-ui-${dashboard_tag}.tar.gz"
           mv "${asset}" "${dashboard_asset}"
 
           if gh release view "${dashboard_tag}" >/dev/null 2>&1; then
@@ -95,7 +104,7 @@ jobs:
 
             sidecar_draft=$(gh release view "${dashboard_tag}" --json isDraft --jq '.isDraft')
             if [ "${sidecar_draft}" = "true" ]; then
-              gh release edit "${dashboard_tag}" --draft=false --latest=false
+              gh release edit "${dashboard_tag}" --draft=false --latest=false "--prerelease=$prerelease"
             fi
             echo "${dashboard_asset} is available from ${dashboard_tag}."
             exit 0
@@ -104,6 +113,7 @@ jobs:
           gh release create "${dashboard_tag}" \
             --target "$(git rev-parse HEAD)" \
             --title "Dashboard UI for ${REF_NAME}" \
-            --notes "Dashboard UI bundle for SmolVM ${REF_NAME}." \
+            "--prerelease=$prerelease" \
+            --notes "Dashboard UI bundle for Celesto ${REF_NAME}." \
             --latest=false \
             "${dashboard_asset}"

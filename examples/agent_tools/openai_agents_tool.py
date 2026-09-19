@@ -17,7 +17,7 @@
 """Use Celesto as an OpenAI Agents SDK function tool.
 
 Install:
-    pip install smolvm openai-agents
+    pip install 'celesto==0.0.15a0' openai-agents
 
 Required environment:
     export OPENAI_API_KEY=...

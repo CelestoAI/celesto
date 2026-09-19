@@ -4,9 +4,19 @@ Install Celesto, prepare the machine that will run sandboxes, and confirm that i
 
 ## Install the package
 
+Install the alpha release explicitly:
+
 ```bash
-pip install smolvm
+pip install 'celesto==0.0.15a0'
 ```
+
+The Python package is now named `celesto`, and Python code imports from `celesto`
+(for example, `from celesto import Computer`). Old `smolvm` Python imports are no
+longer supported. Use the `celesto` command; the `smolvm` command is no longer
+installed.
+
+The `smolvm-core` package name is unchanged. It is installed automatically on
+supported Linux and macOS systems; most users do not need Rust installed.
 
 ## Prepare your machine
 

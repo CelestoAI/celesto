@@ -1,9 +1,9 @@
-name: Publish smolvm
+name: Publish celesto
 
 on:
   push:
     tags:
-      - "v*.*.*"
+      - "celesto-v*.*.*"
 
 permissions:
   contents: read
@@ -35,7 +35,7 @@ jobs:
           data = tomllib.loads(Path("pyproject.toml").read_text())
           version = data["project"]["version"]
           tag = os.environ["GITHUB_REF_NAME"]
-          expected_tag = f"v{version}"
+          expected_tag = f"celesto-v{version}"
           if tag != expected_tag:
               raise SystemExit(
                   f"Release tag {tag!r} does not match pyproject version {version!r}. "
@@ -43,7 +43,7 @@ jobs:
               )
 
           # Find the smolvm-core dependency line. We no longer require the
-          # core version to match smolvm's own version: smolvm 0.0.10 may
+          # core version to match celesto's own version: celesto 0.0.15a0 may
           # depend on smolvm-core 0.0.9, and that's intentional.
           dependencies = data["project"]["dependencies"]
           core_dep = next(
@@ -52,7 +52,7 @@ jobs:
           )
           if core_dep is None:
               raise SystemExit(
-                  "pyproject.toml must declare a smolvm-core dependency before publishing smolvm."
+                  "pyproject.toml must declare a smolvm-core dependency before publishing celesto."
               )
 
           # Extract a concrete version to verify against PyPI. Works for
@@ -81,7 +81,7 @@ jobs:
               raise
 
           print(
-              f"Release preflight OK: smolvm {version} depends on {core_dep!r}; "
+              f"Release preflight OK: celesto {version} depends on {core_dep!r}; "
               f"smolvm-core {core_version} is available on PyPI."
           )
           PY

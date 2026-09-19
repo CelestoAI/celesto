@@ -72,7 +72,7 @@ computer.browser.launch()
 ```ts
 import { SmolVM } from "@celestoai/smolvm";
 
-const smolvm = new SmolVM();
+const smolvm = new SmolVM({ runtimePath: "celesto" });
 const computer = await smolvm.computers.create();
 
 try {

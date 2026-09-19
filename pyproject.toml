@@ -3,8 +3,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "smolvm"
-version = "0.0.36"
+name = "celesto"
+version = "0.0.15a0"
 description = "Sandbox for computer-using agents with a unified API for VMMs — Firecracker, QEMU, and libkrun."
 readme = "README.md"
 license = "Apache-2.0"
@@ -43,6 +43,13 @@ dependencies = [
     "zstandard>=0.22",
 ]
 
+[project.urls]
+Homepage = "https://celesto.ai"
+Documentation = "https://docs.celesto.ai"
+Repository = "https://github.com/CelestoAI/celesto"
+Issues = "https://github.com/CelestoAI/celesto/issues"
+Changelog = "https://github.com/CelestoAI/celesto/releases"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
@@ -73,7 +80,6 @@ all = [
 
 [project.scripts]
 celesto = "celesto.cli.main:main"
-smolvm = "celesto.cli.main:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/celesto", "src/_celesto_cloud_api"]

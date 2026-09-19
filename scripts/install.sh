@@ -23,7 +23,7 @@
 #
 # What it does:
 #   1. Installs uv (Python package manager) if not present
-#   2. Installs smolvm into an isolated tool environment via uv
+#   2. Installs celesto into an isolated tool environment via uv
 #   3. Runs `celesto setup` to configure the host
 #
 # Options (forwarded to `celesto setup`):
@@ -31,7 +31,7 @@
 #   --with-docker            Also install Docker for SSH image support
 #   --firecracker-dir <dir>  Install Firecracker in a specific folder
 #
-# After installation, the `smolvm` command is available globally.
+# After installation, the `celesto` command is available globally.
 
 set -euo pipefail
 
@@ -119,18 +119,18 @@ ensure_uv() {
 }
 
 # ---------------------------------------------------------------------------
-# Step 2 — Install smolvm
+# Step 2 — Install celesto
 # ---------------------------------------------------------------------------
 
-install_smolvm() {
-    if uv tool list 2>/dev/null | grep -q '^smolvm '; then
+install_celesto() {
+    if uv tool list 2>/dev/null | grep -q '^celesto '; then
         # Installed as a uv tool — upgrade in place
-        info "smolvm is already installed (uv tool), upgrading …"
-        uv tool install --upgrade 'smolvm[server]'
+        info "celesto is already installed (uv tool), upgrading …"
+        uv tool install --upgrade 'celesto[server]>=0.0.15a0'
     else
         # Fresh install (or installed via pip/editable — uv tool install won't conflict)
-        info "Installing smolvm …"
-        uv tool install 'smolvm[server]'
+        info "Installing celesto …"
+        uv tool install 'celesto[server]>=0.0.15a0'
     fi
 
     # uv tool bin dir may not be on PATH yet in this session
@@ -141,11 +141,11 @@ install_smolvm() {
     fi
     export PATH="$HOME/.local/bin:$PATH"
 
-    if ! command -v smolvm >/dev/null 2>&1; then
-        die "smolvm installation failed — 'smolvm' command not found on PATH."
+    if ! command -v celesto >/dev/null 2>&1; then
+        die "celesto installation failed — 'celesto' command not found on PATH."
     fi
 
-    info "$(smolvm --version)"
+    info "$(celesto --version)"
 }
 
 # ---------------------------------------------------------------------------
@@ -178,7 +178,7 @@ shell_hint() {
 
     if [ -n "$rc_file" ] && [ -f "$rc_file" ]; then
         if ! grep -q '.local/bin' "$rc_file" 2>/dev/null; then
-            warn "Add ~/.local/bin to your PATH so 'smolvm' is available in new shells:"
+            warn "Add ~/.local/bin to your PATH so 'celesto' is available in new shells:"
             printf "\n  %s\n\n" "echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> $rc_file"
         fi
     fi
@@ -202,7 +202,7 @@ BANNER
     printf "    One command to give AI agents their own computer.\n\n"
 
     ensure_uv
-    install_smolvm
+    install_celesto
     run_setup
     shell_hint
 

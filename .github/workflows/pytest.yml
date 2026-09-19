@@ -138,7 +138,7 @@ jobs:
       - name: Build release artifacts
         run: |
           uv build --package smolvm-core --wheel --out-dir smolvm-core/dist
-          uv build --package smolvm --wheel --out-dir dist
+          uv build --package celesto --wheel --out-dir dist
 
       - name: Smoke test built wheels
         run: |
@@ -175,7 +175,7 @@ jobs:
             --python .smoke-venv/bin/python3 \
             --find-links smolvm-core/dist \
             --find-links dist \
-            "smolvm==${VERSION}"
+            "celesto==${VERSION}"
 
           .smoke-venv/bin/python3 - <<PY
           import os
@@ -189,7 +189,7 @@ jobs:
           from celesto.host.setup import detect_setup_platform, resolve_setup_script
           from celesto.images import builder as image_builder
 
-          assert pkg_version("smolvm") == "${VERSION}"
+          assert pkg_version("celesto") == "${VERSION}"
           assert pkg_version("smolvm-core") == "${CORE_VERSION}"
           assert Path(_celesto_cloud_api.__file__).is_file(), (
               "generated cloud API package missing from wheel"
@@ -201,7 +201,7 @@ jobs:
 
           assets_dir = Path(
               subprocess.check_output(
-                  [".smoke-venv/bin/smolvm", "setup", "--assets-dir"],
+                  [".smoke-venv/bin/celesto", "setup", "--assets-dir"],
                   text=True,
               ).strip()
           )

@@ -183,7 +183,7 @@ class CreatePayload(TypedDict):
 
 
 class StartPresetPayload(TypedDict):
-    """Preset application summary for ``smolvm <preset> start``."""
+    """Preset application summary for ``celesto <preset> start``."""
 
     name: str
     copied_configs: list[str]
@@ -192,7 +192,7 @@ class StartPresetPayload(TypedDict):
 
 
 class StartPayload(TypedDict):
-    """JSON payload for ``smolvm <preset> start``."""
+    """JSON payload for ``celesto <preset> start``."""
 
     vm: CreateVmPayload
     preset: StartPresetPayload
@@ -359,9 +359,9 @@ class BrowserSandboxPayload(TypedDict):
 
 
 def _current_version_is_prerelease() -> bool:
-    """Return True if the installed smolvm package version is a pre-release."""
+    """Return True if the installed celesto package version is a pre-release."""
     try:
-        ver = importlib.metadata.version("smolvm")
+        ver = importlib.metadata.version("celesto")
     except importlib.metadata.PackageNotFoundError:
         return False
 
@@ -1478,7 +1478,7 @@ def _run_create(args: SimpleNamespace) -> int:
 
 
 def _render_start_result(data: StartPayload) -> None:
-    """Render the human-facing ``smolvm <preset> start`` result."""
+    """Render the human-facing ``celesto <preset> start`` result."""
     console = console_stdout()
     vm_data = data["vm"]
     preset = data["preset"]
@@ -1763,7 +1763,7 @@ def _run_start_with_published_image(args: SimpleNamespace, preset: object) -> in
 
 
 def _run_start(args: SimpleNamespace) -> int:
-    """Handle ``smolvm <preset> start``."""
+    """Handle ``celesto <preset> start``."""
     from celesto.facade import Celesto, _build_auto_config
     from celesto.images.published import is_preset_published
     from celesto.presets import apply_preset, get_preset
@@ -3675,7 +3675,7 @@ def _run_server_start(
             1,
             ImportError("HTTP server dependencies are not installed."),
             json_output=False,
-            hint="Install with: pip install 'smolvm[server]'",
+            hint="Install with: pip install 'celesto[server]'",
         )
 
     if sdk_session:
@@ -3727,7 +3727,7 @@ def _run_ui(host: str, port: int, allow_beta: bool) -> int:
             1,
             ImportError("Dashboard dependencies are not installed."),
             json_output=False,
-            hint="Install with: pip install 'smolvm[dashboard]'",
+            hint="Install with: pip install 'celesto[dashboard]'",
         )
 
     if port < 1 or port > 65535:
@@ -4317,7 +4317,7 @@ def build_cli() -> click.Group:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """CLI entrypoint for `celesto` and the retained `smolvm` executable."""
+    """CLI entrypoint for `celesto`."""
     maybe_reexec_for_kvm_group(argv)
 
     args = list(argv) if argv is not None else sys.argv[1:]

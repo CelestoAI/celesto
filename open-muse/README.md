@@ -147,7 +147,7 @@ OpenMuse reads `.env.local` when the Node.js server starts.
 | `OPENAI_API_KEY` | unset | Uses an OpenAI API key without entering it in the app. |
 | `OPENAI_MODEL` | `gpt-5.6-luna` | Selects the initial model when an environment API key is used. |
 | `OPENMUSE_COMPUTER_PROVIDER` | `smolvm` | Uses local `smolvm` or hosted `celesto` computers. |
-| `SMOLVM_RUNTIME` | `smolvm` | Chooses the SmolVM command. `.env.example` points to the source-checkout wrapper. |
+| `CELESTO_RUNTIME` | `celesto` | Chooses the Celesto command. `.env.example` points to the source-checkout wrapper. |
 | `CELESTO_API_KEY` | unset | Required server-only credential when the computer provider is `celesto`. |
 | `CELESTO_API_URL` | Celesto production API | Optional development or self-hosted Celesto control-plane URL. |
 | `OPEN_MUSE_HOST` | `127.0.0.1` | Local bind address. Other addresses are rejected. |
@@ -166,13 +166,13 @@ Saved credentials are limited to the current operating-system user on macOS and 
 Run the runtime check from the repository root and follow its recovery message:
 
 ```bash
-uv run smolvm doctor
+uv run celesto doctor
 ```
 
 If the image download was interrupted, retry it from the repository root:
 
 ```bash
-uv run smolvm image pull linux-desktop
+uv run celesto image pull linux-desktop
 ```
 
 ### The SmolVM TypeScript package cannot be resolved

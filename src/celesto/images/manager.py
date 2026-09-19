@@ -16,7 +16,7 @@
 
 Handles fetching, caching, and validating VM assets (kernels, rootfs).
 Supports both HTTP URLs and S3-hosted images via an optional ``boto3``
-dependency (install with ``pip install 'smolvm[s3]'``).
+dependency (install with ``pip install 'celesto[s3]'``).
 """
 
 from __future__ import annotations
@@ -333,7 +333,7 @@ def _require_boto3() -> S3Client:
         import boto3  # type: ignore[import-untyped]
     except ImportError:
         raise ImageError(
-            "S3 image support requires boto3. Install it with:\n  pip install 'smolvm[s3]'"
+            "S3 image support requires boto3. Install it with:\n  pip install 'celesto[s3]'"
         ) from None
 
     # Load .env file if present (walks up from cwd to find it).

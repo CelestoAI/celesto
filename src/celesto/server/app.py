@@ -71,7 +71,7 @@ def _sdk_error(
 
 def _runtime_version() -> str:
     try:
-        return version("smolvm")
+        return version("celesto")
     except PackageNotFoundError:
         return "source-checkout"
 

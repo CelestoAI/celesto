@@ -71,11 +71,11 @@ def test_latest_dashboard_release_asset_prefers_exact_tag_name(
             "tag_name": "v0.0.4",
             "assets": [
                 {
-                    "name": "smolvm-dashboard-ui-v0.0.3.tar.gz",
+                    "name": "celesto-dashboard-ui-v0.0.3.tar.gz",
                     "browser_download_url": "https://example.invalid/old.tar.gz",
                 },
                 {
-                    "name": "smolvm-dashboard-ui-v0.0.4.tar.gz",
+                    "name": "celesto-dashboard-ui-v0.0.4.tar.gz",
                     "browser_download_url": "https://example.invalid/new.tar.gz",
                 },
             ],
@@ -89,6 +89,27 @@ def test_latest_dashboard_release_asset_prefers_exact_tag_name(
     assert url == "https://example.invalid/new.tar.gz"
 
 
+def test_latest_dashboard_release_asset_rejects_legacy_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = [
+        {
+            "tag_name": "celesto-v0.0.15a0",
+            "prerelease": True,
+            "assets": [
+                {
+                    "name": "smolvm-dashboard-ui-celesto-v0.0.15a0.tar.gz",
+                    "browser_download_url": "https://example.invalid/legacy.tar.gz",
+                }
+            ],
+        }
+    ]
+    monkeypatch.setattr(server.requests, "get", lambda *args, **kwargs: _FakeResponse(payload))
+
+    with pytest.raises(RuntimeError, match="No stable/prerelease release includes"):
+        server._latest_dashboard_release_asset(allow_prerelease=True)
+
+
 def test_latest_dashboard_release_asset_skips_prerelease_by_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -99,7 +120,7 @@ def test_latest_dashboard_release_asset_skips_prerelease_by_default(
             "prerelease": True,
             "assets": [
                 {
-                    "name": "smolvm-dashboard-ui-v0.0.5.a0.tar.gz",
+                    "name": "celesto-dashboard-ui-v0.0.5.a0.tar.gz",
                     "browser_download_url": "https://example.invalid/prerelease.tar.gz",
                 }
             ],
@@ -109,7 +130,7 @@ def test_latest_dashboard_release_asset_skips_prerelease_by_default(
             "prerelease": False,
             "assets": [
                 {
-                    "name": "smolvm-dashboard-ui-v0.0.4.tar.gz",
+                    "name": "celesto-dashboard-ui-v0.0.4.tar.gz",
                     "browser_download_url": "https://example.invalid/stable.tar.gz",
                 }
             ],
@@ -133,7 +154,7 @@ def test_latest_dashboard_release_asset_allows_prerelease_with_flag(
             "prerelease": True,
             "assets": [
                 {
-                    "name": "smolvm-dashboard-ui-v0.0.5.a0.tar.gz",
+                    "name": "celesto-dashboard-ui-v0.0.5.a0.tar.gz",
                     "browser_download_url": "https://example.invalid/prerelease.tar.gz",
                 }
             ],
@@ -143,7 +164,7 @@ def test_latest_dashboard_release_asset_allows_prerelease_with_flag(
             "prerelease": False,
             "assets": [
                 {
-                    "name": "smolvm-dashboard-ui-v0.0.4.tar.gz",
+                    "name": "celesto-dashboard-ui-v0.0.4.tar.gz",
                     "browser_download_url": "https://example.invalid/stable.tar.gz",
                 }
             ],
