@@ -229,7 +229,7 @@ export interface SmolVMTransport {
 export interface SmolVMOptions {
   /** Observe typed lifecycle events. */
   onEvent?: (event: SmolVMEvent) => void;
-  /** Runtime executable path. Defaults to `smolvm` on PATH. */
+  /** Runtime executable path. Defaults to `celesto` on PATH. */
   runtimePath?: string;
   /** Time allowed for the local bridge to start. */
   startupTimeoutMs?: number;
