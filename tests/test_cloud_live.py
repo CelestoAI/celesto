@@ -1,11 +1,29 @@
 """Opt-in smoke test that creates one billable Celesto Cloud computer."""
 
 import os
+import time
 from pathlib import Path
 
+import httpx
 import pytest
 
-from celesto import CommandExitEvent, CommandOutputEvent, Computer, VMNotFoundError
+from celesto import CommandExitEvent, CommandOutputEvent, Computer, PublishedPort, VMNotFoundError
+
+
+def assert_public_application(url: str) -> None:
+    """Allow bounded route/application readiness without retrying publication."""
+    deadline = time.monotonic() + 30
+    with httpx.Client(timeout=5) as client:
+        while time.monotonic() < deadline:
+            try:
+                response = client.get(url + "/probe.txt")
+            except httpx.TransportError:
+                pass
+            else:
+                if response.status_code == 200 and response.text == "celesto-port-smoke":
+                    return
+            time.sleep(0.5)
+    pytest.fail("Published test application did not become reachable within 30 seconds.")
 
 
 @pytest.mark.skipif(
@@ -56,6 +74,26 @@ def test_cloud_live_lifecycle():
                 "",
                 0,
             )
+
+            # Serve only the smoke-test file, never the computer's working directory.
+            result = comp.run(
+                "set -e\n"
+                "probe_dir=$(mktemp -d)\n"
+                'printf celesto-port-smoke > "$probe_dir/probe.txt"\n'
+                "nohup python3 -m http.server 18080 --bind 0.0.0.0 "
+                '--directory "$probe_dir" </dev/null >/tmp/celesto-port-smoke.log 2>&1 &'
+            )
+            assert result.exit_code == 0
+            route = comp.publish_port(18080)
+            assert isinstance(route, PublishedPort)
+            assert route.computer_id == comp.id and route.port == 18080
+            assert route.status == "published" and route.url
+            assert_public_application(route.url)
+            routes = attached.published_ports()
+            assert any(r.port == 18080 and r.url == route.url for r in routes)
+            assert attached.unpublish_port(18080).status == "unpublished"
+            assert all(r.port != 18080 for r in comp.published_ports())
+            assert comp.unpublish_port(18080).status == "unpublished"
 
         with pytest.raises(VMNotFoundError):
             Computer.get(comp.id)

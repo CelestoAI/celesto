@@ -24,6 +24,31 @@ def runtime(monkeypatch):
     return factory, vm
 
 
+@pytest.mark.parametrize(
+    "method,args",
+    [
+        ("publish_port", (8000,)),
+        ("published_ports", ()),
+        ("unpublish_port", (8000,)),
+    ],
+)
+@pytest.mark.parametrize("state", ["fresh", "running", "attached"])
+def test_local_published_ports_fail_without_partial_work(runtime, method, args, state):
+    factory, vm = runtime
+    if state == "attached":
+        comp = Computer.get("sbx-test", local=True)
+    else:
+        comp = Computer(local=True)
+        if state == "running":
+            comp.run("echo hello")
+    factory.reset_mock()
+    vm.reset_mock()
+    with pytest.raises(CelestoError, match=r"unavailable on local computers; use Computer\(\)"):
+        getattr(comp, method)(*args)
+    factory.assert_not_called()
+    assert vm.mock_calls == []
+
+
 def test_missing_cloud_key_and_invalid_lifetime_fail_before_allocation(runtime, monkeypatch):
     factory, _ = runtime
     monkeypatch.delenv("CELESTO_API_KEY", raising=False)

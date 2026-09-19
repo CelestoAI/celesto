@@ -24,16 +24,29 @@ from _celesto_cloud_api.api.computers import (
 from _celesto_cloud_api.api.computers import (
     get_computer_v1_computers_computer_id_get as retrieve,
 )
+from _celesto_cloud_api.api.computers import (
+    list_computer_published_ports_v1_computers_computer_id_published_ports_get as list_ports,
+)
+from _celesto_cloud_api.api.computers import (
+    publish_computer_port_v1_computers_computer_id_published_ports_post as publish_port,
+)
+from _celesto_cloud_api.api.computers import (
+    unpublish_computer_port_v1_computers_computer_id_published_ports_port_delete as unpublish_port,
+)
 from _celesto_cloud_api.client import AuthenticatedClient
 from _celesto_cloud_api.errors import UnexpectedStatus
 from _celesto_cloud_api.models.computer_create_request import ComputerCreateRequest
 from _celesto_cloud_api.models.computer_exec_request import ComputerExecRequest
 from _celesto_cloud_api.models.computer_exec_response import ComputerExecResponse
+from _celesto_cloud_api.models.computer_published_port_create_request import (
+    ComputerPublishedPortCreateRequest,
+)
+from _celesto_cloud_api.models.computer_published_port_response import ComputerPublishedPortResponse
 from _celesto_cloud_api.models.computer_response import ComputerResponse
-from _celesto_cloud_api.types import UNSET
+from _celesto_cloud_api.types import UNSET, Unset
 from celesto._streaming import iter_bounded_lines, iter_sse_data, parse_command_event
 from celesto.exceptions import CelestoError, CloudAPIError, VMNotFoundError
-from celesto.types import CommandEvent, CommandExitEvent, CommandResult
+from celesto.types import CommandEvent, CommandExitEvent, CommandResult, PublishedPort
 
 T = TypeVar("T")
 _MAX_ERROR_BODY_BYTES = 64 * 1024
@@ -104,7 +117,14 @@ class _CloudComputer:
         self._cleanup_timeout = cleanup_timeout
         self.vm_id: str | None = None
 
-    def _call(self, endpoint: Callable[..., Any], expected: type[T], **kwargs: Any) -> T:
+    def _call(
+        self,
+        endpoint: Callable[..., Any],
+        expected: type[T],
+        *,
+        retain_error_detail: bool = True,
+        **kwargs: Any,
+    ) -> T:
         try:
             response = endpoint(
                 client=self._client, x_current_organization=self._organization, **kwargs
@@ -112,7 +132,9 @@ class _CloudComputer:
         except UnexpectedStatus as exc:
             if exc.status_code == 404 and self.vm_id is not None:
                 raise VMNotFoundError(self.vm_id) from None
-            raise self._api_error(exc.status_code, exc.content) from None
+            raise self._api_error(
+                exc.status_code, exc.content if retain_error_detail else b""
+            ) from None
         except httpx.TransportError as exc:
             raise CelestoError(
                 f"Cloud request failed ({type(exc).__name__}); its outcome may be unknown. "
@@ -123,8 +145,13 @@ class _CloudComputer:
                 "Cloud returned an invalid response; check the API version before retrying."
             ) from None
         if response.status_code >= 400:
-            raise self._api_error(response.status_code, response.content)
+            raise self._api_error(
+                response.status_code, response.content if retain_error_detail else b""
+            )
         if not isinstance(response.parsed, expected):
+            raise CelestoError("Cloud returned an unexpected response; check the API version.")
+        # Generated list parsers iterate any JSON value, including an empty object.
+        if expected is list and not isinstance(json.loads(response.content), list):
             raise CelestoError("Cloud returned an unexpected response; check the API version.")
         return response.parsed
 
@@ -175,6 +202,60 @@ class _CloudComputer:
         finally:
             self._client.get_httpx_client().timeout = httpx.Timeout(30)
         return CommandResult(stdout=result.stdout, stderr=result.stderr, exit_code=result.exit_code)
+
+    @staticmethod
+    def _published_port(result: ComputerPublishedPortResponse) -> PublishedPort:
+        try:
+            # Convert only documented fields; generated UNSET and extra fields stay private.
+            return PublishedPort(
+                computer_id=result.computer_id,
+                port=result.port,
+                status=result.status,
+                id=None if isinstance(result.id, Unset) else result.id,
+                url=None if isinstance(result.url, Unset) else result.url,
+                created_at=None if isinstance(result.created_at, Unset) else result.created_at,
+            )
+        except ValueError:
+            raise CelestoError(
+                "Cloud returned an invalid published port; check the API version before retrying."
+            ) from None
+
+    def publish_port(self, port: int) -> PublishedPort:
+        try:
+            result = self._call(
+                publish_port.sync_detailed,
+                ComputerPublishedPortResponse,
+                retain_error_detail=False,
+                computer_id=self.vm_id,
+                body=ComputerPublishedPortCreateRequest(port=port),
+            )
+        except CloudAPIError as exc:
+            if exc.status_code == 400:
+                raise CloudAPIError(
+                    400,
+                    recovery=f"Port {port} cannot be published; choose another port and retry.",
+                ) from None
+            raise
+        return self._published_port(result)
+
+    def published_ports(self) -> list[PublishedPort]:
+        results = self._call(
+            list_ports.sync_detailed,
+            list,
+            retain_error_detail=False,
+            computer_id=self.vm_id,
+        )
+        return [self._published_port(result) for result in results]
+
+    def unpublish_port(self, port: int) -> PublishedPort:
+        result = self._call(
+            unpublish_port.sync_detailed,
+            ComputerPublishedPortResponse,
+            retain_error_detail=False,
+            computer_id=self.vm_id,
+            port=port,
+        )
+        return self._published_port(result)
 
     def run_stream(self, command: str, timeout: int = 30) -> Iterator[CommandEvent]:
         """Execute a command and yield parsed cloud SSE events as they arrive."""

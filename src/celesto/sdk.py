@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from celesto.exceptions import CelestoError, VMNotFoundError
 from celesto.facade import Celesto
-from celesto.types import CommandEvent, CommandResult
+from celesto.types import CommandEvent, CommandResult, PublishedPort
 
 if TYPE_CHECKING:
     from celesto._cloud import _CloudComputer
@@ -153,6 +153,43 @@ class Computer:
             raise ValueError("command must be a nonempty string.")
         if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout <= 0:
             raise ValueError("timeout must be a positive number of seconds.")
+
+    def _port_provider(self) -> _CloudComputer:
+        if self._cloud is None:
+            raise CelestoError(
+                "Published ports are unavailable on local computers; use Computer() "
+                "to publish an HTTP application from a cloud computer."
+            )
+        self._ensure_started()
+        return self._cloud
+
+    @staticmethod
+    def _validate_port(port: int) -> None:
+        if isinstance(port, bool) or not isinstance(port, int) or not 1024 <= port <= 65535:
+            raise ValueError("port must be an integer from 1024 to 65535.")
+
+    def publish_port(self, port: int) -> PublishedPort:
+        """Publish an HTTP application to the internet (cloud only).
+
+        Creates this computer if needed. The application must already be listening
+        on the port. The service may reject reserved ports within the allowed range.
+        Requests are never automatically replayed after a transport failure.
+        """
+        self._validate_port(port)
+        return self._port_provider().publish_port(port)
+
+    def published_ports(self) -> list[PublishedPort]:
+        """Fetch active public routes (cloud only), creating this computer if needed."""
+        return self._port_provider().published_ports()
+
+    def unpublish_port(self, port: int) -> PublishedPort:
+        """Remove a public route without stopping its application (cloud only).
+
+        Creates this computer if needed. Removing an absent route is safe, but
+        requests are never automatically replayed after a transport failure.
+        """
+        self._validate_port(port)
+        return self._port_provider().unpublish_port(port)
 
     def delete(self) -> None:
         """Delete this computer; failed cleanup can be retried on the same handle."""
