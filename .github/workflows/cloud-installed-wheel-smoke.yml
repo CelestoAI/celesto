@@ -18,8 +18,10 @@ jobs:
     env:
       CELESTO_API_KEY: ${{ secrets.CELESTO_API_KEY }}
       CELESTO_LIVE_TEST: "1"
-      CELESTO_LIVE_COMPUTER_ID_FILE: ${{ runner.temp }}/celesto-cloud-computer-id
     steps:
+      - name: Configure cleanup tracking
+        run: echo "CELESTO_LIVE_COMPUTER_ID_FILE=$RUNNER_TEMP/celesto-cloud-computer-id" >> "$GITHUB_ENV"
+
       - name: Check out repository
         uses: actions/checkout@v4
         with:
