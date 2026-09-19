@@ -28,6 +28,8 @@ from celesto.exceptions import (
 from celesto.facade import Celesto, _build_auto_config, _qcow2_virtual_size_mib
 from celesto.images import BootImage, DirectKernelBoot, FirmwareBoot
 from celesto.types import (
+    CommandExitEvent,
+    CommandOutputEvent,
     GuestFlushPolicy,
     GuestOS,
     PortForwardConfig,
@@ -2112,6 +2114,40 @@ class TestVMRun:
         wait_timeout = mock_ssh.wait_for_ssh.call_args.kwargs["timeout"]
         assert 0.5 <= wait_timeout <= 30.0
         mock_ssh.run.assert_called_once_with("echo ok", timeout=30, shell="raw")
+
+    @patch("celesto.facade.SSHClient")
+    @patch("celesto.facade.CelestoManager")
+    def test_run_stream_uses_ready_control_channel(
+        self,
+        mock_sdk_cls: MagicMock,
+        mock_ssh_cls: MagicMock,
+        sample_config: VMConfig,
+    ) -> None:
+        mock_network = MagicMock(guest_ip="172.16.0.2")
+        mock_info = MagicMock(
+            vm_id="vm001",
+            status=VMState.RUNNING,
+            network=mock_network,
+        )
+        mock_info.config.boot_args = "console=ttyS0 reboot=k panic=1 pci=off init=/init"
+        mock_sdk = MagicMock()
+        mock_sdk.create.return_value = MagicMock(vm_id="vm001", status=VMState.CREATED)
+        mock_sdk.get.return_value = mock_info
+        mock_sdk_cls.return_value = mock_sdk
+        mock_ssh = MagicMock()
+        mock_ssh.run_stream.return_value = iter(
+            [
+                CommandOutputEvent(type="stdout", data="ok\n"),
+                CommandExitEvent(exit_code=0),
+            ]
+        )
+        mock_ssh_cls.return_value = mock_ssh
+
+        events = list(Celesto(sample_config).run_stream("echo ok"))
+
+        assert [event.type for event in events] == ["stdout", "exit"]
+        mock_ssh.wait_for_ssh.assert_called_once()
+        mock_ssh.run_stream.assert_called_once_with("echo ok", timeout=30, shell="login")
 
     @patch("celesto.facade.SSHClient")
     @patch("celesto.facade.CelestoManager")

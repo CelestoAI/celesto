@@ -99,6 +99,44 @@ ComputerEvent = (
 )
 
 
+class CommandStartedEvent(BaseModel):
+    """A streamed command has started."""
+
+    type: Literal["started"] = "started"
+    command_id: str
+    started_at_unix_ms: int
+    timeout_seconds: int
+
+    model_config = {"frozen": True}
+
+
+class CommandOutputEvent(BaseModel):
+    """A chunk written to a streamed command's stdout or stderr."""
+
+    type: Literal["stdout", "stderr"]
+    data: str
+
+    model_config = {"frozen": True}
+
+
+class CommandExitEvent(BaseModel):
+    """The final event from a streamed command."""
+
+    type: Literal["exit"] = "exit"
+    exit_code: int
+    command_id: str | None = None
+    started_at_unix_ms: int | None = None
+    ended_at_unix_ms: int | None = None
+    duration_ms: int | None = None
+    timed_out: bool = False
+
+    model_config = {"frozen": True}
+
+
+CommandEvent = CommandStartedEvent | CommandOutputEvent | CommandExitEvent
+"""An event yielded by :meth:`celesto.Computer.run_stream`."""
+
+
 class GuestOS(str, Enum):
     """Supported guest operating systems for auto-configured VMs."""
 

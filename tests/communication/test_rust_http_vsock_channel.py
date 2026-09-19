@@ -343,6 +343,46 @@ def test_run_maps_command_result() -> None:
     assert result.stdout == "ok"
 
 
+def test_run_stream_parses_guest_sse_events() -> None:
+    def _handler(method: str, path: str, body: bytes):
+        assert method == "POST"
+        assert path == "/exec/stream"
+        assert json.loads(body) == {
+            "command": "printf ok",
+            "shell": "raw",
+            "timeout_seconds": 30,
+        }
+        return (
+            200,
+            'data: {"type":"started","command_id":"cmd-1",'
+            '"started_at_unix_ms":1,"timeout_seconds":30}\n\n'
+            'data: {"type":"stdout","data":"ok"}\n\n'
+            'data: {"type":"exit","exit_code":0,"command_id":"cmd-1",'
+            '"timed_out":false}\n\n',
+            {"Content-Type": "text/event-stream"},
+        )
+
+    events = list(FakeRustChannel([_handler]).run_stream("printf ok", shell="raw"))
+
+    assert [event.type for event in events] == ["started", "stdout", "exit"]
+    assert events[1].data == "ok"  # type: ignore[union-attr]
+
+
+def test_run_stream_rejects_missing_exit_event() -> None:
+    channel = FakeRustChannel(
+        [
+            lambda method, path, body: (
+                200,
+                'data: {"type":"stdout","data":"partial"}\n\n',
+                {"Content-Type": "text/event-stream"},
+            )
+        ]
+    )
+
+    with pytest.raises(CelestoError, match="before the command exited"):
+        list(channel.run_stream("printf partial"))
+
+
 def test_run_serializes_float_timeout_as_integer_seconds() -> None:
     def _handler(expected_timeout_seconds: int):
         def handle(method: str, path: str, body: bytes) -> dict:

@@ -26,10 +26,11 @@ only ever call :meth:`run` and :meth:`put_file`.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Literal, Protocol, runtime_checkable
 
-from celesto.types import CommandResult
+from celesto.types import CommandEvent, CommandResult
 
 CommChannelKind = Literal["ssh", "vsock"]
 """Which transport a VM uses for its control plane."""
@@ -57,6 +58,15 @@ class CommChannel(Protocol):
         shell: ShellMode = "login",
     ) -> CommandResult:
         """Execute *command* on the guest and return its result."""
+        ...
+
+    def run_stream(
+        self,
+        command: str,
+        timeout: int = 30,
+        shell: ShellMode = "login",
+    ) -> Iterator[CommandEvent]:
+        """Execute *command* and yield output as it arrives."""
         ...
 
     def sync(self, timeout: float = 10) -> None:

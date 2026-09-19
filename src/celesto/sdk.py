@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from collections.abc import Iterator
 from contextlib import suppress
 from pathlib import Path
 from types import TracebackType
@@ -10,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from celesto.exceptions import CelestoError, VMNotFoundError
 from celesto.facade import Celesto
-from celesto.types import CommandResult
+from celesto.types import CommandEvent, CommandResult
 
 if TYPE_CHECKING:
     from celesto._cloud import _CloudComputer
@@ -133,13 +134,25 @@ class Computer:
 
     def run(self, command: str, timeout: int = 30) -> CommandResult:
         """Run a shell command; nonzero exit codes are returned, not raised."""
+        self._validate_run(command, timeout)
+        if self._cloud is not None:
+            self._cloud.validate_command(command, timeout)
+        return self._ensure_started().run(command, timeout=timeout)
+
+    def run_stream(self, command: str, timeout: int = 30) -> Iterator[CommandEvent]:
+        """Yield started, stdout, stderr, and exit events as a command runs."""
+        self._validate_run(command, timeout)
+        if self._cloud is not None:
+            self._cloud.validate_command(command, timeout)
+        runtime = self._ensure_started()
+        return runtime.run_stream(command, timeout=timeout)
+
+    @staticmethod
+    def _validate_run(command: str, timeout: int) -> None:
         if not isinstance(command, str) or not command.strip():
             raise ValueError("command must be a nonempty string.")
         if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout <= 0:
             raise ValueError("timeout must be a positive number of seconds.")
-        if self._cloud is not None:
-            self._cloud.validate_command(command, timeout)
-        return self._ensure_started().run(command, timeout=timeout)
 
     def delete(self) -> None:
         """Delete this computer; failed cleanup can be retried on the same handle."""

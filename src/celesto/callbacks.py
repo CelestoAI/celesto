@@ -19,7 +19,8 @@ only the ``on_*`` hooks it cares about; every hook defaults to a no-op, so a
 callback never has to implement methods it does not use (the same shape as
 Keras and PyTorch Lightning callbacks).
 
-Callbacks are attached per-VM and fire around :meth:`celesto.Celesto.run`::
+Callbacks are attached per-VM and fire around :meth:`celesto.Celesto.run` and
+:meth:`celesto.Celesto.run_stream`::
 
     from celesto import Celesto, Callback, CommandBlockedError
 
@@ -71,7 +72,7 @@ class CommandBlockedError(CelestoError):
 
 @dataclass
 class RunContext:
-    """State passed to every command hook for a single :meth:`Celesto.run` call.
+    """State passed to every command hook for one command execution.
 
     Using one object (rather than loose keyword arguments) means new fields can
     be added later without changing any callback's method signature.

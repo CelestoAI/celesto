@@ -34,15 +34,16 @@ import sys
 import tarfile
 import time
 import urllib.parse
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from celesto._streaming import iter_bounded_lines, iter_sse_data, parse_command_event
 from celesto.comm.base import CommChannelKind, ShellMode
 from celesto.exceptions import CelestoError, OperationTimeoutError
-from celesto.types import CommandResult
+from celesto.types import CommandEvent, CommandExitEvent, CommandResult
 
 logger = logging.getLogger(__name__)
 
@@ -738,6 +739,59 @@ class RustHttpVsockChannel:
             stdout=str(resp.get("stdout", "")),
             stderr=str(resp.get("stderr", "")),
         )
+
+    def run_stream(
+        self,
+        command: str,
+        timeout: float = 30,
+        shell: ShellMode = "login",
+    ) -> Iterator[CommandEvent]:
+        """Execute a command and yield the guest agent's SSE events."""
+        if not command or not command.strip():
+            raise ValueError("command cannot be empty")
+        if timeout < 1:
+            raise ValueError("timeout must be >= 1")
+        timeout_seconds = math.ceil(timeout)
+        request_body = json.dumps(
+            {"command": command, "shell": shell, "timeout_seconds": timeout_seconds}
+        ).encode("utf-8")
+        conn = _SocketHTTPConnection(
+            self._open,
+            timeout=float(timeout_seconds + self.connect_timeout),
+        )
+        saw_exit = False
+        try:
+            conn.request(
+                "POST",
+                "/exec/stream",
+                body=request_body,
+                headers={
+                    "Accept": "text/event-stream",
+                    "Connection": "close",
+                    "Content-Type": "application/json",
+                },
+            )
+            response = conn.getresponse()
+            if response.status >= 400:
+                response.read(_DEFAULT_MAX_AGENT_RESPONSE_BYTES + 1)
+                raise CelestoError(f"guest agent HTTP {response.status} for POST /exec/stream")
+            chunks = iter(lambda: response.read1(64 * 1024), b"")
+            for data in iter_sse_data(iter_bounded_lines(chunks)):
+                event = parse_command_event(data)
+                if isinstance(event, CommandExitEvent):
+                    saw_exit = True
+                    conn.close()
+                yield event
+                if saw_exit:
+                    break
+            if not saw_exit:
+                raise CelestoError("Command stream ended before the command exited.")
+        except TimeoutError as exc:
+            raise OperationTimeoutError(
+                "guest agent request: POST /exec/stream", timeout_seconds
+            ) from exc
+        finally:
+            conn.close()
 
     def attach_terminal(self) -> int:
         self._require_feature("fast shell access", "terminal")

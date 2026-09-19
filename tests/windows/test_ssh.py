@@ -192,6 +192,28 @@ class TestSSHClientRun:
         assert result.ok is False
         assert "command not found" in result.stderr
 
+    @patch.object(SSHClient, "_ensure_connected")
+    def test_run_stream_yields_stdout_stderr_and_exit(self, mock_connected: MagicMock) -> None:
+        channel = MagicMock()
+        channel.recv_ready.side_effect = [True, False, False]
+        channel.recv_stderr_ready.side_effect = [True, False, False]
+        channel.recv.return_value = b"hello\n"
+        channel.recv_stderr.return_value = b"warning\n"
+        channel.exit_status_ready.return_value = True
+        channel.recv_exit_status.return_value = 7
+        stdout = MagicMock(channel=channel)
+        mock_client = MagicMock()
+        mock_client.exec_command.return_value = (None, stdout, MagicMock(channel=channel))
+        mock_connected.return_value = mock_client
+
+        events = list(SSHClient("172.16.0.2").run_stream("echo hello"))
+
+        assert [event.type for event in events] == ["started", "stdout", "stderr", "exit"]
+        assert events[1].data == "hello\n"  # type: ignore[union-attr]
+        assert events[2].data == "warning\n"  # type: ignore[union-attr]
+        assert events[3].exit_code == 7  # type: ignore[union-attr]
+        channel.close.assert_called_once()
+
     def test_run_empty_command_raises(self) -> None:
         """Test that empty command raises ValueError."""
         client = SSHClient("172.16.0.2")

@@ -22,7 +22,7 @@ import pytest
 
 from celesto import Callback, Celesto, CommandBlockedError, RunContext
 from celesto.callbacks import CallbackDispatcher
-from celesto.types import CommandResult, VMState
+from celesto.types import CommandExitEvent, CommandOutputEvent, CommandResult, VMState
 
 
 def _make_vm(
@@ -43,6 +43,13 @@ def _make_vm(
     result = run_result or CommandResult(exit_code=0, stdout="ok", stderr="")
     vm._ssh = MagicMock()
     vm._ssh.run.return_value = result
+    vm._ssh.run_stream.return_value = iter(
+        [
+            CommandOutputEvent(type="stdout", data=result.stdout),
+            CommandOutputEvent(type="stderr", data=result.stderr),
+            CommandExitEvent(exit_code=result.exit_code),
+        ]
+    )
     vm._callbacks = CallbackDispatcher(callbacks)
     return vm
 
@@ -77,6 +84,44 @@ def test_allowed_command_runs_and_fires_post_run() -> None:
     assert len(seen) == 1
     assert seen[0].command == "echo hi"
     assert seen[0].result is result
+
+
+def test_streamed_command_fires_post_run_with_collected_result() -> None:
+    seen: list[RunContext] = []
+
+    class Recorder(Callback):
+        def on_post_run(self, ctx: RunContext) -> None:
+            seen.append(ctx)
+
+    expected = CommandResult(exit_code=3, stdout="out", stderr="err")
+    vm = _make_vm(callbacks=[Recorder()], run_result=expected)
+
+    events = list(vm.run_stream("echo hi"))
+
+    assert events[-1].type == "exit"
+    assert len(seen) == 1
+    assert seen[0].result == expected
+
+
+def test_closing_stream_closes_underlying_transport_iterator() -> None:
+    closed = False
+
+    def transport_events():
+        nonlocal closed
+        try:
+            yield CommandOutputEvent(type="stdout", data="partial")
+            yield CommandExitEvent(exit_code=0)
+        finally:
+            closed = True
+
+    vm = _make_vm()
+    vm._ssh.run_stream.return_value = transport_events()
+    stream = vm.run_stream("echo hi")
+
+    assert next(stream).type == "stdout"
+    stream.close()  # type: ignore[attr-defined]
+
+    assert closed
 
 
 def test_pre_run_receives_full_context() -> None:
