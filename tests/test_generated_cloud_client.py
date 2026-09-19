@@ -10,9 +10,7 @@ from _celesto_cloud_api.models.computer_response import ComputerResponse
 
 def test_every_generated_module_imports() -> None:
     modules = list(
-        walk_packages(
-            _celesto_cloud_api.__path__, prefix=f"{_celesto_cloud_api.__name__}."
-        )
+        walk_packages(_celesto_cloud_api.__path__, prefix=f"{_celesto_cloud_api.__name__}.")
     )
 
     assert modules
