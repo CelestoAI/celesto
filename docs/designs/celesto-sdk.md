@@ -2,7 +2,7 @@
 
 Celesto gives an agent a computer, either on the user's machine or in the cloud. The same Python code runs commands and manages that computer in either location.
 
-Status: Local first release shipped; core cloud Computer integration implemented on a follow-up branch.
+Status: Core local and cloud Computer integration is implemented.
 Date: 2026-09-18
 
 ## Implementation update — 2026-09-19
@@ -13,15 +13,16 @@ repeatable. This supersedes the isolated-export and filtered-artifact machinery
 proposed below; no custom export framework was added.
 
 The private client is in `_celesto_cloud_api`; the public `Computer` now routes
-cloud create/get/run/delete and published-port operations through it. Local behavior
-remains unchanged; local published-port calls explicitly fail before starting a VM.
-Command streaming is exposed through `run_stream()` for both providers. Published
-ports return the handwritten `PublishedPort` type; see the [published-port plan](published-ports.md).
-Server-side expiry, a cloud-only dependency/distribution split, TypeScript, file
-transfer, browser/display connections, and interactive terminals remain deferred.
-See [Python cloud usage](../python-cloud.md)
-for implemented behavior and limitations; the historical proposal below is not
-a claim that those deferred features exist.
+cloud create/get/run/delete, published-port, and terminal-session operations
+through it. Local behavior remains unchanged; local published-port calls
+explicitly fail before starting a VM. Command streaming and interactive terminal
+attachments are exposed by the public wrapper. Published ports return the
+handwritten `PublishedPort` type; terminal WebSocket I/O stays in a handwritten
+bounded adapter. See the [published-port plan](published-ports.md). Server-side
+expiry, a cloud-only dependency/distribution split, TypeScript, file transfer,
+and browser/display connections remain deferred. See
+[Python cloud usage](../python-cloud.md) for implemented behavior and limitations;
+the historical proposal below is not a claim that those deferred features exist.
 
 ## Historical first release scope (local-only)
 
@@ -145,7 +146,7 @@ Recommended first generator trial: OpenAPI Generator, because it supports both P
 
 Generated code owns endpoint paths, payload serialization, request/response models, and ordinary HTTP calls. The cloud adapter owns readiness polling, lifecycle orchestration, result/error normalization, and retry policy. `Computer` owns the public local/cloud contract. Generated models remain private so backend schema changes do not automatically redefine the public SDK.
 
-Command streaming and browser/terminal WebSockets require a separate tested protocol layer where the generator cannot express their semantics. OpenAPI generation does not implement context cleanup, expiry, reconnection, or safe command retries. Do not regenerate those behaviors from endpoint names.
+Command streaming and browser/terminal WebSockets require a separate tested protocol layer where the generator cannot express their semantics. The Python command-streaming and terminal adapters now follow this boundary; browser transport remains deferred. OpenAPI generation does not implement context cleanup, expiry, reconnection, or safe command retries. Do not regenerate those behaviors from endpoint names.
 
 Commit a reviewed schema snapshot with its backend revision/hash, generator config, and generated source. Backend CI exports and validates the artifact; SDK CI regenerates from the pinned artifact and fails on drift, then runs type checks and provider contract tests. Backend schema updates should produce reviewable SDK diffs. SDK builds must not fetch an unversioned live schema.
 

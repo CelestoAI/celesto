@@ -20,6 +20,7 @@ sandboxed environment.
 
 from importlib.metadata import version as _pkg_version
 
+from celesto._terminal import TerminalConnection
 from celesto.callbacks import Callback, CommandBlockedError, RunContext
 from celesto.exceptions import (
     CelestoError,
@@ -87,6 +88,7 @@ __version__ = _pkg_version("celesto")
 __all__ = [
     # Core classes
     "Computer",
+    "TerminalConnection",
     "Celesto",
     "CelestoManager",
     # Callbacks / hooks
