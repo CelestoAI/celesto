@@ -483,6 +483,10 @@ class TestBrowserImageBuilder:
             assert "process.exit(1)" in kwargs["extra_files"]["smolvm-browser-runner"]
             assert "process.exitCode" not in kwargs["extra_files"]["smolvm-browser-runner"]
             helper_script = kwargs["extra_files"]["smolvm-browser-session"]
+            connections = kwargs["extra_files"]["smolvm-computer-connections.py"]
+            compile(connections, "guest_connections.py", "exec")
+            assert "_connections_sha256" in kwargs["fingerprint_data"]
+            assert "connection-read_only-ws.pid" in helper_script
             ownership_command = helper_script.rsplit(
                 'chown -R "${browser_user}:${browser_user}"', 1
             )[1].split("if [", 1)[0]

@@ -53,6 +53,7 @@ from celesto.runtime.base import QemuDirtyBitmapBackup, QemuDirtyBitmapStatus
 from celesto.sdk import Computer
 from celesto.ssh import SSHClient
 from celesto.types import (
+    BrowserConnection,
     BrowserViewport,
     CommandEvent,
     CommandExitEvent,
@@ -62,6 +63,7 @@ from celesto.types import (
     ComputerEvent,
     ComputerSandboxProtocol,
     DesktopEndpoint,
+    DisplayConnection,
     DisplaySandboxProtocol,
     GuestFlushPolicy,
     GuestOS,
@@ -84,6 +86,8 @@ from celesto.vm import CelestoManager
 __version__ = _pkg_version("celesto")
 
 __all__ = [
+    "BrowserConnection",
+    "DisplayConnection",
     # Core classes
     "Computer",
     "Celesto",

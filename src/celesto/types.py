@@ -15,6 +15,7 @@
 """Core types and Pydantic models for Celesto SDK."""
 
 import re
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from ipaddress import IPv4Network, collapse_addresses
@@ -26,6 +27,32 @@ from uuid import uuid4
 from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 from celesto._naming import generate_sandbox_name
+
+
+@dataclass(frozen=True)
+class BrowserConnection:
+    """CDP WebSocket address for browser automation; keep ``url`` secret.
+
+    Cloud credentials expire at ``expires_at``. Local connections have no timed
+    credential (``None``) and require the computer and local forward to stay alive.
+    Request another connection to refresh its address and credentials.
+    """
+
+    url: str = field(repr=False)
+    expires_at: datetime | None
+
+
+@dataclass(frozen=True)
+class DisplayConnection:
+    """VNC-over-WebSocket address for a viewer such as noVNC, not an HTML page.
+
+    Keep ``url`` secret. ``read_only`` is enforced by the display service.
+    ``expires_at=None`` means local access has no timed credential.
+    """
+
+    url: str = field(repr=False)
+    expires_at: datetime | None
+    mode: Literal["read_only", "read_write"]
 
 
 class VMState(str, Enum):

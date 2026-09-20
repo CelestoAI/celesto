@@ -185,7 +185,7 @@ jobs:
           if [[ "$POLICY_RELEASE_VALIDATION" == "true" ]]; then
             test_paths=(tests/e2e/test_network_policy.py)
           fi
-          sudo -n -E -u "$USER" -g kvm -- env "PATH=$PATH" "SMOLVM_IMAGES_RELEASE_TAG=${SMOLVM_IMAGES_RELEASE_TAG:-}" "$(command -v uv)" run pytest -m e2e "${test_paths[@]}" -v --e2e-backend "${{ matrix.backend }}"
+          sudo -n -E -u "$USER" -g kvm -- env "PATH=$PATH" "SMOLVM_IMAGES_RELEASE_TAG=${SMOLVM_IMAGES_RELEASE_TAG:-}" "$(command -v uv)" run --with playwright --with websockets pytest -m e2e "${test_paths[@]}" -v --e2e-backend "${{ matrix.backend }}"
 
       - name: Build baseline and candidate wheels
         if: inputs.policy_release_validation && matrix.backend == 'firecracker'

@@ -14,8 +14,10 @@ proposed below; no custom export framework was added.
 
 The private client is in `_celesto_cloud_api`; the public `Computer` now routes
 cloud create/get/run/delete through it. Local behavior remains unchanged.
-Streaming is documented correctly in the schema but not exposed by the public
-wrapper yet. Server-side expiry, a cloud-only dependency/distribution split,
+Command streaming is exposed through `run_stream()`. Browser CDP and display
+VNC-over-WebSocket connections are implemented in the source checkout through
+`browser()` and `display()`; see the [connection implementation](computer-connections.md).
+Server-side expiry, a cloud-only dependency/distribution split,
 TypeScript, and the other cloud APIs remain deferred. See [Python cloud usage](../python-cloud.md)
 for implemented behavior and limitations; the historical proposal below is not
 a claim that those deferred features exist.

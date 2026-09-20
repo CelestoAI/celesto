@@ -159,6 +159,7 @@ def _build_browser_vm_config(
     browser_config: BrowserSessionConfig,
     ssh_key_path: str | None = None,
     on_progress: Callable[[str], None] | None = None,
+    forward_ports: bool = True,
 ) -> tuple[VMConfig, str | None]:
     """Build the underlying VM config for a browser sandbox."""
     from celesto.images.builder import ImageBuilder
@@ -199,7 +200,7 @@ def _build_browser_vm_config(
             f"'celesto computer start --name {session_id} --disk-size 8192'."
         )
     port_forwards: list[PortForwardConfig] = []
-    if resolved_backend == BACKEND_QEMU:
+    if resolved_backend == BACKEND_QEMU and forward_ports:
         port_forwards = _qemu_browser_port_forwards(browser_config)
 
     grow_filesystem = False

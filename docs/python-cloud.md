@@ -56,6 +56,50 @@ Persistent and reconnected handles cannot enter a `with` block. Reconnecting nev
 
 Persistence here means retaining the computer resource; it does not enable an external disk. `external_volume_enabled=True` is a separate cloud option for disk retention across stop/restore, not a lifecycle setting.
 
+## Connect to the browser or screen
+
+Control the browser with an automation tool, or watch the computer's screen while
+an agent works. These connections use the same computer as `run()`.
+
+Browser and display connections are available in the source checkout; they are
+not part of the `0.0.15a0` release shown above.
+
+```python
+from celesto import Computer
+
+with Computer(template_id="browser-agent") as comp:
+    browser = comp.browser()
+    display = comp.display()  # read_only; use mode="read_write" to control it
+```
+
+`browser.url` is a CDP WebSocket address. CDP is Chromium's browser-control
+interface; pass the address to Playwright's `chromium.connect_over_cdp()` to open
+pages, click, type, and inspect content. Playwright is an optional application
+dependency, not installed by Celesto.
+
+`display.url` is a VNC-over-WebSocket address for a viewer such as noVNC. It shows
+the whole desktop. It is not an HTML page you can open directly in a browser.
+Read-only connections reject mouse, keyboard, and clipboard input at the display
+service; read-write connections allow control. Cloud watching requires READ
+permission; browser automation and display control require WRITE permission.
+
+Both objects expose `url` and `expires_at`; display also exposes `mode`. Cloud
+expiry is a timezone-aware timestamp for the attachment credential. Request
+`comp.browser()` or `comp.display()` again to refresh it. A failed attachment does
+not imply the computer was deleted, and Celesto does not replay browser actions.
+Treat connection URLs as secrets: they are hidden from object representations,
+but printing `.url` explicitly still reveals credentials.
+
+The same methods work with
+`Computer(local=True, template_id="browser-agent")`, which uses the local desktop
+image. Local connections use loopback addresses and `expires_at=None`: they have
+no timed credentials and require the computer and forwarding process to remain
+available. Callers must run on the same machine. The SDK probes the installed
+graphical tools, so existing desktop images can work without an image upgrade.
+Default command-only local computers and cloud `scratch` templates do not gain a
+browser automatically. Unsupported templates and network configurations fail
+explicitly. Repeated connection calls preserve healthy browser sessions.
+
 ## Connection and creation options
 
 Pass `api_key=` to override `CELESTO_API_KEY`, and `organization_id=` to select an organization. `base_url=` defaults to `https://api.celesto.ai` and must be the server origin without `/v1`. HTTPS is required except for localhost development servers. Credentials go only to that explicitly selected origin; redirects are not followed.
@@ -74,6 +118,15 @@ and checks that context exit deletes it. It is skipped by default. With
 CELESTO_LIVE_TEST=1 uv run --extra dev pytest tests/test_cloud_live.py -q -s
 ```
 
+To also test real browser/display connections on that same billable computer:
+
+```bash
+CELESTO_LIVE_TEST=1 CELESTO_LIVE_CONNECTION_TEST=1 \
+  uv run --extra dev --with playwright --with websockets pytest tests/test_cloud_live.py -q
+```
+
+No local Playwright browser download is needed: it connects to the remote Chromium.
+
 The test retries cleanup on failure but cannot guarantee cleanup if the process
 is killed or a create response is lost. Check the cloud dashboard in those cases.
 
@@ -89,8 +142,9 @@ The private `_celesto_cloud_api` package contains generated requests and models.
 inside the same Python distribution as `celesto`; it is not a separate PyPI package or a
 public SDK interface. The public `Computer` keeps these types out of its API and uses the
 generated ordinary command endpoint. Streaming uses a small handwritten SSE adapter because
-generated OpenAPI clients buffer `text/event-stream` responses. Browser, terminal, and file
-APIs are not exposed by this wrapper yet.
+generated OpenAPI clients buffer `text/event-stream` responses. Browser/display
+connections use generated HTTP issuance calls and handwritten public result types.
+Terminal and file APIs are not exposed by this wrapper yet.
 
 The generator consumes the committed `openapi/cloud.json` snapshot. After updating that snapshot from the backend's exported document, regenerate with:
 
