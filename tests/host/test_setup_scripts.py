@@ -186,7 +186,7 @@ def test_one_line_installer_keeps_custom_directory_for_doctor() -> None:
     assert "FIRECRACKER_DIR_ARG" in text
     assert 'export SMOLVM_FIRECRACKER_DIR="${FIRECRACKER_DIR_ARG}"' in text
     assert "if ((${#SETUP_ARGS[@]})); then" in text
-    assert 'celesto setup --skip-deps "${SETUP_ARGS[@]}"' in text
+    assert 'celesto setup "${SETUP_ARGS[@]}"' in text
 
 
 def test_runtime_sudo_policy_excludes_user_writable_programs() -> None:
@@ -204,3 +204,159 @@ def test_setup_recovery_shell_quotes_custom_firecracker_directory() -> None:
     text = _SYSTEM_SETUP_SCRIPT.read_text()
 
     assert "printf -v firecracker_dir_arg '%q'" in text
+
+
+@pytest.mark.parametrize("upgrade", [False, True])
+@pytest.mark.parametrize(
+    "args",
+    [
+        [],
+        ["--skip-deps"],
+        ["--with-docker"],
+        ["--firecracker-dir", "/tmp/custom runtime"],
+        ["--firecracker-dir=/tmp/custom runtime"],
+    ],
+)
+def test_one_line_installer_dry_run(tmp_path: Path, upgrade: bool, args: list[str]) -> None:
+    _dry_run_one_line(tmp_path, upgrade=upgrade, args=args)
+
+
+@pytest.mark.parametrize("failure", ["install", "setup", "doctor", "download"])
+def test_one_line_installer_stops_on_failure(tmp_path: Path, failure: str) -> None:
+    _dry_run_one_line(tmp_path, failure=failure, uv_available=failure != "download")
+
+
+def test_one_line_installer_bootstraps_uv(tmp_path: Path) -> None:
+    _dry_run_one_line(tmp_path, uv_available=False)
+
+
+def _dry_run_one_line(
+    tmp_path: Path,
+    *,
+    upgrade: bool = False,
+    args: list[str] | None = None,
+    failure: str = "",
+    uv_available: bool = True,
+) -> None:
+    """Execute the real entry point with installation commands replaced by recorders."""
+    args = args or []
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    tool_bin = tmp_path / "custom tools"
+    tool_bin.mkdir()
+    home = tmp_path / "home"
+    home.mkdir()
+    log = tmp_path / "commands"
+    _write_executable(
+        tools / "uv",
+        """#!/bin/bash
+printf 'uv' >> "$COMMAND_LOG"
+printf ' <%s>' "$@" >> "$COMMAND_LOG"
+printf '\\n' >> "$COMMAND_LOG"
+case "$*" in
+    --version) echo 'uv test' ;;
+    'tool list') [[ "$UPGRADE" == 1 ]] && echo 'celesto v0.0.15a0'; exit 0 ;;
+    'tool dir --bin') echo "$TOOL_BIN" ;;
+    'tool install'*) [[ "$FAILURE" != install ]] ;;
+esac
+""",
+    )
+    _write_executable(
+        tool_bin / "celesto",
+        """#!/bin/bash
+printf 'celesto' >> "$COMMAND_LOG"
+printf ' <%s>' "$@" >> "$COMMAND_LOG"
+printf ' dir=%s\\n' "${SMOLVM_FIRECRACKER_DIR:-}" >> "$COMMAND_LOG"
+[[ "$1" != "$FAILURE" ]]
+""",
+    )
+    if not uv_available:
+        (tools / "uv").rename(tmp_path / "uv-template")
+        _write_executable(
+            tools / "curl",
+            """#!/bin/bash
+[[ "$FAILURE" != download ]] || exit 22
+printf 'cp "$UV_TEMPLATE" "$UV_DESTINATION"\\n'
+""",
+        )
+    env = {
+        **os.environ,
+        "HOME": str(home),
+        "PATH": f"{tools}:/usr/bin:/bin",
+        "COMMAND_LOG": str(log),
+        "TOOL_BIN": str(tool_bin),
+        "UPGRADE": str(int(upgrade)),
+        "FAILURE": failure,
+        "UV_TEMPLATE": str(tmp_path / "uv-template"),
+        "UV_DESTINATION": str(tools / "uv"),
+    }
+    env.pop("SMOLVM_FIRECRACKER_DIR", None)
+    result = subprocess.run(
+        ["/bin/bash", str(_ONE_LINE_INSTALLER), *args],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if failure:
+        assert result.returncode != 0
+        assert "Done!" not in result.stdout
+        failure_commands = log.read_text() if log.exists() else ""
+        if failure in ("install", "download"):
+            assert "celesto <setup>" not in failure_commands
+        if failure != "doctor":
+            assert "celesto <doctor>" not in failure_commands
+        return
+    assert result.returncode == 0, result.stdout + result.stderr
+    commands = log.read_text().splitlines()
+    install = "uv <tool> <install>" + (" <--upgrade>" if upgrade else "")
+    assert install + " <celesto[server]>=0.0.15a0>" in commands
+    directory = (
+        "/tmp/custom runtime" if any(a.startswith("--firecracker-dir") for a in args) else ""
+    )
+    assert "celesto <setup>" + "".join(f" <{a}>" for a in args) + f" dir={directory}" in commands
+    assert commands[-1] == f"celesto <doctor> dir={directory}"
+
+
+@pytest.mark.parametrize("args", [[], ["--skip-deps"], ["--check-only"], ["--with-docker"]])
+def test_macos_dependency_dry_run(tmp_path: Path, args: list[str]) -> None:
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    log = tmp_path / "brew-log"
+    _write_executable(tools / "uname", "#!/bin/sh\necho Darwin\n")
+    _write_executable(tools / "ssh", "#!/bin/sh\nexit 0\n")
+    _write_executable(
+        tools / "brew",
+        """#!/bin/bash
+printf '%s\\n' "$*" >> "$BREW_LOG"
+if [[ "$*" == 'install qemu' ]]; then
+    printf '#!/bin/sh\\nexit 0\\n' > "$TOOLS/qemu-system-aarch64"
+    /bin/chmod +x "$TOOLS/qemu-system-aarch64"
+else
+    printf '#!/bin/sh\\nexit 0\\n' > "$TOOLS/docker"
+    /bin/chmod +x "$TOOLS/docker"
+fi
+""",
+    )
+    result = subprocess.run(
+        ["/bin/bash", str(_REPO_ROOT / "scripts/system-setup-macos.sh"), *args],
+        env={
+            **os.environ,
+            # Keep host-installed commands such as /usr/bin/docker out of the
+            # simulated macOS environment. Every discoverable command is
+            # provided explicitly in ``tools`` above.
+            "PATH": str(tools),
+            "TOOLS": str(tools),
+            "BREW_LOG": str(log),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if args in (["--skip-deps"], ["--check-only"]):
+        assert result.returncode != 0
+        assert not log.exists(), "Read-only/skip-deps setup must not install QEMU"
+    else:
+        assert result.returncode == 0, result.stdout + result.stderr
+        expected = ["install qemu"] + (["install --cask docker"] if args else [])
+        assert log.read_text().splitlines() == expected

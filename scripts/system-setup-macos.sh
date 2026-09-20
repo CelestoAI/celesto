@@ -119,7 +119,7 @@ fi
 
 echo "=== SmolVM macOS setup (qemu backend) ==="
 
-if ! find_qemu; then
+if [[ "$SKIP_DEPS" != "true" ]] && ! find_qemu; then
     if ! command -v brew >/dev/null 2>&1; then
         echo "❌ Homebrew not found. Install from https://brew.sh and rerun."
         exit 1
@@ -129,7 +129,7 @@ if ! find_qemu; then
 fi
 
 if [[ "$SKIP_DEPS" == "true" ]]; then
-    echo "Skipping optional dependency installation (--skip-deps)"
+    echo "Skipping dependency installation (--skip-deps)"
 else
     if [[ "$WITH_DOCKER" == "true" ]] && ! command -v docker >/dev/null 2>&1; then
         echo "Installing Docker Desktop cask via Homebrew..."

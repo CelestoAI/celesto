@@ -14,12 +14,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# install.sh - One-command installer for SmolVM.
+# install.sh - One-command installer for Celesto.
 #
 # Usage:
-#   curl -sSL https://celesto.ai/install.sh | bash
-#   curl -sSL https://celesto.ai/install.sh | bash -s -- --with-docker
-#   curl -sSL https://celesto.ai/install.sh | bash -s -- --skip-deps
+#   curl -fsSL https://celesto.ai/install.sh | bash
+#   curl -fsSL https://celesto.ai/install.sh | bash -s -- --with-docker
+#   curl -fsSL https://celesto.ai/install.sh | bash -s -- --skip-deps
 #
 # What it does:
 #   1. Installs uv (Python package manager) if not present
@@ -135,11 +135,10 @@ install_celesto() {
 
     # uv tool bin dir may not be on PATH yet in this session
     local tool_bin
-    tool_bin="$(uv tool dir 2>/dev/null)/../bin"
+    tool_bin="$(uv tool dir --bin)"
     if [ -d "$tool_bin" ]; then
         export PATH="$tool_bin:$PATH"
     fi
-    export PATH="$HOME/.local/bin:$PATH"
 
     if ! command -v celesto >/dev/null 2>&1; then
         die "celesto installation failed — 'celesto' command not found on PATH."
@@ -155,9 +154,9 @@ install_celesto() {
 run_setup() {
     info "Running celesto setup …"
     if ((${#SETUP_ARGS[@]})); then
-        celesto setup --skip-deps "${SETUP_ARGS[@]}"
+        celesto setup "${SETUP_ARGS[@]}"
     else
-        celesto setup --skip-deps
+        celesto setup
     fi
 }
 
@@ -166,22 +165,7 @@ run_setup() {
 # ---------------------------------------------------------------------------
 
 shell_hint() {
-    # Check if ~/.local/bin is already on the user's default PATH
-    local shell_name
-    shell_name="$(basename "${SHELL:-/bin/sh}")"
-    local rc_file=""
-    case "$shell_name" in
-        zsh)  rc_file="$HOME/.zshrc" ;;
-        bash) rc_file="$HOME/.bashrc" ;;
-        fish) rc_file="$HOME/.config/fish/config.fish" ;;
-    esac
-
-    if [ -n "$rc_file" ] && [ -f "$rc_file" ]; then
-        if ! grep -q '.local/bin' "$rc_file" 2>/dev/null; then
-            warn "Add ~/.local/bin to your PATH so 'celesto' is available in new shells:"
-            printf "\n  %s\n\n" "echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> $rc_file"
-        fi
-    fi
+    warn "If 'celesto' is not found, run 'uv tool update-shell' and restart your terminal."
 }
 
 # ---------------------------------------------------------------------------
@@ -198,7 +182,7 @@ main() {
      \___\___||_\___/__/\__\___//_/ \_\___|
 BANNER
     printf "%b" "${RESET}"
-    printf "    %bSmolVM Installer%b\n" "${BOLD}" "${RESET}"
+    printf "    %bCelesto Installer%b\n" "${BOLD}" "${RESET}"
     printf "    One command to give AI agents their own computer.\n\n"
 
     ensure_uv
@@ -210,7 +194,7 @@ BANNER
     info "Verifying installation …"
     celesto doctor
     printf "\n"
-    info "Done! SmolVM is ready to use."
+    info "Done! Celesto is ready to use."
     printf "\n"
 }
 
