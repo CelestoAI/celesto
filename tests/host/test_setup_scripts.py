@@ -331,10 +331,10 @@ def test_macos_dependency_dry_run(tmp_path: Path, args: list[str]) -> None:
 printf '%s\\n' "$*" >> "$BREW_LOG"
 if [[ "$*" == 'install qemu' ]]; then
     printf '#!/bin/sh\\nexit 0\\n' > "$TOOLS/qemu-system-aarch64"
-    chmod +x "$TOOLS/qemu-system-aarch64"
+    /bin/chmod +x "$TOOLS/qemu-system-aarch64"
 else
     printf '#!/bin/sh\\nexit 0\\n' > "$TOOLS/docker"
-    chmod +x "$TOOLS/docker"
+    /bin/chmod +x "$TOOLS/docker"
 fi
 """,
     )
@@ -342,7 +342,10 @@ fi
         ["/bin/bash", str(_REPO_ROOT / "scripts/system-setup-macos.sh"), *args],
         env={
             **os.environ,
-            "PATH": f"{tools}:/usr/bin:/bin",
+            # Keep host-installed commands such as /usr/bin/docker out of the
+            # simulated macOS environment. Every discoverable command is
+            # provided explicitly in ``tools`` above.
+            "PATH": str(tools),
             "TOOLS": str(tools),
             "BREW_LOG": str(log),
         },
