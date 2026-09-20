@@ -1454,9 +1454,9 @@ RUN chmod +x /init
                     "smolvm-browser-session": browser_session_sh,
                     "smolvm-browser-wait-port": wait_port_py,
                     "smolvm-browser-runner": browser_runner_js,
-                    "smolvm-computer-connections.py": Path(__file__).with_name(
-                        "guest_connections.py"
-                    ).read_text(),
+                    "smolvm-computer-connections.py": Path(__file__)
+                    .with_name("guest_connections.py")
+                    .read_text(),
                     **({"computer-menu.xml": computer_menu_xml} if desktop else {}),
                 },
                 kernel_url=resolved_kernel_url,

@@ -4,7 +4,6 @@ import platform
 import shutil
 import struct
 import time
-from contextlib import suppress
 
 import pytest
 from _util import require_backend_available, selected_backend
@@ -126,7 +125,6 @@ def test_local_computer_connections(request, tmp_path):
             assert attached.run("cat /tmp/connection-test").stdout == "connection-test"
             assert attached.browser().url.startswith("ws://127.0.0.1:")
         finally:
-            # Releasing test-owned local forwards must not delete the attached VM.
-            with suppress(Exception):
-                attached._vm._cleanup_local_forwards()
-            attached._vm.close()
+            attached.close()
+        assert computer.run("cat /tmp/connection-test").stdout == "connection-test"
+        assert computer.browser().url == info.url

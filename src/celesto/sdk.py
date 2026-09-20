@@ -264,6 +264,20 @@ class Computer:
         self._validate_port(port)
         return self._port_provider().unpublish_port(port)
 
+    def close(self) -> None:
+        """Release this handle's resources without stopping or deleting the computer.
+
+        Local forwards owned by this handle are removed. Other handles and the
+        running desktop are unaffected. Use ``Computer.get(id)`` to reconnect.
+        """
+        with self._connection_lock:
+            if self._local and self._vm is not None:
+                cast(Celesto, self._vm)._cleanup_local_forwards()
+                self._connection_forwards.clear()
+            runtime = self._vm if self._vm is not None else self._cloud
+            if runtime is not None:
+                runtime.close()
+
     def delete(self) -> None:
         """Delete this computer; failed cleanup can be retried on the same handle."""
         if self._deleted:

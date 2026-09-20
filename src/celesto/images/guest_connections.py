@@ -193,6 +193,9 @@ def ensure(kind, timeout, proxy=None):
 
 
 def main():
+    # Raw guest-agent commands inherit PID 1's minimal PATH, unlike SSH logins.
+    # Both capability discovery and child processes need system administration tools.
+    os.environ["PATH"] = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     try:
         if sys.argv[1:] == ["capabilities"]:
             result = capabilities()

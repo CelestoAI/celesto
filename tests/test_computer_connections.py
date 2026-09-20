@@ -2,7 +2,7 @@
 
 import json
 from dataclasses import FrozenInstanceError
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import httpx
 import pytest
@@ -189,3 +189,56 @@ def test_public_local_methods_share_runtime_and_id(runtime, monkeypatch):
     comp.delete()
     with pytest.raises(CelestoError, match="deleted"):
         comp.browser()
+
+
+def test_close_releases_only_attached_handle_resources(runtime, monkeypatch):
+    other_runtime = MagicMock(vm_id="sbx-connection")
+    monkeypatch.setattr("celesto.sdk.Celesto", MagicMock(side_effect=[runtime, other_runtime]))
+    owner = Computer.get("sbx-connection", local=True)
+    attached = Computer.get("sbx-connection", local=True)
+    attached._connection_forwards[9223] = 45123
+    attached.close()
+    assert other_runtime.method_calls == [
+        call._cleanup_local_forwards(),
+        call.close(),
+    ]
+    assert attached._connection_forwards == {}
+    assert runtime.method_calls == []
+    assert owner.id == attached.id
+    attached.close()  # Repeated release never deletes or stops the computer.
+    other_runtime.delete.assert_not_called()
+    other_runtime.stop.assert_not_called()
+
+
+def test_close_unstarted_local_computer_does_not_allocate(monkeypatch):
+    factory = MagicMock()
+    monkeypatch.setattr("celesto.sdk.Celesto", factory)
+    computer = Computer(local=True)
+    computer.close()
+    factory.assert_not_called()
+
+
+def test_close_unstarted_cloud_computer_releases_http_client(monkeypatch):
+    cloud = MagicMock()
+    monkeypatch.setattr("celesto._cloud._CloudComputer", MagicMock(return_value=cloud))
+    computer = Computer()
+    computer.close()
+    cloud.close.assert_called_once()
+    cloud.start.assert_not_called()
+    cloud.delete.assert_not_called()
+
+
+def test_guest_helper_supplies_system_path_for_raw_commands(monkeypatch, capsys):
+    from celesto.images import guest_connections
+
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.setattr(guest_connections.sys, "argv", ["helper", "capabilities"])
+
+    def capabilities():
+        # runuser lives in /usr/sbin on the supported Debian desktop image.
+        assert "/usr/sbin" in guest_connections.os.environ["PATH"].split(":")
+        return {"version": 1, "browser": True}
+
+    monkeypatch.setattr(guest_connections, "capabilities", capabilities)
+    assert guest_connections.main() == 0
+    assert json.loads(capsys.readouterr().out)["browser"] is True
