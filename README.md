@@ -109,7 +109,7 @@ QEMU. On Linux, setup may ask for `sudo`
 permission and requires KVM, Linux's hardware virtualization support.
 
 <details>
-<summary>Manual installation with pip</summary>
+<summary>Manual installation</summary>
 
 With Python 3.11 or newer, install Celesto in your Python environment:
 
@@ -124,32 +124,23 @@ celesto setup
 celesto doctor
 ```
 
-On macOS, setup needs Homebrew to install QEMU. On Linux, it may ask for `sudo`.
-The matching `smolvm-core` wheel is installed automatically on supported systems;
-most users do not need Rust.
+On macOS, setup needs Homebrew to install [QEMU](https://www.qemu.org/docs/master/system/i386/microvm.html). On Linux, it may ask for `sudo`.
 
 </details>
 
-See the [installation guide](docs/installation.md) for optional Docker support,
-existing dependencies, custom install locations, and machine-image builds.
 
 ### Start a sandbox in Python
 
-The installer keeps the CLI in its own Python environment. To use Celesto in your
-project, also install the package in that project's Python 3.11+ environment
-(skip this if you used pip there above).
+Run a local sandbox:
 
 ```python
 from celesto import Computer
 
-with Computer() as comp:
-    result = comp.run("echo 'Hello from the sandbox!'")
-    print(result.stdout)
+computer = Computer()
+result = comp.run("echo 'Hello from the sandbox!'")
+print(result.stdout)
+computer.stop()
 ```
-
-The Python package is now named `celesto`; import from `celesto` as shown above.
-Old `smolvm` Python imports are no longer supported.
-Use `celesto setup` and `celesto doctor` to prepare your machine.
 
 The computer is deleted when the `with` block ends, including when your code
 raises an exception. Computers run on your machine by default, without a cloud account.
