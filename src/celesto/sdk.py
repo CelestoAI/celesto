@@ -6,13 +6,21 @@ import inspect
 from collections.abc import Iterator
 from contextlib import suppress
 from pathlib import Path
+from threading import Lock
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Literal, cast
 
+from celesto._connection_info import DisplayMode, validate_display_mode
 from celesto._terminal import TerminalConnection, local_terminal_connection, validate_terminal_id
 from celesto.exceptions import CelestoError, VMNotFoundError
 from celesto.facade import Celesto
-from celesto.types import CommandEvent, CommandResult, PublishedPort
+from celesto.types import (
+    BrowserConnection,
+    CommandEvent,
+    CommandResult,
+    DisplayConnection,
+    PublishedPort,
+)
 
 if TYPE_CHECKING:
     from celesto._cloud import _CloudComputer
@@ -44,7 +52,18 @@ class Computer:
             raise ValueError("Use Computer.get(id, local=True) to reconnect to a computer.")
         # Catch misspelled options without preparing images or allocating a VM.
         self._local = local
+        self._template = options.pop("template_id", None) if local else None
+        self._connection_lock = Lock()
+        self._connection_forwards: dict[int, int] = {}
         if local:
+            if self._template is not None:
+                from celesto._connections import validate_template_options
+
+                if self._template != "browser-agent":
+                    raise ValueError(
+                        "Local template_id must be 'browser-agent'; omit it for a plain computer."
+                    )
+                validate_template_options(options)
             inspect.signature(Celesto).bind(**options)
             self._cloud = None
         else:
@@ -85,10 +104,22 @@ class Computer:
                 f"Computer '{self.id}' failed to start; retry delete() before creating another."
             )
         if self._vm is None:
-            self._vm = Celesto(**self._runtime_options()) if self._local else self._cloud
+            if self._local:
+                options = self._runtime_options()
+                if self._template is not None:
+                    from celesto._connections import template_runtime_options
+
+                    options = template_runtime_options(options)
+                self._vm = Celesto(**options)
+            else:
+                self._vm = self._cloud
             assert self._vm is not None
             try:
                 self._vm.start()
+                if self._local and self._template is not None:
+                    from celesto._connections import probe_capabilities
+
+                    probe_capabilities(self._vm, "browser")
             except BaseException as startup_error:
                 self._failed = True
                 try:
@@ -171,6 +202,31 @@ class Computer:
         if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout <= 0:
             raise ValueError("timeout must be a positive number of seconds.")
 
+    def browser(self) -> BrowserConnection:
+        """Return a CDP WebSocket URL for Playwright; request again to refresh it."""
+        with self._connection_lock:
+            runtime = self._ensure_started()
+            if self._cloud is not None:
+                return self._cloud.browser()
+            from celesto._connections import local_connection
+
+            result = local_connection(runtime, "browser", self._connection_forwards)
+            assert isinstance(result, BrowserConnection)
+            return result
+
+    def display(self, *, mode: DisplayMode = "read_only") -> DisplayConnection:
+        """Return a VNC-over-WebSocket URL for noVNC, not an HTML viewer page."""
+        validate_display_mode(mode)
+        with self._connection_lock:
+            runtime = self._ensure_started()
+            if self._cloud is not None:
+                return self._cloud.display(mode=mode)
+            from celesto._connections import local_connection
+
+            result = local_connection(runtime, mode, self._connection_forwards)
+            assert isinstance(result, DisplayConnection)
+            return result
+
     def _port_provider(self) -> _CloudComputer:
         if self._cloud is None:
             raise CelestoError(
@@ -207,6 +263,20 @@ class Computer:
         """
         self._validate_port(port)
         return self._port_provider().unpublish_port(port)
+
+    def close(self) -> None:
+        """Release this handle's resources without stopping or deleting the computer.
+
+        Local forwards owned by this handle are removed. Other handles and the
+        running desktop are unaffected. Use ``Computer.get(id)`` to reconnect.
+        """
+        with self._connection_lock:
+            if self._local and self._vm is not None:
+                cast(Celesto, self._vm)._cleanup_local_forwards()
+                self._connection_forwards.clear()
+            runtime = self._vm if self._vm is not None else self._cloud
+            if runtime is not None:
+                runtime.close()
 
     def delete(self) -> None:
         """Delete this computer; failed cleanup can be retried on the same handle."""

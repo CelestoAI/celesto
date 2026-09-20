@@ -13,7 +13,13 @@ from urllib.parse import quote, urlsplit
 import httpx
 
 from _celesto_cloud_api.api.computers import (
+    create_browser_connection_v1_computers_computer_id_browser_post as connect_browser,
+)
+from _celesto_cloud_api.api.computers import (
     create_computer_v1_computers_post as create,
+)
+from _celesto_cloud_api.api.computers import (
+    create_display_connection_v1_computers_computer_id_display_post as connect_display,
 )
 from _celesto_cloud_api.api.computers import (
     create_terminal_session_v1_computers_computer_id_terminals_post as create_terminal,
@@ -38,7 +44,19 @@ from _celesto_cloud_api.api.computers import (
 )
 from _celesto_cloud_api.client import AuthenticatedClient
 from _celesto_cloud_api.errors import UnexpectedStatus
+from _celesto_cloud_api.models.computer_browser_connection_response import (
+    ComputerBrowserConnectionResponse,
+)
 from _celesto_cloud_api.models.computer_create_request import ComputerCreateRequest
+from _celesto_cloud_api.models.computer_display_connection_request import (
+    ComputerDisplayConnectionRequest,
+)
+from _celesto_cloud_api.models.computer_display_connection_request_mode import (
+    ComputerDisplayConnectionRequestMode,
+)
+from _celesto_cloud_api.models.computer_display_connection_response import (
+    ComputerDisplayConnectionResponse,
+)
 from _celesto_cloud_api.models.computer_exec_request import ComputerExecRequest
 from _celesto_cloud_api.models.computer_exec_response import ComputerExecResponse
 from _celesto_cloud_api.models.computer_published_port_create_request import (
@@ -53,13 +71,22 @@ from _celesto_cloud_api.models.computer_terminal_session_response import (
     ComputerTerminalSessionResponse,
 )
 from _celesto_cloud_api.types import UNSET, Unset
+from celesto._connection_info import DisplayMode, cloud_connection_info, validate_display_mode
 from celesto._streaming import iter_bounded_lines, iter_sse_data, parse_command_event
 from celesto._terminal import TerminalConnection, cloud_terminal_connection
 from celesto.exceptions import CelestoError, CloudAPIError, VMNotFoundError
-from celesto.types import CommandEvent, CommandExitEvent, CommandResult, PublishedPort
+from celesto.types import (
+    BrowserConnection,
+    CommandEvent,
+    CommandExitEvent,
+    CommandResult,
+    DisplayConnection,
+    PublishedPort,
+)
 
 T = TypeVar("T")
 _MAX_ERROR_BODY_BYTES = 64 * 1024
+_CONNECTION_TIMEOUT = 30.0
 
 
 class _CloudComputer:
@@ -285,6 +312,58 @@ class _CloudComputer:
         """Execute a command and yield parsed cloud SSE events as they arrive."""
         self.validate_command(command, timeout)
         return self._iter_command_events(command, timeout)
+
+    def _connection(self, endpoint: Callable[..., Any], expected: type[T], **kwargs: Any) -> T:
+        """Poll state, then issue exactly once; never replay credential issuance."""
+        deadline = time.monotonic() + _CONNECTION_TIMEOUT
+        client = self._client.get_httpx_client()
+        original_timeout = client.timeout
+
+        def remaining() -> float:
+            value = deadline - time.monotonic()
+            if value <= 0:
+                raise CelestoError(
+                    f"Computer '{self.vm_id}' is not ready; request a new connection."
+                )
+            return value
+
+        try:
+            while True:
+                client.timeout = httpx.Timeout(remaining())
+                computer = self._get()
+                if computer.status == "running":
+                    break
+                if computer.status not in {"creating", "starting", "restoring", "pending"}:
+                    raise CelestoError(
+                        f"Computer '{self.vm_id}' is not running; start it in the cloud dashboard."
+                    )
+                time.sleep(min(0.5, remaining()))
+            client.timeout = httpx.Timeout(remaining())
+            result = self._call(endpoint, expected, computer_id=self.vm_id, **kwargs)
+            remaining()
+            return result
+        except CloudAPIError as exc:
+            # Even documented 400 details may contain a connection credential.
+            raise CloudAPIError(exc.status_code) from None
+        finally:
+            client.timeout = original_timeout
+
+    def browser(self) -> BrowserConnection:
+        result = self._connection(connect_browser.sync_detailed, ComputerBrowserConnectionResponse)
+        url, expiry = cloud_connection_info(result.gateway_url, result.token, result.expires_at)
+        return BrowserConnection(url=url, expires_at=expiry)
+
+    def display(self, *, mode: DisplayMode = "read_only") -> DisplayConnection:
+        validate_display_mode(mode)
+        result = self._connection(
+            connect_display.sync_detailed,
+            ComputerDisplayConnectionResponse,
+            body=ComputerDisplayConnectionRequest(mode=ComputerDisplayConnectionRequestMode(mode)),
+        )
+        if result.mode != mode:
+            raise CelestoError("Cloud returned a different display mode; request a new connection.")
+        url, expiry = cloud_connection_info(result.gateway_url, result.token, result.expires_at)
+        return DisplayConnection(url=url, expires_at=expiry, mode=mode)
 
     def terminal(self, *, terminal_id: str | None = None) -> TerminalConnection:
         """Create or reauthorize a durable cloud terminal session."""

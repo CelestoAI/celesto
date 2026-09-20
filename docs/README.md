@@ -12,7 +12,7 @@ Celesto gives an AI agent a disposable computer for running code, using a browse
 
 ## Guides
 
-- [Python cloud computers](python-cloud.md) — create cloud computers, run commands, publish HTTP applications, and clean up resources.
+- [Python cloud computers](python-cloud.md) — run commands, connect to browsers and screens, publish HTTP applications, and clean up resources.
 - [Agent presets](guides/agent-presets.md) — start Codex, Claude Code, Pi, Hermes, OpenClaw, or OpenCode in a sandbox.
 - [OpenClaw dashboard](guides/agent-presets.md#open-openclaws-dashboard) — start OpenClaw, open its private dashboard, and safely replace an older sandbox.
 - [Browser sandboxes](guides/browser.md) — run Chromium and connect with a browser or Playwright.

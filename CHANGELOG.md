@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Connect automation tools to the browser and viewers to the screen of the same local or cloud `Computer` with `browser()` and `display()`. Display connections default to read-only; see [connection usage](docs/python-cloud.md#connect-to-the-browser-or-screen).
+
 ## 0.0.15a0 — 2026-09-19
 
 ### Added

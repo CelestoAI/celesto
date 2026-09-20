@@ -1050,6 +1050,10 @@ start_live_stack() {
 }
 
 stop_session() {
+    stop_pid_file "${RUNTIME_DIR}/connection-read_only-ws.pid"
+    stop_pid_file "${RUNTIME_DIR}/connection-read_only.pid"
+    stop_pid_file "${RUNTIME_DIR}/connection-read_write-ws.pid"
+    stop_pid_file "${RUNTIME_DIR}/connection-read_write.pid"
     stop_pid_file "${RUNTIME_DIR}/ffmpeg.pid"
     stop_pid_file "${RUNTIME_DIR}/websockify.pid"
     stop_pid_file "${RUNTIME_DIR}/x11vnc.pid"
@@ -1391,6 +1395,7 @@ RUN cd /opt/smolvm-browser-runner && \\
 COPY smolvm-browser-session /usr/local/bin/smolvm-browser-session
 COPY smolvm-browser-wait-port /usr/local/bin/smolvm-browser-wait-port
 COPY smolvm-browser-runner /usr/local/bin/smolvm-browser-runner
+COPY smolvm-computer-connections.py /usr/local/lib/smolvm-computer-connections.py
 RUN chmod +x \
     /usr/local/bin/smolvm-browser-session \
     /usr/local/bin/smolvm-browser-wait-port \
@@ -1414,6 +1419,9 @@ RUN chmod +x /init
                 "_browser_session_sha256": hashlib.sha256(browser_session_sh.encode()).hexdigest(),
                 "_wait_port_sha256": hashlib.sha256(wait_port_py.encode()).hexdigest(),
                 "_browser_runner_sha256": hashlib.sha256(browser_runner_js.encode()).hexdigest(),
+                "_connections_sha256": hashlib.sha256(
+                    Path(__file__).with_name("guest_connections.py").read_bytes()
+                ).hexdigest(),
             },
             dockerfile_content,
             init_script,
@@ -1446,6 +1454,9 @@ RUN chmod +x /init
                     "smolvm-browser-session": browser_session_sh,
                     "smolvm-browser-wait-port": wait_port_py,
                     "smolvm-browser-runner": browser_runner_js,
+                    "smolvm-computer-connections.py": Path(__file__)
+                    .with_name("guest_connections.py")
+                    .read_text(),
                     **({"computer-menu.xml": computer_menu_xml} if desktop else {}),
                 },
                 kernel_url=resolved_kernel_url,

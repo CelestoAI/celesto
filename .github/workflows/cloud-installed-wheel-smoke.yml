@@ -2,6 +2,11 @@ name: Celesto cloud installed-wheel smoke
 
 on:
   workflow_dispatch:
+    inputs:
+      connections:
+        description: "Also verify browser and display connections on the smoke computer"
+        type: boolean
+        default: false
 
 concurrency:
   group: celesto-cloud-installed-wheel-smoke
@@ -18,6 +23,7 @@ jobs:
     env:
       CELESTO_API_KEY: ${{ secrets.CELESTO_API_KEY }}
       CELESTO_LIVE_TEST: "1"
+      CELESTO_LIVE_CONNECTION_TEST: ${{ inputs.connections && '1' || '0' }}
     steps:
       - name: Configure cleanup tracking
         run: echo "CELESTO_LIVE_COMPUTER_ID_FILE=$RUNNER_TEMP/celesto-cloud-computer-id" >> "$GITHUB_ENV"
@@ -51,7 +57,7 @@ jobs:
           uv pip install \
             --python "$RUNNER_TEMP/cloud-smoke-venv/bin/python" \
             "$RUNNER_TEMP/cloud-wheel/"*.whl \
-            pytest
+            pytest playwright websockets
           echo "CLOUD_SMOKE_PYTHON=$RUNNER_TEMP/cloud-smoke-venv/bin/python" >> "$GITHUB_ENV"
 
       - name: Verify imports come from the installed wheel

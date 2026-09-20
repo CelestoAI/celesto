@@ -19,8 +19,10 @@ explicitly fail before starting a VM. Command streaming and interactive terminal
 attachments are exposed by the public wrapper. Published ports return the
 handwritten `PublishedPort` type; terminal WebSocket I/O stays in a handwritten
 bounded adapter. See the [published-port plan](published-ports.md). Server-side
-expiry, a cloud-only dependency/distribution split, TypeScript, file transfer,
-and browser/display connections remain deferred. See
+expiry, a cloud-only dependency/distribution split, TypeScript, and file transfer
+remain deferred. Browser CDP and display VNC-over-WebSocket connections are implemented
+in the source checkout through `browser()` and `display()`; see the
+[connection implementation](computer-connections.md). See
 [Python cloud usage](../python-cloud.md) for implemented behavior and limitations;
 the historical proposal below is not a claim that those deferred features exist.
 
@@ -146,7 +148,7 @@ Recommended first generator trial: OpenAPI Generator, because it supports both P
 
 Generated code owns endpoint paths, payload serialization, request/response models, and ordinary HTTP calls. The cloud adapter owns readiness polling, lifecycle orchestration, result/error normalization, and retry policy. `Computer` owns the public local/cloud contract. Generated models remain private so backend schema changes do not automatically redefine the public SDK.
 
-Command streaming and browser/terminal WebSockets require a separate tested protocol layer where the generator cannot express their semantics. The Python command-streaming and terminal adapters now follow this boundary; browser transport remains deferred. OpenAPI generation does not implement context cleanup, expiry, reconnection, or safe command retries. Do not regenerate those behaviors from endpoint names.
+Command streaming and terminal WebSockets require a separate tested protocol layer where the generator cannot express their semantics. The Python command-streaming and terminal adapters now follow this boundary. Browser and display methods return connection details; clients such as Playwright and noVNC own the subsequent WebSocket traffic. OpenAPI generation does not implement context cleanup, expiry, reconnection, or safe command retries. Do not regenerate those behaviors from endpoint names.
 
 Commit a reviewed schema snapshot with its backend revision/hash, generator config, and generated source. Backend CI exports and validates the artifact; SDK CI regenerates from the pinned artifact and fails on drift, then runs type checks and provider contract tests. Backend schema updates should produce reviewable SDK diffs. SDK builds must not fetch an unversioned live schema.
 

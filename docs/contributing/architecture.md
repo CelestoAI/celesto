@@ -6,7 +6,7 @@ Celesto turns a requested sandbox into a guest image, a runtime process, and a s
 
 | Layer | Responsibility | Code |
 | --- | --- | --- |
-| Python SDK | Local `Computer` creation, command execution, context cleanup, and persistent reconnection. | [`src/celesto/sdk.py`](../../src/celesto/sdk.py) |
+| Python SDK | Local and cloud `Computer` lifecycle, commands, browser/display connections, and persistent reconnection. | [`src/celesto/sdk.py`](../../src/celesto/sdk.py), [`src/celesto/_cloud.py`](../../src/celesto/_cloud.py), [`src/celesto/_connections.py`](../../src/celesto/_connections.py) |
 | Advanced API | Instance-oriented `Celesto` lifecycle, commands, files, mounts, ports, and snapshots. | [`src/celesto/facade.py`](../../src/celesto/facade.py) |
 | Lifecycle manager | Persists state and creates, starts, stops, deletes, and restores sandbox resources. | [`src/celesto/vm.py`](../../src/celesto/vm.py) |
 | Runtime adapters | Start QEMU, Firecracker, libkrun, or Apple Virtualization.framework and handle backend-specific work. | [`src/celesto/runtime/`](../../src/celesto/runtime) |

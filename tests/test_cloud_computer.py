@@ -714,3 +714,143 @@ def test_documented_bad_request_response_retains_bounded_detail(cloud):
     with pytest.raises(CloudAPIError) as exc:
         adapter._call(lambda **kwargs: response, object)
     assert exc.value.details == {"detail": "Invalid option"}
+
+
+def connection_payload(**changes):
+    return {
+        "gateway_url": "wss://gateway.example/connect?route=one",
+        "token": "secret+/=&?",
+        "expires_at": "2099-01-01T05:30:00+05:30",
+        **changes,
+    }
+
+
+@pytest.mark.parametrize("kind", ["browser", "read_only", "read_write"])
+def test_connections_use_generated_routes_and_redact_credentials(cloud, kind):
+    from datetime import UTC, datetime
+    from urllib.parse import parse_qs, urlsplit
+
+    from celesto import BrowserConnection, DisplayConnection
+
+    requests, replies = cloud
+    payload = connection_payload(**({"mode": kind} if kind != "browser" else {}))
+    replies.extend([(201, computer()), (200, computer()), (201, payload)])
+    comp = Computer(template_id="browser-agent", organization_id="org-test")
+    result = comp.browser() if kind == "browser" else comp.display(mode=kind)
+    assert isinstance(result, BrowserConnection if kind == "browser" else DisplayConnection)
+    assert result.expires_at == datetime(2099, 1, 1, tzinfo=UTC)
+    assert parse_qs(urlsplit(result.url).query) == {"route": ["one"], "token": ["secret+/=&?"]}
+    assert "secret" not in repr(result) and "gateway" not in str(result)
+    assert [r.method for r in requests] == ["POST", "GET", "POST"]
+    assert requests[-1].headers["x-current-organization"] == "org-test"
+    assert requests[-1].url.path.endswith("/browser" if kind == "browser" else "/display")
+    if kind != "browser":
+        assert json.loads(requests[-1].content) == {"mode": kind}
+        assert result.mode == kind
+    comp._cloud.close()
+
+
+@pytest.mark.parametrize("mode", [None, True, 1, "write", [], {}])
+def test_invalid_display_mode_never_provisions(cloud, mode):
+    requests, _ = cloud
+    with pytest.raises(ValueError, match="mode"):
+        Computer().display(mode=mode)
+    assert not requests
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 409, 422, 429, 501, 503])
+def test_connection_errors_never_retry_or_expose_details(cloud, status):
+    requests, replies = cloud
+    replies.extend(
+        [(201, computer()), (200, computer()), httpx.Response(status, json={"detail": "secret"})]
+    )
+    comp = Computer()
+    with pytest.raises(CelestoError) as exc:
+        comp.browser()
+    assert "secret" not in str(exc.value) + repr(exc.value.details)
+    assert len(requests) == 3
+    comp._cloud.close()
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"gateway_url": "ws://public.example/connect"},
+        {"gateway_url": "wss://user:secret@example.com/connect"},
+        {"gateway_url": "wss://example.com:bad/connect"},
+        {"gateway_url": "wss://example.com/connect?token=secret"},
+        {"gateway_url": "wss://example.com/connect#secret"},
+        {"gateway_url": "wss://exam\nple.com/connect"},
+        {"token": ""},
+        {"token": 123},
+        {"expires_at": "secret"},
+        {"expires_at": "2099-01-01"},
+        {"expires_at": "2020-01-01T00:00:00Z"},
+    ],
+)
+def test_invalid_connection_responses_are_redacted(cloud, change):
+    requests, replies = cloud
+    replies.extend([(201, computer()), (200, computer()), (201, connection_payload(**change))])
+    comp = Computer()
+    with pytest.raises(CelestoError) as exc:
+        comp.browser()
+    assert "secret" not in str(exc.value)
+    assert len(requests) == 3
+    comp._cloud.close()
+
+
+def test_display_mode_mismatch_fails_closed(cloud):
+    _, replies = cloud
+    replies.extend(
+        [(201, computer()), (200, computer()), (201, connection_payload(mode="read_write"))]
+    )
+    comp = Computer()
+    with pytest.raises(CelestoError, match="different display mode"):
+        comp.display()
+    comp._cloud.close()
+
+
+def test_connection_refresh_and_state_wait_preserve_timeout(cloud):
+    requests, replies = cloud
+    replies.extend(
+        [
+            (200, computer()),
+            (200, computer("restoring")),
+            (200, computer()),
+            (201, connection_payload(token="first")),
+            (200, computer()),
+            (201, connection_payload(token="second")),
+        ]
+    )
+    comp = Computer.get("cloud-test")
+    client = comp._cloud._client.get_httpx_client()
+    client.timeout = httpx.Timeout(7)
+    assert "first" in comp.browser().url
+    assert "second" in comp.browser().url
+    assert client.timeout == httpx.Timeout(7)
+    assert [r.method for r in requests] == ["GET", "GET", "GET", "POST", "GET", "POST"]
+    comp._cloud.close()
+
+
+def test_connection_transport_failure_not_replayed(cloud):
+    requests, replies = cloud
+    replies.extend([(201, computer()), (200, computer()), httpx.ReadTimeout("secret")])
+    comp = Computer()
+    with pytest.raises(CelestoError, match="unknown") as exc:
+        comp.browser()
+    assert "secret" not in str(exc.value) and len(requests) == 3
+    comp._cloud.close()
+
+
+def test_connection_poll_deadline_prevents_issuance(cloud, monkeypatch):
+    requests, replies = cloud
+    replies.extend([(200, computer()), (200, computer("restoring"))])
+    comp = Computer.get("cloud-test")
+    ticks = iter([0, 0, 31])
+    monkeypatch.setattr(
+        "celesto._cloud.time", SimpleNamespace(monotonic=lambda: next(ticks), sleep=lambda _: None)
+    )
+    with pytest.raises(CelestoError, match="not ready"):
+        comp.browser()
+    assert [r.method for r in requests] == ["GET", "GET"]
+    comp._cloud.close()
