@@ -12,6 +12,10 @@
 
 - `Computer()` and `Computer.get(id)` now run locally by default. Cloud applications must use `provider="cloud"` or `CloudComputer`; explicit `local=True` and `local=False` remain supported. See the [migration guide](docs/local-first.md).
 
+### Fixed
+
+- Find Homebrew's disk preparation tools automatically when growing sandbox disks on macOS.
+
 ## 0.0.15a0 — 2026-09-19
 
 ### Added

@@ -904,14 +904,32 @@ class CelestoManager:
         if grow_filesystem:
             self._grow_raw_ext4_filesystem(disk_path, vm_id)
 
+    @staticmethod
+    def _find_ext4_tool(binary: str) -> Path | None:
+        """Prefer PATH, then Homebrew's keg-only e2fsprogs on macOS."""
+        found = which(binary)
+        if found is not None:
+            return found
+        if sys.platform == "darwin":
+            for prefix in ("/opt/homebrew", "/usr/local"):
+                candidate = Path(prefix) / "opt/e2fsprogs/sbin" / binary
+                if candidate.is_file() and os.access(candidate, os.X_OK):
+                    return candidate
+        return None
+
     def _grow_raw_ext4_filesystem(self, disk_path: Path, vm_id: str) -> None:
         """Run e2fsck + resize2fs on a raw ext4 disk file."""
-        e2fsck = which("e2fsck")
-        resize2fs = which("resize2fs")
+        e2fsck = self._find_ext4_tool("e2fsck")
+        resize2fs = self._find_ext4_tool("resize2fs")
         if e2fsck is None or resize2fs is None:
+            install = (
+                "run 'brew install e2fsprogs'"
+                if sys.platform == "darwin"
+                else "install e2fsprogs with your package manager"
+            )
             raise CelestoError(
-                f"e2fsck and resize2fs are needed to grow the disk for sandbox '{vm_id}'; "
-                f"install e2fsprogs, or run '{self._resize_recovery(vm_id)}'."
+                f"Disk preparation tools are missing for sandbox '{vm_id}'; "
+                f"{install}, or run '{self._resize_recovery(vm_id)}'."
             )
         self._run_resize_tool(
             [str(e2fsck), "-fy", str(disk_path)],

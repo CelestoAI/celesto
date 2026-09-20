@@ -895,6 +895,51 @@ class TestSmolVMDiskLifecycle:
         with pytest.raises(VMNotFoundError):
             smol_vm.get("vm001")
 
+    @pytest.mark.parametrize("prefix", ["/opt/homebrew", "/usr/local"])
+    def test_growth_discovers_homebrew_tools_outside_path(
+        self, smol_vm: CelestoManager, tmp_path: Path, prefix: str
+    ) -> None:
+        disk = tmp_path / "rootfs.ext4"
+        sbin = Path(prefix) / "opt/e2fsprogs/sbin"
+        binaries = {sbin / "e2fsck", sbin / "resize2fs"}
+        with (
+            patch("celesto.vm.sys.platform", "darwin"),
+            patch("celesto.vm.which", return_value=None),
+            patch("celesto.vm.Path.is_file", autospec=True, side_effect=lambda p: p in binaries),
+            patch("celesto.vm.os.access", side_effect=lambda p, mode: p in binaries),
+            patch.object(smol_vm, "_run_resize_tool") as run_tool,
+        ):
+            smol_vm._grow_raw_ext4_filesystem(disk, "vm001")
+
+        assert [call.args[0] for call in run_tool.call_args_list] == [
+            [str(sbin / "e2fsck"), "-fy", str(disk)],
+            [str(sbin / "resize2fs"), str(disk)],
+        ]
+
+    def test_growth_does_not_search_homebrew_on_linux(self, smol_vm: CelestoManager) -> None:
+        with (
+            patch("celesto.vm.sys.platform", "linux"),
+            patch("celesto.vm.which", return_value=None),
+            patch("celesto.vm.Path.is_file") as is_file,
+        ):
+            assert smol_vm._find_ext4_tool("e2fsck") is None
+        is_file.assert_not_called()
+
+    @pytest.mark.parametrize("executable", [False, True])
+    def test_missing_growth_tools_give_install_command(
+        self, smol_vm: CelestoManager, tmp_path: Path, executable: bool
+    ) -> None:
+        with (
+            patch("celesto.vm.sys.platform", "darwin"),
+            patch("celesto.vm.which", return_value=None),
+            patch("celesto.vm.Path.is_file", return_value=not executable),
+            patch("celesto.vm.os.access", return_value=executable),
+            patch.object(smol_vm, "_run_resize_tool") as run_tool,
+            pytest.raises(CelestoError, match="brew install e2fsprogs"),
+        ):
+            smol_vm._grow_raw_ext4_filesystem(tmp_path / "rootfs.ext4", "vm001")
+        run_tool.assert_not_called()
+
     def test_e2fsck_successful_repairs_do_not_fail_growth(
         self,
         smol_vm: CelestoManager,
