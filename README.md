@@ -104,9 +104,8 @@ Install Celesto and prepare your machine with one command:
 curl -fsSL https://celesto.ai/install.sh | bash
 ```
 
-The installer sets up the Celesto CLI, installs the tools needed to run sandboxes,
-and checks that your machine is ready. On macOS, install [Homebrew](https://brew.sh)
-first; the installer uses it to install QEMU. On Linux, setup may ask for `sudo`
+On macOS, install [Homebrew](https://brew.sh) first; the installer uses it to install
+QEMU. On Linux, setup may ask for `sudo`
 permission and requires KVM, Linux's hardware virtualization support.
 
 <details>
