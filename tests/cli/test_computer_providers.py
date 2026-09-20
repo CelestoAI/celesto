@@ -4,7 +4,9 @@ import json
 from unittest.mock import Mock
 
 import pytest
+from click.testing import CliRunner
 
+from celesto.cli.commands.app import build_cli
 from celesto.cli.main import main
 from celesto.types import VMState
 
@@ -21,6 +23,8 @@ def test_local_selection(action, flags, monkeypatch):
     handler = Mock(return_value=0)
     monkeypatch.setattr("celesto.cli.main._run_computer", handler)
     positional = ["computer-demo"] if action in {"terminal", "delete"} else []
+    if action == "delete":
+        positional.append("--yes")
     assert main(["computer", action, *positional, *flags]) == 0
     assert handler.call_args.args[0].provider == "local"
 
@@ -30,6 +34,8 @@ def test_cloud_selection(action, monkeypatch):
     handler = Mock(return_value=0)
     monkeypatch.setattr("celesto.cli.cloud_computers.run_cloud_computer", handler)
     positional = ["cloud-demo"] if action in {"terminal", "delete"} else []
+    if action == "delete":
+        positional.append("--yes")
     assert main(["computer", action, *positional, "--cloud"]) == 0
     assert handler.call_args.args[0].provider == "cloud"
 
@@ -39,6 +45,38 @@ def test_conflicting_flags_fail_without_dispatch(monkeypatch):
     monkeypatch.setattr("celesto.cli.main._run_computer", handler)
     assert main(["computer", "create", "--cloud", "--local"]) == 2
     handler.assert_not_called()
+
+
+@pytest.mark.parametrize("flags", [[], ["--local"], ["--cloud"]])
+@pytest.mark.parametrize("reply", ["n\n", "", "y\n"])
+def test_delete_requires_confirmation(flags, reply, monkeypatch):
+    handler = Mock(return_value=0)
+    monkeypatch.setattr("celesto.cli.main._run_computer", handler)
+    result = CliRunner().invoke(build_cli(), ["computer", "delete", "demo", *flags], input=reply)
+    assert "Delete" in result.output
+    assert "demo" in result.output
+    if reply == "y\n":
+        assert result.exit_code == 0
+        args = handler.call_args.args[0]
+        assert (args.computer_action, args.computer_id) == ("delete", "demo")
+        assert args.provider == ("cloud" if "--cloud" in flags else "local")
+    else:
+        assert result.exit_code != 0
+        handler.assert_not_called()
+
+
+@pytest.mark.parametrize("flags", [[], ["--local"], ["--cloud"]])
+def test_delete_yes_skips_confirmation(flags, monkeypatch):
+    handler = Mock(return_value=0)
+    monkeypatch.setattr("celesto.cli.main._run_computer", handler)
+    confirm = Mock(side_effect=AssertionError("must not prompt"))
+    monkeypatch.setattr("celesto.cli.commands.app.click.confirm", confirm)
+    result = CliRunner().invoke(build_cli(), ["computer", "delete", "demo", *flags, "--yes"])
+    assert result.exit_code == 0
+    args = handler.call_args.args[0]
+    assert (args.computer_action, args.computer_id) == ("delete", "demo")
+    assert args.provider == ("cloud" if "--cloud" in flags else "local")
+    confirm.assert_not_called()
 
 
 def test_local_terminal_readiness_exit_code_and_close(monkeypatch):

@@ -1648,9 +1648,12 @@ def computer_start(
 @computer.command("delete")
 @computer_provider_options
 @click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
-def computer_delete(computer_id: str, provider: str) -> Any:
+@click.option("--yes", is_flag=True, help="Delete without asking for confirmation.")
+def computer_delete(computer_id: str, provider: str, yes: bool) -> Any:
     """Delete a computer and its files."""
     _before_command()
+    if not yes:
+        click.confirm(f"Delete {provider} computer '{computer_id}' and its files?", abort=True)
     return _handlers()._run_computer(
         _ns(computer_action="delete", computer_id=computer_id, provider=provider, json=False)
     )

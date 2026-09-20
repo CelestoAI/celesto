@@ -3,7 +3,6 @@
 import os
 import shutil
 import sys
-import time
 from pathlib import Path
 
 
@@ -39,19 +38,10 @@ class Sandbox:
         elif provider == "cloud":
             from celesto import CloudComputer as Computer
 
-            self.vm = Computer(template_id=os.getenv("CELESTO_TEMPLATE", "coding-agent"))
-            try:
-                deadline = time.monotonic() + 180
-                while self.vm.get("status") != "running":
-                    if self.vm.get("status") in {"error", "failed", "deleted"}:
-                        raise RuntimeError("Cloud computer failed to start.")
-                    if time.monotonic() > deadline:
-                        raise TimeoutError("Cloud computer did not become ready within 180 seconds.")
-                    time.sleep(1)
-                    self.vm.refresh()
-            except BaseException:
-                self.vm.delete()
-                raise
+            self.vm = Computer(
+                template_id=os.getenv("CELESTO_TEMPLATE", "coding-agent"), startup_timeout=180
+            )
+            self.vm.start()
         else:
             raise ValueError("Choose local or cloud.")
 
