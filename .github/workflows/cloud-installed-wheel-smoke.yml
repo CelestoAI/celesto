@@ -91,7 +91,8 @@ jobs:
           import os
           from pathlib import Path
 
-          from celesto import Computer, VMNotFoundError
+          from celesto import CloudComputer as Computer
+          from celesto import VMNotFoundError
 
           id_file = Path(os.environ["CELESTO_LIVE_COMPUTER_ID_FILE"])
           computer_id = id_file.read_text().strip()

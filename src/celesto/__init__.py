@@ -51,7 +51,7 @@ from celesto.images.manager import (
 )
 from celesto.kernels import ensure_base_kernel_for_backend
 from celesto.runtime.base import QemuDirtyBitmapBackup, QemuDirtyBitmapStatus
-from celesto.sdk import Computer
+from celesto.sdk import CloudComputer, Computer, LocalComputer
 from celesto.ssh import SSHClient
 from celesto.types import (
     BrowserConnection,
@@ -92,6 +92,8 @@ __all__ = [
     "DisplayConnection",
     # Core classes
     "Computer",
+    "LocalComputer",
+    "CloudComputer",
     "TerminalConnection",
     "Celesto",
     "CelestoManager",

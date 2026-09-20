@@ -5,6 +5,14 @@ Celesto gives an agent a computer, either on the user's machine or in the cloud.
 Status: Core local and cloud Computer integration is implemented.
 Date: 2026-09-18
 
+## Local-first revision — 2026-09-20
+
+The [local-first provider design](local-first-providers.md) supersedes the cloud
+default below. `Computer()` and `Computer.get(id)` now select local execution;
+`provider="cloud"` or `CloudComputer` selects cloud explicitly. `LocalComputer`
+and `CloudComputer` share the lifecycle facade and use separate provider adapters.
+Historical cloud-first examples below record the earlier design, not current defaults.
+
 ## Implementation update — 2026-09-19
 
 The current increment uses `openapi-python-client==0.29.1` against a full schema

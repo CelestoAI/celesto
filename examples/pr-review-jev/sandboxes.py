@@ -37,7 +37,7 @@ class Sandbox:
                 self.vm.close()
                 raise
         elif provider == "cloud":
-            from celesto import Computer
+            from celesto import CloudComputer as Computer
 
             self.vm = Computer(template_id=os.getenv("CELESTO_TEMPLATE", "coding-agent"))
             try:

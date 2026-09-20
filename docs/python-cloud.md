@@ -2,14 +2,16 @@
 
 Run commands on a Celesto Cloud computer using the same Python interface as local execution. Your machine does not boot a virtual machine when you use the cloud.
 
-Install `celesto==0.0.15a0` and set `CELESTO_API_KEY` in your environment.
+Install Celesto from this checkout and set `CELESTO_API_KEY` in your environment.
+These examples use the local-first SDK; earlier published versions may not expose
+`CloudComputer` yet.
 
 ```bash
-pip install 'celesto==0.0.15a0'
+pip install .
 ```
 
 ```python
-from celesto import Computer
+from celesto import CloudComputer as Computer
 
 with Computer() as comp:
     result = comp.run("echo hello")
@@ -24,7 +26,8 @@ Use `run_stream()` when output should be handled as it arrives. It has the same
 interface for cloud and local computers and does not change the buffered `run()` API.
 
 ```python
-from celesto import CommandExitEvent, CommandOutputEvent, Computer
+from celesto import CloudComputer as Computer
+from celesto import CommandExitEvent, CommandOutputEvent
 
 with Computer() as comp:
     for event in comp.run_stream("python agent.py"):
@@ -46,7 +49,7 @@ command. `attach()` connects the current process's terminal and blocks until the
 shell exits or you detach.
 
 ```python
-from celesto import Computer
+from celesto import CloudComputer as Computer
 
 with Computer() as comp:
     terminal = comp.terminal()
@@ -68,7 +71,7 @@ The connection token is intentionally private and does not appear in
 WebSocket attachment are never retried automatically; this avoids duplicating a
 session or replaying terminal input after an ambiguous network failure.
 
-`Computer(local=True).terminal()` has the same `attach()` API but no durable
+`LocalComputer().terminal()` (imported from `celesto`) has the same `attach()` API but no durable
 terminal ID because the current local transport does not support reattachment.
 
 The block deletes the computer on exit, even if your code raises. Cleanup waits until the API reports deletion or no longer finds the computer. A cleanup error remains visible and you can retry `comp.delete()`. If both your code and cleanup fail, Python reports both in an exception group.
@@ -94,10 +97,10 @@ Control the browser with an automation tool, or watch the computer's screen whil
 an agent works. These connections use the same computer as `run()`.
 
 Browser and display connections are available in the source checkout; they are
-not part of the `0.0.15a0` release shown above.
+not part of the published `0.0.15a0` release.
 
 ```python
-from celesto import Computer
+from celesto import CloudComputer as Computer
 
 with Computer(template_id="browser-agent") as comp:
     browser = comp.browser()
@@ -123,7 +126,7 @@ Treat connection URLs as secrets: they are hidden from object representations,
 but printing `.url` explicitly still reveals credentials.
 
 The same methods work with
-`Computer(local=True, template_id="browser-agent")`, which uses the local desktop
+`LocalComputer(template_id="browser-agent")` (imported from `celesto`), which uses the local desktop
 image. Local connections use loopback addresses and `expires_at=None`: they have
 no timed credentials and require the computer and forwarding process to remain
 available. Callers must run on the same machine. The SDK probes the installed
@@ -139,7 +142,7 @@ application first, listening on `0.0.0.0` and a port from `1024` to `65535`.
 For example, this serves a small demo page from its own directory:
 
 ```python
-from celesto import Computer
+from celesto import CloudComputer as Computer
 
 with Computer() as comp:
     comp.run("mkdir -p /tmp/demo && printf 'Hello from Celesto' > /tmp/demo/index.html")

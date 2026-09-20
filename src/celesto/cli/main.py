@@ -4155,11 +4155,17 @@ def _run_browser(args: SimpleNamespace) -> int:
 def _run_computer(args: SimpleNamespace) -> int:
     """Handle ``celesto computer`` commands."""
     from celesto.computer import _ComputerSandbox
+    from celesto.exceptions import BrowserSessionNotFoundError
     from celesto.types import BrowserSessionConfig
 
     action = args.computer_action
     command_name = f"computer.{action}"
     json_output = getattr(args, "json", False)
+
+    if getattr(args, "provider", "local") == "cloud":
+        from celesto.cli.cloud_computers import run_cloud_computer
+
+        return run_cloud_computer(args)
 
     if action == "templates":
         templates = [
@@ -4178,7 +4184,7 @@ def _run_computer(args: SimpleNamespace) -> int:
             console_stdout().print(table)
         return 0
 
-    if action == "start":
+    if action in {"start", "create"}:
         computer: _ComputerSandbox | None = None
         try:
             config = BrowserSessionConfig(
@@ -4238,9 +4244,26 @@ def _run_computer(args: SimpleNamespace) -> int:
 
     computer: _ComputerSandbox | None = None
     try:
-        _require_display_session_mode(state, args.computer_id, "computer")
+        try:
+            _require_display_session_mode(state, args.computer_id, "computer")
+        except BrowserSessionNotFoundError:
+            raise ValueError(
+                f"Computer '{args.computer_id}' was not found; "
+                "run 'celesto computer list' to choose one."
+            ) from None
         computer = _ComputerSandbox.from_id(args.computer_id, state_manager=state)
-        if action == "delete":
+        if action == "terminal":
+            vm = computer.vm
+            vm.ensure_shell_supported()
+            _bring_sandbox_up(
+                vm,
+                args.boot_timeout,
+                status_console=console_stdout(),
+                ready_message="Opening shell...",
+                wait=lambda: vm.wait_for_shell(timeout=args.boot_timeout),
+            )
+            return vm.attach_shell(timeout=args.boot_timeout)
+        elif action == "delete":
             computer.delete()
             print(f"Deleted computer '{args.computer_id}'.")
         elif action == "open":
