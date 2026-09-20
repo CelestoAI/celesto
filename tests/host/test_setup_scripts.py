@@ -230,6 +230,10 @@ def test_one_line_installer_bootstraps_uv(tmp_path: Path) -> None:
     _dry_run_one_line(tmp_path, uv_available=False)
 
 
+def test_one_line_installer_activates_pending_kvm_membership(tmp_path: Path) -> None:
+    _dry_run_one_line(tmp_path, pending_kvm=True)
+
+
 def _dry_run_one_line(
     tmp_path: Path,
     *,
@@ -237,6 +241,7 @@ def _dry_run_one_line(
     args: list[str] | None = None,
     failure: str = "",
     uv_available: bool = True,
+    pending_kvm: bool = False,
 ) -> None:
     """Execute the real entry point with installation commands replaced by recorders."""
     args = args or []
@@ -270,6 +275,34 @@ printf ' dir=%s\\n' "${SMOLVM_FIRECRACKER_DIR:-}" >> "$COMMAND_LOG"
 [[ "$1" != "$FAILURE" ]]
 """,
     )
+    _write_executable(tools / "uname", "#!/bin/sh\necho Linux\n")
+    _write_executable(
+        tools / "id",
+        """#!/bin/bash
+case "$*" in
+    -un) echo test-user ;;
+    -Gn) echo test-user ;;
+    '-Gn test-user')
+        if [[ "$PENDING_KVM" == 1 ]]; then
+            echo 'test-user kvm'
+        else
+            echo test-user
+        fi
+        ;;
+    *) exit 1 ;;
+esac
+""",
+    )
+    _write_executable(
+        tools / "sg",
+        """#!/bin/bash
+printf 'sg' >> "$COMMAND_LOG"
+printf ' <%s>' "$@" >> "$COMMAND_LOG"
+printf '\\n' >> "$COMMAND_LOG"
+[[ "$1" == kvm && "$2" == -c ]]
+/bin/bash -c "$3"
+""",
+    )
     if not uv_available:
         (tools / "uv").rename(tmp_path / "uv-template")
         _write_executable(
@@ -286,6 +319,7 @@ printf 'cp "$UV_TEMPLATE" "$UV_DESTINATION"\\n'
         "COMMAND_LOG": str(log),
         "TOOL_BIN": str(tool_bin),
         "UPGRADE": str(int(upgrade)),
+        "PENDING_KVM": str(int(pending_kvm)),
         "FAILURE": failure,
         "UV_TEMPLATE": str(tmp_path / "uv-template"),
         "UV_DESTINATION": str(tools / "uv"),
@@ -315,6 +349,10 @@ printf 'cp "$UV_TEMPLATE" "$UV_DESTINATION"\\n'
         "/tmp/custom runtime" if any(a.startswith("--firecracker-dir") for a in args) else ""
     )
     assert "celesto <setup>" + "".join(f" <{a}>" for a in args) + f" dir={directory}" in commands
+    if pending_kvm:
+        assert any(command.startswith("sg <kvm> <-c>") for command in commands)
+    else:
+        assert not any(command.startswith("sg ") for command in commands)
     assert commands[-1] == f"celesto <doctor> dir={directory}"
 
 

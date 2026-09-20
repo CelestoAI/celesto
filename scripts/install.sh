@@ -169,6 +169,33 @@ shell_hint() {
 }
 
 # ---------------------------------------------------------------------------
+# Step 5 — Verify the installation
+# ---------------------------------------------------------------------------
+
+run_doctor() {
+    # On Linux, setup may have just added this user to the kvm group. The
+    # current shell cannot see that new membership yet, so run the check under
+    # `sg` instead of reporting a false failure and asking for a new login.
+    if [[ "$(uname -s)" == "Linux" ]] && command -v sg >/dev/null 2>&1; then
+        local current_user current_groups account_groups
+        if current_user="$(id -un 2>/dev/null)" \
+            && current_groups="$(id -Gn 2>/dev/null)" \
+            && account_groups="$(id -Gn "$current_user" 2>/dev/null)" \
+            && [[ " $account_groups " == *" kvm "* ]] \
+            && [[ " $current_groups " != *" kvm "* ]]; then
+            local celesto_path doctor_command
+            celesto_path="$(command -v celesto)"
+            printf -v doctor_command '%q doctor' "$celesto_path"
+            info "Activating pending kvm group membership for verification …"
+            sg kvm -c "$doctor_command"
+            return
+        fi
+    fi
+
+    celesto doctor
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -192,7 +219,7 @@ BANNER
 
     printf "\n"
     info "Verifying installation …"
-    celesto doctor
+    run_doctor
     printf "\n"
     info "Done! Celesto is ready to use."
     printf "\n"
