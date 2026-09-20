@@ -2,6 +2,7 @@
 
 import io
 import json
+import logging
 import os
 import threading
 import time
@@ -11,7 +12,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
 
-from celesto._terminal import cloud_terminal_connection
+from celesto._terminal import _TERMINAL_WEBSOCKET_LOGGER, cloud_terminal_connection
 from celesto.exceptions import CelestoError
 
 
@@ -103,15 +104,15 @@ def test_cloud_terminal_forwards_input_output_and_detaches_without_closing_shell
         "compression": None,
         "max_size": 1024 * 1024,
         "max_queue": 16,
+        "logger": _TERMINAL_WEBSOCKET_LOGGER,
     }
+    assert _TERMINAL_WEBSOCKET_LOGGER.getEffectiveLevel() == logging.WARNING
     assert json.loads(websocket.sent[0]) == {"type": "resize", "cols": 80, "rows": 24}
     assert websocket.sent[1:] == [b"echo hello\n"]
     assert output.getvalue() == b"ready\r\n"
     assert websocket.close_calls == [(1000, "client detached")]
     assert not any(
-        '"type": "close"' in message
-        for message in websocket.sent
-        if isinstance(message, str)
+        '"type": "close"' in message for message in websocket.sent if isinstance(message, str)
     )
 
 

@@ -31,7 +31,7 @@ terminal = computer.terminal()
 terminal_id = terminal.terminal_id
 terminal.attach()
 
-# Later, while the same cloud computer still exists:
+# Later, while both the same cloud computer and terminal session still exist:
 computer.terminal(terminal_id=terminal_id).attach()
 ```
 

@@ -177,8 +177,8 @@ with Computer() as comp:
 ```
 
 Press Ctrl+] to detach from a cloud terminal without ending its shell. Save
-`terminal.terminal_id` to reattach later while the computer still exists. Local
-terminals do not support reattachment.
+`terminal.terminal_id` to reattach later while both the cloud computer and
+terminal session still exist. Local terminals do not support reattachment.
 
 ### Start a sandbox in TypeScript (alpha)
 

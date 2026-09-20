@@ -2,7 +2,7 @@
 
 Celesto gives an agent a computer, either on the user's machine or in the cloud. The same Python code runs commands and manages that computer in either location.
 
-Status: Local first release shipped; core cloud Computer integration implemented on a follow-up branch.
+Status: Core local and cloud Computer integration is implemented.
 Date: 2026-09-18
 
 ## Implementation update — 2026-09-19

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import select
@@ -22,6 +23,8 @@ _MAX_TERMINAL_ID_CHARS = 160
 _MAX_GATEWAY_URL_CHARS = 4096
 _MAX_TOKEN_CHARS = 16 * 1024
 _MAX_GATEWAY_MESSAGE_BYTES = 1024 * 1024
+_TERMINAL_WEBSOCKET_LOGGER = logging.getLogger("celesto.terminal.websocket")
+_TERMINAL_WEBSOCKET_LOGGER.setLevel(logging.WARNING)
 
 
 class TerminalConnection:
@@ -203,6 +206,7 @@ def _attach_cloud_terminal(url: str) -> None:
                 compression=None,
                 max_size=_MAX_GATEWAY_MESSAGE_BYTES,
                 max_queue=16,
+                logger=_TERMINAL_WEBSOCKET_LOGGER,
             )
         except Exception:
             raise CelestoError(
