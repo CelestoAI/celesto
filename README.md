@@ -98,31 +98,51 @@ Each microVM boots in milliseconds, runs any code or software you throw at it, p
 
 ## Quickstart
 
-Install the Celesto alpha with Python 3.11 or newer:
+Install Celesto and prepare your machine with one command:
+
+```bash
+curl -fsSL https://celesto.ai/install.sh | bash
+```
+
+The installer sets up the Celesto CLI, installs the tools needed to run sandboxes,
+and checks that your machine is ready. On macOS, install [Homebrew](https://brew.sh)
+first; the installer uses it to install QEMU. On Linux, setup may ask for `sudo`
+permission and requires KVM, Linux's hardware virtualization support.
+
+<details>
+<summary>Manual installation with pip</summary>
+
+With Python 3.11 or newer, install Celesto in your Python environment:
 
 ```bash
 pip install 'celesto==0.0.15a0'
 ```
 
-Then prepare your machine and check that it is ready:
+Pip installs the Python package; prepare your machine and check it separately:
 
 ```bash
 celesto setup
 celesto doctor
 ```
 
-<details>
-<summary>Installation details</summary>
-
-On supported Linux and macOS systems, installing `celesto` also pulls in the matching `smolvm-core` wheel automatically. The `smolvm-core` package name is unchanged. Most users do not need Rust installed.
-
-Linux may prompt for `sudo` during setup so it can install host dependencies and configure runtime permissions.
-
-For golden-AMI builds, two-stage deploys, pinning the Firecracker version, and other non-default install paths, see [docs/installation.md](docs/installation.md).
+On macOS, setup needs Homebrew to install QEMU. On Linux, it may ask for `sudo`.
+The matching `smolvm-core` wheel is installed automatically on supported systems;
+most users do not need Rust.
 
 </details>
 
+See the [installation guide](docs/installation.md) for optional Docker support,
+existing dependencies, custom install locations, and machine-image builds.
+
 ### Start a sandbox in Python
+
+The installer keeps the CLI in its own Python environment. To use Celesto in your
+project, also install the package in that project's Python 3.11+ environment
+(skip this if you used pip there above):
+
+```bash
+pip install 'celesto==0.0.15a0'
+```
 
 ```python
 from celesto import Computer
@@ -191,10 +211,11 @@ The TypeScript SDK gives Node.js agents a disposable computer on the same machin
 The separate TypeScript preview still uses the `@celestoai/smolvm` package and
 `SmolVM` class. Set `runtimePath: "celesto"` to use this Python release.
 
+The one-command installer includes the server support needed by TypeScript. If you installed manually, add it with `pip install 'celesto[server]==0.0.15a0'`.
+
 The alpha supports Node.js 20.4 or newer on Linux x64 and Apple Silicon macOS. After installing Celesto above, install the preview package and `tsx`:
 
 ```bash
-pip install 'celesto[server]==0.0.15a0'
 npm install https://github.com/CelestoAI/SmolVM/releases/download/typescript-v0.1.0-preview.1/celestoai-smolvm-0.1.0-preview.1.tgz
 npm install --save-dev tsx
 ```
