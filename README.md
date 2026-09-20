@@ -132,7 +132,7 @@ computer.stop()
 ```
 
 
-To run in cloud, set `CELESTO_API_KEY` in your environment and set `provider="cloud"`.
+By default, Computer runs locally. To run in the cloud, set `CELESTO_API_KEY` in your environment and use `provider="cloud"`.
 
 ```python
 from celesto import Computer
