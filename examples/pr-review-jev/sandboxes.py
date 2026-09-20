@@ -38,9 +38,7 @@ class Sandbox:
         elif provider == "cloud":
             from celesto import CloudComputer as Computer
 
-            self.vm = Computer(
-                template_id=os.getenv("CELESTO_TEMPLATE", "coding-agent"), startup_timeout=180
-            )
+            self.vm = Computer(template_id=os.getenv("CELESTO_TEMPLATE", "coding-agent"), startup_timeout=180)
             self.vm.start()
         else:
             raise ValueError("Choose local or cloud.")
