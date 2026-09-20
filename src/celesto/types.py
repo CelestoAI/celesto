@@ -137,6 +137,23 @@ CommandEvent = CommandStartedEvent | CommandOutputEvent | CommandExitEvent
 """An event yielded by :meth:`celesto.Computer.run_stream`."""
 
 
+class PublishedPort(BaseModel):
+    """A public HTTP route to an application inside a computer.
+
+    ``status`` is reported by the service; a URL alone does not imply readiness.
+    Optional metadata is ``None`` when absent. URLs are omitted from representations.
+    """
+
+    computer_id: str
+    port: int = Field(ge=1024, le=65535)
+    status: str
+    id: str | None = None
+    url: str | None = Field(default=None, repr=False)
+    created_at: str | None = None
+
+    model_config = {"frozen": True, "strict": True, "hide_input_in_errors": True}
+
+
 class GuestOS(str, Enum):
     """Supported guest operating systems for auto-configured VMs."""
 
