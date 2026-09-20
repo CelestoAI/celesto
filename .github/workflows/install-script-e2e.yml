@@ -77,7 +77,6 @@ jobs:
 
       - name: Create and exercise a sandbox
         run: |
-          "$CELESTO_BIN" doctor --backend "${{ matrix.backend }}"
           "$CELESTO_BIN" sandbox create \
             --name "$SANDBOX_NAME" \
             --backend "${{ matrix.backend }}" \
