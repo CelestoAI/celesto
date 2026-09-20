@@ -4,7 +4,13 @@ from unittest.mock import Mock
 
 import pytest
 
-from celesto import CommandExitEvent, CommandOutputEvent, CommandResult, Computer
+from celesto import (
+    CommandExitEvent,
+    CommandOutputEvent,
+    CommandResult,
+    Computer,
+    TerminalConnection,
+)
 from celesto.exceptions import CelestoError, VMNotFoundError
 
 
@@ -22,6 +28,31 @@ def runtime(monkeypatch):
     monkeypatch.setattr("celesto.sdk.Celesto", factory)
     monkeypatch.setattr(Computer, "_runtime_options", lambda self: self._options)
     return factory, vm
+
+
+@pytest.mark.parametrize(
+    "method,args",
+    [
+        ("publish_port", (8000,)),
+        ("published_ports", ()),
+        ("unpublish_port", (8000,)),
+    ],
+)
+@pytest.mark.parametrize("state", ["fresh", "running", "attached"])
+def test_local_published_ports_fail_without_partial_work(runtime, method, args, state):
+    factory, vm = runtime
+    if state == "attached":
+        comp = Computer.get("sbx-test", local=True)
+    else:
+        comp = Computer(local=True)
+        if state == "running":
+            comp.run("echo hello")
+    factory.reset_mock()
+    vm.reset_mock()
+    with pytest.raises(CelestoError, match=r"unavailable on local computers; use Computer\(\)"):
+        getattr(comp, method)(*args)
+    factory.assert_not_called()
+    assert vm.mock_calls == []
 
 
 def test_missing_cloud_key_and_invalid_lifetime_fail_before_allocation(runtime, monkeypatch):
@@ -64,6 +95,40 @@ def test_local_run_stream_uses_same_lazy_lifecycle(runtime):
         ("exit", None),
     ]
     vm.run_stream.assert_called_once_with("echo hello", timeout=30)
+
+
+def test_local_terminal_uses_same_lazy_lifecycle(runtime):
+    factory, vm = runtime
+    comp = Computer(local=True)
+
+    terminal = comp.terminal()
+
+    assert isinstance(terminal, TerminalConnection)
+    assert terminal.terminal_id is None
+    assert terminal.expires_at is None
+    factory.assert_called_once()
+    vm.start.assert_called_once()
+    terminal.attach()
+    vm.attach_shell.assert_called_once_with()
+
+
+@pytest.mark.parametrize("terminal_id", ["", "term_", "bad", "term_!", 1])
+def test_invalid_terminal_id_does_not_allocate(runtime, terminal_id):
+    factory, _ = runtime
+
+    with pytest.raises(ValueError, match="terminal_id"):
+        Computer(local=True).terminal(terminal_id=terminal_id)
+
+    factory.assert_not_called()
+
+
+def test_local_terminal_reattachment_is_rejected_before_allocation(runtime):
+    factory, _ = runtime
+
+    with pytest.raises(ValueError, match="only supported for cloud"):
+        Computer(local=True).terminal(terminal_id="term_existing")
+
+    factory.assert_not_called()
 
 
 def test_exceptional_exit_deletes_and_preserves_error(runtime):

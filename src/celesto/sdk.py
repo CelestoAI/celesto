@@ -8,12 +8,19 @@ from contextlib import suppress
 from pathlib import Path
 from threading import Lock
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from celesto._connection_info import DisplayMode, validate_display_mode
+from celesto._terminal import TerminalConnection, local_terminal_connection, validate_terminal_id
 from celesto.exceptions import CelestoError, VMNotFoundError
 from celesto.facade import Celesto
-from celesto.types import BrowserConnection, CommandEvent, CommandResult, DisplayConnection
+from celesto.types import (
+    BrowserConnection,
+    CommandEvent,
+    CommandResult,
+    DisplayConnection,
+    PublishedPort,
+)
 
 if TYPE_CHECKING:
     from celesto._cloud import _CloudComputer
@@ -172,6 +179,22 @@ class Computer:
         runtime = self._ensure_started()
         return runtime.run_stream(command, timeout=timeout)
 
+    def terminal(self, *, terminal_id: str | None = None) -> TerminalConnection:
+        """Create an interactive terminal connection.
+
+        Call ``attach()`` on the returned connection to bridge this process's
+        stdin and stdout. Cloud terminal IDs can be supplied later to reattach.
+        Local terminal sessions don't support reattachment.
+        """
+        validate_terminal_id(terminal_id)
+        if self._local and terminal_id is not None:
+            raise ValueError("terminal_id reattachment is only supported for cloud computers.")
+        runtime = self._ensure_started()
+        if self._local:
+            return local_terminal_connection(cast(Celesto, runtime).attach_shell)
+        assert self._cloud is not None
+        return self._cloud.terminal(terminal_id=terminal_id)
+
     @staticmethod
     def _validate_run(command: str, timeout: int) -> None:
         if not isinstance(command, str) or not command.strip():
@@ -203,6 +226,43 @@ class Computer:
             result = local_connection(runtime, mode, self._connection_forwards)
             assert isinstance(result, DisplayConnection)
             return result
+
+    def _port_provider(self) -> _CloudComputer:
+        if self._cloud is None:
+            raise CelestoError(
+                "Published ports are unavailable on local computers; use Computer() "
+                "to publish an HTTP application from a cloud computer."
+            )
+        self._ensure_started()
+        return self._cloud
+
+    @staticmethod
+    def _validate_port(port: int) -> None:
+        if isinstance(port, bool) or not isinstance(port, int) or not 1024 <= port <= 65535:
+            raise ValueError("port must be an integer from 1024 to 65535.")
+
+    def publish_port(self, port: int) -> PublishedPort:
+        """Publish an HTTP application to the internet (cloud only).
+
+        Creates this computer if needed. The application must already be listening
+        on the port. The service may reject reserved ports within the allowed range.
+        Requests are never automatically replayed after a transport failure.
+        """
+        self._validate_port(port)
+        return self._port_provider().publish_port(port)
+
+    def published_ports(self) -> list[PublishedPort]:
+        """Fetch active public routes (cloud only), creating this computer if needed."""
+        return self._port_provider().published_ports()
+
+    def unpublish_port(self, port: int) -> PublishedPort:
+        """Remove a public route without stopping its application (cloud only).
+
+        Creates this computer if needed. Removing an absent route is safe, but
+        requests are never automatically replayed after a transport failure.
+        """
+        self._validate_port(port)
+        return self._port_provider().unpublish_port(port)
 
     def delete(self) -> None:
         """Delete this computer; failed cleanup can be retried on the same handle."""

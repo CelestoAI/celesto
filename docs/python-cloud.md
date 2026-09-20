@@ -39,6 +39,38 @@ objects whose `type` is `"stdout"` or `"stderr"`, and ends with one
 `CommandExitEvent`. If you stop early, close the iterator to close its connection.
 The command must not be assumed to have stopped until the computer reports that separately.
 
+## Open an interactive terminal
+
+Use `terminal()` when a person needs an interactive shell rather than a single
+command. `attach()` connects the current process's terminal and blocks until the
+shell exits or you detach.
+
+```python
+from celesto import Computer
+
+with Computer() as comp:
+    terminal = comp.terminal()
+    terminal.attach()
+```
+
+Press Ctrl+] to detach without ending the cloud shell. A cloud terminal has a
+durable ID that can be used to request fresh short-lived connection credentials:
+
+```python
+terminal_id = terminal.terminal_id
+assert terminal_id is not None
+comp.terminal(terminal_id=terminal_id).attach()
+```
+
+Reattachment works only while the computer and terminal session still exist.
+The connection token is intentionally private and does not appear in
+`TerminalConnection` representations. Terminal connection creation and
+WebSocket attachment are never retried automatically; this avoids duplicating a
+session or replaying terminal input after an ambiguous network failure.
+
+`Computer(local=True).terminal()` has the same `attach()` API but no durable
+terminal ID because the current local transport does not support reattachment.
+
 The block deletes the computer on exit, even if your code raises. Cleanup waits until the API reports deletion or no longer finds the computer. A cleanup error remains visible and you can retry `comp.delete()`. If both your code and cleanup fail, Python reports both in an exception group.
 
 ## Keep and reconnect
@@ -100,6 +132,49 @@ Default command-only local computers and cloud `scratch` templates do not gain a
 browser automatically. Unsupported templates and network configurations fail
 explicitly. Repeated connection calls preserve healthy browser sessions.
 
+## Publish an application
+
+Give an HTTP application inside your cloud computer a public URL. Start the
+application first, listening on `0.0.0.0` and a port from `1024` to `65535`.
+For example, this serves a small demo page from its own directory:
+
+```python
+from celesto import Computer
+
+with Computer() as comp:
+    comp.run("mkdir -p /tmp/demo && printf 'Hello from Celesto' > /tmp/demo/index.html")
+    comp.run(
+        "nohup python3 -m http.server 8000 --bind 0.0.0.0 --directory /tmp/demo "
+        ">/tmp/demo.log 2>&1 </dev/null &"
+    )
+    route = comp.publish_port(8000)
+    print(route.url)
+    print(comp.published_ports())
+    input("Press Enter to remove the public route and delete the computer. ")
+    removed = comp.unpublish_port(8000)
+    print(removed.status)
+```
+
+Publishing makes the application accessible from the internet; add authentication
+to the application if it needs access control. The route does not start your
+application or guarantee it is ready to respond. These methods publish HTTP
+applications, not arbitrary TCP or UDP services. Celesto system ports are reserved
+and may be rejected by the service even within the allowed range.
+
+Each result is a `PublishedPort`, importable from `celesto`, with `computer_id`,
+`port`, `status`, and optional `id`, `url`, and `created_at` (the service's timestamp
+string). Missing metadata is `None`. Results are immutable snapshots; call
+`published_ports()` for current routes. URLs are omitted from `repr()` and printed
+objects; access `.url` explicitly. Unpublishing removes the route without stopping
+the application, and succeeds even when that port has no route.
+
+All three methods are cloud-only. Local calls raise `CelestoError` before starting
+a computer. Invalid port arguments raise `ValueError` before allocation. On a fresh
+cloud handle, each valid method creates the computer if needed; use
+`Computer.get(computer_id)` to manage an existing computer's routes. Publish and
+unpublish requests are never automatically replayed: after an uncertain outcome,
+inspect `published_ports()` or the cloud dashboard before retrying.
+
 ## Connection and creation options
 
 Pass `api_key=` to override `CELESTO_API_KEY`, and `organization_id=` to select an organization. `base_url=` defaults to `https://api.celesto.ai` and must be the server origin without `/v1`. HTTPS is required except for localhost development servers. Credentials go only to that explicitly selected origin; redirects are not followed.
@@ -111,7 +186,8 @@ HTTP failures raise `CloudAPIError` with a `status_code`. Missing computers rais
 ## Live smoke test
 
 The live test creates one billable cloud computer, runs commands, reconnects to it,
-and checks that context exit deletes it. It is skipped by default. With
+publishes and fetches a test HTTP application, removes its route, and checks that
+context exit deletes the computer. It is skipped by default. With
 `CELESTO_API_KEY` already set, opt in explicitly:
 
 ```bash
@@ -141,10 +217,11 @@ makes a final cleanup attempt even when the test fails.
 The private `_celesto_cloud_api` package contains generated requests and models. It ships
 inside the same Python distribution as `celesto`; it is not a separate PyPI package or a
 public SDK interface. The public `Computer` keeps these types out of its API and uses the
-generated ordinary command endpoint. Streaming uses a small handwritten SSE adapter because
-generated OpenAPI clients buffer `text/event-stream` responses. Browser/display
-connections use generated HTTP issuance calls and handwritten public result types.
-Terminal and file APIs are not exposed by this wrapper yet.
+generated ordinary command, published-port, and terminal-session endpoints.
+Streaming uses a small handwritten SSE adapter because generated OpenAPI clients
+buffer `text/event-stream` responses. Terminal WebSocket I/O uses a small
+handwritten bounded adapter. Browser/display connections use generated HTTP issuance calls and handwritten
+public result types. File APIs are not exposed by this wrapper yet.
 
 The generator consumes the committed `openapi/cloud.json` snapshot. After updating that snapshot from the backend's exported document, regenerate with:
 

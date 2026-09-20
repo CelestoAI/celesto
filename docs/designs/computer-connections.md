@@ -181,14 +181,12 @@ Every failure has a required explicit error and test above. No silent fallback f
 
 ## Implementation tasks and PR boundaries
 
-Effort is a planning estimate; VM/image availability and live-service checks dominate elapsed time. AI execution estimates exclude external build/release waits.
+The implementation is delivered in one PR, covering the originally planned T1–T3 boundaries.
 
-- [ ] **T1 / PR 1 (P1; human 1–2 days / AI 2–4 hours): shared types and cloud connections.** Modify `types.py`, `__init__.py`, `sdk.py`, `_cloud.py`; add normalization and cloud/facade tests. Include the connection contract documentation. Until PR 3 lands, local calls fail explicitly and docs label local support pending. Verify focused pytest, Ruff and generated-client drift.
-- [ ] **T2 / PR 2 (P1; human 2–3 days / AI 3–6 hours): local image support.** Extend `images/builder.py` guest helpers with capability descriptor, non-destructive ensure, locking and separate view-only endpoints; add image/helper tests and smoke coverage. Build and smoke the new image before promoting release pins in `images/published.py`. Update `_GUEST_AGENT_RELEASE_SHA256` to the matching release assets as required by the repository checklist. Preserve old entry points.
-- [ ] **T3 / PR 3 (P1; human 2–3 days / AI 3–6 hours): attach locally to the same VM.** Extend SDK template routing and extract shared configuration/attachment helpers from `browser.py`; reuse `facade.py` forwarding and lifecycle. Add local contract/E2E tests. Depends on T1 public types and T2 verified images. No separate browser-session ownership object.
-- [ ] **T4 / final integration (P1; human 1 day / AI 2–4 hours): parity and release checks.** Run cloud/local live connection tests, actual mode enforcement, installed-wheel smoke, legacy lifecycle/browser regressions, and image pin verification. Update `docs/python-cloud.md`, `docs/designs/celesto-sdk.md`, and relevant Python examples to shipped status; correct the stale command-streaming statement. Close M2 only after both providers pass.
-
-PR 1 and PR 2 can run in separate worktrees: cloud adapter/tests and image builder/tests are independent once the public contract is fixed. PR 3 follows both; PR 4 validation follows integration. Coordinate `sdk.py`, `types.py`, and documentation centrally to avoid conflicting edits. No backend feature PR unless an actual contract deficiency is found.
+- [x] **T1: shared types and cloud connections.** Public types, generated issuance calls, normalization, facade/cloud tests, and documentation implemented.
+- [x] **T2: local image support.** Bundled guest helper, capability probes, locking, and independent view-only endpoints implemented and smoked with existing desktop images. Future image builds include the helper; release pins remain unchanged.
+- [x] **T3: attach locally to the same VM.** Explicit graphical template routing, shared configuration, forwarding reuse, and local contract/E2E tests implemented.
+- [ ] **T4: parity and release acceptance.** Source and installed-wheel local QEMU tests passed, including keyboard/mouse/clipboard enforcement and reconnect preservation. Live cloud validation is pending credentials. The opt-in cloud smoke covers CDP and the RFB handshake; cloud mode enforcement and expired-credential rejection still need live acceptance. Image/package release validation is outside this PR.
 
 Suggested verification commands during implementation:
 
@@ -224,12 +222,12 @@ M2 acceptance: both methods return the same handwritten shapes across providers;
 
 | Review | Runs | Status | Findings |
 |---|---:|---|---|
-| Scope | 1 | Full M2 approved by user (A) | Separate cloud/local PRs; no cloud-only completion claim. |
+| Scope | 1 | Full M2 approved by user (A) | Consolidated implementation PR; live cloud acceptance pending. |
 | Architecture | 1 | Proposed implementation documented | Same-VM ownership, explicit graphical template, independent mode enforcement, truthful local expiry. |
 | Code quality | 1 | Requirements documented | Reuse guest/forwarding helpers; prevent destructive reconnect and credential-bearing errors. |
-| Tests | 1 | Test plan documented; not executed | New branch/failure matrix plus real CDP/RFB and installed-wheel verification. |
+| Tests | 1 | Focused tests and local E2E passed | New branch/failure matrix plus real CDP/RFB and installed-wheel verification. |
 | Performance | 1 | Constraints documented | One issuance POST, bounded probes, bounded local forwards/processes, measure dual-VNC overhead. |
-| Outside voice | 0 | Not run | No independent review claimed. |
+| Outside voice | 1 | Independent code review completed | No blocking findings; live cloud mode/expiry acceptance remains pending. |
 
 VERDICT: Implementation prepared, with focused SDK/runtime regression tests and real local QEMU connection checks. Local CDP attachment, same-VM file access, concurrent display modes, keyboard/mouse/clipboard enforcement and reconnect preservation passed. Live cloud checks remain unrun because credentials are unavailable. No package or image release was published, and release SHA pins remain unchanged; the bundled helper supports existing desktop images. This is not release clearance.
 

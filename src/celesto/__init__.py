@@ -20,6 +20,7 @@ sandboxed environment.
 
 from importlib.metadata import version as _pkg_version
 
+from celesto._terminal import TerminalConnection
 from celesto.callbacks import Callback, CommandBlockedError, RunContext
 from celesto.exceptions import (
     CelestoError,
@@ -71,6 +72,7 @@ from celesto.types import (
     MacOSMachineConfig,
     NetworkAttachmentConfig,
     NetworkConfig,
+    PublishedPort,
     QemuMachine,
     SnapshotArtifacts,
     SnapshotCapturePolicy,
@@ -90,6 +92,7 @@ __all__ = [
     "DisplayConnection",
     # Core classes
     "Computer",
+    "TerminalConnection",
     "Celesto",
     "CelestoManager",
     # Callbacks / hooks
@@ -129,6 +132,7 @@ __all__ = [
     "SnapshotType",
     "GuestFlushPolicy",
     "CommandResult",
+    "PublishedPort",
     "CommandEvent",
     "CommandStartedEvent",
     "CommandOutputEvent",
