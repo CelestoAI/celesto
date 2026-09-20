@@ -137,11 +137,7 @@ existing dependencies, custom install locations, and machine-image builds.
 
 The installer keeps the CLI in its own Python environment. To use Celesto in your
 project, also install the package in that project's Python 3.11+ environment
-(skip this if you used pip there above):
-
-```bash
-pip install 'celesto==0.0.15a0'
-```
+(skip this if you used pip there above).
 
 ```python
 from celesto import Computer
