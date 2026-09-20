@@ -8,7 +8,7 @@ Inspected SDK revision: `6cd1044`. Backend and previous SDK sources inspected fr
 
 ## Scope
 
-Implement `Computer.browser()` and `Computer.display(mode=...)`, handwritten result types, cloud credential issuance, local attachment to the existing VM, enforced display modes, and connection tests/documentation. Deliver cloud and local work in separate PRs under one public contract. M2 is complete only after both providers pass acceptance tests.
+Implement `Computer.browser()` and `Computer.display(mode=...)`, handwritten result types, cloud credential issuance, local attachment to the existing VM, enforced display modes, and connection tests/documentation. Cloud and local work share one public contract and one implementation PR. M2 is complete only after both providers pass acceptance tests.
 
 Preserve deferred creation, current command behavior, existing local defaults, explicit reconnection, retryable deletion, and persistent ownership. Connection methods do not create a second VM, replace a stopped computer, change command users, or take ownership of attached resources.
 
@@ -210,11 +210,11 @@ A second VNC process adds CPU/memory overhead when displaying the same desktop; 
 - M1 file transfer, M3 published ports/terminals, M4 server-enforced computer expiry: separate milestones; M2 connection expiry is not resource expiry.
 - TypeScript/OpenMuse migration, optional dependency splitting, CLI redesign or changing existing default images.
 - Browser action wrappers, automatic Playwright ownership, hosted viewer UI, local multi-user authentication, or transparent action replay.
-- Publishing a package or tagging a release in this planning task. Image release work is an implementation prerequisite, not performed here.
+- Publishing a package or tagging a release. The bundled helper supports existing desktop images; future image releases must follow the repository's build, smoke, manifest, and SHA-pin checklist.
 
 ## Rollback and acceptance
 
-The legacy graphical APIs remain usable throughout. Cloud and local PRs can be reverted independently until the final parity release. Pair any backend/schema change with its generated snapshot. Do not downgrade an already-running guest or delete user computers during rollback; older unsupported images receive clear connection errors.
+The legacy graphical APIs remain usable throughout. The combined connection implementation can be reverted before release. Pair any backend/schema change with its generated snapshot. Do not downgrade an already-running guest or delete user computers during rollback; older unsupported images receive clear connection errors.
 
 M2 acceptance: both methods return the same handwritten shapes across providers; commands and connections address the same computer; read-only access rejects input at the service boundary; repeat calls and reconnect preserve existing work; credentials stay out of diagnostic surfaces; readiness ends within a bound; old lifecycle/streaming tests pass; source and installed-wheel paths pass; docs accurately distinguish local untimed URLs from cloud short-lived credentials.
 
