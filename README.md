@@ -127,7 +127,7 @@ For golden-AMI builds, two-stage deploys, pinning the Firecracker version, and o
 ```python
 from celesto import Computer
 
-with Computer(local=True) as comp:
+with Computer() as comp:
     result = comp.run("echo 'Hello from the sandbox!'")
     print(result.stdout)
 ```
@@ -137,13 +137,13 @@ Old `smolvm` Python imports are no longer supported.
 Use `celesto setup` and `celesto doctor` to prepare your machine.
 
 The computer is deleted when the `with` block ends, including when your code
-raises an exception. `local=True` runs it on your machine.
+raises an exception. Computers run on your machine by default, without a cloud account.
 Outside `with`, call `delete()` yourself; automatic expiry after a crash is not
 implemented yet.
 
 To keep a computer after Python exits, create it with
-`Computer(local=True, lifetime="persistent")`, save its `id` after the first
-command, and reconnect with `Computer.get(id, local=True)`. Persistent computers
+`Computer(lifetime="persistent")`, save its `id` after the first
+command, and reconnect with `Computer.get(id)`. Persistent computers
 cannot be used in a `with` block. Remove them with `delete()` or
 `celesto sandbox delete <id>`.
 
@@ -151,19 +151,23 @@ Advanced local APIs are available as `celesto.Celesto` and `celesto.CelestoManag
 Existing local data, environment settings, and image caches retain their current
 locations. Use the `celesto` command; the `smolvm` command is no longer installed.
 
-To run in Celesto Cloud, set `CELESTO_API_KEY` in your environment, then omit
-`local=True`:
+To run in Celesto Cloud, set `CELESTO_API_KEY` in your environment, then select
+the cloud explicitly:
 
 ```python
 from celesto import Computer
 
-with Computer() as comp:
+with Computer(provider="cloud") as comp:
     print(comp.run("echo 'Hello from the cloud!'").stdout)
 ```
 
 Cloud creation and commands can incur charges. Missing credentials raise an
 error; they never switch execution to your machine. See [Python cloud usage](docs/python-cloud.md)
 for connection options, persistence, and cleanup limits.
+
+For code that always uses one location, import `LocalComputer` or `CloudComputer`
+as `Computer`. Both expose the same operations and keep that location when you
+reconnect. See the [migration guide](docs/local-first.md) for the changed default.
 
 ### Open an interactive terminal
 

@@ -25,8 +25,10 @@ def runtime(monkeypatch):
         ]
     )
     factory = Mock(return_value=vm)
-    monkeypatch.setattr("celesto.sdk.Celesto", factory)
-    monkeypatch.setattr(Computer, "_runtime_options", lambda self: self._options)
+    monkeypatch.setattr("celesto._providers.local.Celesto", factory)
+    monkeypatch.setattr(
+        "celesto._providers.local.LocalProvider._runtime_options", lambda self: self._options
+    )
     return factory, vm
 
 
@@ -49,7 +51,9 @@ def test_local_published_ports_fail_without_partial_work(runtime, method, args, 
             comp.run("echo hello")
     factory.reset_mock()
     vm.reset_mock()
-    with pytest.raises(CelestoError, match=r"unavailable on local computers; use Computer\(\)"):
+    with pytest.raises(
+        CelestoError, match=r"unavailable on local computers; use CloudComputer\(\)"
+    ):
         getattr(comp, method)(*args)
     factory.assert_not_called()
     assert vm.mock_calls == []
@@ -59,7 +63,7 @@ def test_missing_cloud_key_and_invalid_lifetime_fail_before_allocation(runtime, 
     factory, _ = runtime
     monkeypatch.delenv("CELESTO_API_KEY", raising=False)
     with pytest.raises(ValueError, match="CELESTO_API_KEY"):
-        Computer()
+        Computer(provider="cloud")
     with pytest.raises(ValueError, match="lifetime"):
         Computer(local=True, lifetime="forever")
     factory.assert_not_called()

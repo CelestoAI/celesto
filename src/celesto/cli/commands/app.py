@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import shlex
+from functools import wraps
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -1509,7 +1510,72 @@ def computer() -> None:
     """Manage complete desktop computers."""
 
 
+def computer_provider_options(function: Any) -> Any:
+    """Resolve mutually exclusive location flags before dispatch."""
+
+    @click.option("--local", is_flag=True, help="Run on this machine (the default).")
+    @click.option("--cloud", is_flag=True, help="Run in Celesto Cloud.")
+    @wraps(function)
+    def wrapped(*args: Any, local: bool, cloud: bool, **kwargs: Any) -> Any:
+        if local and cloud:
+            raise click.UsageError("Choose either --local or --cloud, not both.")
+        context = click.get_current_context()
+        if (
+            cloud
+            and context.info_name == "terminal"
+            and context.get_parameter_source("boot_timeout") != click.core.ParameterSource.DEFAULT
+        ):
+            raise click.UsageError(
+                "--boot-timeout applies to local terminals; omit it with --cloud."
+            )
+        return function(*args, provider="cloud" if cloud else "local", **kwargs)
+
+    return wrapped
+
+
+@computer.command("create")
+@computer_provider_options
+@boot_timeout_option
+@json_option
+def computer_create(provider: str, boot_timeout: float, json_output: bool) -> Any:
+    """Create and start a computer; runs locally unless --cloud is selected."""
+    _before_command(json_output=json_output)
+    return _handlers()._run_computer(
+        _ns(
+            computer_action="create",
+            provider=provider,
+            boot_timeout=boot_timeout,
+            json=json_output,
+            name=None,
+            backend="auto",
+            width=1440,
+            height=900,
+            memory_mib=2048,
+            disk_size_mib=8192,
+        )
+    )
+
+
+@computer.command("terminal")
+@click.argument("computer_id")
+@computer_provider_options
+@boot_timeout_option
+def computer_terminal(computer_id: str, provider: str, boot_timeout: float) -> Any:
+    """Open a local interactive terminal, or select --cloud; exit keeps the computer."""
+    _before_command()
+    return _handlers()._run_computer(
+        _ns(
+            computer_action="terminal",
+            computer_id=computer_id,
+            provider=provider,
+            boot_timeout=boot_timeout,
+            json=False,
+        )
+    )
+
+
 @computer.command("start")
+@computer_provider_options
 @click.option(
     "--template",
     type=click.Choice(["linux-desktop"]),
@@ -1549,6 +1615,7 @@ def computer() -> None:
 @boot_timeout_option
 @json_option
 def computer_start(
+    provider: str,
     template: str,
     name: str | None,
     backend: str,
@@ -1564,6 +1631,7 @@ def computer_start(
     return _handlers()._run_computer(
         _ns(
             computer_action="start",
+            provider=provider,
             template=template,
             name=name,
             backend=backend,
@@ -1578,50 +1646,65 @@ def computer_start(
 
 
 @computer.command("delete")
+@computer_provider_options
 @click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
-def computer_delete(computer_id: str) -> Any:
+def computer_delete(computer_id: str, provider: str) -> Any:
     """Delete a computer and its files."""
     _before_command()
     return _handlers()._run_computer(
-        _ns(computer_action="delete", computer_id=computer_id, json=False)
+        _ns(computer_action="delete", computer_id=computer_id, provider=provider, json=False)
     )
 
 
 @computer.command("list")
+@computer_provider_options
 @json_option
-def computer_list(json_output: bool) -> Any:
+def computer_list(json_output: bool, provider: str) -> Any:
     """List desktop computers."""
     _before_command(json_output=json_output)
-    return _handlers()._run_computer(_ns(computer_action="list", json=json_output))
+    return _handlers()._run_computer(
+        _ns(computer_action="list", provider=provider, json=json_output)
+    )
 
 
 @computer.command("open")
+@computer_provider_options
 @click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
-def computer_open(computer_id: str) -> Any:
+def computer_open(computer_id: str, provider: str) -> Any:
     """Open a computer's desktop view."""
     _before_command()
     return _handlers()._run_computer(
-        _ns(computer_action="open", computer_id=computer_id, json=False)
+        _ns(computer_action="open", computer_id=computer_id, provider=provider, json=False)
     )
 
 
 @computer.command("logs")
+@computer_provider_options
 @click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
 @click.option("--tail", type=int, default=100, show_default=True)
-def computer_logs(computer_id: str, tail: int) -> Any:
+def computer_logs(computer_id: str, tail: int, provider: str) -> Any:
     """Show recent computer output."""
     _before_command()
     return _handlers()._run_computer(
-        _ns(computer_action="logs", computer_id=computer_id, tail=tail, json=False)
+        _ns(
+            computer_action="logs",
+            computer_id=computer_id,
+            provider=provider,
+            tail=tail,
+            json=False,
+        )
     )
 
 
 @computer.command("templates")
+@computer_provider_options
 @json_option
-def computer_templates(json_output: bool) -> Any:
+def computer_templates(json_output: bool, provider: str) -> Any:
     """List available computer templates."""
     _before_command(json_output=json_output)
-    return _handlers()._run_computer(_ns(computer_action="templates", json=json_output))
+    return _handlers()._run_computer(
+        _ns(computer_action="templates", provider=provider, json=json_output)
+    )
 
 
 def _register_preset_commands() -> None:

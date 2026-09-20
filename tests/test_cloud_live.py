@@ -9,7 +9,8 @@ from pathlib import Path
 import httpx
 import pytest
 
-from celesto import CommandExitEvent, CommandOutputEvent, Computer, PublishedPort, VMNotFoundError
+from celesto import CloudComputer as Computer
+from celesto import CommandExitEvent, CommandOutputEvent, PublishedPort, VMNotFoundError
 
 
 def assert_public_application(url: str) -> None:
@@ -87,7 +88,7 @@ def test_cloud_live_lifecycle():
                     "-c",
                     """
 import sys
-from celesto import Computer
+from celesto import CloudComputer as Computer
 
 computer = Computer.get(sys.argv[1])
 computer.terminal(terminal_id=sys.argv[2]).attach()

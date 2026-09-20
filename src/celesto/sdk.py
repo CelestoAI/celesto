@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
-import inspect
 from collections.abc import Iterator
 from contextlib import suppress
 from pathlib import Path
 from threading import Lock
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import Any, ClassVar, Literal, Self, Unpack
 
 from celesto._connection_info import DisplayMode, validate_display_mode
-from celesto._terminal import TerminalConnection, local_terminal_connection, validate_terminal_id
+from celesto._providers import ProviderName, make_provider, resolve_provider
+from celesto._providers.base import ComputerProvider
+from celesto._providers.options import CloudOptions, LocalOptions
+from celesto._terminal import TerminalConnection, validate_terminal_id
 from celesto.exceptions import CelestoError, VMNotFoundError
-from celesto.facade import Celesto
 from celesto.types import (
     BrowserConnection,
     CommandEvent,
@@ -22,57 +23,41 @@ from celesto.types import (
     PublishedPort,
 )
 
-if TYPE_CHECKING:
-    from celesto._cloud import _CloudComputer
-
 
 class Computer:
     """A cloud or local computer with explicit ownership and deferred creation.
 
-    Pass ``local=True`` to run on this machine. Ephemeral computers are deleted on
-    context exit, not on garbage collection or a hard process crash. Outside
+    Runs locally by default; pass ``provider="cloud"`` for cloud execution.
+    Ephemeral computers are deleted on context exit, not on garbage collection
+    or a hard process crash. Outside
     a context, call ``delete()`` explicitly for either lifetime.
 
     Local VM options (such as ``os``, ``memory``, and ``mounts``) are forwarded
     to the local runtime. Existing data directories and image caches are reused.
     """
 
+    _fixed_provider: ClassVar[ProviderName | None] = None
+
     def __init__(
         self,
         *,
-        local: bool = False,
+        provider: ProviderName | None = None,
+        local: bool | None = None,
         lifetime: Literal["ephemeral", "persistent"] = "ephemeral",
         **options: Any,
     ) -> None:
-        if not isinstance(local, bool):
-            raise ValueError("local must be True or False.")
+        selected = resolve_provider(provider, local, self._fixed_provider)
         if lifetime not in ("ephemeral", "persistent"):
             raise ValueError("lifetime must be 'ephemeral' or 'persistent'.")
         if "vm_id" in options or "state_manager" in options:
-            raise ValueError("Use Computer.get(id, local=True) to reconnect to a computer.")
-        # Catch misspelled options without preparing images or allocating a VM.
-        self._local = local
-        self._template = options.pop("template_id", None) if local else None
+            raise ValueError(
+                f"Use Computer.get(id, provider='{selected}') to reconnect to a computer."
+            )
+        self._provider_name = selected
+        self._provider = make_provider(selected, options)
         self._connection_lock = Lock()
-        self._connection_forwards: dict[int, int] = {}
-        if local:
-            if self._template is not None:
-                from celesto._connections import validate_template_options
-
-                if self._template != "browser-agent":
-                    raise ValueError(
-                        "Local template_id must be 'browser-agent'; omit it for a plain computer."
-                    )
-                validate_template_options(options)
-            inspect.signature(Celesto).bind(**options)
-            self._cloud = None
-        else:
-            from celesto._cloud import _CloudComputer
-
-            self._cloud = _CloudComputer(**options)
-        self._options = options.copy()
         self._lifetime = lifetime
-        self._vm: Celesto | _CloudComputer | None = None
+        self._started = False
         self._deleted = False
         self._entered = False
         self._failed = False
@@ -84,42 +69,24 @@ class Computer:
     @property
     def id(self) -> str | None:
         """Stable ID after creation; inspecting this never creates a computer."""
-        return self._vm.vm_id if self._vm is not None else None
+        return self._provider.id
 
-    def _runtime_options(self) -> dict[str, Any]:
-        from celesto.cli.state import create_cli_state_manager
-        from celesto.vm import resolve_data_dir
+    @property
+    def provider(self) -> ProviderName:
+        """Execution location, fixed for the lifetime of this handle."""
+        return self._provider_name
 
-        options = self._options.copy()
-        data_dir = resolve_data_dir(options.get("data_dir"))
-        options["data_dir"] = data_dir
-        options["state_manager"] = create_cli_state_manager(data_dir / "smolvm.db")
-        return options
-
-    def _ensure_started(self) -> Celesto | _CloudComputer:
+    def _ensure_started(self) -> ComputerProvider:
         if self._deleted:
             raise CelestoError("This computer was deleted; create a new Computer.")
         if self._failed:
             raise CelestoError(
                 f"Computer '{self.id}' failed to start; retry delete() before creating another."
             )
-        if self._vm is None:
-            if self._local:
-                options = self._runtime_options()
-                if self._template is not None:
-                    from celesto._connections import template_runtime_options
-
-                    options = template_runtime_options(options)
-                self._vm = Celesto(**options)
-            else:
-                self._vm = self._cloud
-            assert self._vm is not None
+        if not self._started:
             try:
-                self._vm.start()
-                if self._local and self._template is not None:
-                    from celesto._connections import probe_capabilities
-
-                    probe_capabilities(self._vm, "browser")
+                self._provider.start()
+                self._started = True
             except BaseException as startup_error:
                 self._failed = True
                 try:
@@ -130,17 +97,18 @@ class Computer:
                         [startup_error, cleanup_error],
                     ) from None
                 raise
-        return self._vm
+        return self._provider
 
     @classmethod
     def get(
         cls,
         computer_id: str,
         *,
-        local: bool = False,
+        provider: ProviderName | None = None,
+        local: bool | None = None,
         data_dir: Path | None = None,
         **options: Any,
-    ) -> Computer:
+    ) -> Self:
         """Attach to an existing computer without creating or starting it.
 
         Attached handles are persistent and cannot be used as contexts: attaching
@@ -150,32 +118,30 @@ class Computer:
             raise ValueError("computer_id must not be empty.")
         if not isinstance(computer_id, str) or not computer_id.strip():
             raise ValueError("computer_id must be a nonempty string.")
-        if not isinstance(local, bool):
-            raise ValueError("local must be True or False.")
-        if local:
-            instance = cls(local=True, lifetime="persistent", data_dir=data_dir, **options)
-            instance._vm = Celesto(vm_id=computer_id, **instance._runtime_options())
-        else:
-            if data_dir is not None:
-                raise ValueError("data_dir is only supported with local=True.")
-            instance = cls(lifetime="persistent", **options)
-            assert instance._cloud is not None
-            instance._cloud.attach(computer_id)
-            instance._vm = instance._cloud
+        selected = resolve_provider(provider, local, cls._fixed_provider)
+        if data_dir is not None:
+            if selected != "local":
+                raise ValueError("data_dir is only supported with provider='local'.")
+            options["data_dir"] = data_dir
+        instance = cls(provider=selected, lifetime="persistent", **options)
+        try:
+            instance._provider.attach(computer_id)
+        except BaseException:
+            instance._provider.close()
+            raise
+        instance._started = True
         return instance
 
     def run(self, command: str, timeout: int = 30) -> CommandResult:
         """Run a shell command; nonzero exit codes are returned, not raised."""
         self._validate_run(command, timeout)
-        if self._cloud is not None:
-            self._cloud.validate_command(command, timeout)
+        self._provider.validate_command(command, timeout)
         return self._ensure_started().run(command, timeout=timeout)
 
     def run_stream(self, command: str, timeout: int = 30) -> Iterator[CommandEvent]:
         """Yield started, stdout, stderr, and exit events as a command runs."""
         self._validate_run(command, timeout)
-        if self._cloud is not None:
-            self._cloud.validate_command(command, timeout)
+        self._provider.validate_command(command, timeout)
         runtime = self._ensure_started()
         return runtime.run_stream(command, timeout=timeout)
 
@@ -187,13 +153,9 @@ class Computer:
         Local terminal sessions don't support reattachment.
         """
         validate_terminal_id(terminal_id)
-        if self._local and terminal_id is not None:
-            raise ValueError("terminal_id reattachment is only supported for cloud computers.")
+        self._provider.validate_terminal(terminal_id)
         runtime = self._ensure_started()
-        if self._local:
-            return local_terminal_connection(cast(Celesto, runtime).attach_shell)
-        assert self._cloud is not None
-        return self._cloud.terminal(terminal_id=terminal_id)
+        return runtime.terminal(terminal_id=terminal_id)
 
     @staticmethod
     def _validate_run(command: str, timeout: int) -> None:
@@ -205,36 +167,17 @@ class Computer:
     def browser(self) -> BrowserConnection:
         """Return a CDP WebSocket URL for Playwright; request again to refresh it."""
         with self._connection_lock:
-            runtime = self._ensure_started()
-            if self._cloud is not None:
-                return self._cloud.browser()
-            from celesto._connections import local_connection
-
-            result = local_connection(runtime, "browser", self._connection_forwards)
-            assert isinstance(result, BrowserConnection)
-            return result
+            return self._ensure_started().browser()
 
     def display(self, *, mode: DisplayMode = "read_only") -> DisplayConnection:
         """Return a VNC-over-WebSocket URL for noVNC, not an HTML viewer page."""
         validate_display_mode(mode)
         with self._connection_lock:
-            runtime = self._ensure_started()
-            if self._cloud is not None:
-                return self._cloud.display(mode=mode)
-            from celesto._connections import local_connection
+            return self._ensure_started().display(mode=mode)
 
-            result = local_connection(runtime, mode, self._connection_forwards)
-            assert isinstance(result, DisplayConnection)
-            return result
-
-    def _port_provider(self) -> _CloudComputer:
-        if self._cloud is None:
-            raise CelestoError(
-                "Published ports are unavailable on local computers; use Computer() "
-                "to publish an HTTP application from a cloud computer."
-            )
-        self._ensure_started()
-        return self._cloud
+    def _port_provider(self) -> ComputerProvider:
+        self._provider.validate_ports()
+        return self._ensure_started()
 
     @staticmethod
     def _validate_port(port: int) -> None:
@@ -271,24 +214,23 @@ class Computer:
         running desktop are unaffected. Use ``Computer.get(id)`` to reconnect.
         """
         with self._connection_lock:
-            if self._local and self._vm is not None:
-                cast(Celesto, self._vm)._cleanup_local_forwards()
-                self._connection_forwards.clear()
-            runtime = self._vm if self._vm is not None else self._cloud
-            if runtime is not None:
-                runtime.close()
+            self._provider.close()
 
     def delete(self) -> None:
         """Delete this computer; failed cleanup can be retried on the same handle."""
         if self._deleted:
             return
-        if self._vm is not None:
-            with suppress(VMNotFoundError):
-                self._vm.delete()
-            self._vm.close()
+        with suppress(VMNotFoundError):
+            self._provider.delete()
+        self._provider.close()
         self._deleted = True
 
-    def __enter__(self) -> Computer:
+    def start(self) -> Self:
+        """Create and start this computer if it has not been created yet."""
+        self._ensure_started()
+        return self
+
+    def __enter__(self) -> Self:
         if self.lifetime == "persistent":
             raise ValueError(
                 "Persistent computers cannot use 'with'; use an ephemeral Computer "
@@ -316,3 +258,35 @@ class Computer:
             raise
         finally:
             self._entered = False
+
+
+class LocalComputer(Computer):
+    """A computer on this machine, with the shared Computer API."""
+
+    _fixed_provider: ClassVar[ProviderName | None] = "local"
+
+    def __init__(
+        self,
+        *,
+        provider: ProviderName | None = None,
+        local: bool | None = None,
+        lifetime: Literal["ephemeral", "persistent"] = "ephemeral",
+        **options: Unpack[LocalOptions],
+    ) -> None:
+        super().__init__(provider=provider, local=local, lifetime=lifetime, **options)
+
+
+class CloudComputer(Computer):
+    """A computer in Celesto Cloud, with the shared Computer API."""
+
+    _fixed_provider: ClassVar[ProviderName | None] = "cloud"
+
+    def __init__(
+        self,
+        *,
+        provider: ProviderName | None = None,
+        local: bool | None = None,
+        lifetime: Literal["ephemeral", "persistent"] = "ephemeral",
+        **options: Unpack[CloudOptions],
+    ) -> None:
+        super().__init__(provider=provider, local=local, lifetime=lifetime, **options)

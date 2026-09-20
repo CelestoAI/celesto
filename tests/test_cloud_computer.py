@@ -14,10 +14,12 @@ from celesto import (
     CommandExitEvent,
     CommandOutputEvent,
     CommandStartedEvent,
-    Computer,
     PublishedPort,
     TerminalConnection,
     VMNotFoundError,
+)
+from celesto import (
+    CloudComputer as Computer,
 )
 from celesto._cloud import _CloudComputer
 
@@ -85,6 +87,29 @@ def test_cloud_context_runs_and_confirms_cleanup(cloud):
     assert not replies
 
 
+def test_explicit_cloud_provider_uses_same_transport(cloud):
+    from celesto import Computer as UnifiedComputer
+
+    requests, replies = cloud
+    replies.extend([(201, computer()), (200, {"stdout": "ok", "stderr": "", "exit_code": 0})])
+    handle = UnifiedComputer(provider="cloud", lifetime="persistent")
+    assert handle.run("echo ok").stdout == "ok"
+    assert handle.provider == "cloud"
+    assert [request.method for request in requests] == ["POST", "POST"]
+    handle.close()
+
+
+def test_cloud_inventory_uses_generated_transport_without_creation(cloud):
+    from celesto._providers.cloud import list_cloud_computers
+
+    requests, replies = cloud
+    replies.append((200, {"computers": [computer()], "count": 1}))
+    assert list_cloud_computers() == [{"computer_id": "cloud-test", "status": "running"}]
+    assert len(requests) == 1
+    assert requests[0].method == "GET"
+    assert requests[0].url.path == "/v1/computers"
+
+
 def published_port(**overrides):
     return {
         "computer_id": "cloud-test",
@@ -129,7 +154,7 @@ def test_cloud_published_port_lifecycle_and_reconnection(cloud):
         absent = attached.unpublish_port(8000)
         assert absent.status == "unpublished"
         assert absent.url is absent.id is absent.created_at is None
-        attached._cloud.close()
+        attached.close()
     assert [r.method for r in requests] == [
         "POST",
         "POST",
@@ -747,7 +772,7 @@ def test_connections_use_generated_routes_and_redact_credentials(cloud, kind):
     if kind != "browser":
         assert json.loads(requests[-1].content) == {"mode": kind}
         assert result.mode == kind
-    comp._cloud.close()
+    comp.close()
 
 
 @pytest.mark.parametrize("mode", [None, True, 1, "write", [], {}])
@@ -769,7 +794,7 @@ def test_connection_errors_never_retry_or_expose_details(cloud, status):
         comp.browser()
     assert "secret" not in str(exc.value) + repr(exc.value.details)
     assert len(requests) == 3
-    comp._cloud.close()
+    comp.close()
 
 
 @pytest.mark.parametrize(
@@ -796,7 +821,7 @@ def test_invalid_connection_responses_are_redacted(cloud, change):
         comp.browser()
     assert "secret" not in str(exc.value)
     assert len(requests) == 3
-    comp._cloud.close()
+    comp.close()
 
 
 def test_display_mode_mismatch_fails_closed(cloud):
@@ -807,7 +832,7 @@ def test_display_mode_mismatch_fails_closed(cloud):
     comp = Computer()
     with pytest.raises(CelestoError, match="different display mode"):
         comp.display()
-    comp._cloud.close()
+    comp.close()
 
 
 def test_connection_refresh_and_state_wait_preserve_timeout(cloud):
@@ -823,13 +848,13 @@ def test_connection_refresh_and_state_wait_preserve_timeout(cloud):
         ]
     )
     comp = Computer.get("cloud-test")
-    client = comp._cloud._client.get_httpx_client()
+    client = comp._provider._client.get_httpx_client()
     client.timeout = httpx.Timeout(7)
     assert "first" in comp.browser().url
     assert "second" in comp.browser().url
     assert client.timeout == httpx.Timeout(7)
     assert [r.method for r in requests] == ["GET", "GET", "GET", "POST", "GET", "POST"]
-    comp._cloud.close()
+    comp.close()
 
 
 def test_connection_transport_failure_not_replayed(cloud):
@@ -839,7 +864,7 @@ def test_connection_transport_failure_not_replayed(cloud):
     with pytest.raises(CelestoError, match="unknown") as exc:
         comp.browser()
     assert "secret" not in str(exc.value) and len(requests) == 3
-    comp._cloud.close()
+    comp.close()
 
 
 def test_connection_poll_deadline_prevents_issuance(cloud, monkeypatch):
@@ -853,4 +878,4 @@ def test_connection_poll_deadline_prevents_issuance(cloud, monkeypatch):
     with pytest.raises(CelestoError, match="not ready"):
         comp.browser()
     assert [r.method for r in requests] == ["GET", "GET"]
-    comp._cloud.close()
+    comp.close()

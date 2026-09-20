@@ -176,7 +176,7 @@ def test_restricted_network_fails_before_starting_services(runtime):
 
 
 def test_public_local_methods_share_runtime_and_id(runtime, monkeypatch):
-    monkeypatch.setattr("celesto.sdk.Celesto", MagicMock(return_value=runtime))
+    monkeypatch.setattr("celesto._providers.local.Celesto", MagicMock(return_value=runtime))
     comp = Computer(local=True)
     connection = MagicMock(return_value=BrowserConnection("ws://local", None))
     monkeypatch.setattr(_connections, "local_connection", connection)
@@ -193,16 +193,18 @@ def test_public_local_methods_share_runtime_and_id(runtime, monkeypatch):
 
 def test_close_releases_only_attached_handle_resources(runtime, monkeypatch):
     other_runtime = MagicMock(vm_id="sbx-connection")
-    monkeypatch.setattr("celesto.sdk.Celesto", MagicMock(side_effect=[runtime, other_runtime]))
+    monkeypatch.setattr(
+        "celesto._providers.local.Celesto", MagicMock(side_effect=[runtime, other_runtime])
+    )
     owner = Computer.get("sbx-connection", local=True)
     attached = Computer.get("sbx-connection", local=True)
-    attached._connection_forwards[9223] = 45123
+    attached._provider._connection_forwards[9223] = 45123
     attached.close()
     assert other_runtime.method_calls == [
         call._cleanup_local_forwards(),
         call.close(),
     ]
-    assert attached._connection_forwards == {}
+    assert attached._provider._connection_forwards == {}
     assert runtime.method_calls == []
     assert owner.id == attached.id
     attached.close()  # Repeated release never deletes or stops the computer.
@@ -212,7 +214,7 @@ def test_close_releases_only_attached_handle_resources(runtime, monkeypatch):
 
 def test_close_unstarted_local_computer_does_not_allocate(monkeypatch):
     factory = MagicMock()
-    monkeypatch.setattr("celesto.sdk.Celesto", factory)
+    monkeypatch.setattr("celesto._providers.local.Celesto", factory)
     computer = Computer(local=True)
     computer.close()
     factory.assert_not_called()
@@ -220,8 +222,8 @@ def test_close_unstarted_local_computer_does_not_allocate(monkeypatch):
 
 def test_close_unstarted_cloud_computer_releases_http_client(monkeypatch):
     cloud = MagicMock()
-    monkeypatch.setattr("celesto._cloud._CloudComputer", MagicMock(return_value=cloud))
-    computer = Computer()
+    monkeypatch.setattr("celesto._providers.cloud.CloudProvider", MagicMock(return_value=cloud))
+    computer = Computer(provider="cloud")
     computer.close()
     cloud.close.assert_called_once()
     cloud.start.assert_not_called()
