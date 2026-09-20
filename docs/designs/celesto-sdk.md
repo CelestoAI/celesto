@@ -13,14 +13,16 @@ repeatable. This supersedes the isolated-export and filtered-artifact machinery
 proposed below; no custom export framework was added.
 
 The private client is in `_celesto_cloud_api`; the public `Computer` now routes
-cloud create/get/run/delete and terminal-session authorization through it. Local
-behavior remains unchanged. Command streaming and interactive terminal
-attachments are exposed by the public wrapper; terminal WebSocket I/O stays in a
-handwritten bounded adapter. Server-side expiry, a cloud-only
-dependency/distribution split, TypeScript, and the other cloud APIs remain
-deferred. See [Python cloud usage](../python-cloud.md) for implemented behavior
-and limitations; the historical proposal below is not a claim that those
-deferred features exist.
+cloud create/get/run/delete, published-port, and terminal-session operations
+through it. Local behavior remains unchanged; local published-port calls
+explicitly fail before starting a VM. Command streaming and interactive terminal
+attachments are exposed by the public wrapper. Published ports return the
+handwritten `PublishedPort` type; terminal WebSocket I/O stays in a handwritten
+bounded adapter. See the [published-port plan](published-ports.md). Server-side
+expiry, a cloud-only dependency/distribution split, TypeScript, file transfer,
+and browser/display connections remain deferred. See
+[Python cloud usage](../python-cloud.md) for implemented behavior and limitations;
+the historical proposal below is not a claim that those deferred features exist.
 
 ## Historical first release scope (local-only)
 

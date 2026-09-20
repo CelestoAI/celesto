@@ -15,6 +15,7 @@ from celesto import (
     CommandOutputEvent,
     CommandStartedEvent,
     Computer,
+    PublishedPort,
     TerminalConnection,
     VMNotFoundError,
 )
@@ -82,6 +83,263 @@ def test_cloud_context_runs_and_confirms_cleanup(cloud):
     with pytest.raises(CelestoError, match="deleted"):
         comp.run("again")
     assert not replies
+
+
+def published_port(**overrides):
+    return {
+        "computer_id": "cloud-test",
+        "port": 8000,
+        "status": "published",
+        "id": "route-test",
+        "url": "https://route.example.test",
+        "created_at": "2026-09-19T00:00:00Z",
+        **overrides,
+    }
+
+
+def test_cloud_published_port_lifecycle_and_reconnection(cloud):
+    requests, replies = cloud
+    route = published_port()
+    removed = published_port(status="unpublished")
+    replies.extend(
+        [
+            (201, computer()),
+            (200, route),
+            (200, computer()),
+            (200, [route, published_port(port=9000, id="other")]),
+            (200, removed),
+            (200, []),
+            (200, {"computer_id": "cloud-test", "port": 8000, "status": "unpublished"}),
+            (200, computer("deleting")),
+            (404, {}),
+        ]
+    )
+    comp = Computer(organization_id="org-test")
+    assert comp.id is None and not requests
+    with comp:
+        result = comp.publish_port(8000)
+        assert type(result) is PublishedPort
+        assert result.model_dump() == route
+        attached = Computer.get(comp.id, organization_id="org-test")
+        routes = attached.published_ports()
+        assert [r.port for r in routes] == [8000, 9000]
+        assert all(type(r) is PublishedPort for r in routes)
+        assert attached.unpublish_port(8000).model_dump() == removed
+        assert attached.published_ports() == []
+        absent = attached.unpublish_port(8000)
+        assert absent.status == "unpublished"
+        assert absent.url is absent.id is absent.created_at is None
+        attached._cloud.close()
+    assert [r.method for r in requests] == [
+        "POST",
+        "POST",
+        "GET",
+        "GET",
+        "DELETE",
+        "GET",
+        "DELETE",
+        "DELETE",
+        "GET",
+    ]
+    assert [r.url.path for r in requests[1:7]] == [
+        "/v1/computers/cloud-test/published-ports",
+        "/v1/computers/cloud-test",
+        "/v1/computers/cloud-test/published-ports",
+        "/v1/computers/cloud-test/published-ports/8000",
+        "/v1/computers/cloud-test/published-ports",
+        "/v1/computers/cloud-test/published-ports/8000",
+    ]
+    assert json.loads(requests[1].content) == {"port": 8000, "force": False}
+    assert all(r.headers["x-current-organization"] == "org-test" for r in requests)
+    assert not replies
+
+
+@pytest.mark.parametrize("method", ["publish_port", "unpublish_port"])
+@pytest.mark.parametrize("port", [True, False, None, "8000", 8000.0, -1, 0, 1023, 65536])
+def test_invalid_published_port_never_allocates(cloud, method, port):
+    requests, _ = cloud
+    comp = Computer()
+    with pytest.raises(ValueError, match="integer from 1024 to 65535"):
+        getattr(comp, method)(port)
+    assert comp.id is None and not requests
+
+
+@pytest.mark.parametrize("method", ["publish_port", "unpublish_port"])
+@pytest.mark.parametrize("port", [1024, 65535])
+def test_published_port_bounds_are_valid(cloud, method, port):
+    requests, replies = cloud
+    replies.extend([(201, computer()), (200, published_port(port=port))])
+    assert getattr(Computer(), method)(port).port == port
+    assert len(requests) == 2 and not replies
+
+
+@pytest.mark.parametrize(
+    "method,args",
+    [
+        ("publish_port", (8000,)),
+        ("published_ports", ()),
+        ("unpublish_port", (8000,)),
+    ],
+)
+def test_published_ports_reject_deleted_and_failed_handles(cloud, method, args):
+    requests, _ = cloud
+    comp = Computer()
+    comp.delete()
+    with pytest.raises(CelestoError, match="deleted"):
+        getattr(comp, method)(*args)
+    failed = Computer()
+    failed._failed = True
+    with pytest.raises(CelestoError, match="failed to start"):
+        getattr(failed, method)(*args)
+    assert not requests
+
+
+@pytest.mark.parametrize(
+    "method,args",
+    [
+        ("publish_port", (8000,)),
+        ("published_ports", ()),
+        ("unpublish_port", (8000,)),
+    ],
+)
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 409, 422, 500, 502])
+def test_published_port_errors_are_typed_sanitized_and_not_replayed(cloud, method, args, status):
+    requests, replies = cloud
+    body = {"detail": "credential-secret", "body": "secret"}
+    if status == 422:
+        body = {
+            "detail": "Validation error",
+            "errors": [{"input": "credential-secret"}],
+            "status_code": 422,
+        }
+    replies.extend([(201, computer()), (status, body)])
+    error_type = VMNotFoundError if status == 404 else CloudAPIError
+    with pytest.raises(error_type) as exc:
+        getattr(Computer(), method)(*args)
+    assert "secret" not in str(exc.value)
+    assert "secret" not in repr(exc.value.details)
+    if status != 404:
+        assert exc.value.status_code == status
+    assert len(requests) == 2 and not replies
+
+
+def test_publish_port_policy_rejection_names_safe_recovery(cloud):
+    requests, replies = cloud
+    replies.extend(
+        [
+            (201, computer()),
+            (400, {"detail": "credential-secret: reserved by internal service"}),
+        ]
+    )
+
+    with pytest.raises(
+        CloudAPIError,
+        match=r"HTTP 400\. Port 2049 cannot be published; choose another port and retry\.",
+    ) as exc:
+        Computer().publish_port(2049)
+
+    assert "credential-secret" not in str(exc.value)
+    assert exc.value.details == {}
+    assert len(requests) == 2 and not replies
+
+
+@pytest.mark.parametrize(
+    "method,args",
+    [
+        ("publish_port", (8000,)),
+        ("published_ports", ()),
+        ("unpublish_port", (8000,)),
+    ],
+)
+def test_published_port_transport_errors_are_not_replayed(cloud, method, args):
+    requests, replies = cloud
+    replies.extend([(201, computer()), httpx.ReadTimeout("credential-secret")])
+    comp = Computer()
+    with pytest.raises(CelestoError, match="outcome may be unknown") as exc:
+        getattr(comp, method)(*args)
+    assert "credential-secret" not in str(exc.value)
+    assert comp.id == "cloud-test"
+    assert len(requests) == 2 and not replies
+
+
+@pytest.mark.parametrize("metadata", [{}, {"id": None, "url": None, "created_at": None}])
+def test_published_port_normalizes_optional_metadata(cloud, metadata):
+    _, replies = cloud
+    replies.extend(
+        [
+            (201, computer()),
+            (
+                200,
+                {
+                    "computer_id": "cloud-test",
+                    "port": 8000,
+                    "status": "future-status",
+                    "token": "credential-secret",
+                    **metadata,
+                },
+            ),
+        ]
+    )
+    route = Computer().publish_port(8000)
+    assert route.id is route.url is route.created_at is None
+    assert route.status == "future-status"
+    assert "token" not in route.model_dump()
+
+
+@pytest.mark.parametrize(
+    "method,args",
+    [
+        ("publish_port", (8000,)),
+        ("published_ports", ()),
+        ("unpublish_port", (8000,)),
+    ],
+)
+@pytest.mark.parametrize(
+    "bad_route",
+    [
+        {},
+        None,
+        "credential-secret",
+        published_port(port=True),
+        published_port(port="8000"),
+        published_port(port=65536),
+        published_port(url={"token": "credential-secret"}),
+        published_port(status=None),
+        published_port(computer_id=42),
+    ],
+)
+def test_malformed_published_port_responses_are_sanitized(cloud, method, args, bad_route):
+    requests, replies = cloud
+    body = [bad_route] if method == "published_ports" else bad_route
+    replies.extend([(201, computer()), (200, body)])
+    with pytest.raises(CelestoError, match="invalid") as exc:
+        getattr(Computer(), method)(*args)
+    assert "credential-secret" not in str(exc.value)
+    if method in {"publish_port", "unpublish_port"}:
+        assert "operation may have succeeded" in str(exc.value)
+        assert "call published_ports() before retrying" in str(exc.value)
+    else:
+        assert "may have succeeded" not in str(exc.value)
+    assert len(requests) == 2 and not replies
+
+
+@pytest.mark.parametrize("body", [{}, "", None, 123])
+def test_port_list_rejects_non_lists(cloud, body):
+    _, replies = cloud
+    replies.extend([(201, computer()), (200, body)])
+    with pytest.raises(CelestoError, match="response"):
+        Computer().published_ports()
+
+
+def test_published_port_hides_url_and_is_immutable():
+    from pydantic import ValidationError
+
+    route = PublishedPort(**published_port(url="https://route.example.test/?token=secret"))
+    assert "secret" not in repr(route)
+    assert "secret" not in str(route)
+    assert route.url.endswith("token=secret")
+    with pytest.raises(ValidationError):
+        route.port = 9000
 
 
 def test_cloud_run_stream_yields_typed_events(cloud):
