@@ -49,7 +49,7 @@ def test_cloud_delete_failure_closes_and_does_not_retry(cloud_cli, capsys):
     factory, handle = cloud_cli
     handle.delete.side_effect = RuntimeError("deletion failed")
 
-    assert main(["computer", "delete", "cloud-existing", "--cloud"]) == 1
+    assert main(["computer", "delete", "cloud-existing", "--cloud", "--yes"]) == 1
 
     factory.get.assert_called_once_with("cloud-existing")
     handle.delete.assert_called_once()
