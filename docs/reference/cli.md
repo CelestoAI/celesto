@@ -79,11 +79,18 @@ Images are stored in `~/.smolvm/images`. To keep them somewhere else, set the `S
 | Command | Use it to |
 | --- | --- |
 | `celesto browser start` / `open` / `list` / `logs` / `stop` | Manage browser sandboxes. |
+| `celesto computer create` | Create and start a local desktop computer; add `--cloud` to run in Celesto Cloud. |
+| `celesto computer terminal COMPUTER_ID` | Open an interactive terminal using the ID printed by `create` or `list`; add `--cloud` for a cloud computer. Exiting keeps the computer. |
 | `celesto computer start` / `open` / `list` / `logs` / `delete` | Manage complete Linux desktop computers. |
 | `celesto computer templates` | List the available desktop templates. |
 | `celesto ui` | Start the local dashboard. |
 | `celesto server start` | Start the local HTTP API. |
 | `celesto windows build-image` | Build a Windows qcow2 image. |
+
+Computer commands select local execution by default; `--local` makes that choice explicit.
+Use `--cloud` for cloud `create`, `list`, `terminal`, and `delete` commands; it cannot be combined with `--local`.
+The existing `start`, `open`, `logs`, and `templates` commands remain local-only.
+See [Run locally or in the cloud](../local-first.md) for setup, examples, and current cloud limits.
 
 ## Shell completion
 
