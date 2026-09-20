@@ -1,0 +1,158 @@
+name: Install Script E2E
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Exercise the public install path daily so hosting, package, image, and
+    # runner drift is caught even when main has not changed.
+    - cron: "47 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: install-script-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  install-and-run:
+    name: Public installer and CLI lifecycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SANDBOX_NAME: install-script-smoke
+
+    steps:
+      # Deliberately do not check out the repository or set up a project
+      # environment. This job must exercise only what a new user receives from
+      # the public installer.
+      - name: Confirm the workspace is empty
+        run: |
+          if [ -n "$(find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+            echo "The workspace is not empty; refusing to test with repository files present." >&2
+            exit 1
+          fi
+
+      - name: Install Celesto from the public installer
+        run: |
+          curl -fsSL https://celesto.ai/install.sh | bash
+
+          if command -v uv >/dev/null 2>&1; then
+            uv_bin=$(command -v uv)
+          elif [ -x "$HOME/.local/bin/uv" ]; then
+            uv_bin="$HOME/.local/bin/uv"
+          elif [ -x "$HOME/.cargo/bin/uv" ]; then
+            uv_bin="$HOME/.cargo/bin/uv"
+          else
+            echo "The installer finished without making uv available." >&2
+            exit 1
+          fi
+
+          celesto_bin="$("$uv_bin" tool dir --bin)/celesto"
+          if [ ! -x "$celesto_bin" ]; then
+            echo "The installer finished without creating the Celesto CLI." >&2
+            exit 1
+          fi
+          case "$celesto_bin" in
+            "$GITHUB_WORKSPACE"/*)
+              echo "Celesto resolved inside the repository workspace." >&2
+              exit 1
+              ;;
+          esac
+
+          echo "CELESTO_BIN=$celesto_bin" >> "$GITHUB_ENV"
+          "$celesto_bin" --version
+
+      - name: Create and exercise a sandbox
+        run: |
+          "$CELESTO_BIN" doctor --backend firecracker
+          "$CELESTO_BIN" sandbox create \
+            --name "$SANDBOX_NAME" \
+            --backend firecracker \
+            --json > "$RUNNER_TEMP/create.json"
+
+          "$CELESTO_BIN" sandbox list --json > "$RUNNER_TEMP/list-running.json"
+          "$CELESTO_BIN" sandbox exec "$SANDBOX_NAME" --json -- \
+            sh -c 'printf "installed-script-ok\n" > /tmp/celesto-install-smoke && cat /tmp/celesto-install-smoke' \
+            > "$RUNNER_TEMP/exec.json"
+
+          "$CELESTO_BIN" sandbox stop "$SANDBOX_NAME" --json \
+            > "$RUNNER_TEMP/stop.json"
+          "$CELESTO_BIN" sandbox list --all --json \
+            > "$RUNNER_TEMP/list-stopped.json"
+
+          "$CELESTO_BIN" sandbox exec "$SANDBOX_NAME" --start --json -- uname -s \
+            > "$RUNNER_TEMP/exec-after-stop.json"
+
+          python3 - "$RUNNER_TEMP" "$SANDBOX_NAME" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          results = Path(sys.argv[1])
+          sandbox_name = sys.argv[2]
+
+          def load(name: str) -> dict:
+              payload = json.loads((results / name).read_text())
+              assert payload["ok"] is True, payload
+              return payload
+
+          created = load("create.json")
+          assert created["data"]["vm"]["name"] == sandbox_name
+
+          running = load("list-running.json")
+          running_vms = running["data"]["vms"]
+          assert any(
+              vm["name"] == sandbox_name and vm["status"] == "running"
+              for vm in running_vms
+          ), running_vms
+
+          executed = load("exec.json")
+          assert executed["data"]["exit_code"] == 0
+          assert executed["data"]["stdout"] == "installed-script-ok\n"
+
+          stopped = load("stop.json")
+          assert stopped["data"]["vm"]["status"] == "stopped"
+
+          stopped_list = load("list-stopped.json")
+          all_vms = stopped_list["data"]["vms"]
+          assert any(
+              vm["name"] == sandbox_name and vm["status"] == "stopped"
+              for vm in all_vms
+          ), all_vms
+
+          restarted = load("exec-after-stop.json")
+          assert restarted["data"]["exit_code"] == 0
+          assert restarted["data"]["stdout"].strip() == "Linux"
+          PY
+
+          "$CELESTO_BIN" sandbox delete "$SANDBOX_NAME" --json \
+            > "$RUNNER_TEMP/delete.json"
+          "$CELESTO_BIN" sandbox list --all --json \
+            > "$RUNNER_TEMP/list-deleted.json"
+
+          python3 - "$RUNNER_TEMP/list-deleted.json" "$SANDBOX_NAME" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          payload = json.loads(Path(sys.argv[1]).read_text())
+          assert payload["ok"] is True, payload
+          assert all(vm["name"] != sys.argv[2] for vm in payload["data"]["vms"]), payload
+          PY
+
+      - name: Show sandbox logs after failure
+        if: failure()
+        run: |
+          if [ -x "${CELESTO_BIN:-}" ]; then
+            "$CELESTO_BIN" sandbox logs "$SANDBOX_NAME" --tail 200 || true
+          fi
+
+      - name: Clean up the sandbox
+        if: always()
+        run: |
+          if [ -x "${CELESTO_BIN:-}" ]; then
+            "$CELESTO_BIN" sandbox delete "$SANDBOX_NAME" --json || true
+          fi
