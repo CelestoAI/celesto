@@ -203,7 +203,7 @@ export function App() {
     catch (caught) { setError(caught instanceof Error ? caught.message : "Could not take control."); }
   };
   const returnControl = async () => {
-    if (!conversation) return;
+    if (!conversation || !controlEpoch) return;
     try { showConversation(await api.resume(conversation.id, controlEpoch)); setControlEpoch(""); }
     catch (caught) { setError(caught instanceof Error ? caught.message : "Could not return control."); }
   };
@@ -406,7 +406,7 @@ export function App() {
         <div className="composer-wrap">{error && <div className="error">{error}</div>}<div className="composer"><textarea value={text} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submit(); } }} placeholder={interrupted ? "Choose Continue or Start over…" : pausingControl ? "Pausing agent control…" : humanControl ? "Return control to message OpenMuse…" : "Message OpenMuse…"} disabled={!commandAvailable("send_message")}/><button aria-label="Send" onClick={() => void submit()} disabled={!text.trim() || !commandAvailable("send_message")}>↑</button></div><div className="hint">{interrupted ? "Nothing will run until you choose" : pausingControl ? "Waiting for the current browser action to finish" : humanControl ? "Return control to continue chatting" : "Enter to send · Computer is deleted when you stop"}</div></div>
       </section>
       <section className="computer-pane">
-        <div className="computer-head"><div><div className="eyebrow">Isolated workspace</div><h2>Agent’s computer</h2></div><div className="computer-actions">{humanControl ? <button disabled={!commandAvailable("return_control")} onClick={() => void returnControl()}>Return control</button> : pausingControl ? <button className="secondary" disabled>Pausing…</button> : commandAvailable("take_control") ? <button className="secondary" onClick={() => void takeControl()} disabled={!conversation?.viewerReady}>Take control</button> : null}</div></div>
+        <div className="computer-head"><div><div className="eyebrow">Isolated workspace</div><h2>Agent’s computer</h2></div><div className="computer-actions">{humanControl ? <button disabled={!controlEpoch || !commandAvailable("return_control")} onClick={() => void returnControl()}>Return control</button> : pausingControl ? <button className="secondary" disabled>Pausing…</button> : commandAvailable("take_control") ? <button className="secondary" onClick={() => void takeControl()} disabled={!conversation?.viewerReady}>Take control</button> : null}</div></div>
         <div className="screen">
           {viewerPath ? <iframe title="Live OpenMuse computer" src={viewerPath}/> : <div className="screen-empty"><div className="orbit"><span>S</span></div><h3>{viewerReconnectRequired ? "Live view disconnected" : conversation?.runState === "stopped" ? "Computer deleted" : conversation?.sessionLifecycle === "starting" ? "Booting the computer…" : "The computer is asleep"}</h3><p>{viewerReconnectRequired ? "Automatic reconnects stopped after repeated failures." : conversation?.runState === "stopped" ? "Start a new conversation to get a fresh VM." : "It starts only when the agent needs a browser."}</p>{viewerReconnectRequired && <button onClick={reconnectViewer}>Reconnect live view</button>}</div>}
           {viewerPath && conversation?.controlOwner === "agent" && <div className="input-shield"><span><i></i> LIVE · Agent controlling</span><button onClick={() => void takeControl()}>Take control</button></div>}
