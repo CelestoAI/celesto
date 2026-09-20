@@ -185,89 +185,6 @@ celesto sandbox logs my-sandbox
 
 Tip: turn on tab completion so your shell can finish commands and sandbox names for you — run `celesto completion bash --install` (or `zsh`, `fish`) once. See the [CLI reference](docs/reference/cli.md#shell-completion) for details.
 
-
-## macOS desktop sandbox (preview)
-
-On an Apple Silicon Mac, Celesto can open a temporary macOS desktop for testing apps and installers without changing your everyday system. The first run downloads macOS from Apple and prepares a reusable local image.
-
-```bash
-celesto setup --macos
-```
-
-Create the desktop sandbox:
-
-```bash
-celesto sandbox create --os macos --name test-mac
-# Next: celesto sandbox desktop test-mac
-```
-
-Open it in the built-in Screen Sharing app:
-
-```bash
-celesto sandbox desktop test-mac
-```
-
-Image preparation needs about 50 GB and 20–40 minutes. macOS images stay on the Mac that created them, and at most two macOS guests can run at once. See the [macOS desktop guide](docs/guides/macos.md) for shared folders, limits, and cleanup.
-
-## Windows sandbox
-
-Celesto can boot a Windows 11 guest as well as Linux. Hand it a Windows image and you get the same Python and CLI you use for Linux — run PowerShell, upload files, set environment variables, and run many sandboxes in parallel from one baseline image.
-
-```python
-from celesto import Celesto
-
-with Celesto(
-    os="windows",
-    image="~/.smolvm/images/win11.qcow2",
-    ssh_user="smolvm",
-    ssh_password="smolvm",
-) as vm:
-    print(vm.run("Write-Output 'hello from windows'").stdout)
-```
-
-Build your own image from a Windows ISO:
-
-```bash
-celesto windows build-image --iso ./Win11.iso \
-    --virtio-win-iso ./virtio-win.iso \
-    --output ~/.smolvm/images/win11.qcow2
-```
-
-Windows guests need a Linux host with KVM. Host mounts, network controls, and snapshots are Linux-only today. See the full [Windows guide](https://docs.celesto.ai/smolvm/guides/windows-guests) for details.
-
-
-## Coding agents
-
-It sucks to “press enter and accept changes” every few seconds while using coding agents. Celesto makes it easy to isolate the agent coding environment from the host (laptops).
-
-Start any supported coding agent in its own sandbox:
-
-Video tutorial:
-
-<a href="https://youtu.be/j1qyrTsI0Jw"><img src="https://img.youtube.com/vi/j1qyrTsI0Jw/maxresdefault.jpg" alt="Coding agents in a sandbox" width="480"></a>
-
-```bash
-celesto codex start
-celesto claude start
-celesto pi start
-celesto hermes start
-celesto opencode start
-celesto openclaw start --name openclaw-work --no-attach
-```
-
-OpenClaw also has a private browser dashboard. Open it after the named sandbox starts:
-
-```bash
-celesto openclaw list
-# NAME              STATUS   PID
-# openclaw-work     running  12345
-
-celesto openclaw open-ui openclaw-work
-```
-
-Creating an OpenClaw sandbox currently takes several minutes while Celesto installs its supported Node.js runtime and pinned OpenClaw release. See the [OpenClaw guide](docs/guides/agent-presets.md#open-openclaws-dashboard) for credentials, the dashboard flow, and safe steps for replacing an older sandbox.
-
-
 ## Browser sandbox
 
 Celesto can also start a full browser inside a sandbox. This is useful when agents need to navigate websites, fill out forms, take screenshots, or connect through VNC.
@@ -310,35 +227,6 @@ celesto browser stop sess_a1b2c3
 ```
 
 See [examples/browser_sandbox.py](examples/browser_sandbox.py) for a complete Python example.
-
-
-## Linux computer
-
-Use a Linux computer when an agent needs a visible desktop with more than a browser. The built-in template includes Chromium, a terminal, a file manager, and a text editor.
-
-During this preview, the first computer start builds its image locally and requires Docker. Later starts reuse the cached image.
-
-```python
-from celesto import Celesto
-
-with Celesto.computer() as computer:
-    print(computer.display.viewer_url)
-    print(computer.browser.cdp_url)
-    computer.files.write("/workspace/task.txt", "Review this file")
-    print(computer.run("ls -la /workspace").stdout)
-```
-
-The API groups the screen under `computer.display` and Chromium under `computer.browser`. If Chromium is closed while the desktop remains open, call `computer.browser.launch()`.
-
-From the CLI:
-
-```bash
-celesto computer start --name assistant
-celesto computer open assistant
-celesto computer delete assistant
-```
-
-Choose a normal sandbox for command-only work, a browser sandbox for web-only automation, and a Linux computer for work across desktop applications. See the [Linux computer guide](docs/guides/computers.md) for Python and TypeScript examples.
 
 
 ## Network controls
@@ -425,6 +313,118 @@ with Celesto() as vm:
 
 The destination must be an absolute path inside the sandbox (starting
 with `/`), and any existing file at that path is overwritten.
+
+
+## macOS desktop sandbox (preview)
+
+On an Apple Silicon Mac, Celesto can open a temporary macOS desktop for testing apps and installers without changing your everyday system. The first run downloads macOS from Apple and prepares a reusable local image.
+
+```bash
+celesto setup --macos
+```
+
+Create the desktop sandbox:
+
+```bash
+celesto sandbox create --os macos --name test-mac
+# Next: celesto sandbox desktop test-mac
+```
+
+Open it in the built-in Screen Sharing app:
+
+```bash
+celesto sandbox desktop test-mac
+```
+
+Image preparation needs about 50 GB and 20–40 minutes. macOS images stay on the Mac that created them, and at most two macOS guests can run at once. See the [macOS desktop guide](docs/guides/macos.md) for shared folders, limits, and cleanup.
+
+## Windows sandbox
+
+Celesto can boot a Windows 11 guest as well as Linux. Hand it a Windows image and you get the same Python and CLI you use for Linux — run PowerShell, upload files, set environment variables, and run many sandboxes in parallel from one baseline image.
+
+```python
+from celesto import Celesto
+
+with Celesto(
+    os="windows",
+    image="~/.smolvm/images/win11.qcow2",
+    ssh_user="smolvm",
+    ssh_password="smolvm",
+) as vm:
+    print(vm.run("Write-Output 'hello from windows'").stdout)
+```
+
+Build your own image from a Windows ISO:
+
+```bash
+celesto windows build-image --iso ./Win11.iso \
+    --virtio-win-iso ./virtio-win.iso \
+    --output ~/.smolvm/images/win11.qcow2
+```
+
+Windows guests need a Linux host with KVM. Host mounts, network controls, and snapshots are Linux-only today. See the full [Windows guide](https://docs.celesto.ai/smolvm/guides/windows-guests) for details.
+
+
+## Coding agents
+
+It sucks to “press enter and accept changes” every few seconds while using coding agents. Celesto makes it easy to isolate the agent coding environment from the host (laptops).
+
+Start any supported coding agent in its own sandbox:
+
+Video tutorial:
+
+<a href="https://youtu.be/j1qyrTsI0Jw"><img src="https://img.youtube.com/vi/j1qyrTsI0Jw/maxresdefault.jpg" alt="Coding agents in a sandbox" width="480"></a>
+
+```bash
+celesto codex start
+celesto claude start
+celesto pi start
+celesto hermes start
+celesto opencode start
+celesto openclaw start --name openclaw-work --no-attach
+```
+
+OpenClaw also has a private browser dashboard. Open it after the named sandbox starts:
+
+```bash
+celesto openclaw list
+# NAME              STATUS   PID
+# openclaw-work     running  12345
+
+celesto openclaw open-ui openclaw-work
+```
+
+Creating an OpenClaw sandbox currently takes several minutes while Celesto installs its supported Node.js runtime and pinned OpenClaw release. See the [OpenClaw guide](docs/guides/agent-presets.md#open-openclaws-dashboard) for credentials, the dashboard flow, and safe steps for replacing an older sandbox.
+
+
+## Linux computer
+
+Use a Linux computer when an agent needs a visible desktop with more than a browser. The built-in template includes Chromium, a terminal, a file manager, and a text editor.
+
+During this preview, the first computer start builds its image locally and requires Docker. Later starts reuse the cached image.
+
+```python
+from celesto import Celesto
+
+with Celesto.computer() as computer:
+    print(computer.display.viewer_url)
+    print(computer.browser.cdp_url)
+    computer.files.write("/workspace/task.txt", "Review this file")
+    print(computer.run("ls -la /workspace").stdout)
+```
+
+The API groups the screen under `computer.display` and Chromium under `computer.browser`. If Chromium is closed while the desktop remains open, call `computer.browser.launch()`.
+
+From the CLI:
+
+```bash
+celesto computer start --name assistant
+celesto computer open assistant
+celesto computer delete assistant
+```
+
+Choose a normal sandbox for command-only work, a browser sandbox for web-only automation, and a Linux computer for work across desktop applications. See the [Linux computer guide](docs/guides/computers.md) for Python and TypeScript examples.
+
 
 
 ## Examples
