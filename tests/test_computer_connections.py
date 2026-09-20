@@ -242,3 +242,23 @@ def test_guest_helper_supplies_system_path_for_raw_commands(monkeypatch, capsys)
     monkeypatch.setattr(guest_connections, "capabilities", capabilities)
     assert guest_connections.main() == 0
     assert json.loads(capsys.readouterr().out)["browser"] is True
+
+
+def test_connection_prepares_ssh_before_opening_loopback_tunnel(runtime, monkeypatch):
+    mock_cdp(monkeypatch)
+    ssh_ready = False
+
+    def prepare_ssh(**kwargs):
+        nonlocal ssh_ready
+        assert 0 < kwargs["timeout"] <= 30
+        ssh_ready = True
+
+    def expose(*args, **kwargs):
+        assert ssh_ready, "A vsock command channel does not prepare the SSH tunnel endpoint"
+        return 45123
+
+    runtime._ensure_ssh_for_operation.side_effect = prepare_ssh
+    runtime.expose_local.side_effect = expose
+    result = _connections.local_connection(runtime, "browser", {})
+    assert result.url.startswith("ws://127.0.0.1:45123/")
+    runtime._ensure_ssh_for_operation.assert_called_once()

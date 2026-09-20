@@ -176,7 +176,12 @@ def local_connection(
         previous = None
     host_port = previous
     try:
-        _remaining(deadline)
+        # Linux can run commands over vsock without ever preparing network SSH.
+        # Loopback-only graphical services still need an SSH tunnel (and, with
+        # QEMU slirp, its host-to-guest SSH forward) before exposing their port.
+        vm._ensure_ssh_for_operation(
+            action="connect to browser or display", timeout=_remaining(deadline)
+        )
         host_port = vm.expose_local(port, host_port=previous, guest_loopback=True)
         _remaining(deadline)
         if kind == "browser":
