@@ -19,6 +19,11 @@ def test_install_script_workflow_uses_only_the_public_installer() -> None:
 def test_install_script_workflow_exercises_cli_lifecycle() -> None:
     workflow = _WORKFLOW.read_text()
 
+    assert "os: ubuntu-latest\n            backend: firecracker" in workflow
+    assert "os: macos-15-intel\n            backend: qemu" in workflow
+    assert "runs-on: ${{ matrix.os }}" in workflow
+    assert '--backend "${{ matrix.backend }}"' in workflow
+
     for command in (
         "sandbox create",
         "sandbox list",

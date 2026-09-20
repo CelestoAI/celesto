@@ -18,9 +18,19 @@ permissions:
 
 jobs:
   install-and-run:
-    name: Public installer and CLI lifecycle
-    runs-on: ubuntu-latest
+    name: Public installer and CLI lifecycle (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            backend: firecracker
+          # GitHub's ARM macOS runners do not expose nested virtualization.
+          # Use the Intel runner so QEMU can exercise its HVF backend.
+          - os: macos-15-intel
+            backend: qemu
     env:
       SANDBOX_NAME: install-script-smoke
 
@@ -67,10 +77,10 @@ jobs:
 
       - name: Create and exercise a sandbox
         run: |
-          "$CELESTO_BIN" doctor --backend firecracker
+          "$CELESTO_BIN" doctor --backend "${{ matrix.backend }}"
           "$CELESTO_BIN" sandbox create \
             --name "$SANDBOX_NAME" \
-            --backend firecracker \
+            --backend "${{ matrix.backend }}" \
             --json > "$RUNNER_TEMP/create.json"
 
           "$CELESTO_BIN" sandbox list --json > "$RUNNER_TEMP/list-running.json"
