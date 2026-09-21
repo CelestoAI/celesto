@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "celesto"
-version = "0.0.15a0"
+version = "0.1.0"
 description = "Sandbox for computer-using agents with a unified API for VMMs — Firecracker, QEMU, and libkrun."
 readme = "README.md"
 license = "Apache-2.0"
