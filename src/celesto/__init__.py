@@ -12,11 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Celesto.
-
-A Python SDK for running AI agents and executing untrusted code in a secure,
-sandboxed environment.
-"""
+"""Sandbox for computer-using agents with a unified API for VMMs — Firecracker, QEMU, and libkrun."""
 
 from importlib.metadata import version as _pkg_version
 
