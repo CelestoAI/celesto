@@ -150,7 +150,7 @@ test("provider notifications expose only safe browser and device guidance", asyn
   service.cancelAttempt("session", started.id);
 });
 
-test("the default allowlist exposes only OpenAI capabilities and keeps subscription auth gated", async (t) => {
+test("the default provider list includes all registered providers and keeps subscription auth gated", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "open-muse-default-providers-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const previousGate = process.env.OPEN_MUSE_ENABLE_SUBSCRIPTION_AUTH;
@@ -159,7 +159,16 @@ test("the default allowlist exposes only OpenAI capabilities and keeps subscript
     const service = ModelAccessService.createDefault(new FileCredentialStore(join(directory, "auth.json")));
     t.after(() => service.close());
     const snapshot = await service.snapshot();
-    assert.deepEqual(snapshot.providers.map((provider) => provider.id), ["openai-codex", "openai"]);
+    assert.deepEqual(snapshot.providers.map((provider) => provider.id), [
+    "openai-codex",
+    "openai",
+    "anthropic",
+    "groq",
+    "deepseek",
+    "openrouter",
+    "xai",
+    "cohere",
+  ]);
     assert.equal(snapshot.providers.find((provider) => provider.id === "openai-codex")?.methods.find((method) => method.type === "oauth")?.enabled, false);
     assert.equal(snapshot.providers.find((provider) => provider.id === "openai")?.methods.find((method) => method.type === "api_key")?.enabled, true);
   } finally {

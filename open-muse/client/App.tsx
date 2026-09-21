@@ -34,6 +34,7 @@ export function App() {
   const [viewerReconnectRequired, setViewerReconnectRequired] = useState(false);
   const [conversationStreamGeneration, setConversationStreamGeneration] = useState(0);
   const [controlEpoch, setControlEpoch] = useState("");
+  const controlEpochRef = useRef("");
   const [approvalPending, setApprovalPending] = useState(false);
   const [conversationPending, setConversationPending] = useState(false);
   const [traces, setTraces] = useState<TraceSnapshot>();
@@ -125,7 +126,7 @@ export function App() {
   }, [modelAccess]);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [conversation?.messages.length]);
   useEffect(() => {
-    setViewerPath(""); setControlEpoch(""); viewerRetryAttemptRef.current = 0; setViewerRetryAt(0); setViewerReconnectRequired(false);
+    setViewerPath(""); controlEpochRef.current = ""; setControlEpoch(""); viewerRetryAttemptRef.current = 0; setViewerRetryAt(0); setViewerReconnectRequired(false);
   }, [conversation?.id]);
   useEffect(() => {
     setViewerPath(""); viewerRetryAttemptRef.current = 0; setViewerRetryAt(0); setViewerReconnectRequired(false);
@@ -199,12 +200,12 @@ export function App() {
   };
   const takeControl = async () => {
     if (!conversation) return;
-    try { const result = await api.takeOver(conversation.id); setControlEpoch(result.controlEpoch); await refresh(); }
+    try { const result = await api.takeOver(conversation.id); controlEpochRef.current = result.controlEpoch; setControlEpoch(result.controlEpoch); await refresh(); }
     catch (caught) { setError(caught instanceof Error ? caught.message : "Could not take control."); }
   };
   const returnControl = async () => {
-    if (!conversation || !controlEpoch) return;
-    try { showConversation(await api.resume(conversation.id, controlEpoch)); setControlEpoch(""); }
+    if (!conversation || !controlEpochRef.current) return;
+    try { showConversation(await api.resume(conversation.id, controlEpochRef.current)); controlEpochRef.current = ""; setControlEpoch(""); }
     catch (caught) { setError(caught instanceof Error ? caught.message : "Could not return control."); }
   };
   const resolve = async (approved: boolean) => {
