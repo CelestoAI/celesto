@@ -139,9 +139,9 @@ export class ModelAccessService {
       baseUrl: "https://api.cohere.com/compatibility/v1",
       auth: { apiKey: envApiKeyAuth("Cohere API key", ["COHERE_API_KEY"]) },
       models: [
-        { id: "command-a-03-2025", name: "Command A", api: "openai-completions" as const, provider: "cohere", baseUrl: "https://api.cohere.com/compatibility/v1", reasoning: false, input: ["text"] as const, cost: { input: 2.5, output: 10, cacheRead: 0, cacheWrite: 0, total: 0 }, contextWindow: 256000, maxTokens: 8000 },
-        { id: "command-r-plus-08-2024", name: "Command R+", api: "openai-completions" as const, provider: "cohere", baseUrl: "https://api.cohere.com/compatibility/v1", reasoning: false, input: ["text"] as const, cost: { input: 2.5, output: 10, cacheRead: 0, cacheWrite: 0, total: 0 }, contextWindow: 128000, maxTokens: 4000 },
-        { id: "command-r-08-2024", name: "Command R", api: "openai-completions" as const, provider: "cohere", baseUrl: "https://api.cohere.com/compatibility/v1", reasoning: false, input: ["text"] as const, cost: { input: 0.15, output: 0.6, cacheRead: 0, cacheWrite: 0, total: 0 }, contextWindow: 128000, maxTokens: 4000 },
+        { id: "command-a-03-2025", name: "Command A", api: "openai-completions" as const, provider: "cohere", baseUrl: "https://api.cohere.com/compatibility/v1", reasoning: false, input: ["text"] as const, cost: { input: 2.5, output: 10, cacheRead: 0, cacheWrite: 0,}, contextWindow: 256000, maxTokens: 8000 },
+        { id: "command-r-plus-08-2024", name: "Command R+", api: "openai-completions" as const, provider: "cohere", baseUrl: "https://api.cohere.com/compatibility/v1", reasoning: false, input: ["text"] as const, cost: { input: 2.5, output: 10, cacheRead: 0, cacheWrite: 0, }, contextWindow: 128000, maxTokens: 4000 },
+        { id: "command-r-08-2024", name: "Command R", api: "openai-completions" as const, provider: "cohere", baseUrl: "https://api.cohere.com/compatibility/v1", reasoning: false, input: ["text"] as const, cost: { input: 0.15, output: 0.6, cacheRead: 0, cacheWrite: 0,}, contextWindow: 128000, maxTokens: 4000 },
       ],
       api: openAICompletionsApi(),
     }));
