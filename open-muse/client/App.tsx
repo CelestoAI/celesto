@@ -200,8 +200,15 @@ export function App() {
   };
   const takeControl = async () => {
     if (!conversation) return;
-    try { const result = await api.takeOver(conversation.id); controlEpochRef.current = result.controlEpoch; setControlEpoch(result.controlEpoch); await refresh(); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : "Could not take control."); }
+    const takeoverId = conversation.id;
+    try {
+      const result = await api.takeOver(takeoverId);
+      if (conversationIdRef.current !== takeoverId) return;
+      controlEpochRef.current = result.controlEpoch;
+      setControlEpoch(result.controlEpoch);
+      await refresh(takeoverId);
+    }
+    catch (caught) { if (conversationIdRef.current === takeoverId) setError(caught instanceof Error ? caught.message : "Could not take control."); }
   };
   const returnControl = async () => {
     if (!conversation || !controlEpochRef.current) return;
