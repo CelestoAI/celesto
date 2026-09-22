@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*.*.*"
+      - "celesto-v*.*.*"
 
 permissions:
   contents: read
@@ -35,11 +36,11 @@ jobs:
           data = tomllib.loads(Path("pyproject.toml").read_text())
           version = data["project"]["version"]
           tag = os.environ["GITHUB_REF_NAME"]
-          expected_tag = f"v{version}"
-          if tag != expected_tag:
+          expected_tags = (f"v{version}", f"celesto-v{version}")
+          if tag not in expected_tags:
               raise SystemExit(
                   f"Release tag {tag!r} does not match pyproject version {version!r}. "
-                  f"Expected {expected_tag!r}."
+                  f"Expected one of {expected_tags!r}."
               )
 
           # Find the celesto-core dependency line. We no longer require the
