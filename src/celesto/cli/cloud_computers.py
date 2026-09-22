@@ -32,6 +32,28 @@ def run_cloud_computer(args: SimpleNamespace) -> int:
                     print(f"{row['computer_id']}\t{row['status']}")
                 if not rows:
                     print("No cloud computers found.")
+        elif action == "get":
+            from celesto._providers.cloud import get_cloud_computer
+
+            data = get_cloud_computer(args.computer_id)
+            if json_output:
+                emit_json(command, 0, data=data)
+            else:
+                for key, value in data.items():
+                    print(f"{key}: {value}")
+        elif action == "run":
+            import sys
+
+            handle = CloudComputer.get(args.computer_id)
+            result = handle.run(args.run_command, timeout=args.timeout)
+            if json_output:
+                emit_json(command, result.exit_code, data=result.model_dump())
+            else:
+                if result.stdout:
+                    sys.stdout.write(result.stdout)
+                if result.stderr:
+                    sys.stderr.write(result.stderr)
+            return result.exit_code
         elif action in {"delete", "terminal"}:
             handle = CloudComputer.get(args.computer_id)
             if action == "delete":

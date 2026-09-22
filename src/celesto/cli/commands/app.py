@@ -1615,6 +1615,39 @@ def computer_terminal(computer_id: str, provider: str, boot_timeout: float) -> A
     )
 
 
+@computer.command("get")
+@click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
+@json_option
+def computer_get(computer_id: str, json_output: bool) -> Any:
+    """Inspect a cloud computer's status and connection info."""
+    _before_command(json_output=json_output)
+    return _handlers()._run_computer(
+        _ns(computer_action="get", computer_id=computer_id, provider="cloud", json=json_output)
+    )
+
+
+@computer.command("run")
+@click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
+@click.argument("run_command", metavar="command")
+@click.option(
+    "--timeout", type=int, default=30, show_default=True, help="Seconds to wait for the command."
+)
+@json_option
+def computer_run(computer_id: str, run_command: str, timeout: int, json_output: bool) -> Any:
+    """Run one command on a cloud computer and print its output."""
+    _before_command(json_output=json_output)
+    return _handlers()._run_computer(
+        _ns(
+            computer_action="run",
+            computer_id=computer_id,
+            run_command=run_command,
+            timeout=timeout,
+            provider="cloud",
+            json=json_output,
+        )
+    )
+
+
 @computer.command("start")
 @computer_provider_options
 @click.option(

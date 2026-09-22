@@ -193,3 +193,88 @@ def test_cloud_terminal_rejects_local_timeout(monkeypatch):
     monkeypatch.setattr("celesto.cli.main._run_computer", handler)
     assert main(["computer", "terminal", "cloud-demo", "--cloud", "--boot-timeout", "12"]) == 2
     handler.assert_not_called()
+
+
+def test_get_always_dispatches_to_cloud(monkeypatch):
+    handler = Mock(return_value=0)
+    monkeypatch.setattr("celesto.cli.main._run_computer", handler)
+    assert main(["computer", "get", "hypatia"]) == 0
+    args = handler.call_args.args[0]
+    assert (args.computer_action, args.computer_id, args.provider) == ("get", "hypatia", "cloud")
+
+
+def test_run_always_dispatches_to_cloud(monkeypatch):
+    handler = Mock(return_value=0)
+    monkeypatch.setattr("celesto.cli.main._run_computer", handler)
+    assert main(["computer", "run", "hypatia", "uname -a"]) == 0
+    args = handler.call_args.args[0]
+    assert (args.computer_action, args.computer_id, args.provider) == ("run", "hypatia", "cloud")
+    assert (args.run_command, args.timeout) == ("uname -a", 30)
+
+
+def test_cloud_get_returns_public_fields(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "celesto._providers.cloud.get_cloud_computer",
+        lambda computer_id: {"computer_id": computer_id, "status": "running"},
+    )
+    assert main(["computer", "get", "hypatia", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["data"] == {
+        "computer_id": "hypatia",
+        "status": "running",
+    }
+
+
+def test_cloud_get_not_found_reports_error(monkeypatch, capsys):
+    from celesto.exceptions import VMNotFoundError
+
+    def boom(computer_id):
+        raise VMNotFoundError(computer_id)
+
+    monkeypatch.setattr("celesto._providers.cloud.get_cloud_computer", boom)
+    assert main(["computer", "get", "missing", "--json"]) == 1
+    assert "missing" in json.loads(capsys.readouterr().out)["error"]["message"]
+
+
+def test_cloud_run_prints_stdout_and_returns_remote_exit_code(monkeypatch, capsys):
+    from celesto.types import CommandResult
+
+    handle = Mock()
+    handle.run.return_value = CommandResult(exit_code=3, stdout="hi\n", stderr="")
+    factory = Mock()
+    factory.get.return_value = handle
+    monkeypatch.setattr("celesto.cli.cloud_computers.CloudComputer", factory)
+
+    assert main(["computer", "run", "hypatia", "uname -a"]) == 3
+
+    factory.get.assert_called_once_with("hypatia")
+    handle.run.assert_called_once_with("uname -a", timeout=30)
+    assert capsys.readouterr().out == "hi\n"
+    handle.close.assert_called_once()
+
+
+def test_cloud_run_honors_custom_timeout(monkeypatch):
+    from celesto.types import CommandResult
+
+    handle = Mock()
+    handle.run.return_value = CommandResult(exit_code=0, stdout="", stderr="")
+    factory = Mock()
+    factory.get.return_value = handle
+    monkeypatch.setattr("celesto.cli.cloud_computers.CloudComputer", factory)
+
+    assert main(["computer", "run", "hypatia", "uname -a", "--timeout", "90"]) == 0
+    handle.run.assert_called_once_with("uname -a", timeout=90)
+
+
+def test_cloud_run_json_reports_remote_exit_code(monkeypatch, capsys):
+    from celesto.types import CommandResult
+
+    handle = Mock()
+    handle.run.return_value = CommandResult(exit_code=1, stdout="", stderr="boom\n")
+    factory = Mock()
+    factory.get.return_value = handle
+    monkeypatch.setattr("celesto.cli.cloud_computers.CloudComputer", factory)
+
+    assert main(["computer", "run", "hypatia", "false", "--json"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["exit_code"] == 1
+    assert payload["data"]["stderr"] == "boom\n"
