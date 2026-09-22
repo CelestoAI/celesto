@@ -135,13 +135,13 @@ The Python bindings live in a separate Rust binding module so the Rust library m
 
 ## Versioning And Release Tags
 
-`celesto-core` uses date-based versions in `YYYY.M.D` form, such as `2026.6.24`. This keeps the same version valid for Cargo, maturin, and Python package metadata.
+`celesto-core` uses date-based versions in `YYYY.M.D` form, such as `2026.9.22`. This keeps the same version valid for Cargo, maturin, and Python package metadata.
 
 Release tags use the same version with a `core-v` prefix:
 
 ```bash
-git tag core-v2026.6.24
-git push origin core-v2026.6.24
+git tag core-v2026.9.22
+git push origin core-v2026.9.22
 ```
 
 The publish workflow checks that the tag matches `celesto-core/Cargo.toml` before it builds wheels and publishes them to PyPI.
