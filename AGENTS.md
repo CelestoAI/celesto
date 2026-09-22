@@ -23,7 +23,7 @@ For guest-agent or published-image changes:
    `src/celesto/images/published.py`.
 3. Update `_GUEST_AGENT_RELEASE_SHA256` in
    `src/celesto/images/builder.py` using the
-   `smolvm-guest-agent-linux-<arch>.sha256` release assets. This pin is
+   `celesto-guest-agent-linux-<arch>.sha256` release assets. This pin is
    separate from the rootfs manifest.
 4. Verify both installation paths:
    - `uv run celesto ...` from a source checkout may build or use the local
@@ -82,7 +82,7 @@ Each message must:
 Bad—uses internal vocabulary and gives no recovery path:
 
 ```text
-workspace mount missing on host: /Users/aniket/conductor/workspaces/SmolVM/lome
+workspace mount missing on host: /Users/aniket/conductor/workspaces/Celesto/lome
 ```
 
 Bad—too long and incorrectly claims that a running sandbox cannot start:
@@ -98,7 +98,7 @@ Good—short, always true, and actionable:
 
 ```text
 Shared folder is missing on your machine:
-'/Users/aniket/conductor/workspaces/SmolVM/lome'. Restore it, or run
+'/Users/aniket/conductor/workspaces/Celesto/lome'. Restore it, or run
 'celesto sandbox delete sbx-einstein' to remove the sandbox.
 ```
 

@@ -30,12 +30,12 @@ def _reset_reexec_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
     Several tests in this module exercise the real ``_should_attempt_reexec``
     flow and would short-circuit if a previous test left
-    ``SMOLVM_KVM_REEXEC_DONE`` or ``SMOLVM_NO_KVM_REEXEC`` set in this
+    ``CELESTO_KVM_REEXEC_DONE`` or ``CELESTO_NO_KVM_REEXEC`` set in this
     process — notably the exec-path test below, which mocks ``os.execvp`` and
     so doesn't actually replace the process the way real execvp would.
     """
-    monkeypatch.delenv("SMOLVM_KVM_REEXEC_DONE", raising=False)
-    monkeypatch.delenv("SMOLVM_NO_KVM_REEXEC", raising=False)
+    monkeypatch.delenv("CELESTO_KVM_REEXEC_DONE", raising=False)
+    monkeypatch.delenv("CELESTO_NO_KVM_REEXEC", raising=False)
 
 
 def _mock_kvm_grp(members: list[str], gid: int = 999) -> SimpleNamespace:
@@ -58,7 +58,7 @@ class TestShouldAttemptReexec:
 
     @patch.dict(
         "celesto.cli._kvm_session.os.environ",
-        {"SMOLVM_KVM_REEXEC_DONE": "1"},
+        {"CELESTO_KVM_REEXEC_DONE": "1"},
         clear=False,
     )
     @patch("celesto.cli._kvm_session.platform.system", return_value="Linux")
@@ -67,7 +67,7 @@ class TestShouldAttemptReexec:
 
     @patch.dict(
         "celesto.cli._kvm_session.os.environ",
-        {"SMOLVM_NO_KVM_REEXEC": "1"},
+        {"CELESTO_NO_KVM_REEXEC": "1"},
         clear=False,
     )
     @patch("celesto.cli._kvm_session.platform.system", return_value="Linux")
@@ -256,7 +256,7 @@ class TestMaybeReexec:
         assert prog == "/usr/bin/sg"
         assert argv[:3] == ["/usr/bin/sg", "kvm", "-c"]
         # The inner command must invoke the same Python interpreter so
-        # that the re-exec preserves the user's installed smolvm.
+        # that the re-exec preserves the user's installed celesto.
         import sys
 
         assert sys.executable in argv[3]
@@ -281,4 +281,4 @@ class TestMaybeReexec:
 
         with pytest.raises(OSError, match="vanished"):
             _kvm_session.maybe_reexec_for_kvm_group([])
-        assert os.environ.get("SMOLVM_KVM_REEXEC_DONE") is None
+        assert os.environ.get("CELESTO_KVM_REEXEC_DONE") is None

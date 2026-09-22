@@ -33,7 +33,7 @@ import pytest
 import celesto.comm.rust_http_vsock_channel as vsock_channel
 from celesto.comm.base import CommChannel
 from celesto.comm.rust_http_vsock_channel import (
-    SMOLVM_TERMINAL_PORT,
+    CELESTO_TERMINAL_PORT,
     ControlCapabilities,
     RustHttpVsockChannel,
     _directory_to_tar,
@@ -141,7 +141,7 @@ class FakeTerminalChannel(FakeRustChannel):
         self.terminal_stdin: list[bytes] = []
 
     def _open_port(self, port: int) -> socket.socket:
-        if port != SMOLVM_TERMINAL_PORT:
+        if port != CELESTO_TERMINAL_PORT:
             return self._open()
 
         host, guest = socket.socketpair()
@@ -471,7 +471,7 @@ def test_sync_posts_dedicated_endpoint() -> None:
     FakeRustChannel([_capabilities({"sync": True}), _handler]).sync(timeout=10)
 
 
-def test_sync_error_maps_to_smolvm_error() -> None:
+def test_sync_error_maps_to_celesto_error() -> None:
     channel = FakeRustChannel(
         [_capabilities({"sync": True}), lambda method, path, body: {"ok": False, "error": "busy"}]
     )
@@ -515,7 +515,7 @@ def test_put_and_get_file_use_raw_streaming_and_cache_capabilities(tmp_path: Pat
         return (
             200,
             b"payload",
-            {"x-smolvm-file-mode": "640", "x-smolvm-file-size": "7"},
+            {"x-celesto-file-mode": "640", "x-celesto-file-size": "7"},
         )
 
     channel = FakeRustChannel([_capabilities({"file_raw": True}), _raw_put, _raw_get])
@@ -593,7 +593,7 @@ def test_raw_file_download_rejects_declared_size_over_cap(tmp_path: Path) -> Non
         assert method == "GET"
         assert path == "/files/content?path=%2Ftmp%2Fsource.txt"
         assert body == b""
-        return (200, b"payload", {"x-smolvm-file-size": "7"})
+        return (200, b"payload", {"x-celesto-file-size": "7"})
 
     channel = FakeRustChannel(
         [
@@ -616,7 +616,7 @@ def test_get_file_honors_a_lower_caller_receive_limit(tmp_path: Path) -> None:
         assert method == "GET"
         assert path == "/files/content?path=%2Ftmp%2Fsource.txt"
         assert body == b""
-        return (200, b"payload", {"x-smolvm-file-size": "7"})
+        return (200, b"payload", {"x-celesto-file-size": "7"})
 
     channel = FakeRustChannel(
         [

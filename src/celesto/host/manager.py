@@ -85,11 +85,11 @@ class HostInfo(BaseModel):
 class HostManager:
     """Validates host environment and manages the Firecracker binary.
 
-    The default installation directory is ``~/.smolvm/bin/``.
+    The default installation directory is ``~/.celesto/bin/``.
     """
 
-    SMOLVM_HOME = Path.home() / ".smolvm"
-    BIN_DIR = SMOLVM_HOME / "bin"
+    CELESTO_HOME = Path.home() / ".celesto"
+    BIN_DIR = CELESTO_HOME / "bin"
 
     def __init__(
         self,
@@ -102,7 +102,7 @@ class HostManager:
             firecracker_version: Pinned Firecracker version to install
                 when auto-installing (e.g., "v1.14.1").
             firecracker_dir: Folder containing Celesto's private Firecracker
-                binary. Explicit values override ``SMOLVM_FIRECRACKER_DIR``.
+                binary. Explicit values override ``CELESTO_FIRECRACKER_DIR``.
         """
         if not firecracker_version:
             raise ValueError("firecracker_version cannot be empty")
@@ -191,7 +191,7 @@ class HostManager:
         """Download and install Firecracker from GitHub releases.
 
         Downloads the official tarball, extracts the firecracker binary,
-        and installs it to ``~/.smolvm/bin/``.
+        and installs it to ``~/.celesto/bin/``.
 
         Args:
             version: Version to install (e.g., "v1.14.1").

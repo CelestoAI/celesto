@@ -1,12 +1,12 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
 ***
 
-[@celestoai/smolvm](../README.md) / BrowserSessionCollection
+[@celestoai/celesto](../README.md) / BrowserSessionCollection
 
 # Interface: BrowserSessionCollection
 
-Create browser computers that this SmolVM client will clean up. A browser session is one isolated Chromium environment.
+Create browser computers that this Celesto client will clean up. A browser session is one isolated Chromium environment.
 
 ## Methods
 

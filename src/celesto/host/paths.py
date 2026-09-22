@@ -21,7 +21,9 @@ import shutil
 from collections.abc import Callable
 from pathlib import Path
 
-SMOLVM_FIRECRACKER_DIR_ENV = "SMOLVM_FIRECRACKER_DIR"
+from celesto._compat import existing_legacy_path
+
+CELESTO_FIRECRACKER_DIR_ENV = "CELESTO_FIRECRACKER_DIR"
 
 PathLookup = Callable[[str], str | Path | None]
 
@@ -29,10 +31,10 @@ PathLookup = Callable[[str], str | Path | None]
 def _normalize_directory(value: str | Path, *, source: str) -> Path:
     """Expand and absolutize one configured directory without creating it."""
     if isinstance(value, str) and not value.strip():
-        if source == SMOLVM_FIRECRACKER_DIR_ENV:
+        if source == CELESTO_FIRECRACKER_DIR_ENV:
             raise ValueError(
-                f"{SMOLVM_FIRECRACKER_DIR_ENV} is empty; run "
-                f"'unset {SMOLVM_FIRECRACKER_DIR_ENV}', then run 'celesto setup'."
+                f"{CELESTO_FIRECRACKER_DIR_ENV} is empty; run "
+                f"'unset {CELESTO_FIRECRACKER_DIR_ENV}', then run 'celesto setup'."
             )
         raise ValueError("firecracker_dir cannot be empty; choose a folder for Firecracker.")
 
@@ -44,7 +46,10 @@ def _normalize_directory(value: str | Path, *, source: str) -> Path:
 
 def default_firecracker_dir() -> Path:
     """Return the per-user default Firecracker directory at call time."""
-    return (Path.home() / ".smolvm" / "bin").resolve(strict=False)
+    home = Path.home()
+    return existing_legacy_path(home / ".celesto" / "bin", home / ".smolvm" / "bin").resolve(
+        strict=False
+    )
 
 
 def configured_firecracker_dir(explicit: str | Path | None = None) -> Path | None:
@@ -52,10 +57,10 @@ def configured_firecracker_dir(explicit: str | Path | None = None) -> Path | Non
     if explicit is not None:
         return _normalize_directory(explicit, source="firecracker_dir")
 
-    if SMOLVM_FIRECRACKER_DIR_ENV in os.environ:
+    if CELESTO_FIRECRACKER_DIR_ENV in os.environ:
         return _normalize_directory(
-            os.environ[SMOLVM_FIRECRACKER_DIR_ENV],
-            source=SMOLVM_FIRECRACKER_DIR_ENV,
+            os.environ[CELESTO_FIRECRACKER_DIR_ENV],
+            source=CELESTO_FIRECRACKER_DIR_ENV,
         )
     return None
 

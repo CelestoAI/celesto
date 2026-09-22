@@ -27,10 +27,10 @@ if find_spec("celesto") is not None:
     from celesto.storage import MemoryStateManager
     from celesto.types import SnapshotType, VMConfig
 else:
-    from smolvm import SmolVM as Celesto
-    from smolvm import facade as _facade
-    from smolvm.storage import MemoryStateManager
-    from smolvm.types import SnapshotType, VMConfig
+    from celesto import Celesto as Celesto
+    from celesto import facade as _facade
+    from celesto.storage import MemoryStateManager
+    from celesto.types import SnapshotType, VMConfig
 
 
 def claim_forward_port(claimed: set[int], lock: Lock) -> int:

@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# system-setup-macos.sh - macOS setup for SmolVM qemu backend.
+# system-setup-macos.sh - macOS setup for Celesto qemu backend.
 set -euo pipefail
 
 CHECK_ONLY=false
@@ -25,7 +25,7 @@ usage() {
     cat <<EOF
 Usage: $(basename "$0") [options]
 
-Installs and checks macOS dependencies for SmolVM qemu backend.
+Installs and checks macOS dependencies for Celesto qemu backend.
 
 Options:
   --check-only   Only validate prerequisites; do not install.
@@ -108,7 +108,7 @@ check_prereqs() {
 }
 
 if [[ "$CHECK_ONLY" == "true" ]]; then
-    echo "=== SmolVM macOS check ==="
+    echo "=== Celesto macOS check ==="
     if check_prereqs; then
         echo "✅ macOS prerequisites look good"
         exit 0
@@ -117,7 +117,7 @@ if [[ "$CHECK_ONLY" == "true" ]]; then
     exit 1
 fi
 
-echo "=== SmolVM macOS setup (qemu backend) ==="
+echo "=== Celesto macOS setup (qemu backend) ==="
 
 if [[ "$SKIP_DEPS" != "true" ]] && ! find_qemu; then
     if ! command -v brew >/dev/null 2>&1; then

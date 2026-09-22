@@ -25,7 +25,7 @@ class _FakeConfig(SimpleNamespace):
     rootfs_path: Path
 
 
-class _FakeSmolVM:
+class _FakeCelesto:
     restored_calls: list[dict[str, Any]] = []
     snapshots: list[dict[str, Any]] = []
 
@@ -47,7 +47,7 @@ class _FakeSmolVM:
         )
 
     @classmethod
-    def from_snapshot(cls, snapshot_id: str, **kwargs: Any) -> _FakeSmolVM:
+    def from_snapshot(cls, snapshot_id: str, **kwargs: Any) -> _FakeCelesto:
         cls.restored_calls.append({"snapshot_id": snapshot_id, **kwargs})
         return cls(
             config=_FakeConfig(vm_id="restored", rootfs_path=Path("/tmp/restored.ext4")),
@@ -82,16 +82,16 @@ class _FakeSmolVM:
 
 def _sample_log() -> str:
     return """
-SMOLVM_TS stage=init-start epoch_s=1781280000 uptime_s=0.10
-SMOLVM_TS stage=guest-agent-start epoch_s=1781280000 uptime_s=0.20
-SMOLVM_TS stage=guest-agent-started epoch_s=1781280000 uptime_s=0.24
-SMOLVM_TS stage=net-config-start epoch_s=1781280000 uptime_s=0.30
-SMOLVM_TS stage=net-ready epoch_s=1781280000 uptime_s=0.40
-SMOLVM_TS stage=ssh-hostkey-check-start epoch_s=1781280000 uptime_s=0.42
-SMOLVM_TS stage=ssh-hostkey-check-done epoch_s=1781280000 uptime_s=0.62
-SMOLVM_TS stage=sshd-start epoch_s=1781280000 uptime_s=0.64
-SMOLVM_TS stage=sshd-invoked epoch_s=1781280000 uptime_s=0.72
-SMOLVM_TS stage=init-complete epoch_s=1781280000 uptime_s=0.74
+CELESTO_TS stage=init-start epoch_s=1781280000 uptime_s=0.10
+CELESTO_TS stage=guest-agent-start epoch_s=1781280000 uptime_s=0.20
+CELESTO_TS stage=guest-agent-started epoch_s=1781280000 uptime_s=0.24
+CELESTO_TS stage=net-config-start epoch_s=1781280000 uptime_s=0.30
+CELESTO_TS stage=net-ready epoch_s=1781280000 uptime_s=0.40
+CELESTO_TS stage=ssh-hostkey-check-start epoch_s=1781280000 uptime_s=0.42
+CELESTO_TS stage=ssh-hostkey-check-done epoch_s=1781280000 uptime_s=0.62
+CELESTO_TS stage=sshd-start epoch_s=1781280000 uptime_s=0.64
+CELESTO_TS stage=sshd-invoked epoch_s=1781280000 uptime_s=0.72
+CELESTO_TS stage=init-complete epoch_s=1781280000 uptime_s=0.74
 """
 
 
@@ -100,7 +100,7 @@ def test_fresh_benchmark_attaches_boot_telemetry(monkeypatch, tmp_path: Path) ->
     log_path = tmp_path / "bench-fake.log"
     log_path.write_text(_sample_log())
 
-    monkeypatch.setattr(ubuntu_transport, "Celesto", _FakeSmolVM)
+    monkeypatch.setattr(ubuntu_transport, "Celesto", _FakeCelesto)
     monkeypatch.setattr(
         ubuntu_transport,
         "_config_for_variant",
@@ -126,8 +126,8 @@ def test_fresh_benchmark_attaches_boot_telemetry(monkeypatch, tmp_path: Path) ->
 
 
 def test_snapshot_benchmark_restores_with_selected_transport(monkeypatch, tmp_path: Path) -> None:
-    _FakeSmolVM.restored_calls = []
-    _FakeSmolVM.snapshots = []
+    _FakeCelesto.restored_calls = []
+    _FakeCelesto.snapshots = []
     deleted_snapshots: list[str] = []
     config = _FakeConfig(vm_id="bench-fake", rootfs_path=Path("/tmp/rootfs.ext4"))
     source_log = tmp_path / "bench-fake.log"
@@ -136,7 +136,7 @@ def test_snapshot_benchmark_restores_with_selected_transport(monkeypatch, tmp_pa
     restored_log.write_text(_sample_log())
     logs = {"bench-fake": source_log, "restored": restored_log}
 
-    monkeypatch.setattr(ubuntu_transport, "Celesto", _FakeSmolVM)
+    monkeypatch.setattr(ubuntu_transport, "Celesto", _FakeCelesto)
     monkeypatch.setattr(
         ubuntu_transport,
         "_config_for_variant",
@@ -190,10 +190,10 @@ def test_snapshot_benchmark_restores_with_selected_transport(monkeypatch, tmp_pa
     assert record["snapshot_restore_to_first_command_ms"] >= record["snapshot_restore_ms"]
     assert len(record["snapshot_warm_exec_ms"]) == 2
     assert deleted_snapshots == [record["snapshot_id"]]
-    assert _FakeSmolVM.snapshots == [
+    assert _FakeCelesto.snapshots == [
         {"snapshot_id": record["snapshot_id"], "snapshot_type": "diff"}
     ]
-    assert _FakeSmolVM.restored_calls == [
+    assert _FakeCelesto.restored_calls == [
         {
             "snapshot_id": record["snapshot_id"],
             "backend": "qemu",

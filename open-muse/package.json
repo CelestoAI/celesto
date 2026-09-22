@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "@celestoai/sdk": "^0.1.6",
-    "@celestoai/smolvm": "file:../ts",
+    "@celestoai/celesto": "file:../ts",
     "@earendil-works/pi-agent-core": "0.85.1",
     "@earendil-works/pi-ai": "0.85.1",
     "@novnc/novnc": "^1.7.0",

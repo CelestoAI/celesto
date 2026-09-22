@@ -252,7 +252,7 @@ class LumeDriver:
             target=self._stream_install_output,
             args=(stream, log_path, on_progress),
             daemon=True,
-            name=f"smolvm-lume-install-{request.name}",
+            name=f"celesto-lume-install-{request.name}",
         )
         reader.start()
         try:
@@ -416,7 +416,7 @@ class LumeDriver:
                 target=self._write_redacted_log,
                 args=(process.stdout, log_path),
                 daemon=True,
-                name=f"smolvm-lume-log-{request.name}",
+                name=f"celesto-lume-log-{request.name}",
             ).start()
         except OSError as exc:
             raise CelestoError(

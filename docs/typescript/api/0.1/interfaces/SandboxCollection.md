@@ -1,12 +1,12 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
 ***
 
-[@celestoai/smolvm](../README.md) / SandboxCollection
+[@celestoai/celesto](../README.md) / SandboxCollection
 
 # Interface: SandboxCollection
 
-Creates sandboxes owned by one SmolVM client.
+Creates sandboxes owned by one Celesto client.
 
 ## Methods
 

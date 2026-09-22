@@ -110,7 +110,7 @@ class TestNaming:
         assert re.fullmatch(r"images-\d{4}\.\d{2}\.\d{2}\.\d+", IMAGES_RELEASE_TAG)
 
     def test_release_url_uses_env_override_when_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("SMOLVM_IMAGES_RELEASE_TAG", "images-v0.0.16")
+        monkeypatch.setenv("CELESTO_IMAGES_RELEASE_TAG", "images-v0.0.16")
 
         assert published_module._images_release_tag() == "images-v0.0.16"
         assert "/images-v0.0.16/" in published_module._release_kernel_url("amd64", "elf")
@@ -119,7 +119,7 @@ class TestNaming:
         )
 
     def test_empty_release_tag_env_uses_pinned_tag(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("SMOLVM_IMAGES_RELEASE_TAG", "")
+        monkeypatch.setenv("CELESTO_IMAGES_RELEASE_TAG", "")
 
         assert published_module._images_release_tag() == IMAGES_RELEASE_TAG
 

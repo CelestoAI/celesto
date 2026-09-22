@@ -449,7 +449,7 @@ class TestBridgeInspection:
         }
         owned_tap_info = {
             "ifname": "svmb12345678",
-            "ifalias": "smolvm-bridge:vm001",
+            "ifalias": "celesto-bridge:vm001",
             "linkinfo": {"info_kind": "tun", "info_data": {"type": "tap"}},
         }
         with (
@@ -588,7 +588,7 @@ class TestBridgedTapOwnership:
                 side_effect=[
                     None,
                     self._tap_info(alias=""),
-                    self._tap_info(alias="smolvm-bridge:vm001", master="br10"),
+                    self._tap_info(alias="celesto-bridge:vm001", master="br10"),
                 ],
             ),
             patch.object(nm, "_set_tap_master") as set_master,
@@ -604,7 +604,7 @@ class TestBridgedTapOwnership:
             "dev",
             "svmb1234",
             "alias",
-            "smolvm-bridge:vm001",
+            "celesto-bridge:vm001",
         ]
 
     def test_prepare_refuses_existing_foreign_interface(self) -> None:
@@ -638,7 +638,7 @@ class TestBridgedTapOwnership:
         from celesto.host.network import BridgeInspection, NetworkManager
 
         nm = NetworkManager()
-        owned = self._tap_info(alias="smolvm-bridge:vm001", master="br10")
+        owned = self._tap_info(alias="celesto-bridge:vm001", master="br10")
         with (
             patch.object(
                 nm,
@@ -659,7 +659,7 @@ class TestBridgedTapOwnership:
         from celesto.host.network import NetworkManager
 
         nm = NetworkManager()
-        owned = self._tap_info(alias="smolvm-bridge:vm001")
+        owned = self._tap_info(alias="celesto-bridge:vm001")
         with (
             patch.object(
                 nm,

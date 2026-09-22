@@ -184,7 +184,7 @@ def test_one_line_installer_keeps_custom_directory_for_doctor() -> None:
     text = _ONE_LINE_INSTALLER.read_text()
 
     assert "FIRECRACKER_DIR_ARG" in text
-    assert 'export SMOLVM_FIRECRACKER_DIR="${FIRECRACKER_DIR_ARG}"' in text
+    assert 'export CELESTO_FIRECRACKER_DIR="${FIRECRACKER_DIR_ARG}"' in text
     assert "if ((${#SETUP_ARGS[@]})); then" in text
     assert 'celesto setup "${SETUP_ARGS[@]}"' in text
 
@@ -192,12 +192,12 @@ def test_one_line_installer_keeps_custom_directory_for_doctor() -> None:
 def test_runtime_sudo_policy_excludes_user_writable_programs() -> None:
     text = _RUNTIME_CONFIG_SCRIPT.read_text()
 
-    assert 'LOOPFS_HELPER_DIR="/var/lib/smolvm/libexec"' in text
+    assert 'LOOPFS_HELPER_DIR="/var/lib/celesto/libexec"' in text
     assert '[[ -L "${LOOPFS_HELPER_DST}"' in text
-    assert "SMOLVM_VM_CMDS" not in text
+    assert "CELESTO_VM_CMDS" not in text
     assert "FIRECRACKER_BIN" not in text
     assert "kill -9" not in text
-    assert "SMOLVM_FIRECRACKER_DIR" not in text
+    assert "CELESTO_FIRECRACKER_DIR" not in text
 
 
 def test_setup_recovery_shell_quotes_custom_firecracker_directory() -> None:
@@ -271,7 +271,7 @@ esac
         """#!/bin/bash
 printf 'celesto' >> "$COMMAND_LOG"
 printf ' <%s>' "$@" >> "$COMMAND_LOG"
-printf ' dir=%s\\n' "${SMOLVM_FIRECRACKER_DIR:-}" >> "$COMMAND_LOG"
+printf ' dir=%s\\n' "${CELESTO_FIRECRACKER_DIR:-}" >> "$COMMAND_LOG"
 [[ "$1" != "$FAILURE" ]]
 """,
     )
@@ -324,7 +324,7 @@ printf 'cp "$UV_TEMPLATE" "$UV_DESTINATION"\\n'
         "UV_TEMPLATE": str(tmp_path / "uv-template"),
         "UV_DESTINATION": str(tools / "uv"),
     }
-    env.pop("SMOLVM_FIRECRACKER_DIR", None)
+    env.pop("CELESTO_FIRECRACKER_DIR", None)
     result = subprocess.run(
         ["/bin/bash", str(_ONE_LINE_INSTALLER), *args],
         env=env,

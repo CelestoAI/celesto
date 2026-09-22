@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""QMP wrapper that translates smolvm-core errors into Celesto errors."""
+"""QMP wrapper that translates celesto-core errors into Celesto errors."""
 
 from __future__ import annotations
 
@@ -20,8 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from smolvm_core import errors as core_errors
-from smolvm_core import qmp as core_qmp
+from celesto_core import errors as core_errors
+from celesto_core import qmp as core_qmp
 
 from celesto.exceptions import CelestoError
 
@@ -49,7 +49,7 @@ class QMPDirtyBitmap:
     dirty_bytes: int
 
 
-def _core_error_to_smolvm(exc: Exception, socket_path: Path) -> CelestoError:
+def _core_error_to_celesto(exc: Exception, socket_path: Path) -> CelestoError:
     if isinstance(exc, core_errors.QMPError):
         details = dict(exc.details)
         details.setdefault("socket_path", str(socket_path))
@@ -78,11 +78,11 @@ class QMPClient:
         except core_errors.CoreUnavailableError as exc:
             raise CelestoError(
                 "QEMU control support is missing; "
-                "run `uv sync --reinstall-package smolvm-core` and try again.",
+                "run `uv sync --reinstall-package celesto-core` and try again.",
                 {"socket_path": str(socket_path)},
             ) from exc
-        except core_errors.SmolVMCoreError as exc:
-            raise _core_error_to_smolvm(exc, socket_path) from exc
+        except core_errors.CelestoCoreError as exc:
+            raise _core_error_to_celesto(exc, socket_path) from exc
 
     def __enter__(self) -> QMPClient:
         return self
@@ -93,8 +93,8 @@ class QMPClient:
     def _call(self, method: str, *args: object, **kwargs: object) -> Any:
         try:
             return getattr(self._core, method)(*args, **kwargs)
-        except core_errors.SmolVMCoreError as exc:
-            raise _core_error_to_smolvm(exc, self.socket_path) from exc
+        except core_errors.CelestoCoreError as exc:
+            raise _core_error_to_celesto(exc, self.socket_path) from exc
 
     def connect(self, timeout: float = 5.0, read_timeout: float = 30.0) -> None:
         """Connect to the QMP socket and negotiate capabilities."""

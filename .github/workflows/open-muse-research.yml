@@ -19,7 +19,13 @@ jobs:
         with:
           node-version: "22.19"
           cache: npm
-          cache-dependency-path: examples/open-muse-research/package-lock.json
+          cache-dependency-path: |
+            ts/package-lock.json
+            examples/open-muse-research/package-lock.json
+      # The example uses the in-repository SDK until the renamed npm package
+      # has its first public release, so build its published dist files first.
+      - run: npm ci && npm run build
+        working-directory: ts
       - run: npm ci --allow-remote=root
         working-directory: examples/open-muse-research
       - run: npm run check

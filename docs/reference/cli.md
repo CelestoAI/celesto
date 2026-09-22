@@ -12,13 +12,13 @@ The CLI creates and manages disposable sandboxes. Run `celesto COMMAND --help` f
 | `celesto update` | Upgrade to the latest stable release. |
 | `celesto prune` | Remove stale cached images (alias for `celesto image prune`). |
 
-On Linux, `celesto setup` stores Firecracker—the program that starts a sandbox—in `~/.smolvm/bin`. Use `--firecracker-dir` to choose another folder for one setup run:
+On Linux, `celesto setup` stores Firecracker—the program that starts a sandbox—in `~/.celesto/bin`. Use `--firecracker-dir` to choose another folder for one setup run:
 
 ```bash
 celesto setup --firecracker-dir "$HOME/.local/bin"
 ```
 
-Set `SMOLVM_FIRECRACKER_DIR` when future commands also need to find a folder that is not on `PATH`. See [Install Celesto](../installation.md) for Fedora Atomic and build-machine setup.
+Set `CELESTO_FIRECRACKER_DIR` when future commands also need to find a folder that is not on `PATH`. See [Install Celesto](../installation.md) for Fedora Atomic and build-machine setup.
 
 ## Work with sandboxes
 
@@ -72,7 +72,7 @@ The first time you start a sandbox or agent, Celesto downloads the files it boot
 | `celesto image rm <name>` | Remove a downloaded image to free disk space. |
 | `celesto image prune` | Remove images left behind by older Celesto versions. |
 
-Images are stored in `~/.smolvm/images`. To keep them somewhere else, set the `SMOLVM_IMAGE_DIR` environment variable — sandboxes read it too, so images you pull are found when a sandbox starts. The `--image-dir` option points a single `celesto image` command at a different folder; sandboxes do not read that folder.
+Images are stored in `~/.celesto/images`. To keep them somewhere else, set the `CELESTO_IMAGE_DIR` environment variable — sandboxes read it too, so images you pull are found when a sandbox starts. The `--image-dir` option points a single `celesto image` command at a different folder; sandboxes do not read that folder.
 
 ## Browsers, computers, local services, and Windows
 

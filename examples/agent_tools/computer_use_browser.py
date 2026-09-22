@@ -24,7 +24,7 @@ Required environment:
 
 Optional environment:
     export COMPUTER_USE_MODEL=gpt-5.4
-    export SMOLVM_BROWSER_MODE=live
+    export CELESTO_BROWSER_MODE=live
 
 Before running:
     celesto doctor
@@ -114,7 +114,7 @@ class ComputerUseResult:
 
 
 def _log(message: str) -> None:
-    print(f"[smolvm-computer-use] {message}", file=sys.stderr, flush=True)
+    print(f"[celesto-computer-use] {message}", file=sys.stderr, flush=True)
 
 
 def _normalized_host(url: str) -> str:
@@ -122,7 +122,7 @@ def _normalized_host(url: str) -> str:
 
 
 def _build_config(args: argparse.Namespace) -> ComputerUseConfig:
-    mode = (args.mode or os.environ.get("SMOLVM_BROWSER_MODE", "live")).strip().lower()
+    mode = (args.mode or os.environ.get("CELESTO_BROWSER_MODE", "live")).strip().lower()
     browser_mode: Literal["headless", "live"] = "headless" if mode == "headless" else "live"
     domains: list[str] = []
     start_host = _normalized_host(args.start_url)
@@ -546,7 +546,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--mode",
         choices=("headless", "live"),
         default=None,
-        help="Browser mode. Defaults to SMOLVM_BROWSER_MODE or live.",
+        help="Browser mode. Defaults to CELESTO_BROWSER_MODE or live.",
     )
     parser.add_argument(
         "--max-steps",

@@ -1,12 +1,12 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
 ***
 
-[@celestoai/smolvm](../README.md) / BrowserSession
+[@celestoai/celesto](../README.md) / BrowserSession
 
 # Class: BrowserSession
 
-Run commands in an isolated browser computer owned by one SmolVM client. A browser session is the disposable Chromium environment and its private connection endpoints.
+Run commands in an isolated browser computer owned by one Celesto client. A browser session is the disposable Chromium environment and its private connection endpoints.
 
 ## Implements
 

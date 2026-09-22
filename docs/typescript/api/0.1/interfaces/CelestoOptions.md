@@ -1,10 +1,10 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
 ***
 
-[@celestoai/smolvm](../README.md) / SmolVMOptions
+[@celestoai/celesto](../README.md) / CelestoOptions
 
-# Interface: SmolVMOptions
+# Interface: CelestoOptions
 
 Configure runtime startup, lifecycle events, debugging, or a test transport.
 
@@ -22,7 +22,7 @@ Time allowed to download an image and create a sandbox.
 
 > `optional` **debug?**: `boolean`
 
-Retain non-enumerable causes on SmolVMError instances.
+Retain non-enumerable causes on CelestoError instances.
 
 ***
 
@@ -36,7 +36,7 @@ Observe typed lifecycle events.
 
 ##### event
 
-[`SmolVMEvent`](../type-aliases/SmolVMEvent.md)
+[`CelestoEvent`](../type-aliases/CelestoEvent.md)
 
 #### Returns
 
@@ -70,6 +70,6 @@ Time allowed for the local bridge to start.
 
 ### transport?
 
-> `optional` **transport?**: [`SmolVMTransport`](SmolVMTransport.md)
+> `optional` **transport?**: [`CelestoTransport`](CelestoTransport.md)
 
 Supply a structural transport in tests; normal applications should omit this.

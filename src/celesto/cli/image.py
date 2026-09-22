@@ -81,7 +81,7 @@ _SAFE_SEGMENT_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 # Custom builds live under this subdirectory: custom/<name>/<fingerprint>/.
 _CUSTOM_DIR = "custom"
 _MACOS_DIR = "macos"
-_MACOS_MANIFEST = "smolvm-manifest.json"
+_MACOS_MANIFEST = "celesto-manifest.json"
 
 
 def _canonical_preset(name: str) -> str:
@@ -635,7 +635,7 @@ def _non_default_dir_warnings(root: Path) -> list[str]:
         return []
     return [
         f"Sandboxes look for images in '{default_root}'. Set "
-        f"SMOLVM_IMAGE_DIR={shlex.quote(str(root))} so they use this download."
+        f"CELESTO_IMAGE_DIR={shlex.quote(str(root))} so they use this download."
     ]
 
 

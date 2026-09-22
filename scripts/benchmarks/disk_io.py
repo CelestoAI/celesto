@@ -39,7 +39,7 @@ except ImportError:  # pragma: no cover - script execution path
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
-DISK_DISABLE_ENV = "SMOLVM_DISABLE_NATIVE_DISK"
+DISK_DISABLE_ENV = "CELESTO_DISABLE_NATIVE_DISK"
 VARIANTS = ("native", "forced-off")
 OPERATIONS = ("copy", "decompress")
 SIZE_SUFFIXES = {
@@ -132,7 +132,7 @@ def write_sparse_source(path: Path, *, size: int) -> None:
 
 
 def _deterministic_block(offset: int, size: int) -> bytes:
-    seed = hashlib.sha256(f"smolvm-disk-benchmark:{offset}".encode()).digest()
+    seed = hashlib.sha256(f"celesto-disk-benchmark:{offset}".encode()).digest()
     repeats = (size // len(seed)) + 1
     return (seed * repeats)[:size]
 
@@ -178,7 +178,7 @@ def dry_run_records(
 def run_records(args: argparse.Namespace, sizes: list[int], operations: list[str]) -> list[dict]:
     from celesto.host import disk as disk_helpers
 
-    base_dir = args.work_dir or Path(tempfile.mkdtemp(prefix="smolvm-disk-bench-"))
+    base_dir = args.work_dir or Path(tempfile.mkdtemp(prefix="celesto-disk-bench-"))
     base_dir = base_dir.expanduser()
     base_dir.mkdir(parents=True, exist_ok=True)
     records: list[dict[str, Any]] = []

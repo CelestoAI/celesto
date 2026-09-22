@@ -27,11 +27,11 @@ from celesto.exceptions import FirecrackerAPIError, OperationTimeoutError
 
 logger = logging.getLogger(__name__)
 
-_DISABLE_NATIVE_ENV = "SMOLVM_DISABLE_NATIVE_FIRECRACKER_API"
+_DISABLE_NATIVE_ENV = "CELESTO_DISABLE_NATIVE_FIRECRACKER_API"
 _TRUE_ENV_VALUES = {"1", "true", "yes"}
 
 try:
-    from smolvm_core import firecracker as core_firecracker
+    from celesto_core import firecracker as core_firecracker
 except ImportError:  # pragma: no cover - optional wheel
     core_firecracker = None  # type: ignore[assignment]
 
@@ -44,14 +44,14 @@ def _core_firecracker_unavailable_reason() -> str | None:
     if core_firecracker is None:
         return (
             "Firecracker control support is missing; "
-            "run `uv sync --reinstall-package smolvm-core` and try again."
+            "run `uv sync --reinstall-package celesto-core` and try again."
         )
     if not hasattr(core_firecracker, "available") or not hasattr(
         core_firecracker, "FirecrackerClient"
     ):
         return (
             "Firecracker control support is missing; "
-            "run `uv sync --reinstall-package smolvm-core` and try again."
+            "run `uv sync --reinstall-package celesto-core` and try again."
         )
     try:
         if bool(core_firecracker.available()):
@@ -60,7 +60,7 @@ def _core_firecracker_unavailable_reason() -> str | None:
         logger.debug("Firecracker native availability check failed: %s", exc)
     return (
         "Firecracker control support is missing; "
-        "run `uv sync --reinstall-package smolvm-core` and try again."
+        "run `uv sync --reinstall-package celesto-core` and try again."
     )
 
 

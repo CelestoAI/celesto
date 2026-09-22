@@ -1,4 +1,4 @@
-# Base rootfs for all SmolVM presets.
+# Base rootfs for all Celesto presets.
 #
 # Shared layer: Ubuntu 24.04 minimal + Node 22 + Python 3 + uv + common
 # system packages. Each preset builds ON TOP of this image by running its

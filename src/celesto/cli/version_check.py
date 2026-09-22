@@ -33,7 +33,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-DISABLE_ENV = "SMOLVM_DISABLE_VERSION_CHECK"
+DISABLE_ENV = "CELESTO_DISABLE_VERSION_CHECK"
 PYPI_URL = "https://pypi.org/pypi/celesto/json"
 CACHE_TTL_SECONDS = 60 * 60  # 1h
 NETWORK_TIMEOUT_SECONDS = 2.0
@@ -41,7 +41,7 @@ NETWORK_TIMEOUT_SECONDS = 2.0
 
 def _cache_path() -> Path:
     """Return the path used to cache the last-seen PyPI version."""
-    return Path.home() / ".smolvm" / ".celesto_version_check.json"
+    return Path.home() / ".celesto" / ".celesto_version_check.json"
 
 
 def _read_cache() -> tuple[str, float] | None:
@@ -175,7 +175,7 @@ def maybe_print_update_notice(*, json_output: bool = False) -> None:
     """Print an upgrade nag to stderr if a newer PyPI version is available.
 
     Skipped when:
-      * ``$SMOLVM_DISABLE_VERSION_CHECK`` is set
+      * ``$CELESTO_DISABLE_VERSION_CHECK`` is set
       * ``json_output`` is True (machine-readable mode)
       * stderr is not a TTY (scripts, CI, pipes)
       * running under pytest

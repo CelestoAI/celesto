@@ -130,7 +130,7 @@ pub async fn handle_health() -> Json<HealthResponse> {
         status: "ok",
         uptime_seconds: START_TIME.elapsed().as_secs(),
         agent_version: env!("CARGO_PKG_VERSION"),
-        protocol: "smolvm-http-vsock",
+        protocol: "celesto-http-vsock",
         protocol_version: PROTOCOL_VERSION,
     })
 }
@@ -145,9 +145,9 @@ pub struct VersionResponse {
 
 pub async fn handle_version() -> Json<VersionResponse> {
     Json(VersionResponse {
-        agent_name: "smolvm-guest-agent",
+        agent_name: "celesto-guest-agent",
         agent_version: env!("CARGO_PKG_VERSION"),
-        protocol: "smolvm-http-vsock",
+        protocol: "celesto-http-vsock",
         protocol_version: PROTOCOL_VERSION,
     })
 }
@@ -365,11 +365,11 @@ fn binary_response(content_type: &'static str, mode: u32, size: u64, data: Vec<u
     let headers = response.headers_mut();
     headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
     headers.insert(
-        "x-smolvm-file-mode",
+        "x-celesto-file-mode",
         HeaderValue::from_str(&format!("{mode:o}")).expect("mode header is valid ASCII"),
     );
     headers.insert(
-        "x-smolvm-file-size",
+        "x-celesto-file-size",
         HeaderValue::from_str(&size.to_string()).expect("size header is valid ASCII"),
     );
     headers.insert(
@@ -395,12 +395,12 @@ mod tests {
         assert_eq!(health.status, StatusCode::OK);
         assert_eq!(health.body["status"], "ok");
         assert_eq!(health.body["agent_version"], env!("CARGO_PKG_VERSION"));
-        assert_eq!(health.body["protocol"], "smolvm-http-vsock");
+        assert_eq!(health.body["protocol"], "celesto-http-vsock");
         assert_eq!(health.body["protocol_version"], PROTOCOL_VERSION);
 
         let version = request_json(router(), "GET", "/version", None).await;
         assert_eq!(version.status, StatusCode::OK);
-        assert_eq!(version.body["agent_name"], "smolvm-guest-agent");
+        assert_eq!(version.body["agent_name"], "celesto-guest-agent");
         assert_eq!(version.body["protocol_version"], PROTOCOL_VERSION);
 
         let capabilities = request_json(router(), "GET", "/capabilities", None).await;
@@ -520,7 +520,7 @@ mod tests {
         let get_uri = format!("/files/content?path={}", url_escape(path.to_str().unwrap()));
         let get = raw_request(router(), "GET", &get_uri, None).await;
         assert_eq!(get.status(), StatusCode::OK);
-        assert_eq!(get.headers().get("x-smolvm-file-mode").unwrap(), "600");
+        assert_eq!(get.headers().get("x-celesto-file-mode").unwrap(), "600");
         let get_body = to_bytes(get.into_body(), usize::MAX).await.unwrap();
         assert_eq!(&get_body[..], b"raw payload");
     }
@@ -602,7 +602,7 @@ mod tests {
 
     fn tempfile_dir() -> std::path::PathBuf {
         let path = std::env::temp_dir().join(format!(
-            "smolvm-agent-handler-test-{}-{}",
+            "celesto-agent-handler-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

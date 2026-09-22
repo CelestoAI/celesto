@@ -239,7 +239,7 @@ class TestInjectEnvVars:
 
     def test_generated_script_writes_the_env_file(self, tmp_path, monkeypatch) -> None:
         """Execute the generated shell script for real and check the result."""
-        env_file = tmp_path / "profile.d" / "smolvm_env.sh"
+        env_file = tmp_path / "profile.d" / "celesto_env.sh"
         monkeypatch.setattr("celesto.env.ENV_FILE", str(env_file))
 
         ssh = MagicMock()

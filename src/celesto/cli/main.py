@@ -69,9 +69,9 @@ if TYPE_CHECKING:
     from celesto.storage import StateManagerProtocol
     from celesto.types import BrowserSessionInfo, SnapshotInfo, VMConfig, VMInfo
 
-DASHBOARD_ALLOW_BETA_ENV = "SMOLVM_DASHBOARD_ALLOW_BETA"
-DASHBOARD_URL_ENV = "SMOLVM_DASHBOARD_URL"
-ENV_RELOAD_HINT = "source /etc/profile.d/smolvm_env.sh"
+DASHBOARD_ALLOW_BETA_ENV = "CELESTO_DASHBOARD_ALLOW_BETA"
+DASHBOARD_URL_ENV = "CELESTO_DASHBOARD_URL"
+ENV_RELOAD_HINT = "source /etc/profile.d/celesto_env.sh"
 OPENCLAW_DASHBOARD_PORT = 18789
 
 # Matches PEP 440 pre-release and dev-release version suffixes,
@@ -619,7 +619,7 @@ def _run_setup(
                 console_stdout().print(
                     "Firecracker was installed in "
                     f"'{escape(str(resolved_dir))}'; run "
-                    f"export SMOLVM_FIRECRACKER_DIR={escape(export_value)} "
+                    f"export CELESTO_FIRECRACKER_DIR={escape(export_value)} "
                     "before your next Celesto command."
                 )
         return result
@@ -754,7 +754,7 @@ def _query_live_vm_info(vm: VMInfo) -> dict[str, object]:
     else:
         host, port = network.guest_ip, 22
 
-    key_path = Path.home() / ".smolvm" / "keys" / "id_ed25519"
+    key_path = Path.home() / ".celesto" / "keys" / "id_ed25519"
     client = SSHClient(
         host=host,
         port=port,
@@ -1245,7 +1245,7 @@ def _run_create(args: SimpleNamespace) -> int:
                         )
                     )
                     console_stdout().print(
-                        f"{source_message} Build logs are stored under '~/.smolvm/images/macos'."
+                        f"{source_message} Build logs are stored under '~/.celesto/images/macos'."
                     )
                     _build_macos_image_with_progress(
                         image_manager,
@@ -1527,7 +1527,7 @@ def _render_start_result(data: StartPayload) -> None:
 # PCI virtio with an arch-specific console (added by _boot_args_for).
 #
 # Every published preset bakes a Celesto init script at /init that reads
-# smolvm.authorized_key_b64=<base64> from the cmdline for pubkey injection
+# celesto.authorized_key_b64=<base64> from the cmdline for pubkey injection
 # — openclaw via build_openclaw_rootfs(), the layered presets via
 # scripts/ci/preset-init.sh baked by build-preset.sh.
 _PUBLISHED_BOOT_ARGS_BY_VMM: dict[Vmm, str] = {
@@ -1576,7 +1576,7 @@ def _vmm_for_host() -> Vmm:
     intentionally not returned here yet — the CLI sticks to the two
     runtimes we ship working kernels + backends for.
 
-    Deliberately doesn't read ``SMOLVM_BACKEND`` — the published path
+    Deliberately doesn't read ``CELESTO_BACKEND`` — the published path
     pairs a specific kernel build with a specific runtime, so an env
     override that swapped only one half would silently mismatch them.
     """
@@ -1603,7 +1603,7 @@ def _run_start_with_published_image(args: SimpleNamespace, preset: object) -> in
 
     Bypasses the default install-at-boot flow:
     - downloads the kernel + rootfs from GitHub Releases (cached at
-      ``~/.smolvm/images/<preset>-v<version>-<arch>/``)
+      ``~/.celesto/images/<preset>-v<version>-<arch>/``)
     - boots Firecracker (matching how images are built in CI)
     - skips ``apply_preset`` since the preset's tools are already baked in
     - injects the user's pubkey via the kernel cmdline so SSH works on
@@ -3055,7 +3055,7 @@ def _parse_port_mapping(mapping: str) -> tuple[int | None, int]:
 
 def _port_forwards_path(vm_id: str) -> Path:
     """Path to the JSON file tracking active port forwards for a VM."""
-    state_dir = (Path.home() / ".smolvm" / "forwards").resolve()
+    state_dir = (Path.home() / ".celesto" / "forwards").resolve()
     state_dir.mkdir(parents=True, exist_ok=True)
     target = (state_dir / f"{vm_id}.json").resolve()
     if not str(target).startswith(str(state_dir) + "/"):
@@ -3440,15 +3440,15 @@ gateway_ready() {{
 if gateway_ready; then
     exit 0
 fi
-if [ -r /etc/profile.d/smolvm_env.sh ]; then
-    . /etc/profile.d/smolvm_env.sh
+if [ -r /etc/profile.d/celesto_env.sh ]; then
+    . /etc/profile.d/celesto_env.sh
 fi
 mkdir -p /root/.openclaw
 nohup openclaw gateway run --allow-unconfigured --bind loopback \
     --port {OPENCLAW_DASHBOARD_PORT} \
-    </dev/null >/tmp/smolvm-openclaw-gateway.log 2>&1 &
+    </dev/null >/tmp/celesto-openclaw-gateway.log 2>&1 &
 gateway_pid=$!
-echo "$gateway_pid" >/tmp/smolvm-openclaw-gateway.pid
+echo "$gateway_pid" >/tmp/celesto-openclaw-gateway.pid
 for _attempt in $(seq 1 60); do
     if gateway_ready; then
         exit 0
@@ -3457,7 +3457,7 @@ for _attempt in $(seq 1 60); do
 done
 kill "$gateway_pid" >/dev/null 2>&1 || true
 wait "$gateway_pid" >/dev/null 2>&1 || true
-rm -f /tmp/smolvm-openclaw-gateway.pid
+rm -f /tmp/celesto-openclaw-gateway.pid
 exit 1
 """
     started = vm.run(command, timeout=45, shell="raw")

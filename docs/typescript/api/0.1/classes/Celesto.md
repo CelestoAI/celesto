@@ -1,32 +1,32 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
 ***
 
-[@celestoai/smolvm](../README.md) / SmolVM
+[@celestoai/celesto](../README.md) / Celesto
 
-# Class: SmolVM
+# Class: Celesto
 
 Entry point for creating disposable local sandboxes.
 
 ## Implements
 
-- [`SmolVMClient`](../interfaces/SmolVMClient.md)
+- [`CelestoClient`](../interfaces/CelestoClient.md)
 
 ## Constructors
 
 ### Constructor
 
-> **new SmolVM**(`options?`): `SmolVM`
+> **new Celesto**(`options?`): `Celesto`
 
 #### Parameters
 
 ##### options?
 
-[`SmolVMOptions`](../interfaces/SmolVMOptions.md) = `{}`
+[`CelestoOptions`](../interfaces/CelestoOptions.md) = `{}`
 
 #### Returns
 
-`SmolVM`
+`Celesto`
 
 ## Properties
 
@@ -36,7 +36,7 @@ Entry point for creating disposable local sandboxes.
 
 #### Implementation of
 
-[`SmolVMClient`](../interfaces/SmolVMClient.md).[`browsers`](../interfaces/SmolVMClient.md#browsers)
+[`CelestoClient`](../interfaces/CelestoClient.md).[`browsers`](../interfaces/CelestoClient.md#browsers)
 
 ***
 
@@ -46,7 +46,7 @@ Entry point for creating disposable local sandboxes.
 
 #### Implementation of
 
-[`SmolVMClient`](../interfaces/SmolVMClient.md).[`computers`](../interfaces/SmolVMClient.md#computers)
+[`CelestoClient`](../interfaces/CelestoClient.md).[`computers`](../interfaces/CelestoClient.md#computers)
 
 ***
 
@@ -56,7 +56,7 @@ Entry point for creating disposable local sandboxes.
 
 #### Implementation of
 
-[`SmolVMClient`](../interfaces/SmolVMClient.md).[`sandboxes`](../interfaces/SmolVMClient.md#sandboxes)
+[`CelestoClient`](../interfaces/CelestoClient.md).[`sandboxes`](../interfaces/CelestoClient.md#sandboxes)
 
 ## Methods
 
@@ -70,7 +70,7 @@ Entry point for creating disposable local sandboxes.
 
 #### Implementation of
 
-[`SmolVMClient`](../interfaces/SmolVMClient.md).[`close`](../interfaces/SmolVMClient.md#close)
+[`CelestoClient`](../interfaces/CelestoClient.md).[`close`](../interfaces/CelestoClient.md#close)
 
 ***
 
@@ -84,4 +84,4 @@ Entry point for creating disposable local sandboxes.
 
 #### Implementation of
 
-[`SmolVMClient`](../interfaces/SmolVMClient.md).[`diagnose`](../interfaces/SmolVMClient.md#diagnose)
+[`CelestoClient`](../interfaces/CelestoClient.md).[`diagnose`](../interfaces/CelestoClient.md#diagnose)

@@ -1,8 +1,8 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
 ***
 
-[@celestoai/smolvm](../README.md) / CreateBrowserSessionOptions
+[@celestoai/celesto](../README.md) / CreateBrowserSessionOptions
 
 # Interface: CreateBrowserSessionOptions
 

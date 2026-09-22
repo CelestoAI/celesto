@@ -1,4 +1,4 @@
-"""Print smolvm-core capabilities as JSON."""
+"""Print celesto-core capabilities as JSON."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ def main() -> None:
     """Print a zero-side-effect capability report."""
 
     report = {
-        "smolvm_core": __version__,
+        "celesto_core": __version__,
         "python": platform.python_version(),
         "platform": platform.platform(),
         "capabilities": detect().as_dict(),

@@ -1,5 +1,5 @@
 /** Identifies a stable SDK failure category that application code can handle. */
-export type SmolVMErrorCode =
+export type CelestoErrorCode =
   | "unsupported_node"
   | "runtime_missing"
   | "protocol_incompatible"
@@ -26,8 +26,8 @@ export type SmolVMErrorCode =
   | "file_too_large"
   | "transport_failed";
 
-/** Adds operation context and safe recovery details to a SmolVMError. */
-export interface SmolVMErrorOptions {
+/** Adds operation context and safe recovery details to a CelestoError. */
+export interface CelestoErrorOptions {
   operation: string;
   sandboxId?: string;
   actual?: Readonly<Record<string, string | number | boolean>>;
@@ -38,17 +38,17 @@ export interface SmolVMErrorOptions {
 }
 
 /** A stable, actionable failure from the SDK or local runtime. */
-export class SmolVMError extends Error {
-  readonly code: SmolVMErrorCode;
+export class CelestoError extends Error {
+  readonly code: CelestoErrorCode;
   readonly operation: string;
   readonly sandboxId?: string;
   readonly actual?: Readonly<Record<string, string | number | boolean>>;
   readonly recoveryCommand?: string;
   readonly helpUrl: string;
 
-  constructor(code: SmolVMErrorCode, message: string, options: SmolVMErrorOptions) {
+  constructor(code: CelestoErrorCode, message: string, options: CelestoErrorOptions) {
     super(message);
-    this.name = "SmolVMError";
+    this.name = "CelestoError";
     this.code = code;
     this.operation = options.operation;
     this.sandboxId = options.sandboxId;
@@ -60,3 +60,11 @@ export class SmolVMError extends Error {
     }
   }
 }
+
+/** @deprecated Use `CelestoError` instead. */
+export { CelestoError as SmolVMError };
+
+/** @deprecated Use `CelestoErrorCode` instead. */
+export type SmolVMErrorCode = CelestoErrorCode;
+/** @deprecated Use `CelestoErrorOptions` instead. */
+export type SmolVMErrorOptions = CelestoErrorOptions;

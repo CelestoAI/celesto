@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { SandboxClient, SandboxStatus } from "@celestoai/smolvm";
+import type { SandboxClient, SandboxStatus } from "@celestoai/celesto";
 import { initializeSandbox, researchTools, type ToolState } from "../server/tools.js";
 
 class ToolSandbox implements SandboxClient {

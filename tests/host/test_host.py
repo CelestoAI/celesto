@@ -121,14 +121,14 @@ class TestFindFirecracker:
 
     @patch("celesto.host.manager.os.access", return_value=True)
     @patch("celesto.host.manager.which", return_value=None)
-    def test_found_in_smolvm_dir(
+    def test_found_in_celesto_dir(
         self,
         mock_which: MagicMock,
         mock_access: MagicMock,
         host_manager: HostManager,
         tmp_path: Path,
     ) -> None:
-        """Test finding firecracker in ~/.smolvm/bin/."""
+        """Test finding firecracker in ~/.celesto/bin/."""
         host_manager = HostManager(firecracker_dir=tmp_path / "bin")
         host_manager.firecracker_dir.mkdir(parents=True)
         fc_binary = host_manager.firecracker_dir / "firecracker"

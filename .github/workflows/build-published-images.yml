@@ -1,4 +1,4 @@
-# Build SmolVM preset images and upload them to a draft GitHub Release.
+# Build Celesto preset images and upload them to a draft GitHub Release.
 #
 # Two-stage layered build:
 #   1. base-rootfs: builds a shared Ubuntu 24.04 rootfs with Node 22,
@@ -69,7 +69,7 @@ jobs:
       matrix:
         arch: [amd64, arm64]
         # Two flavours per arch: Ubuntu 24.04 (current default) and Alpine
-        # 3.20 (smaller footprint, opt-in via ``smolvm <preset> start --os
+        # 3.20 (smaller footprint, opt-in via ``celesto <preset> start --os
         # alpine``). Same kernel boots both — only the rootfs differs.
         os: [ubuntu, alpine]
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
@@ -138,7 +138,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: rust-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'smolvm-core/Cargo.toml', 'guest-agent/Cargo.toml') }}
+          key: rust-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'celesto-core/Cargo.toml', 'guest-agent/Cargo.toml') }}
           restore-keys: rust-${{ runner.os }}-${{ matrix.arch }}-
 
       - name: Resolve release tag
@@ -151,7 +151,7 @@ jobs:
           else
             # Single source of truth — published.py::IMAGES_RELEASE_TAG.
             # Read as string rather than importing: avoids forcing every
-            # job to install smolvm's Python deps just to print one tag.
+            # job to install celesto's Python deps just to print one tag.
             tag=$(awk -F'"' '/^IMAGES_RELEASE_TAG[[:space:]]*=/{print $2; exit}' src/celesto/images/published.py)
           fi
           if [ -z "$tag" ]; then
@@ -169,16 +169,16 @@ jobs:
           case "$ARCH" in
             amd64)
               target="x86_64-unknown-linux-musl"
-              asset_name="smolvm-guest-agent-linux-amd64"
+              asset_name="celesto-guest-agent-linux-amd64"
               ;;
             arm64)
               target="aarch64-unknown-linux-musl"
-              asset_name="smolvm-guest-agent-linux-arm64"
+              asset_name="celesto-guest-agent-linux-arm64"
               ;;
             *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;;
           esac
-          cargo build --release --target "$target" -p smolvm-guest-agent
-          cp "target/${target}/release/smolvm-guest-agent" "$asset_name"
+          cargo build --release --target "$target" -p celesto-guest-agent
+          cp "target/${target}/release/celesto-guest-agent" "$asset_name"
           chmod 0755 "$asset_name"
           echo "asset_name=${asset_name}" >> "$GITHUB_OUTPUT"
 
@@ -207,7 +207,7 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --draft \
               --title "Published images $TAG" \
-              --notes "Auto-generated draft release for SmolVM published images. Verify SHA-256 sums and content before publishing." \
+              --notes "Auto-generated draft release for Celesto published images. Verify SHA-256 sums and content before publishing." \
               || echo "Draft already exists (race with another matrix cell), continuing."
           fi
 
@@ -302,7 +302,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: rust-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'smolvm-core/Cargo.toml', 'guest-agent/Cargo.toml') }}
+          key: rust-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'celesto-core/Cargo.toml', 'guest-agent/Cargo.toml') }}
           restore-keys: rust-${{ runner.os }}-${{ matrix.arch }}-
 
       - name: Install uv
@@ -328,7 +328,7 @@ jobs:
           else
             # Single source of truth — published.py::IMAGES_RELEASE_TAG.
             # Read as string rather than importing: avoids forcing every
-            # job to install smolvm's Python deps just to print one tag.
+            # job to install celesto's Python deps just to print one tag.
             tag=$(awk -F'"' '/^IMAGES_RELEASE_TAG[[:space:]]*=/{print $2; exit}' src/celesto/images/published.py)
           fi
           if [ -z "$tag" ]; then
@@ -420,7 +420,7 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --draft \
               --title "Published images $TAG" \
-              --notes "Auto-generated draft release for SmolVM published images. Verify SHA-256 sums and content before publishing." \
+              --notes "Auto-generated draft release for Celesto published images. Verify SHA-256 sums and content before publishing." \
               || echo "Draft already exists (race with another matrix cell), continuing."
           fi
 
@@ -459,7 +459,7 @@ jobs:
 
   # ── Stage 2b: Build Linux desktop (custom builder) ────────────
   #
-  # This is the ready-to-use computer image behind SmolVM.computer(). It
+  # This is the ready-to-use computer image behind Celesto.computer(). It
   # includes Chromium, Openbox, a panel, terminal, file manager, and editor.
   linux-desktop:
     strategy:
@@ -519,7 +519,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: rust-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'smolvm-core/Cargo.toml', 'guest-agent/Cargo.toml') }}
+          key: rust-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'celesto-core/Cargo.toml', 'guest-agent/Cargo.toml') }}
           restore-keys: rust-${{ runner.os }}-${{ matrix.arch }}-
 
       - name: Install uv
@@ -587,7 +587,7 @@ jobs:
 
           builder = ImageBuilder()
           _kernel, rootfs = builder.build_browser_rootfs(
-              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMockKey ci@smolvm",
+              "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMockKey ci@celesto",
               name=name,
               rootfs_size_mb=8192,
               kernel_url=kernel_url,
@@ -635,7 +635,7 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --draft \
               --title "Published images $TAG" \
-              --notes "Auto-generated draft release for SmolVM published images. Verify SHA-256 sums and content before publishing." \
+              --notes "Auto-generated draft release for Celesto published images. Verify SHA-256 sums and content before publishing." \
               || echo "Draft already exists (race with another matrix cell), continuing."
           fi
 
@@ -740,7 +740,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: rust-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'smolvm-core/Cargo.toml', 'guest-agent/Cargo.toml') }}
+          key: rust-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'celesto-core/Cargo.toml', 'guest-agent/Cargo.toml') }}
           restore-keys: rust-${{ runner.os }}-${{ matrix.arch }}-
 
       - name: Install uv
@@ -758,7 +758,7 @@ jobs:
           else
             # Single source of truth — published.py::IMAGES_RELEASE_TAG.
             # Read as string rather than importing: avoids forcing every
-            # job to install smolvm's Python deps just to print one tag.
+            # job to install celesto's Python deps just to print one tag.
             tag=$(awk -F'"' '/^IMAGES_RELEASE_TAG[[:space:]]*=/{print $2; exit}' src/celesto/images/published.py)
           fi
           if [ -z "$tag" ]; then
@@ -785,7 +785,7 @@ jobs:
             arm64) target="aarch64-unknown-linux-musl" ;;
             *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;;
           esac
-          cargo build --release --target "$target" -p smolvm-guest-agent
+          cargo build --release --target "$target" -p celesto-guest-agent
 
       - name: Layer preset on base rootfs
         if: steps.filter.outputs.skip != 'true'
@@ -867,7 +867,7 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --draft \
               --title "Published images $TAG" \
-              --notes "Auto-generated draft release for SmolVM published images. Verify SHA-256 sums and content before publishing." \
+              --notes "Auto-generated draft release for Celesto published images. Verify SHA-256 sums and content before publishing." \
               || echo "Draft already exists (race with another matrix cell), continuing."
           fi
 

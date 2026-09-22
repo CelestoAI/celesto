@@ -1,12 +1,12 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
 ***
 
-[@celestoai/smolvm](../README.md) / SmolVMErrorOptions
+[@celestoai/celesto](../README.md) / CelestoErrorOptions
 
-# Interface: SmolVMErrorOptions
+# Interface: CelestoErrorOptions
 
-Adds operation context and safe recovery details to a SmolVMError.
+Adds operation context and safe recovery details to a CelestoError.
 
 ## Properties
 

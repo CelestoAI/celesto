@@ -168,7 +168,7 @@ mod tests {
     #[test]
     fn request_does_not_half_close_before_reading_response() {
         let socket_path = std::env::temp_dir().join(format!(
-            "smolvm-firecracker-test-{}-{}.sock",
+            "celesto-firecracker-test-{}-{}.sock",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

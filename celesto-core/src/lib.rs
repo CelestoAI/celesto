@@ -1,8 +1,8 @@
-//! Rust-native core library for SmolVM.
+//! Rust-native core library for Celesto.
 //!
 //! The Rust modules are usable directly by Rust callers. The Python package
-//! exposes them through public Python modules such as `smolvm_core.network` and
-//! keeps the compiled PyO3 module private as `smolvm_core._ffi`.
+//! exposes them through public Python modules such as `celesto_core.network` and
+//! keeps the compiled PyO3 module private as `celesto_core._ffi`.
 
 pub mod disk;
 #[cfg(target_os = "linux")]

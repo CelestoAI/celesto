@@ -15,16 +15,16 @@ import celesto
 def test_benchmark_supports_pre_rebrand_baseline(monkeypatch):
     import importlib.util
 
-    legacy = SimpleNamespace(SmolVM=object(), facade=object())
+    legacy = SimpleNamespace(Celesto=object(), facade=object())
     storage = SimpleNamespace(MemoryStateManager=object())
     types = SimpleNamespace(SnapshotType=object(), VMConfig=object())
     monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
-    monkeypatch.setitem(sys.modules, "smolvm", legacy)
-    monkeypatch.setitem(sys.modules, "smolvm.storage", storage)
-    monkeypatch.setitem(sys.modules, "smolvm.types", types)
+    monkeypatch.setitem(sys.modules, "celesto", legacy)
+    monkeypatch.setitem(sys.modules, "celesto.storage", storage)
+    monkeypatch.setitem(sys.modules, "celesto.types", types)
     script = Path(__file__).resolve().parents[1] / "scripts/benchmark-network-policy.py"
     module = runpy.run_path(str(script))
-    assert module["Celesto"] is legacy.SmolVM
+    assert module["Celesto"] is legacy.Celesto
     assert module["_facade"] is legacy.facade
     assert module["MemoryStateManager"] is storage.MemoryStateManager
 

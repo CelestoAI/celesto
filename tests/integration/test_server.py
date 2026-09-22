@@ -77,20 +77,20 @@ class FakeBrowserSession:
 
     @staticmethod
     def _run(command: str, timeout: int, shell: str) -> CommandResult:
-        FakeSmolVM.last_run_args = (command, timeout, shell)
-        if FakeSmolVM.run_error is not None:
-            raise FakeSmolVM.run_error
+        FakeCelesto.last_run_args = (command, timeout, shell)
+        if FakeCelesto.run_error is not None:
+            raise FakeCelesto.run_error
         if command.startswith("stat -c %s -- "):
             guest_path = shlex.split(command)[-1]
-            size = FakeSmolVM.file_size_override
+            size = FakeCelesto.file_size_override
             if size is None:
-                size = len(FakeSmolVM.uploaded_files[guest_path])
+                size = len(FakeCelesto.uploaded_files[guest_path])
             return CommandResult(exit_code=0, stdout=f"{size}\n", stderr="")
-        return FakeSmolVM.run_result
+        return FakeCelesto.run_result
 
     @staticmethod
     def _upload_file(local_path: object, guest_path: str) -> None:
-        FakeSmolVM.uploaded_files[guest_path] = Path(local_path).read_bytes()  # type: ignore[arg-type]
+        FakeCelesto.uploaded_files[guest_path] = Path(local_path).read_bytes()  # type: ignore[arg-type]
 
     @staticmethod
     def _download_file(
@@ -99,14 +99,14 @@ class FakeBrowserSession:
         *,
         max_bytes: int | None = None,
     ) -> None:
-        FakeSmolVM.downloaded_files.append(guest_path)
-        FakeSmolVM.last_download_max_bytes = max_bytes
-        Path(local_path).write_bytes(FakeSmolVM.uploaded_files[guest_path])  # type: ignore[arg-type]
+        FakeCelesto.downloaded_files.append(guest_path)
+        FakeCelesto.last_download_max_bytes = max_bytes
+        Path(local_path).write_bytes(FakeCelesto.uploaded_files[guest_path])  # type: ignore[arg-type]
 
     def delete(self) -> None:
         FakeBrowserSession.delete_calls += 1
-        if FakeSmolVM.delete_error is not None:
-            raise FakeSmolVM.delete_error
+        if FakeCelesto.delete_error is not None:
+            raise FakeCelesto.delete_error
 
     def close(self) -> None:
         FakeBrowserSession.close_calls += 1
@@ -141,30 +141,30 @@ class FakeComputer:
 
     @staticmethod
     def _read(path: str, *, max_bytes: int | None = None) -> bytes:
-        FakeSmolVM.last_download_max_bytes = max_bytes
-        return FakeSmolVM.uploaded_files[path]
+        FakeCelesto.last_download_max_bytes = max_bytes
+        return FakeCelesto.uploaded_files[path]
 
     @staticmethod
     def _write(path: str, content: bytes) -> None:
-        FakeSmolVM.uploaded_files[path] = content
+        FakeCelesto.uploaded_files[path] = content
 
     @staticmethod
     def run(command: str, timeout: int, shell: str) -> CommandResult:
-        FakeSmolVM.last_run_args = (command, timeout, shell)
-        if FakeSmolVM.run_error is not None:
-            raise FakeSmolVM.run_error
-        return FakeSmolVM.run_result
+        FakeCelesto.last_run_args = (command, timeout, shell)
+        if FakeCelesto.run_error is not None:
+            raise FakeCelesto.run_error
+        return FakeCelesto.run_result
 
     def delete(self) -> None:
         FakeComputer.delete_calls += 1
-        if FakeSmolVM.delete_error is not None:
-            raise FakeSmolVM.delete_error
+        if FakeCelesto.delete_error is not None:
+            raise FakeCelesto.delete_error
 
     def close(self) -> None:
         FakeComputer.close_calls += 1
 
 
-class FakeSmolVM:
+class FakeCelesto:
     """Minimal stand-in for the Celesto facade."""
 
     last_kwargs: dict | None = None
@@ -182,7 +182,7 @@ class FakeSmolVM:
     browser_endpoint_available = True
 
     def __init__(self, **kwargs: object) -> None:
-        FakeSmolVM.last_kwargs = {
+        FakeCelesto.last_kwargs = {
             key: value for key, value in kwargs.items() if key != "on_download"
         }
         self.vm_id = kwargs.get("vm_id") or "sbx-test"
@@ -210,7 +210,7 @@ class FakeSmolVM:
     from_id_error: Exception | None = None
 
     @classmethod
-    def from_id(cls, vm_id: str, **kwargs: object) -> "FakeSmolVM":
+    def from_id(cls, vm_id: str, **kwargs: object) -> "FakeCelesto":
         cls.from_id_calls += 1
         if cls.from_id_error is not None:
             raise cls.from_id_error
@@ -225,39 +225,39 @@ class FakeSmolVM:
     # ids deleted via delete() this test
     deleted_ids: set[str] = set()
 
-    def start(self) -> "FakeSmolVM":
-        if FakeSmolVM.start_error is not None:
-            raise FakeSmolVM.start_error
+    def start(self) -> "FakeCelesto":
+        if FakeCelesto.start_error is not None:
+            raise FakeCelesto.start_error
         self.status = VMState.RUNNING
         return self
 
-    def refresh(self) -> "FakeSmolVM":
+    def refresh(self) -> "FakeCelesto":
         return self
 
     def run(self, command: str, timeout: int, shell: str) -> CommandResult:
-        FakeSmolVM.last_run_args = (command, timeout, shell)
-        if FakeSmolVM.run_error is not None:
-            raise FakeSmolVM.run_error
+        FakeCelesto.last_run_args = (command, timeout, shell)
+        if FakeCelesto.run_error is not None:
+            raise FakeCelesto.run_error
         if command.startswith("stat -c %s -- "):
             guest_path = shlex.split(command)[-1]
-            size = FakeSmolVM.file_size_override
+            size = FakeCelesto.file_size_override
             if size is None:
-                size = len(FakeSmolVM.uploaded_files[guest_path])
+                size = len(FakeCelesto.uploaded_files[guest_path])
             return CommandResult(exit_code=0, stdout=f"{size}\n", stderr="")
-        return FakeSmolVM.run_result
+        return FakeCelesto.run_result
 
     delete_error: Exception | None = None
 
     def delete(self) -> None:
-        if FakeSmolVM.delete_error is not None:
-            raise FakeSmolVM.delete_error
-        FakeSmolVM.deleted_ids.add(self.vm_id)
+        if FakeCelesto.delete_error is not None:
+            raise FakeCelesto.delete_error
+        FakeCelesto.deleted_ids.add(self.vm_id)
 
     def close(self) -> None:
-        FakeSmolVM.close_calls += 1
+        FakeCelesto.close_calls += 1
 
     def upload_file(self, local_path: object, guest_path: str) -> None:
-        FakeSmolVM.uploaded_files[guest_path] = Path(local_path).read_bytes()  # type: ignore[arg-type]
+        FakeCelesto.uploaded_files[guest_path] = Path(local_path).read_bytes()  # type: ignore[arg-type]
 
     def download_file(
         self,
@@ -266,9 +266,9 @@ class FakeSmolVM:
         *,
         max_bytes: int | None = None,
     ) -> None:
-        FakeSmolVM.downloaded_files.append(guest_path)
-        FakeSmolVM.last_download_max_bytes = max_bytes
-        Path(local_path).write_bytes(FakeSmolVM.uploaded_files[guest_path])  # type: ignore[arg-type]
+        FakeCelesto.downloaded_files.append(guest_path)
+        FakeCelesto.last_download_max_bytes = max_bytes
+        Path(local_path).write_bytes(FakeCelesto.uploaded_files[guest_path])  # type: ignore[arg-type]
 
 
 def _handler(app: FastAPI, path: str, method: str) -> Callable:
@@ -282,28 +282,28 @@ def _handler(app: FastAPI, path: str, method: str) -> Callable:
 @pytest.fixture
 def app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
     """A fresh app with the Celesto facade stubbed out."""
-    FakeSmolVM.last_kwargs = None
-    FakeSmolVM.start_error = None
-    FakeSmolVM.existing_ids = set()
-    FakeSmolVM.from_id_calls = 0
-    FakeSmolVM.from_id_error = None
-    FakeSmolVM.run_error = None
-    FakeSmolVM.run_result = CommandResult(exit_code=0, stdout="ok", stderr="")
-    FakeSmolVM.last_run_args = None
-    FakeSmolVM.deleted_ids = set()
-    FakeSmolVM.delete_error = None
-    FakeSmolVM.desktop_endpoint = None
-    FakeSmolVM.uploaded_files = {}
-    FakeSmolVM.downloaded_files = []
-    FakeSmolVM.last_download_max_bytes = None
-    FakeSmolVM.file_size_override = None
-    FakeSmolVM.close_calls = 0
-    FakeSmolVM.browser_endpoint_available = True
+    FakeCelesto.last_kwargs = None
+    FakeCelesto.start_error = None
+    FakeCelesto.existing_ids = set()
+    FakeCelesto.from_id_calls = 0
+    FakeCelesto.from_id_error = None
+    FakeCelesto.run_error = None
+    FakeCelesto.run_result = CommandResult(exit_code=0, stdout="ok", stderr="")
+    FakeCelesto.last_run_args = None
+    FakeCelesto.deleted_ids = set()
+    FakeCelesto.delete_error = None
+    FakeCelesto.desktop_endpoint = None
+    FakeCelesto.uploaded_files = {}
+    FakeCelesto.downloaded_files = []
+    FakeCelesto.last_download_max_bytes = None
+    FakeCelesto.file_size_override = None
+    FakeCelesto.close_calls = 0
+    FakeCelesto.browser_endpoint_available = True
     FakeBrowserSession.delete_calls = 0
     FakeBrowserSession.close_calls = 0
     FakeComputer.delete_calls = 0
     FakeComputer.close_calls = 0
-    monkeypatch.setattr("celesto.server.app.Celesto", FakeSmolVM)
+    monkeypatch.setattr("celesto.server.app.Celesto", FakeCelesto)
     return create_app()
 
 
@@ -316,7 +316,7 @@ def test_create_sandbox_returns_running_state(app: FastAPI) -> None:
     assert result.id == "sbx-test"
     assert result.status is VMState.RUNNING
     # Only the fields the caller set are forwarded to the facade.
-    assert FakeSmolVM.last_kwargs == {"os": "ubuntu", "memory": 1024}
+    assert FakeCelesto.last_kwargs == {"os": "ubuntu", "memory": 1024}
 
 
 def test_create_and_delete_live_browser_session(app: FastAPI) -> None:
@@ -339,9 +339,9 @@ def test_create_and_delete_live_browser_session(app: FastAPI) -> None:
     assert result.status is BrowserSessionState.READY
     assert result.viewer_url is not None
     assert result.display_url == "vnc://127.0.0.1:5900"
-    assert FakeSmolVM.last_kwargs is not None
-    assert FakeSmolVM.last_kwargs["headless"] is False
-    assert FakeSmolVM.last_kwargs["internet_settings"] == {"mode": "off"}
+    assert FakeCelesto.last_kwargs is not None
+    assert FakeCelesto.last_kwargs["headless"] is False
+    assert FakeCelesto.last_kwargs["internet_settings"] == {"mode": "off"}
 
     response = delete("browser-demo")
     assert response.status_code == 204
@@ -367,12 +367,12 @@ def test_create_run_and_delete_linux_computer(app: FastAPI) -> None:
     assert result.computer_id == "computer-demo"
     assert result.display.viewer_url == "http://127.0.0.1:6081/vnc.html"
     assert result.browser.cdp_url == "http://127.0.0.1:9223"
-    assert FakeSmolVM.last_kwargs is not None
-    assert FakeSmolVM.last_kwargs["network"] == {"mode": "off"}
+    assert FakeCelesto.last_kwargs is not None
+    assert FakeCelesto.last_kwargs["network"] == {"mode": "off"}
 
     command = execute("computer-demo", ExecRequest(command="whoami", timeout=10))
     assert command.stdout == "ok"
-    assert FakeSmolVM.last_run_args == ("whoami", 10, "login")
+    assert FakeCelesto.last_run_args == ("whoami", 10, "login")
 
     deleted = delete("computer-demo")
     assert deleted.status_code == 204
@@ -386,7 +386,7 @@ def test_failed_computer_delete_keeps_live_handle_for_retry(app: FastAPI) -> Non
     create = _handler(app, "/computers", "POST")
     delete = _handler(app, "/computers/{computer_id}", "DELETE")
     create(CreateComputerRequest(computer_id="computer-demo"))
-    FakeSmolVM.delete_error = CelestoError("busy")
+    FakeCelesto.delete_error = CelestoError("busy")
 
     with pytest.raises(HTTPException) as exc_info:
         delete("computer-demo")
@@ -396,7 +396,7 @@ def test_failed_computer_delete_keeps_live_handle_for_retry(app: FastAPI) -> Non
     assert app.state.computer_states["computer-demo"] == "error"
     assert FakeComputer.close_calls == 0
 
-    FakeSmolVM.delete_error = None
+    FakeCelesto.delete_error = None
     deleted = delete("computer-demo")
     assert deleted.status_code == 204
     assert FakeComputer.close_calls == 1
@@ -433,7 +433,7 @@ def test_computer_operations_reject_once_deletion_begins(
             with pytest.raises(HTTPException) as exc_info:
                 operation()
             assert exc_info.value.status_code == 409
-            assert exc_info.value.headers == {"X-SmolVM-Error-Code": "computer_not_ready"}
+            assert exc_info.value.headers == {"X-Celesto-Error-Code": "computer_not_ready"}
         release.set()
         assert deletion.result().status_code == 204
 
@@ -472,7 +472,7 @@ def test_required_desktop_process_failure_marks_computer_error(app: FastAPI) -> 
     with pytest.raises(HTTPException) as exc_info:
         execute("computer-demo", ExecRequest(command="whoami"))
     assert exc_info.value.status_code == 409
-    assert exc_info.value.headers == {"X-SmolVM-Error-Code": "computer_not_ready"}
+    assert exc_info.value.headers == {"X-Celesto-Error-Code": "computer_not_ready"}
 
 
 def test_duplicate_computer_name_is_rejected_without_replacing_the_owner(app: FastAPI) -> None:
@@ -483,7 +483,7 @@ def test_duplicate_computer_name_is_rejected_without_replacing_the_owner(app: Fa
         create(CreateComputerRequest(computer_id="computer-demo"))
 
     assert exc_info.value.status_code == 409
-    assert exc_info.value.headers == {"X-SmolVM-Error-Code": "computer_already_exists"}
+    assert exc_info.value.headers == {"X-Celesto-Error-Code": "computer_already_exists"}
     assert app.state.computer_sessions["computer-demo"].sandbox_id == original.sandbox_id
 
 
@@ -493,15 +493,15 @@ def test_computer_command_timeout_deletes_and_evicts_the_computer(app: FastAPI) 
     events: Queue[dict[str, object]] = Queue()
     app.state.event_subscribers.add(events)
     create(CreateComputerRequest(computer_id="computer-demo"))
-    FakeSmolVM.run_error = OperationTimeoutError("command", 1)
+    FakeCelesto.run_error = OperationTimeoutError("command", 1)
 
     with pytest.raises(HTTPException) as exc_info:
         execute("computer-demo", ExecRequest(command="sleep 60", timeout=1))
 
     assert exc_info.value.status_code == 408
     assert exc_info.value.headers == {
-        "X-SmolVM-Error-Code": "command_timeout",
-        "X-SmolVM-Sandbox-Deleted": "true",
+        "X-Celesto-Error-Code": "command_timeout",
+        "X-Celesto-Sandbox-Deleted": "true",
     }
     assert "was deleted" in exc_info.value.detail
     assert "computer-demo" not in app.state.computer_sessions
@@ -517,23 +517,23 @@ def test_computer_timeout_keeps_cleanup_retryable_when_delete_fails(app: FastAPI
     create = _handler(app, "/computers", "POST")
     execute = _handler(app, "/computers/{computer_id}/exec", "POST")
     create(CreateComputerRequest(computer_id="computer-demo"))
-    FakeSmolVM.run_error = OperationTimeoutError("command", 1)
-    FakeSmolVM.delete_error = CelestoError("disk is busy")
+    FakeCelesto.run_error = OperationTimeoutError("command", 1)
+    FakeCelesto.delete_error = CelestoError("disk is busy")
 
     with pytest.raises(HTTPException) as exc_info:
         execute("computer-demo", ExecRequest(command="sleep 60", timeout=1))
 
     assert exc_info.value.status_code == 408
     assert exc_info.value.headers == {
-        "X-SmolVM-Error-Code": "command_timeout",
-        "X-SmolVM-Sandbox-Deleted": "false",
+        "X-Celesto-Error-Code": "command_timeout",
+        "X-Celesto-Sandbox-Deleted": "false",
     }
     assert "deletion could not be confirmed" in exc_info.value.detail
     assert "computer-demo" in app.state.computer_sessions
     assert app.state.computer_states["computer-demo"] == "error"
     assert FakeComputer.close_calls == 0
 
-    FakeSmolVM.delete_error = None
+    FakeCelesto.delete_error = None
     delete = _handler(app, "/computers/{computer_id}", "DELETE")
     deleted = delete("computer-demo")
     assert deleted.status_code == 204
@@ -549,12 +549,12 @@ def test_concurrent_computer_create_reserves_the_requested_name(
     entered = threading.Event()
     release = threading.Event()
 
-    def blocked_create(cls: type[FakeSmolVM], **kwargs: object) -> FakeComputer:
+    def blocked_create(cls: type[FakeCelesto], **kwargs: object) -> FakeComputer:
         entered.set()
         assert release.wait(timeout=2)
         return FakeComputer(str(kwargs["name"]))
 
-    monkeypatch.setattr(FakeSmolVM, "computer", classmethod(blocked_create))
+    monkeypatch.setattr(FakeCelesto, "computer", classmethod(blocked_create))
     with ThreadPoolExecutor(max_workers=1) as executor:
         first = executor.submit(
             create,
@@ -574,13 +574,13 @@ def test_computer_command_transport_failure_is_mapped_to_409(app: FastAPI) -> No
     create = _handler(app, "/computers", "POST")
     execute = _handler(app, "/computers/{computer_id}/exec", "POST")
     create(CreateComputerRequest(computer_id="computer-demo"))
-    FakeSmolVM.run_error = CelestoError("control channel unavailable")
+    FakeCelesto.run_error = CelestoError("control channel unavailable")
 
     with pytest.raises(HTTPException) as exc_info:
         execute("computer-demo", ExecRequest(command="echo hi"))
 
     assert exc_info.value.status_code == 409
-    assert exc_info.value.headers == {"X-SmolVM-Error-Code": "transport_failed"}
+    assert exc_info.value.headers == {"X-Celesto-Error-Code": "transport_failed"}
     assert "computer-demo" in app.state.computer_sessions
 
 
@@ -598,7 +598,7 @@ def test_failed_computer_response_releases_the_unregistered_computer(
     computer = FakeComputer("computer-demo")
     computer.display = BrokenDisplay()
     monkeypatch.setattr(
-        FakeSmolVM,
+        FakeCelesto,
         "computer",
         classmethod(lambda cls, **kwargs: computer),
     )
@@ -640,12 +640,12 @@ async def test_computer_file_endpoints_round_trip_bytes(app: FastAPI) -> None:
     )
 
     response = await write("computer-demo", "/workspace/input.txt", request)
-    FakeSmolVM.run_result = CommandResult(exit_code=0, stdout="7\n", stderr="")
+    FakeCelesto.run_result = CommandResult(exit_code=0, stdout="7\n", stderr="")
     downloaded = await read("computer-demo", "/workspace/input.txt")
 
     assert response.status_code == 204
     assert downloaded.body == b"desktop"
-    assert FakeSmolVM.last_download_max_bytes == 16 * 1024 * 1024
+    assert FakeCelesto.last_download_max_bytes == 16 * 1024 * 1024
 
 
 @pytest.mark.asyncio
@@ -665,14 +665,14 @@ async def test_computer_file_endpoints_reject_relative_and_oversized_files(app: 
     with pytest.raises(HTTPException) as relative:
         await write("computer-demo", "workspace/file.txt", request)
     assert relative.value.status_code == 400
-    assert relative.value.headers == {"X-SmolVM-Error-Code": "invalid_path"}
+    assert relative.value.headers == {"X-Celesto-Error-Code": "invalid_path"}
 
     with pytest.raises(HTTPException) as relative_read:
         await read("computer-demo", "workspace/file.txt")
     assert relative_read.value.status_code == 400
-    assert relative_read.value.headers == {"X-SmolVM-Error-Code": "invalid_path"}
+    assert relative_read.value.headers == {"X-Celesto-Error-Code": "invalid_path"}
 
-    FakeSmolVM.run_result = CommandResult(
+    FakeCelesto.run_result = CommandResult(
         exit_code=0,
         stdout=f"{16 * 1024 * 1024 + 1}\n",
         stderr="",
@@ -680,7 +680,7 @@ async def test_computer_file_endpoints_reject_relative_and_oversized_files(app: 
     with pytest.raises(HTTPException) as oversized:
         await read("computer-demo", "/workspace/large.bin")
     assert oversized.value.status_code == 413
-    assert oversized.value.headers == {"X-SmolVM-Error-Code": "file_too_large"}
+    assert oversized.value.headers == {"X-Celesto-Error-Code": "file_too_large"}
 
 
 def test_computer_browser_launch_maps_failure_and_can_be_retried(app: FastAPI) -> None:
@@ -694,7 +694,7 @@ def test_computer_browser_launch_maps_failure_and_can_be_retried(app: FastAPI) -
         launch("computer-demo")
 
     assert exc_info.value.status_code == 409
-    assert exc_info.value.headers == {"X-SmolVM-Error-Code": "browser_launch_failed"}
+    assert exc_info.value.headers == {"X-Celesto-Error-Code": "browser_launch_failed"}
     assert "computer-demo" in app.state.computer_sessions
 
     computer.browser.launch = MagicMock(return_value=None)
@@ -714,7 +714,7 @@ def test_headless_browser_session_omits_display_endpoints(app: FastAPI) -> None:
 
 def test_failed_browser_response_closes_and_does_not_register_session(app: FastAPI) -> None:
     create = _handler(app, "/browser-sessions", "POST")
-    FakeSmolVM.browser_endpoint_available = False
+    FakeCelesto.browser_endpoint_available = False
 
     with pytest.raises(HTTPException) as exc_info:
         create(CreateBrowserSessionRequest(session_id="browser-demo"))
@@ -736,8 +736,8 @@ def test_browser_command_runs_as_unprivileged_agent(app: FastAPI) -> None:
     )
 
     assert result.stdout == "ok"
-    assert FakeSmolVM.last_run_args is not None
-    command, timeout, shell = FakeSmolVM.last_run_args
+    assert FakeCelesto.last_run_args is not None
+    command, timeout, shell = FakeCelesto.last_run_args
     assert command.startswith("runuser -u agent -- sh -c ")
     assert "printf" in command
     assert timeout == 12
@@ -747,7 +747,7 @@ def test_browser_command_runs_as_unprivileged_agent(app: FastAPI) -> None:
 def test_browser_command_timeout_deletes_and_evicts_session(app: FastAPI) -> None:
     create = _handler(app, "/browser-sessions", "POST")
     execute = _handler(app, "/browser-sessions/{session_id}/exec", "POST")
-    FakeSmolVM.run_error = OperationTimeoutError("command", 1)
+    FakeCelesto.run_error = OperationTimeoutError("command", 1)
     create(CreateBrowserSessionRequest(session_id="browser-demo"))
 
     with pytest.raises(HTTPException) as exc_info:
@@ -755,8 +755,8 @@ def test_browser_command_timeout_deletes_and_evicts_session(app: FastAPI) -> Non
 
     assert exc_info.value.status_code == 408
     assert exc_info.value.headers == {
-        "X-SmolVM-Error-Code": "command_timeout",
-        "X-SmolVM-Sandbox-Deleted": "true",
+        "X-Celesto-Error-Code": "command_timeout",
+        "X-Celesto-Sandbox-Deleted": "true",
     }
     assert FakeBrowserSession.delete_calls == 1
     assert app.state.browser_sessions == {}
@@ -768,8 +768,8 @@ def test_browser_command_timeout_deletes_and_evicts_session(app: FastAPI) -> Non
 def test_browser_command_timeout_retains_session_when_delete_fails(app: FastAPI) -> None:
     create = _handler(app, "/browser-sessions", "POST")
     execute = _handler(app, "/browser-sessions/{session_id}/exec", "POST")
-    FakeSmolVM.run_error = OperationTimeoutError("command", 1)
-    FakeSmolVM.delete_error = CelestoError("disk is busy")
+    FakeCelesto.run_error = OperationTimeoutError("command", 1)
+    FakeCelesto.delete_error = CelestoError("disk is busy")
     create(CreateBrowserSessionRequest(session_id="browser-demo"))
 
     with pytest.raises(HTTPException) as exc_info:
@@ -777,8 +777,8 @@ def test_browser_command_timeout_retains_session_when_delete_fails(app: FastAPI)
 
     assert exc_info.value.status_code == 408
     assert exc_info.value.headers == {
-        "X-SmolVM-Error-Code": "command_timeout",
-        "X-SmolVM-Sandbox-Deleted": "false",
+        "X-Celesto-Error-Code": "command_timeout",
+        "X-Celesto-Sandbox-Deleted": "false",
     }
     assert "deletion could not be confirmed" in exc_info.value.detail
     assert "browser-demo" in app.state.browser_sessions
@@ -788,14 +788,14 @@ def test_browser_command_timeout_retains_session_when_delete_fails(app: FastAPI)
 def test_browser_command_maps_transport_failure_to_409(app: FastAPI) -> None:
     create = _handler(app, "/browser-sessions", "POST")
     execute = _handler(app, "/browser-sessions/{session_id}/exec", "POST")
-    FakeSmolVM.run_error = CelestoError("control channel unavailable")
+    FakeCelesto.run_error = CelestoError("control channel unavailable")
     create(CreateBrowserSessionRequest(session_id="browser-demo"))
 
     with pytest.raises(HTTPException) as exc_info:
         execute("browser-demo", ExecRequest(command="echo hi"))
 
     assert exc_info.value.status_code == 409
-    assert exc_info.value.headers == {"X-SmolVM-Error-Code": "transport_failed"}
+    assert exc_info.value.headers == {"X-Celesto-Error-Code": "transport_failed"}
     assert "browser-demo" in exc_info.value.detail
 
 
@@ -830,7 +830,7 @@ async def test_browser_file_endpoints_use_the_browser_vm(app: FastAPI) -> None:
 
     assert response.status_code == 204
     assert downloaded.body == b"hello"
-    assert FakeSmolVM.last_download_max_bytes == 16 * 1024 * 1024
+    assert FakeCelesto.last_download_max_bytes == 16 * 1024 * 1024
 
 
 @pytest.mark.asyncio
@@ -841,7 +841,7 @@ async def test_browser_file_endpoint_rejects_missing_sessions(app: FastAPI) -> N
         await read("missing", "/workspace/input.txt")
 
     assert exc_info.value.status_code == 404
-    assert exc_info.value.headers == {"X-SmolVM-Error-Code": "browser_deleted"}
+    assert exc_info.value.headers == {"X-Celesto-Error-Code": "browser_deleted"}
 
 
 @pytest.mark.asyncio
@@ -878,7 +878,7 @@ def test_download_progress_events_are_coalesced_but_keep_final_state() -> None:
 
 
 def test_get_sandbox_desktop_returns_sanitized_loopback_endpoint(app: FastAPI) -> None:
-    FakeSmolVM.desktop_endpoint = DesktopEndpoint(port=5901)
+    FakeCelesto.desktop_endpoint = DesktopEndpoint(port=5901)
     create = _handler(app, "/sandboxes", "POST")
     desktop = _handler(app, "/sandboxes/{sandbox_id}/desktop", "GET")
     create(CreateSandboxRequest())
@@ -895,7 +895,7 @@ def test_create_sandbox_defaults_when_body_empty(app: FastAPI) -> None:
 
     create(CreateSandboxRequest())
 
-    assert FakeSmolVM.last_kwargs == {"os": "ubuntu"}
+    assert FakeCelesto.last_kwargs == {"os": "ubuntu"}
 
 
 def test_custom_remote_image_does_not_force_an_os(app: FastAPI) -> None:
@@ -903,7 +903,7 @@ def test_custom_remote_image_does_not_force_an_os(app: FastAPI) -> None:
 
     create(CreateSandboxRequest(image="s3://bucket/image/"))
 
-    assert FakeSmolVM.last_kwargs == {"image": "s3://bucket/image/"}
+    assert FakeCelesto.last_kwargs == {"image": "s3://bucket/image/"}
 
 
 def test_create_forwards_restricted_network_policy(app: FastAPI) -> None:
@@ -913,7 +913,7 @@ def test_create_forwards_restricted_network_policy(app: FastAPI) -> None:
         CreateSandboxRequest(network={"mode": "restricted", "allowed_cidrs": ["203.0.113.0/24"]})
     )
 
-    assert FakeSmolVM.last_kwargs == {
+    assert FakeCelesto.last_kwargs == {
         "os": "ubuntu",
         "internet_settings": {
             "mode": "restricted",
@@ -923,7 +923,7 @@ def test_create_forwards_restricted_network_policy(app: FastAPI) -> None:
 
 
 def test_create_sandbox_maps_facade_error_to_400(app: FastAPI) -> None:
-    FakeSmolVM.start_error = CelestoError("image does not support SSH")
+    FakeCelesto.start_error = CelestoError("image does not support SSH")
     create = _handler(app, "/sandboxes", "POST")
 
     with pytest.raises(HTTPException) as exc_info:
@@ -945,25 +945,25 @@ def test_get_sandbox_after_create(app: FastAPI) -> None:
 
 
 def test_get_sandbox_does_not_read_host_inventory(app: FastAPI) -> None:
-    FakeSmolVM.existing_ids = {"sbx-preexisting"}
+    FakeCelesto.existing_ids = {"sbx-preexisting"}
     get = _handler(app, "/sandboxes/{sandbox_id}", "GET")
 
     with pytest.raises(HTTPException) as exc_info:
         get("sbx-preexisting")
 
     assert exc_info.value.status_code == 404
-    assert FakeSmolVM.from_id_calls == 0
+    assert FakeCelesto.from_id_calls == 0
 
 
 def test_get_sandbox_does_not_attempt_reconnect(app: FastAPI) -> None:
-    FakeSmolVM.from_id_error = CelestoError("control channel unreachable")
+    FakeCelesto.from_id_error = CelestoError("control channel unreachable")
     get = _handler(app, "/sandboxes/{sandbox_id}", "GET")
 
     with pytest.raises(HTTPException) as exc_info:
         get("sbx-broken")
 
     assert exc_info.value.status_code == 404
-    assert FakeSmolVM.from_id_calls == 0
+    assert FakeCelesto.from_id_calls == 0
 
 
 def test_get_unknown_sandbox_returns_404(app: FastAPI) -> None:
@@ -988,7 +988,7 @@ def test_list_sandboxes_uses_process_registry(app: FastAPI) -> None:
 
 
 def test_list_sandboxes_ignores_host_inventory(app: FastAPI) -> None:
-    FakeSmolVM.existing_ids = {"sbx-host-only"}
+    FakeCelesto.existing_ids = {"sbx-host-only"}
     list_all = _handler(app, "/sandboxes", "GET")
     assert list_all() == []
 
@@ -1002,7 +1002,7 @@ def test_delete_sandbox_stops_and_evicts(app: FastAPI) -> None:
     response = delete(created.id)
 
     assert response.status_code == 204
-    assert created.id in FakeSmolVM.deleted_ids
+    assert created.id in FakeCelesto.deleted_ids
     # Evicted from the registry: a later GET no longer hits the cache and,
     # with no host VM to reconnect to, 404s.
     with pytest.raises(HTTPException) as exc_info:
@@ -1024,20 +1024,20 @@ def test_delete_maps_delete_failure_to_409(app: FastAPI) -> None:
     # not an unhandled 500.
     create = _handler(app, "/sandboxes", "POST")
     delete = _handler(app, "/sandboxes/{sandbox_id}", "DELETE")
-    FakeSmolVM.delete_error = CelestoError("disk is busy")
+    FakeCelesto.delete_error = CelestoError("disk is busy")
 
     created = create(CreateSandboxRequest())
     with pytest.raises(HTTPException) as exc_info:
         delete(created.id)
 
     assert exc_info.value.status_code == 409
-    assert exc_info.value.headers == {"X-SmolVM-Error-Code": "cleanup_failed"}
+    assert exc_info.value.headers == {"X-Celesto-Error-Code": "cleanup_failed"}
 
 
 def test_exec_command_returns_result(app: FastAPI) -> None:
     create = _handler(app, "/sandboxes", "POST")
     exec_cmd = _handler(app, "/sandboxes/{sandbox_id}/exec", "POST")
-    FakeSmolVM.run_result = CommandResult(exit_code=0, stdout="hello\n", stderr="")
+    FakeCelesto.run_result = CommandResult(exit_code=0, stdout="hello\n", stderr="")
 
     created = create(CreateSandboxRequest())
     result = exec_cmd(created.id, ExecRequest(command="echo hello"))
@@ -1045,7 +1045,7 @@ def test_exec_command_returns_result(app: FastAPI) -> None:
     assert result.exit_code == 0
     assert result.stdout == "hello\n"
     # Request fields are forwarded verbatim to the facade.
-    assert FakeSmolVM.last_run_args == ("echo hello", 30, "login")
+    assert FakeCelesto.last_run_args == ("echo hello", 30, "login")
 
 
 def test_exec_applies_working_directory_and_environment(app: FastAPI) -> None:
@@ -1058,7 +1058,7 @@ def test_exec_applies_working_directory_and_environment(app: FastAPI) -> None:
         ExecRequest(command="printf '%s' \"$MODE\"", cwd="/workspace", env={"MODE": "a b"}),
     )
 
-    command, timeout, shell = FakeSmolVM.last_run_args or ("", 0, "")
+    command, timeout, shell = FakeCelesto.last_run_args or ("", 0, "")
     assert command.startswith("sh -c ")
     assert "/workspace" in command
     assert "MODE=" in command
@@ -1070,7 +1070,7 @@ def test_exec_command_nonzero_exit_is_still_200(app: FastAPI) -> None:
     # A command that runs and fails is a successful exec, not an HTTP error.
     create = _handler(app, "/sandboxes", "POST")
     exec_cmd = _handler(app, "/sandboxes/{sandbox_id}/exec", "POST")
-    FakeSmolVM.run_result = CommandResult(exit_code=1, stdout="", stderr="nope")
+    FakeCelesto.run_result = CommandResult(exit_code=1, stdout="", stderr="nope")
 
     created = create(CreateSandboxRequest())
     result = exec_cmd(created.id, ExecRequest(command="false"))
@@ -1114,7 +1114,7 @@ async def test_file_content_endpoints_stream_bytes_without_host_paths(app: FastA
 def test_exec_command_maps_run_failure_to_409(app: FastAPI) -> None:
     create = _handler(app, "/sandboxes", "POST")
     exec_cmd = _handler(app, "/sandboxes/{sandbox_id}/exec", "POST")
-    FakeSmolVM.run_error = CelestoError("sandbox is not running")
+    FakeCelesto.run_error = CelestoError("sandbox is not running")
 
     created = create(CreateSandboxRequest())
     with pytest.raises(HTTPException) as exc_info:
@@ -1131,7 +1131,7 @@ def test_exec_timeout_deletes_and_evicts_the_sandbox(app: FastAPI) -> None:
     create = _handler(app, "/sandboxes", "POST")
     execute = _handler(app, "/sandboxes/{sandbox_id}/exec", "POST")
     get = _handler(app, "/sandboxes/{sandbox_id}", "GET")
-    FakeSmolVM.run_error = OperationTimeoutError("command", 1)
+    FakeCelesto.run_error = OperationTimeoutError("command", 1)
 
     created = create(CreateSandboxRequest())
     with pytest.raises(HTTPException) as exc_info:
@@ -1139,11 +1139,11 @@ def test_exec_timeout_deletes_and_evicts_the_sandbox(app: FastAPI) -> None:
 
     assert exc_info.value.status_code == 408
     assert exc_info.value.headers == {
-        "X-SmolVM-Error-Code": "command_timeout",
-        "X-SmolVM-Sandbox-Deleted": "true",
+        "X-Celesto-Error-Code": "command_timeout",
+        "X-Celesto-Sandbox-Deleted": "true",
     }
     assert "was deleted" in exc_info.value.detail
-    assert created.id in FakeSmolVM.deleted_ids
+    assert created.id in FakeCelesto.deleted_ids
     with pytest.raises(HTTPException) as missing:
         get(created.id)
     assert missing.value.status_code == 404
@@ -1152,8 +1152,8 @@ def test_exec_timeout_deletes_and_evicts_the_sandbox(app: FastAPI) -> None:
 def test_exec_timeout_retries_cleanup_at_shutdown_when_delete_fails(app: FastAPI) -> None:
     create = _handler(app, "/sandboxes", "POST")
     execute = _handler(app, "/sandboxes/{sandbox_id}/exec", "POST")
-    FakeSmolVM.run_error = OperationTimeoutError("command", 1)
-    FakeSmolVM.delete_error = CelestoError("disk is busy")
+    FakeCelesto.run_error = OperationTimeoutError("command", 1)
+    FakeCelesto.delete_error = CelestoError("disk is busy")
 
     created = create(CreateSandboxRequest())
     with pytest.raises(HTTPException) as exc_info:
@@ -1161,12 +1161,12 @@ def test_exec_timeout_retries_cleanup_at_shutdown_when_delete_fails(app: FastAPI
 
     assert exc_info.value.status_code == 408
     assert exc_info.value.headers == {
-        "X-SmolVM-Error-Code": "command_timeout",
-        "X-SmolVM-Sandbox-Deleted": "false",
+        "X-Celesto-Error-Code": "command_timeout",
+        "X-Celesto-Sandbox-Deleted": "false",
     }
     assert "deletion could not be confirmed" in exc_info.value.detail
     assert created.id in app.state.sandboxes
-    assert FakeSmolVM.close_calls == 1
+    assert FakeCelesto.close_calls == 1
 
 
 @pytest.mark.asyncio
@@ -1176,8 +1176,8 @@ async def test_lifespan_deletes_session_owned_sandboxes(app: FastAPI) -> None:
     async with app.router.lifespan_context(app):
         created = create(CreateSandboxRequest())
 
-    assert created.id in FakeSmolVM.deleted_ids
-    assert FakeSmolVM.close_calls == 1
+    assert created.id in FakeCelesto.deleted_ids
+    assert FakeCelesto.close_calls == 1
     assert app.state.sandboxes == {}
 
 
@@ -1185,14 +1185,14 @@ async def test_lifespan_deletes_session_owned_sandboxes(app: FastAPI) -> None:
 async def test_file_download_rejects_oversized_guest_file_before_transfer(app: FastAPI) -> None:
     create = _handler(app, "/sandboxes", "POST")
     read = _handler(app, "/sandboxes/{sandbox_id}/files", "GET")
-    FakeSmolVM.file_size_override = 16 * 1024 * 1024 + 1
+    FakeCelesto.file_size_override = 16 * 1024 * 1024 + 1
     created = create(CreateSandboxRequest())
 
     with pytest.raises(HTTPException) as exc_info:
         await read(created.id, "/workspace/too-large.bin")
 
     assert exc_info.value.status_code == 413
-    assert FakeSmolVM.downloaded_files == []
+    assert FakeCelesto.downloaded_files == []
 
 
 def test_exec_unknown_sandbox_returns_404(app: FastAPI) -> None:

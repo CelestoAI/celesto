@@ -38,10 +38,10 @@ except ImportError:  # pragma: no cover - script execution path
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from reporting import finish_report, print_report, start_report  # type: ignore[no-redef]
 
-logger = logging.getLogger("smolvm.bench.networking")
+logger = logging.getLogger("celesto.bench.networking")
 
 MODES = ("native", "forced-off", "unprivileged-fallback")
-NATIVE_DISABLE_ENV = "SMOLVM_DISABLE_NATIVE_NETWORKING"
+NATIVE_DISABLE_ENV = "CELESTO_DISABLE_NATIVE_NETWORKING"
 CAP_NET_ADMIN = 12
 _NETWORK_MODULE: Any | None = None
 

@@ -1,7 +1,7 @@
 [package]
-name = "smolvm-guest-agent"
+name = "celesto-guest-agent"
 version = "0.1.0"
-description = "Public SmolVM guest control agent"
+description = "Public Celesto guest control agent"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

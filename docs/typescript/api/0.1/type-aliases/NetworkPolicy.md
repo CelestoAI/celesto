@@ -1,8 +1,8 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
 ***
 
-[@celestoai/smolvm](../README.md) / NetworkPolicy
+[@celestoai/celesto](../README.md) / NetworkPolicy
 
 # Type Alias: NetworkPolicy
 

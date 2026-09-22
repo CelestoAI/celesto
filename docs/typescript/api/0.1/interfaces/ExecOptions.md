@@ -1,8 +1,8 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
 ***
 
-[@celestoai/smolvm](../README.md) / ExecOptions
+[@celestoai/celesto](../README.md) / ExecOptions
 
 # Interface: ExecOptions
 

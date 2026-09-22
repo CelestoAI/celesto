@@ -33,7 +33,7 @@ class TestSafeBootTrims:
 
     @pytest.mark.parametrize("backend", [BACKEND_QEMU, BACKEND_FIRECRACKER])
     def test_safe_trims_present(self, backend: str, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("SMOLVM_VERBOSE_BOOT", raising=False)
+        monkeypatch.delenv("CELESTO_VERBOSE_BOOT", raising=False)
         args = _args(backend)
         assert "tsc=reliable" in args
         assert "no_timer_check" in args
@@ -45,7 +45,7 @@ class TestSafeBootTrims:
         assert "acpi=off" not in _args(backend)
 
     def test_firecracker_keeps_pci_off_and_root(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("SMOLVM_VERBOSE_BOOT", raising=False)
+        monkeypatch.delenv("CELESTO_VERBOSE_BOOT", raising=False)
         args = _args(BACKEND_FIRECRACKER)
         assert "pci=off" in args
         assert "root=/dev/vda" in args
@@ -55,17 +55,17 @@ class TestSafeBootTrims:
         assert "pci=off" not in _args(BACKEND_QEMU)
 
     def test_quiet_on_by_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("SMOLVM_VERBOSE_BOOT", raising=False)
+        monkeypatch.delenv("CELESTO_VERBOSE_BOOT", raising=False)
         assert "quiet" in _args(BACKEND_QEMU)
 
     @pytest.mark.parametrize("val", ["1", "true", "yes", "on", "TRUE"])
     def test_verbose_boot_drops_quiet(self, val: str, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("SMOLVM_VERBOSE_BOOT", val)
+        monkeypatch.setenv("CELESTO_VERBOSE_BOOT", val)
         args = _args(BACKEND_QEMU)
         assert "quiet" not in args
         # the rest of the trims stay
         assert "tsc=reliable" in args
 
     def test_arm64_console_preserved(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("SMOLVM_VERBOSE_BOOT", raising=False)
+        monkeypatch.delenv("CELESTO_VERBOSE_BOOT", raising=False)
         assert "console=ttyAMA0" in _args(BACKEND_QEMU, arch="aarch64")

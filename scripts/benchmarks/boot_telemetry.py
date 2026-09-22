@@ -22,8 +22,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-_SMOLVM_TS_RE = re.compile(
-    r"\bSMOLVM_TS\s+stage=(?P<stage>\S+)"
+_CELESTO_TS_RE = re.compile(
+    r"\bCELESTO_TS\s+stage=(?P<stage>\S+)"
     r"\s+epoch_s=(?P<epoch_s>\S+)"
     r"\s+uptime_s=(?P<uptime_s>\S+)"
 )
@@ -55,7 +55,7 @@ def parse_boot_telemetry_text(text: str) -> dict[str, Any]:
     marker_epochs: dict[str, float] = {}
     marker_order: list[str] = []
 
-    for match in _SMOLVM_TS_RE.finditer(text):
+    for match in _CELESTO_TS_RE.finditer(text):
         stage = match.group("stage")
         try:
             uptime_s = float(match.group("uptime_s"))

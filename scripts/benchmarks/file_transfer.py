@@ -55,7 +55,7 @@ def sha256_file(path: Path) -> str:
 
 def write_payload(path: Path, *, size: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    block = hashlib.sha256(f"smolvm-transfer-benchmark:{size}".encode()).digest()
+    block = hashlib.sha256(f"celesto-transfer-benchmark:{size}".encode()).digest()
     remaining = size
     with path.open("wb") as handle:
         while remaining > 0:
@@ -115,7 +115,7 @@ def run_iteration(args: argparse.Namespace, iteration: int, sizes: list[int]) ->
     from celesto.facade import Celesto
 
     sandbox_hint = f"{args.name_prefix}-{uuid.uuid4().hex[:8]}"
-    workspace = Path(tempfile.mkdtemp(prefix=f"smolvm-transfer-{iteration}-"))
+    workspace = Path(tempfile.mkdtemp(prefix=f"celesto-transfer-{iteration}-"))
     record: dict[str, Any] = {
         "iter": iteration,
         "sandbox_hint": sandbox_hint,
@@ -170,7 +170,7 @@ def run_iteration(args: argparse.Namespace, iteration: int, sizes: list[int]) ->
 def measure_file_round_trip(vm: Any, workspace: Path, *, size: int) -> dict[str, Any]:
     source = workspace / f"source-{size}.bin"
     target = workspace / f"download-{size}.bin"
-    remote = f"/tmp/smolvm-transfer-bench/file-{size}.bin"
+    remote = f"/tmp/celesto-transfer-bench/file-{size}.bin"
     write_payload(source, size=size)
     source_hash = sha256_file(source)
 
@@ -200,7 +200,7 @@ def measure_directory_round_trip(
 ) -> dict[str, Any]:
     source = workspace / "dir-source"
     target = workspace / "dir-download"
-    remote = "/tmp/smolvm-transfer-bench/directory"
+    remote = "/tmp/celesto-transfer-bench/directory"
     create_directory_payload(source, files=files, file_size=file_size)
     source_digest = directory_digest(source)
 

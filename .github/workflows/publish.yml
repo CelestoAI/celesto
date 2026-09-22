@@ -43,30 +43,30 @@ jobs:
                   f"Expected one of {expected_tags!r}."
               )
 
-          # Find the smolvm-core dependency line. We no longer require the
+          # Find the celesto-core dependency line. We no longer require the
           # core version to match celesto's own version: celesto 0.0.15a0 may
-          # depend on smolvm-core 0.0.9, and that's intentional.
+          # depend on celesto-core 0.0.9, and that's intentional.
           dependencies = data["project"]["dependencies"]
           core_dep = next(
-              (d for d in dependencies if re.match(r"^smolvm-core(\s|[<>=!~]|$)", d)),
+              (d for d in dependencies if re.match(r"^celesto-core(\s|[<>=!~]|$)", d)),
               None,
           )
           if core_dep is None:
               raise SystemExit(
-                  "pyproject.toml must declare a smolvm-core dependency before publishing celesto."
+                  "pyproject.toml must declare a celesto-core dependency before publishing celesto."
               )
 
           # Extract a concrete version to verify against PyPI. Works for
-          # `smolvm-core==X.Y.Z`, `smolvm-core>=X.Y.Z,<0.1.0`, etc. — we
+          # `celesto-core==X.Y.Z`, `celesto-core>=X.Y.Z,<0.1.0`, etc. — we
           # check the first version string we find in the constraint.
           version_match = re.search(r"(\d+\.\d+\.\d+(?:[a-zA-Z0-9.\-]*)?)", core_dep)
           if version_match is None:
               raise SystemExit(
-                  f"Could not extract a smolvm-core version from {core_dep!r}."
+                  f"Could not extract a celesto-core version from {core_dep!r}."
               )
           core_version = version_match.group(1)
 
-          url = f"https://pypi.org/pypi/smolvm-core/{core_version}/json"
+          url = f"https://pypi.org/pypi/celesto-core/{core_version}/json"
           try:
               with urllib.request.urlopen(url) as response:
                   if response.status != 200:
@@ -76,14 +76,14 @@ jobs:
           except urllib.error.HTTPError as exc:
               if exc.code == 404:
                   raise SystemExit(
-                      f"smolvm-core {core_version} is not on PyPI yet. "
+                      f"celesto-core {core_version} is not on PyPI yet. "
                       f"Publish tag core-v{core_version} first."
                   ) from exc
               raise
 
           print(
               f"Release preflight OK: celesto {version} depends on {core_dep!r}; "
-              f"smolvm-core {core_version} is available on PyPI."
+              f"celesto-core {core_version} is available on PyPI."
           )
           PY
 

@@ -65,18 +65,18 @@ class TestSSHPortForwarding:
 
         scripts = _collect_nft_scripts(mock_run_command)
         # Maps/sets declared in base setup
-        assert "add map ip smolvm_nat dnat_ext" in scripts
-        assert "add map ip smolvm_nat dnat_local" in scripts
-        assert "add set ip smolvm_nat snat_return" in scripts
-        assert "add set inet smolvm_filter fwd_allow" in scripts
+        assert "add map ip celesto_nat dnat_ext" in scripts
+        assert "add map ip celesto_nat dnat_local" in scripts
+        assert "add set ip celesto_nat snat_return" in scripts
+        assert "add set inet celesto_filter fwd_allow" in scripts
         # Static rules referencing maps/sets
         assert "dnat to tcp dport map @dnat_ext" in scripts
         assert "dnat to tcp dport map @dnat_local" in scripts
         # Per-VM elements
-        assert "add element ip smolvm_nat dnat_ext { 2200 : 172.16.0.2 . 22 }" in scripts
-        assert "add element ip smolvm_nat dnat_local { 2200 : 172.16.0.2 . 22 }" in scripts
-        assert "add element ip smolvm_nat snat_return { 172.16.0.2 . 22 }" in scripts
-        assert "add element inet smolvm_filter fwd_allow { 172.16.0.2 . 22 }" in scripts
+        assert "add element ip celesto_nat dnat_ext { 2200 : 172.16.0.2 . 22 }" in scripts
+        assert "add element ip celesto_nat dnat_local { 2200 : 172.16.0.2 . 22 }" in scripts
+        assert "add element ip celesto_nat snat_return { 172.16.0.2 . 22 }" in scripts
+        assert "add element inet celesto_filter fwd_allow { 172.16.0.2 . 22 }" in scripts
 
     @patch("celesto.host.network.run_command")
     def test_cleanup_ssh_port_forward_deletes_elements_and_legacy_rules(
@@ -86,18 +86,18 @@ class TestSSHPortForwarding:
 
         def _side_effect(cmd: list[str], *args: object, **kwargs: object) -> MagicMock:
             # Legacy rule listing returns old-style rules
-            if cmd == ["nft", "-a", "list", "table", "ip", "smolvm_nat"]:
+            if cmd == ["nft", "-a", "list", "table", "ip", "celesto_nat"]:
                 return MagicMock(
                     stdout=(
-                        "table ip smolvm_nat {\n"
+                        "table ip celesto_nat {\n"
                         "  chain prerouting {\n"
-                        '    tcp dport 2200 comment "smolvm:vm001:ssh" # handle 14\n'
+                        '    tcp dport 2200 comment "celesto:vm001:ssh" # handle 14\n'
                         "  }\n"
                         "}\n"
                     )
                 )
-            if cmd == ["nft", "-a", "list", "table", "inet", "smolvm_filter"]:
-                return MagicMock(stdout="table inet smolvm_filter {\n}\n")
+            if cmd == ["nft", "-a", "list", "table", "inet", "celesto_filter"]:
+                return MagicMock(stdout="table inet celesto_filter {\n}\n")
             return MagicMock(stdout="")
 
         mock_run_command.side_effect = _side_effect
@@ -107,12 +107,12 @@ class TestSSHPortForwarding:
 
         scripts = _collect_nft_scripts(mock_run_command)
         # New: element deletes
-        assert "delete element ip smolvm_nat dnat_ext { 2200 }" in scripts
-        assert "delete element ip smolvm_nat dnat_local { 2200 }" in scripts
-        assert "delete element ip smolvm_nat snat_return { 172.16.0.2 . 22 }" in scripts
-        assert "delete element inet smolvm_filter fwd_allow { 172.16.0.2 . 22 }" in scripts
+        assert "delete element ip celesto_nat dnat_ext { 2200 }" in scripts
+        assert "delete element ip celesto_nat dnat_local { 2200 }" in scripts
+        assert "delete element ip celesto_nat snat_return { 172.16.0.2 . 22 }" in scripts
+        assert "delete element inet celesto_filter fwd_allow { 172.16.0.2 . 22 }" in scripts
         # Legacy: comment-based rule deletes still run
-        assert "delete rule ip smolvm_nat prerouting handle 14" in scripts
+        assert "delete rule ip celesto_nat prerouting handle 14" in scripts
 
 
 class TestTapManagement:
@@ -173,9 +173,9 @@ class TestTapManagement:
         mock_run_command: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """SMOLVM_DISABLE_NATIVE_NETWORKING should leave subprocess commands unchanged."""
+        """CELESTO_DISABLE_NATIVE_NETWORKING should leave subprocess commands unchanged."""
         mock_run_command.return_value = MagicMock(stdout="")
-        monkeypatch.setenv("SMOLVM_DISABLE_NATIVE_NETWORKING", "yes")
+        monkeypatch.setenv("CELESTO_DISABLE_NATIVE_NETWORKING", "yes")
 
         with patch("celesto.host.network.HAS_NETLINK", True):
             nm = NetworkManager()
@@ -316,7 +316,7 @@ class TestNativeTapManagement:
     def test_prepare_tap_falls_back_when_native_composite_missing(
         self, mock_network_native: MagicMock
     ) -> None:
-        """Older smolvm-core wheels should fall back to the existing Python sequence."""
+        """Older celesto-core wheels should fall back to the existing Python sequence."""
         del mock_network_native.prepare_tap
 
         with patch("celesto.host.network.HAS_NETLINK", True):
@@ -476,18 +476,18 @@ class TestLocalPortForwarding:
         from celesto.exceptions import NetworkError
 
         output = (
-            "table ip smolvm_nat {\n chain output {\n"
+            "table ip celesto_nat {\n chain output {\n"
             f" tcp dport 18080 counter packets 1 bytes 60 dnat to {target} "
-            f'comment "smolvm:{owner}:local:18080:8080"\n }}\n}}'
+            f'comment "celesto:{owner}:local:18080:8080"\n }}\n}}'
         )
         with pytest.raises(NetworkError, match="different host port"):
             NetworkManager._check_local_port_ownership(output, "vm001", 18080, "172.16.0.2", 8080)
 
     def test_same_persistent_mapping_is_idempotent(self):
         output = (
-            "table ip smolvm_nat {\n chain output {\n"
+            "table ip celesto_nat {\n chain output {\n"
             " tcp dport 18080 dnat to 172.16.0.2:8080 "
-            'comment "smolvm:vm001:local:18080:8080"\n }\n}'
+            'comment "celesto:vm001:local:18080:8080"\n }\n}'
         )
         NetworkManager._check_local_port_ownership(output, "vm001", 18080, "172.16.0.2", 8080)
 
@@ -495,7 +495,7 @@ class TestLocalPortForwarding:
         from celesto.exceptions import NetworkError
 
         output = (
-            "table ip smolvm_nat {\n map dnat_local {\n"
+            "table ip celesto_nat {\n map dnat_local {\n"
             " type inet_service : ipv4_addr . inet_service\n"
             " elements = { 18080 : 172.16.0.2 . 22,\n 2200 : 172.16.0.3 . 22 }\n }\n}"
         )
@@ -550,35 +550,35 @@ class TestLocalPortForwarding:
         )
 
         scripts = _collect_nft_scripts(mock_run_command)
-        assert "add rule ip smolvm_nat output" in scripts
-        assert "add rule ip smolvm_nat postrouting" in scripts
-        assert "add rule inet smolvm_filter forward" in scripts
-        assert "add rule ip smolvm_nat prerouting" not in scripts
+        assert "add rule ip celesto_nat output" in scripts
+        assert "add rule ip celesto_nat postrouting" in scripts
+        assert "add rule inet celesto_filter forward" in scripts
+        assert "add rule ip celesto_nat prerouting" not in scripts
 
     @patch("celesto.host.network.run_command")
     def test_cleanup_local_port_forward_deletes_rules(self, mock_run_command: MagicMock) -> None:
         """Cleanup should batch-delete OUTPUT/POSTROUTING/FORWARD rules."""
 
         def _side_effect(cmd: list[str], *args: object, **kwargs: object) -> MagicMock:
-            if cmd == ["nft", "-a", "list", "table", "ip", "smolvm_nat"]:
+            if cmd == ["nft", "-a", "list", "table", "ip", "celesto_nat"]:
                 return MagicMock(
                     stdout=(
-                        "table ip smolvm_nat {\n"
+                        "table ip celesto_nat {\n"
                         "  chain output {\n"
-                        '    tcp dport 18080 comment "smolvm:vm001:local:18080:8080" # handle 23\n'
+                        '    tcp dport 18080 comment "celesto:vm001:local:18080:8080" # handle 23\n'
                         "  }\n"
                         "  chain postrouting {\n"
-                        '    tcp dport 8080 comment "smolvm:vm001:local:18080:8080" # handle 21\n'
+                        '    tcp dport 8080 comment "celesto:vm001:local:18080:8080" # handle 21\n'
                         "  }\n"
                         "}\n"
                     )
                 )
-            if cmd == ["nft", "-a", "list", "table", "inet", "smolvm_filter"]:
+            if cmd == ["nft", "-a", "list", "table", "inet", "celesto_filter"]:
                 return MagicMock(
                     stdout=(
-                        "table inet smolvm_filter {\n"
+                        "table inet celesto_filter {\n"
                         "  chain forward {\n"
-                        '    tcp dport 8080 comment "smolvm:vm001:local:18080:8080" # handle 22\n'
+                        '    tcp dport 8080 comment "celesto:vm001:local:18080:8080" # handle 22\n'
                         "  }\n"
                         "}\n"
                     )
@@ -596,9 +596,9 @@ class TestLocalPortForwarding:
         )
 
         scripts = _collect_nft_scripts(mock_run_command)
-        assert "delete rule ip smolvm_nat postrouting handle 21" in scripts
-        assert "delete rule ip smolvm_nat output handle 23" in scripts
-        assert "delete rule inet smolvm_filter forward handle 22" in scripts
+        assert "delete rule ip celesto_nat postrouting handle 21" in scripts
+        assert "delete rule ip celesto_nat output handle 23" in scripts
+        assert "delete rule inet celesto_filter forward handle 22" in scripts
 
     @patch("celesto.host.network.run_command", side_effect=CelestoError("missing rule"))
     def test_cleanup_local_port_forward_is_idempotent_when_rules_missing(
@@ -625,27 +625,27 @@ class TestLocalPortForwarding:
         nm = NetworkManager()
 
         def _side_effect(cmd: list[str], *args: object, **kwargs: object) -> MagicMock:
-            if cmd == ["nft", "-a", "list", "table", "ip", "smolvm_nat"]:
+            if cmd == ["nft", "-a", "list", "table", "ip", "celesto_nat"]:
                 return MagicMock(
                     stdout=(
-                        "table ip smolvm_nat {\n"
+                        "table ip celesto_nat {\n"
                         "  chain output {\n"
-                        '    tcp dport 18080 comment "smolvm:vm001:local:18080:8080" # handle 31\n'
-                        '    tcp dport 18081 comment "smolvm:other:local:18081:8081" # handle 32\n'
+                        '    tcp dport 18080 comment "celesto:vm001:local:18080:8080" # handle 31\n'
+                        '    tcp dport 18081 comment "celesto:other:local:18081:8081" # handle 32\n'
                         "  }\n"
                         "  chain postrouting {\n"
-                        '    tcp dport 8080 comment "smolvm:vm001:local:18080:8080" # handle 33\n'
+                        '    tcp dport 8080 comment "celesto:vm001:local:18080:8080" # handle 33\n'
                         "  }\n"
                         "}\n"
                     )
                 )
-            if cmd == ["nft", "-a", "list", "table", "inet", "smolvm_filter"]:
+            if cmd == ["nft", "-a", "list", "table", "inet", "celesto_filter"]:
                 return MagicMock(
                     stdout=(
-                        "table inet smolvm_filter {\n"
+                        "table inet celesto_filter {\n"
                         "  chain forward {\n"
-                        '    tcp dport 8080 comment "smolvm:vm001:local:18080:8080" # handle 34\n'
-                        '    tcp dport 22 comment "smolvm:vm001:ssh" # handle 35\n'
+                        '    tcp dport 8080 comment "celesto:vm001:local:18080:8080" # handle 34\n'
+                        '    tcp dport 22 comment "celesto:vm001:ssh" # handle 35\n'
                         "  }\n"
                         "}\n"
                     )
@@ -657,18 +657,18 @@ class TestLocalPortForwarding:
         nm.cleanup_all_local_port_forwards("vm001")
 
         commands = [call.args[0] for call in mock_run_command.call_args_list]
-        assert ["nft", "-a", "list", "table", "ip", "smolvm_nat"] in commands
-        assert ["nft", "-a", "list", "table", "inet", "smolvm_filter"] in commands
+        assert ["nft", "-a", "list", "table", "ip", "celesto_nat"] in commands
+        assert ["nft", "-a", "list", "table", "inet", "celesto_filter"] in commands
 
         scripts = _collect_nft_scripts(mock_run_command)
-        assert "delete rule ip smolvm_nat output handle 31" in scripts
-        assert "delete rule ip smolvm_nat postrouting handle 33" in scripts
-        assert "delete rule inet smolvm_filter forward handle 34" in scripts
+        assert "delete rule ip celesto_nat output handle 31" in scripts
+        assert "delete rule ip celesto_nat postrouting handle 33" in scripts
+        assert "delete rule inet celesto_filter forward handle 34" in scripts
 
         # Must not delete rule belonging to another VM.
-        assert "delete rule ip smolvm_nat output handle 32" not in scripts
+        assert "delete rule ip celesto_nat output handle 32" not in scripts
         # Must not delete non-local (SSH) rule.
-        assert "delete rule inet smolvm_filter forward handle 35" not in scripts
+        assert "delete rule inet celesto_filter forward handle 35" not in scripts
 
 
 class TestNetworkPrerequisites:
@@ -708,11 +708,11 @@ class TestEgressAllowlist:
         nm._ensure_nftables_base = MagicMock()
         nm._nft_list_table = MagicMock(
             return_value=(
-                "table inet smolvm_filter {\n"
+                "table inet celesto_filter {\n"
                 "  chain forward {\n"
-                '    iifname "tap42" ct state established,related counter accept comment "smolvm:egress:tap42:established" # handle 41\n'  # noqa: E501
-                '    iifname "tap42" counter drop comment "smolvm:egress:tap42:drop" # handle 42\n'
-                '    iifname "tap42" oifname "eth0" counter accept comment "smolvm:nat:tap:tap42:to:eth0" # handle 43\n'  # noqa: E501
+                '    iifname "tap42" ct state established,related counter accept comment "celesto:egress:tap42:established" # handle 41\n'  # noqa: E501
+                '    iifname "tap42" counter drop comment "celesto:egress:tap42:drop" # handle 42\n'
+                '    iifname "tap42" oifname "eth0" counter accept comment "celesto:nat:tap:tap42:to:eth0" # handle 43\n'  # noqa: E501
                 "  }\n"
                 "}\n"
             )
@@ -726,20 +726,20 @@ class TestEgressAllowlist:
         script = nm._run_nft_script.call_args_list[0].args[0]
 
         add_established = (
-            'add rule inet smolvm_filter forward iifname "tap42" ct state established,related '
-            'counter accept comment "smolvm:egress:tap42:established"'
+            'add rule inet celesto_filter forward iifname "tap42" ct state established,related '
+            'counter accept comment "celesto:egress:tap42:established"'
         )
         add_allow = (
-            'add rule inet smolvm_filter forward iifname "tap42" ip daddr { 1.1.1.1, 8.8.8.8 } '
-            'counter accept comment "smolvm:egress:tap42:allow"'
+            'add rule inet celesto_filter forward iifname "tap42" ip daddr { 1.1.1.1, 8.8.8.8 } '
+            'counter accept comment "celesto:egress:tap42:allow"'
         )
         add_drop = (
-            'add rule inet smolvm_filter forward iifname "tap42" ip daddr != { 1.1.1.1, 8.8.8.8 } '
-            'counter drop comment "smolvm:egress:tap42:drop"'
+            'add rule inet celesto_filter forward iifname "tap42" ip daddr != { 1.1.1.1, 8.8.8.8 } '
+            'counter drop comment "celesto:egress:tap42:drop"'
         )
-        delete_old_established = "delete rule inet smolvm_filter forward handle 41"
-        delete_old_drop = "delete rule inet smolvm_filter forward handle 42"
-        delete_old_nat_accept = "delete rule inet smolvm_filter forward handle 43"
+        delete_old_established = "delete rule inet celesto_filter forward handle 41"
+        delete_old_drop = "delete rule inet celesto_filter forward handle 42"
+        delete_old_nat_accept = "delete rule inet celesto_filter forward handle 43"
 
         assert add_established in script
         assert add_allow in script
@@ -753,7 +753,7 @@ class TestEgressAllowlist:
 
         # TAP should also be removed from allowed_taps set.
         all_scripts = "\n".join(c.args[0] for c in nm._run_nft_script.call_args_list)
-        assert 'delete element inet smolvm_filter allowed_taps { "tap42" }' in all_scripts
+        assert 'delete element inet celesto_filter allowed_taps { "tap42" }' in all_scripts
 
     @pytest.mark.parametrize(
         ("label", "allowed_ips"),
@@ -773,7 +773,7 @@ class TestEgressAllowlist:
         nm._outbound_interface = "eth0"
         nm._ensure_nftables_base = MagicMock()
         nm._nft_list_table = MagicMock(
-            return_value="table inet smolvm_filter {\n  chain forward {\n  }\n}\n"
+            return_value="table inet celesto_filter {\n  chain forward {\n  }\n}\n"
         )
         nm._run_nft_script = MagicMock()
 
@@ -781,21 +781,21 @@ class TestEgressAllowlist:
         script = nm._run_nft_script.call_args_list[0].args[0]
 
         drop_ipv6 = (
-            'add rule inet smolvm_filter forward iifname "tap42" meta nfproto ipv6 '
-            'counter drop comment "smolvm:egress:tap42:drop6"'
+            'add rule inet celesto_filter forward iifname "tap42" meta nfproto ipv6 '
+            'counter drop comment "celesto:egress:tap42:drop6"'
         )
         assert drop_ipv6 in script, f"{label} left IPv6 unrestricted"
 
         # First, so the established/related accept cannot re-admit an IPv6 flow.
         established = (
-            'add rule inet smolvm_filter forward iifname "tap42" ct state established,related'
+            'add rule inet celesto_filter forward iifname "tap42" ct state established,related'
         )
         assert script.index(drop_ipv6) < script.index(established)
 
     def test_egress_ipv6_drop_is_cleaned_up_with_the_rest(self) -> None:
         """The IPv6 rule must not outlive the sandbox it belongs to.
 
-        Cleanup matches on the ``smolvm:egress:<tap>:`` comment prefix, so a
+        Cleanup matches on the ``celesto:egress:<tap>:`` comment prefix, so a
         rule tagged outside that prefix would leak into the host ruleset and
         keep dropping traffic for a TAP name that gets reused later.
         """
@@ -803,11 +803,11 @@ class TestEgressAllowlist:
         nm._ensure_nftables_base = MagicMock()
         nm._nft_list_table = MagicMock(
             return_value=(
-                "table inet smolvm_filter {\n"
+                "table inet celesto_filter {\n"
                 "  chain forward {\n"
                 '    iifname "tap42" meta nfproto ipv6 counter drop '
-                'comment "smolvm:egress:tap42:drop6" # handle 40\n'
-                '    iifname "tap42" counter drop comment "smolvm:egress:tap42:drop" # handle 42\n'
+                'comment "celesto:egress:tap42:drop6" # handle 40\n'
+                '    iifname "tap42" counter drop comment "celesto:egress:tap42:drop" # handle 42\n'
                 "  }\n"
                 "}\n"
             )
@@ -817,8 +817,8 @@ class TestEgressAllowlist:
         nm.remove_egress_rules("tap42")
 
         script = "\n".join(c.args[0] for c in nm._run_nft_script.call_args_list)
-        assert "delete rule inet smolvm_filter forward handle 40" in script
-        assert "delete rule inet smolvm_filter forward handle 42" in script
+        assert "delete rule inet celesto_filter forward handle 40" in script
+        assert "delete rule inet celesto_filter forward handle 42" in script
 
     def test_sync_and_async_appliers_emit_identical_rules(self) -> None:
         """The twins must not drift — the IPv6 gap was duplicated in both.
@@ -835,10 +835,10 @@ class TestEgressAllowlist:
             nm._ensure_nftables_base = MagicMock()
             nm._async_ensure_nftables_base = AsyncMock()
             nm._nft_list_table = MagicMock(
-                return_value="table inet smolvm_filter {\n  chain forward {\n  }\n}\n"
+                return_value="table inet celesto_filter {\n  chain forward {\n  }\n}\n"
             )
             nm._async_nft_list_table = AsyncMock(
-                return_value="table inet smolvm_filter {\n  chain forward {\n  }\n}\n"
+                return_value="table inet celesto_filter {\n  chain forward {\n  }\n}\n"
             )
             nm._run_nft_script = MagicMock()
             nm._async_run_nft_script = AsyncMock()
@@ -865,7 +865,7 @@ class TestExplicitNetworkPolicy:
         nm.setup_nat("tap42", allow_outbound=False)
         scripts = _collect_nft_scripts(run_command)
         assert 'oifname "eth0" counter masquerade' in scripts
-        assert 'add element inet smolvm_filter allowed_taps { "tap42" }' not in scripts
+        assert 'add element inet celesto_filter allowed_taps { "tap42" }' not in scripts
 
     @pytest.mark.asyncio
     @patch("celesto.host.network.async_run_command")
@@ -876,7 +876,7 @@ class TestExplicitNetworkPolicy:
         await nm.async_setup_nat("tap42", allow_outbound=False)
         scripts = _collect_nft_scripts(run_command)
         assert 'oifname "eth0" counter masquerade' in scripts
-        assert 'add element inet smolvm_filter allowed_taps { "tap42" }' not in scripts
+        assert 'add element inet celesto_filter allowed_taps { "tap42" }' not in scripts
 
     @pytest.mark.parametrize("destinations", [None, [], ["203.0.113.7/32"]])
     def test_replacement_is_one_atomic_transaction(self, destinations) -> None:
@@ -886,7 +886,7 @@ class TestExplicitNetworkPolicy:
         nm.apply_network_policy("tap42", destinations)
         nm._run_nft_script.assert_called_once()
         script = nm._run_nft_script.call_args.args[0]
-        assert "flush table inet smolvm_policy_tap42" in script
+        assert "flush table inet celesto_policy_tap42" in script
         assert "hook forward priority -10" in script
         assert "hook input priority -10" in script
         assert "ct state" not in script
@@ -894,7 +894,7 @@ class TestExplicitNetworkPolicy:
         if destinations is not None:
             assert 'input iifname "tap42" counter drop' in script
             assert "meta nfproto ipv6 counter drop" in script
-            assert 'delete element inet smolvm_filter allowed_taps { "tap42" }' in script
+            assert 'delete element inet celesto_filter allowed_taps { "tap42" }' in script
         if destinations:
             assert script.index("169.254.0.0/16") < script.index("203.0.113.7/32")
             assert script.index("203.0.113.7/32") < script.index(
@@ -965,5 +965,5 @@ class TestExplicitNetworkPolicy:
         nm._run_nft_script = MagicMock()
         nm.remove_network_policy("tap42")
         assert nm._run_nft_script.call_args.args[0] == (
-            "add table inet smolvm_policy_tap42\ndelete table inet smolvm_policy_tap42\n"
+            "add table inet celesto_policy_tap42\ndelete table inet celesto_policy_tap42\n"
         )

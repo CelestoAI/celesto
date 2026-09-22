@@ -53,11 +53,11 @@ def run_sdk_session(*, control_fd: int = 3) -> int:
         finally:
             server.should_exit = True
 
-    threading.Thread(target=watch_parent, name="smolvm-sdk-parent", daemon=True).start()
+    threading.Thread(target=watch_parent, name="celesto-sdk-parent", daemon=True).start()
     print(
         json.dumps(
             {
-                "type": "smolvm.sdk.ready",
+                "type": "celesto.sdk.ready",
                 "protocol_version": 1,
                 "host": "127.0.0.1",
                 "port": port,

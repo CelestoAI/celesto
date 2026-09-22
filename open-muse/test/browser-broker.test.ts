@@ -78,7 +78,7 @@ function harness(
             : { title: "Example Domain" };
         return {
           ok: true, exitCode: 0,
-          stdout: `SMOLVM_BROWSER_RESULT=${JSON.stringify({ ok: true, value: { programResult, page: { title: "Example Domain", url: "https://example.com" } } })}\n`,
+          stdout: `CELESTO_BROWSER_RESULT=${JSON.stringify({ ok: true, value: { programResult, page: { title: "Example Domain", url: "https://example.com" } } })}\n`,
           stderr: "", durationMs: 1,
         };
       },
@@ -406,7 +406,7 @@ test("browser programs never retry or return page data after an uncertain failur
     return {
       ok: true,
       exitCode: 0,
-      stdout: `SMOLVM_BROWSER_RESULT=${JSON.stringify({
+      stdout: `CELESTO_BROWSER_RESULT=${JSON.stringify({
         ok: true,
         value: {
           title: "Amazon.com : iPhone",
@@ -456,7 +456,7 @@ test("browser programs reject invalid input and mark malformed post-dispatch res
   const originalError = console.error;
   console.error = () => undefined;
   try {
-    for (const stdout of ["unexpected output", "SMOLVM_BROWSER_RESULT={not-json}\n", 'SMOLVM_BROWSER_RESULT={"ok":false}\n']) {
+    for (const stdout of ["unexpected output", "CELESTO_BROWSER_RESULT={not-json}\n", 'CELESTO_BROWSER_RESULT={"ok":false}\n']) {
       const { broker, context } = harness();
       context.computer!.exec = async () => ({ ok: true, exitCode: 0, stdout, stderr: "", durationMs: 1 });
       await broker.runProgram("return true;", false, "Malformed runner");

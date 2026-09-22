@@ -20,6 +20,7 @@ sandboxed environment.
 
 from importlib.metadata import version as _pkg_version
 
+from celesto._compat import apply_legacy_environment_aliases
 from celesto._terminal import TerminalConnection
 from celesto.callbacks import Callback, CommandBlockedError, RunContext
 from celesto.exceptions import (
@@ -84,6 +85,8 @@ from celesto.types import (
     WorkspaceMount,
 )
 from celesto.vm import CelestoManager
+
+apply_legacy_environment_aliases()
 
 __version__ = _pkg_version("celesto")
 

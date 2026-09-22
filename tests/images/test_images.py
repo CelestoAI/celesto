@@ -894,7 +894,7 @@ class TestEnsureS3Image:
         def get_object(Bucket: str, Key: str) -> dict[str, object]:  # noqa: N803
             assert Bucket == expected_bucket, f"unexpected bucket: {Bucket}"
             filename = Key.rsplit("/", 1)[-1]
-            if filename == "smolvm-image.json":
+            if filename == "celesto-image.json":
                 content = manifest_json
             elif filename in assets:
                 content = assets[filename]
@@ -1082,7 +1082,7 @@ class TestEnsureS3Image:
         mgr = ImageManager(cache_dir=tmp_path / "images")
         with (
             patch("celesto.images.manager._require_boto3", return_value=mock_s3),
-            pytest.raises(ImageError, match="Invalid smolvm-image.json"),
+            pytest.raises(ImageError, match="Invalid celesto-image.json"),
         ):
             mgr.ensure_s3_image("s3://bucket/images/bad/")
 
@@ -1165,22 +1165,22 @@ class TestEnsureS3Image:
 
 
 class TestS3CredentialResolution:
-    """Tests for SMOLVM_S3_* env var resolution."""
+    """Tests for CELESTO_S3_* env var resolution."""
 
     _TEST_ACCESS_KEY = "test-access-key-id"  # noqa: S105
     _TEST_SECRET_KEY = "test-secret-access-key"  # noqa: S105
 
-    def test_smolvm_env_vars_override_defaults(self) -> None:
-        """SMOLVM_S3_* vars should be passed to boto3.client()."""
+    def test_celesto_env_vars_override_defaults(self) -> None:
+        """CELESTO_S3_* vars should be passed to boto3.client()."""
         import sys
 
         mock_boto3 = MagicMock()
         mock_boto3.client.return_value = MagicMock()
 
         env = {
-            "SMOLVM_S3_ENDPOINT_URL": "https://custom.endpoint.example",
-            "SMOLVM_S3_ACCESS_KEY_ID": self._TEST_ACCESS_KEY,
-            "SMOLVM_S3_SECRET_ACCESS_KEY": self._TEST_SECRET_KEY,
+            "CELESTO_S3_ENDPOINT_URL": "https://custom.endpoint.example",
+            "CELESTO_S3_ACCESS_KEY_ID": self._TEST_ACCESS_KEY,
+            "CELESTO_S3_SECRET_ACCESS_KEY": self._TEST_SECRET_KEY,
         }
         with patch.dict("os.environ", env), patch.dict(sys.modules, {"boto3": mock_boto3}):
             from celesto.images.manager import _require_boto3
@@ -1204,13 +1204,13 @@ class TestS3CredentialResolution:
         mock_boto3.client.return_value = MagicMock()
         mock_dotenv = MagicMock()
 
-        env = {"SMOLVM_S3_ENDPOINT_URL": "https://r2.example.com"}
+        env = {"CELESTO_S3_ENDPOINT_URL": "https://r2.example.com"}
         with (
             patch.dict("os.environ", env),
             patch.dict(sys.modules, {"boto3": mock_boto3, "dotenv": mock_dotenv}),
         ):
-            os.environ.pop("SMOLVM_S3_ACCESS_KEY_ID", None)
-            os.environ.pop("SMOLVM_S3_SECRET_ACCESS_KEY", None)
+            os.environ.pop("CELESTO_S3_ACCESS_KEY_ID", None)
+            os.environ.pop("CELESTO_S3_SECRET_ACCESS_KEY", None)
 
             from celesto.images.manager import _require_boto3
 
@@ -1222,8 +1222,8 @@ class TestS3CredentialResolution:
             region_name="auto",
         )
 
-    def test_no_smolvm_vars_uses_plain_boto3(self) -> None:
-        """Without SMOLVM_S3_* vars, boto3 defaults should be used."""
+    def test_no_celesto_vars_uses_plain_boto3(self) -> None:
+        """Without CELESTO_S3_* vars, boto3 defaults should be used."""
         import os
         import sys
 
@@ -1235,9 +1235,9 @@ class TestS3CredentialResolution:
             patch.dict("os.environ", {}, clear=False),
             patch.dict(sys.modules, {"boto3": mock_boto3, "dotenv": mock_dotenv}),
         ):
-            os.environ.pop("SMOLVM_S3_ENDPOINT_URL", None)
-            os.environ.pop("SMOLVM_S3_ACCESS_KEY_ID", None)
-            os.environ.pop("SMOLVM_S3_SECRET_ACCESS_KEY", None)
+            os.environ.pop("CELESTO_S3_ENDPOINT_URL", None)
+            os.environ.pop("CELESTO_S3_ACCESS_KEY_ID", None)
+            os.environ.pop("CELESTO_S3_SECRET_ACCESS_KEY", None)
 
             from celesto.images.manager import _require_boto3
 
@@ -1252,7 +1252,7 @@ class TestS3CredentialResolution:
         mock_boto3 = MagicMock()
         mock_dotenv = MagicMock()
 
-        env = {"SMOLVM_S3_ACCESS_KEY_ID": "only-key"}
+        env = {"CELESTO_S3_ACCESS_KEY_ID": "only-key"}
         with (
             patch.dict("os.environ", env, clear=False),
             patch.dict(sys.modules, {"boto3": mock_boto3, "dotenv": mock_dotenv}),
@@ -1260,8 +1260,8 @@ class TestS3CredentialResolution:
         ):
             import os
 
-            os.environ.pop("SMOLVM_S3_SECRET_ACCESS_KEY", None)
-            os.environ.pop("SMOLVM_S3_ENDPOINT_URL", None)
+            os.environ.pop("CELESTO_S3_SECRET_ACCESS_KEY", None)
+            os.environ.pop("CELESTO_S3_ENDPOINT_URL", None)
 
             from celesto.images.manager import _require_boto3
 

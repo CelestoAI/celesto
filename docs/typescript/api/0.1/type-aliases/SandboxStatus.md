@@ -1,8 +1,8 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
 ***
 
-[@celestoai/smolvm](../README.md) / SandboxStatus
+[@celestoai/celesto](../README.md) / SandboxStatus
 
 # Type Alias: SandboxStatus
 

@@ -251,7 +251,7 @@ def resolve_backend_status(requested: str | None = None) -> tuple[str, BackendSt
     Raises:
         ValueError: If the requested backend is unknown.
     """
-    raw = (requested or os.environ.get("SMOLVM_BACKEND") or BACKEND_AUTO).strip().lower()
+    raw = (requested or os.environ.get("CELESTO_BACKEND") or BACKEND_AUTO).strip().lower()
 
     if raw == BACKEND_AUTO:
         return _auto_backend()
@@ -268,7 +268,7 @@ def resolve_backend(requested: str | None = None) -> str:
 
     Resolution order:
     1) Explicit ``requested`` argument.
-    2) ``SMOLVM_BACKEND`` environment variable.
+    2) ``CELESTO_BACKEND`` environment variable.
     3) ``auto``: the best backend actually installed on this host
        (Firecracker preferred on Linux, QEMU on macOS), falling back to the
        next installed backend when the preferred one is missing or can't run.
@@ -299,7 +299,7 @@ def resolve_backend_for_guest(
     if str(guest_value).lower() != "macos":
         return resolve_backend(requested)
 
-    raw = (requested or os.environ.get("SMOLVM_BACKEND") or BACKEND_AUTO).strip().lower()
+    raw = (requested or os.environ.get("CELESTO_BACKEND") or BACKEND_AUTO).strip().lower()
     if raw in {BACKEND_AUTO, BACKEND_VZ}:
         return BACKEND_VZ
     supported = f"{BACKEND_AUTO}, {BACKEND_VZ}"

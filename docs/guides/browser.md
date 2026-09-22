@@ -68,10 +68,10 @@ Playwright connects through CDP, the Chrome DevTools Protocol used to automate C
 
 ```ts
 import { chromium } from "playwright-core";
-import { SmolVM } from "@celestoai/smolvm";
+import { Celesto } from "@celestoai/celesto";
 
-const smolvm = new SmolVM({ runtimePath: "celesto" });
-const session = await smolvm.browsers.create({
+const celesto = new Celesto({ runtimePath: "celesto" });
+const session = await celesto.browsers.create({
   mode: "live",
   profile: { mode: "ephemeral" },
 });
@@ -91,7 +91,7 @@ try {
   });
   await browser.close();
 } finally {
-  await smolvm.close();
+  await celesto.close();
 }
 ```
 

@@ -194,23 +194,23 @@ case "$PRESET" in
     ;;
 esac
 
-# Bake the SmolVM PID 1 init script. CLI boot args (init=/init +
-# smolvm.authorized_key_b64=<base64>) are read by this script to install
+# Bake the Celesto PID 1 init script. CLI boot args (init=/init +
+# celesto.authorized_key_b64=<base64>) are read by this script to install
 # the launching user's pubkey into /root/.ssh/authorized_keys at boot.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 install -m 0755 "$SCRIPT_DIR/preset-init.sh" "$MNT/init"
 
-# Bake the SmolVM Rust guest agent (vsock control plane) into every published
+# Bake the Celesto Rust guest agent (vsock control plane) into every published
 # image. preset-init.sh launches it before sshd, so the host can drive the
 # guest over vsock. Keep the guest path in sync with
 # src/celesto/images/builder.py.
-GUEST_AGENT_BINARY="${SMOLVM_GUEST_AGENT_BINARY:-$SCRIPT_DIR/../../target/$GUEST_AGENT_TARGET/release/smolvm-guest-agent}"
+GUEST_AGENT_BINARY="${CELESTO_GUEST_AGENT_BINARY:-$SCRIPT_DIR/../../target/$GUEST_AGENT_TARGET/release/celesto-guest-agent}"
 if [ ! -x "$GUEST_AGENT_BINARY" ]; then
   echo "Rust guest agent binary not found: $GUEST_AGENT_BINARY" >&2
-  echo "Build it first: cargo build --release --target $GUEST_AGENT_TARGET -p smolvm-guest-agent" >&2
+  echo "Build it first: cargo build --release --target $GUEST_AGENT_TARGET -p celesto-guest-agent" >&2
   exit 1
 fi
-install -D -m 0755 "$GUEST_AGENT_BINARY" "$MNT/usr/local/bin/smolvm-guest-agent"
+install -D -m 0755 "$GUEST_AGENT_BINARY" "$MNT/usr/local/bin/celesto-guest-agent"
 
 # Restore (or remove) /etc/resolv.conf so the runner's DNS doesn't leak
 # into the published rootfs. The init script writes 8.8.8.8 / 8.8.4.4 at

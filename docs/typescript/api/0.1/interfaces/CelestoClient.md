@@ -1,10 +1,10 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
 ***
 
-[@celestoai/smolvm](../README.md) / SmolVMClient
+[@celestoai/celesto](../README.md) / CelestoClient
 
-# Interface: SmolVMClient
+# Interface: CelestoClient
 
 The mockable client contract for creating sandboxes, diagnosing setup, and cleaning up.
 

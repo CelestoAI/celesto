@@ -447,7 +447,7 @@ class TestGuestFileModeHeader:
     """The guest's file-mode header is untrusted input applied on the host."""
 
     def test_setuid_and_setgid_are_masked_off(self) -> None:
-        """``x-smolvm-file-mode`` must not be able to set setuid on the host.
+        """``x-celesto-file-mode`` must not be able to set setuid on the host.
 
         This is the single-file sibling of the tar extraction path — the same
         bug, one function away, and it would have survived a fix that only
@@ -467,7 +467,7 @@ class TestGuestFileModeHeader:
         assert _parse_mode_header("0o600") == 0o600
 
     @pytest.mark.parametrize("value", ["not-octal", "-1", ""])
-    def test_malformed_mode_raises_a_smolvm_error(self, value: str) -> None:
+    def test_malformed_mode_raises_a_celesto_error(self, value: str) -> None:
         """A malformed header is a protocol error, not a bare ValueError."""
         from celesto.comm.rust_http_vsock_channel import _parse_mode_header
         from celesto.exceptions import CelestoError

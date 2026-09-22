@@ -2308,14 +2308,14 @@ class TestVMRun:
 
     @patch("celesto.facade.SSHClient")
     @patch("celesto.facade.CelestoManager")
-    def test_wait_for_ssh_falls_back_to_default_smolvm_key_when_no_key_configured(
+    def test_wait_for_ssh_falls_back_to_default_celesto_key_when_no_key_configured(
         self,
         mock_sdk_cls: MagicMock,
         mock_ssh_cls: MagicMock,
         sample_config: VMConfig,
         tmp_path: Path,
     ) -> None:
-        """wait_for_ssh() without an explicit key should retry with ~/.smolvm/keys/id_ed25519.
+        """wait_for_ssh() without an explicit key should retry with ~/.celesto/keys/id_ed25519.
 
         Regression test for: celesto sandbox ssh <name> failing with 'Authentication failed'
         after celesto sandbox create, because from_id() sets ssh_key_path=None but the VM
@@ -2342,7 +2342,7 @@ class TestVMRun:
         (default_key_path.parent / "id_ed25519.pub").touch()
 
         # Attempt order: (127.0.0.1:2201, None) → (172.16.0.2:22, None) → (127.0.0.1:2201, key)
-        # First two attempts (no key / agent auth) fail; third (default smolvm key) succeeds.
+        # First two attempts (no key / agent auth) fail; third (default celesto key) succeeds.
         no_key_client_1 = MagicMock()
         no_key_client_1.host = "127.0.0.1"
         no_key_client_1.port = 2201
@@ -2370,7 +2370,7 @@ class TestVMRun:
         ):
             vm.wait_for_ssh(timeout=30.0)
 
-        # Should have tried the default smolvm key after both no-key attempts failed
+        # Should have tried the default celesto key after both no-key attempts failed
         assert mock_ssh_cls.call_count == 3
         third_call_kwargs = mock_ssh_cls.call_args_list[2].kwargs
         assert third_call_kwargs.get("key_path") == str(default_key_path)
@@ -3219,11 +3219,11 @@ class TestVMProperties:
 
         mock_sdk = MagicMock()
         mock_sdk.create.return_value = mock_info
-        mock_sdk.data_dir = Path("/tmp/smolvm-test")
+        mock_sdk.data_dir = Path("/tmp/celesto-test")
         mock_sdk_cls.return_value = mock_sdk
 
         vm = Celesto(sample_config)
-        assert vm.data_dir == Path("/tmp/smolvm-test")
+        assert vm.data_dir == Path("/tmp/celesto-test")
 
     @patch("celesto.facade.CelestoManager")
     def test_repr(
@@ -3593,15 +3593,15 @@ class TestVMFileUpload:
         vm._ssh = ssh
         vm._ssh_ready = True
 
-        guest_path = vm.upload_file(source, "/tmp/smolvm/note.txt")
+        guest_path = vm.upload_file(source, "/tmp/celesto/note.txt")
 
-        assert guest_path == "/tmp/smolvm/note.txt"
+        assert guest_path == "/tmp/celesto/note.txt"
         ssh.run.assert_called_once_with(
-            "mkdir -p -- /tmp/smolvm",
+            "mkdir -p -- /tmp/celesto",
             timeout=30,
             shell="raw",
         )
-        ssh.put_file.assert_called_once_with(source, "/tmp/smolvm/note.txt")
+        ssh.put_file.assert_called_once_with(source, "/tmp/celesto/note.txt")
 
     @patch("celesto.facade.CelestoManager")
     def test_upload_file_appends_name_for_guest_directory(
@@ -3809,11 +3809,11 @@ class TestVMFileDownload:
         target_dir = tmp_path / "out"
         target = target_dir / "note.txt"
 
-        local_path = vm.download_file("/tmp/smolvm/note.txt", target)
+        local_path = vm.download_file("/tmp/celesto/note.txt", target)
 
         assert local_path == str(target)
         assert target_dir.is_dir()
-        ssh.get_file.assert_called_once_with("/tmp/smolvm/note.txt", target)
+        ssh.get_file.assert_called_once_with("/tmp/celesto/note.txt", target)
 
     @patch("celesto.facade.CelestoManager")
     def test_download_file_appends_name_for_local_directory_via_slash(

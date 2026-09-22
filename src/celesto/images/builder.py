@@ -58,16 +58,16 @@ SSH_BOOT_ARGS = "console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw init=/i
 # 200+ VMs.  No console= since we don't need serial output in production.
 OPENCLAW_BOOT_ARGS = "reboot=k panic=1 pci=off init=/init 8250.nr_uarts=0"
 
-LOOPFS_HELPER_PATH = Path("/var/lib/smolvm/libexec/smolvm-loopfs-helper")
-LEGACY_LOOPFS_HELPER_PATH = Path("/usr/local/libexec/smolvm-loopfs-helper")
+LOOPFS_HELPER_PATH = Path("/var/lib/celesto/libexec/celesto-loopfs-helper")
+LEGACY_LOOPFS_HELPER_PATH = Path("/usr/local/libexec/celesto-loopfs-helper")
 
 # The Celesto guest agent (vsock control plane). It is baked into every image
 # built here and launched by /init. The Rust crate lives in the repository
 # workspace and builds a standalone binary for the guest rootfs.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _GUEST_AGENT_CRATE_DIR = _REPO_ROOT / "guest-agent"
-_GUEST_AGENT_BUILD_FILE = "smolvm-guest-agent"
-_GUEST_AGENT_GUEST_PATH = "/usr/local/bin/smolvm-guest-agent"
+_GUEST_AGENT_BUILD_FILE = "celesto-guest-agent"
+_GUEST_AGENT_GUEST_PATH = "/usr/local/bin/celesto-guest-agent"
 _GUEST_AGENT_RELEASE_SHA256: dict[str, str] = {
     "amd64": "a5baa22b6b9fd44328ea750b18495bff31018a1ed98c3e9b68437b86eac9f146",
     "arm64": "8ab005fb7b5c2eb715a3fa42bd795aeecabf56405578bf33b25448ccf8c823ca",
@@ -85,7 +85,7 @@ def _guest_agent_target_triple(arch: str | None = None) -> str:
 
 
 def _guest_agent_binary_path() -> Path:
-    return _REPO_ROOT / "target" / _guest_agent_target_triple() / "release" / "smolvm-guest-agent"
+    return _REPO_ROOT / "target" / _guest_agent_target_triple() / "release" / "celesto-guest-agent"
 
 
 def _has_guest_agent_source_checkout() -> bool:
@@ -164,23 +164,23 @@ def _guest_agent_source_digest() -> str:
 
 
 def _configured_guest_agent_binary() -> Path | None:
-    raw = os.environ.get("SMOLVM_GUEST_AGENT_BINARY")
+    raw = os.environ.get("CELESTO_GUEST_AGENT_BINARY")
     if not raw:
         return None
     path = Path(raw).expanduser()
     if not path.is_file():
         raise ImageError(
-            f"SMOLVM_GUEST_AGENT_BINARY points to a missing file: {path}; "
-            "run `unset SMOLVM_GUEST_AGENT_BINARY` and retry to use the published "
+            f"CELESTO_GUEST_AGENT_BINARY points to a missing file: {path}; "
+            "run `unset CELESTO_GUEST_AGENT_BINARY` and retry to use the published "
             "Celesto guest agent binary."
         )
     if _guest_agent_binary_uses_dynamic_loader(path):
         target = _guest_agent_target_triple()
         raise ImageError(
-            "SMOLVM_GUEST_AGENT_BINARY points to a dynamically linked Linux binary, "
+            "CELESTO_GUEST_AGENT_BINARY points to a dynamically linked Linux binary, "
             "which cannot run in Celesto's minimal guest image; run "
-            f"`cargo build --release --target {target} -p smolvm-guest-agent`, "
-            f"then set SMOLVM_GUEST_AGENT_BINARY to `target/{target}/release/smolvm-guest-agent`."
+            f"`cargo build --release --target {target} -p celesto-guest-agent`, "
+            f"then set CELESTO_GUEST_AGENT_BINARY to `target/{target}/release/celesto-guest-agent`."
         )
     return path
 
@@ -204,7 +204,7 @@ def _guest_agent_release_asset() -> tuple[str, str, str]:
     from celesto.images.published import _images_release_tag
 
     arch = to_published_arch(platform.machine())
-    asset_name = f"smolvm-guest-agent-linux-{arch}"
+    asset_name = f"celesto-guest-agent-linux-{arch}"
     expected_sha256 = _GUEST_AGENT_RELEASE_SHA256[arch]
     url = (
         "https://github.com/CelestoAI/Celesto/releases/download/"
@@ -291,7 +291,7 @@ def _guest_agent_binary(cache_dir: Path | None = None) -> Path:
                 "--target",
                 target,
                 "-p",
-                "smolvm-guest-agent",
+                "celesto-guest-agent",
             ],
             cwd=_REPO_ROOT,
             check=True,
@@ -424,7 +424,7 @@ class ImageBuilder:
         )
         with Celesto(config) as vm:
             vm.start()
-            # SSH into vm.get_ip() with root / smolvm
+            # SSH into vm.get_ip() with root / celesto
     """
 
     def __init__(self, cache_dir: Path | None = None):
@@ -432,7 +432,7 @@ class ImageBuilder:
 
         Args:
             cache_dir: Directory to store built images.
-                Defaults to $SMOLVM_IMAGE_DIR or ~/.smolvm/images/
+                Defaults to $CELESTO_IMAGE_DIR or ~/.celesto/images/
         """
         self.cache_dir = resolve_image_dir(cache_dir)
 
@@ -514,7 +514,7 @@ class ImageBuilder:
     def build_alpine_ssh(
         self,
         name: str = "alpine-ssh",
-        ssh_password: str = "smolvm",
+        ssh_password: str = "celesto",
         rootfs_size_mb: int = 512,
         kernel_url: str | None = None,
         kernel_profile: KernelBootProfile = KernelBootProfile.MICROVM_DIRECT,
@@ -533,7 +533,7 @@ class ImageBuilder:
 
         Args:
             name: Image name for caching.
-            ssh_password: Root password for SSH (default: smolvm).
+            ssh_password: Root password for SSH (default: celesto).
             rootfs_size_mb: Size of rootfs in MB (default: 512).
             kernel_url: Optional kernel URL override.
 
@@ -557,7 +557,7 @@ FROM alpine:3.19
 
 ARG SSH_PASSWORD
 
-# Install SSH, networking utilities, a shell, and python3. The SmolVM
+# Install SSH, networking utilities, a shell, and python3. The Celesto
 # guest agent is injected later as a standalone Rust binary, so python3 is
 # not required for the control plane.
 RUN apk add --no-cache \\
@@ -663,7 +663,7 @@ RUN chmod +x /init
         dockerfile_content = """
 FROM alpine:3.19
 
-# Install SSH, networking utilities, a shell, and python3. The SmolVM
+# Install SSH, networking utilities, a shell, and python3. The Celesto
 # guest agent is injected later as a standalone Rust binary, so python3 is
 # not required for the control plane.
 RUN apk add --no-cache \
@@ -894,8 +894,8 @@ RUN chmod +x /init
         browser_session_sh = r"""#!/bin/sh
 set -eu
 
-RUNTIME_DIR=/run/smolvm-browser
-LOG_DIR=/var/log/smolvm-browser
+RUNTIME_DIR=/run/celesto-browser
+LOG_DIR=/var/log/celesto-browser
 NOVNC_WEB_ROOT=/usr/share/novnc
 
 mkdir -p "$RUNTIME_DIR" "$LOG_DIR"
@@ -1196,7 +1196,7 @@ start_session() {
 case "${1:-}" in
     start)
         if [ "$#" -ne 11 ] && [ "$#" -ne 12 ]; then
-            echo "usage: smolvm-browser-session start <mode> <width> <height>" >&2
+            echo "usage: celesto-browser-session start <mode> <width> <height>" >&2
             echo "  <debug_port> <live_port> <profile_dir> <download_dir>" >&2
             echo "  <record_video> <downloads_enabled> <artifacts_dir> [proxy_endpoint]" >&2
             exit 2
@@ -1206,7 +1206,7 @@ case "${1:-}" in
         ;;
     launch-browser)
         if [ "$#" -ne 8 ] && [ "$#" -ne 9 ]; then
-            echo "usage: smolvm-browser-session launch-browser <mode> <width> <height>" >&2
+            echo "usage: celesto-browser-session launch-browser <mode> <width> <height>" >&2
             echo "  <debug_port> <profile_dir> <download_dir> <downloads_enabled>" >&2
             echo "  [proxy_endpoint]" >&2
             exit 2
@@ -1218,7 +1218,7 @@ case "${1:-}" in
         stop_session
         ;;
     *)
-        echo "usage: smolvm-browser-session {start|launch-browser|stop}" >&2
+        echo "usage: celesto-browser-session {start|launch-browser|stop}" >&2
         exit 2
         ;;
 esac
@@ -1230,7 +1230,7 @@ import sys
 import time
 
 if len(sys.argv) != 3:
-    raise SystemExit("usage: smolvm-browser-wait-port <port> <timeout_seconds>")
+    raise SystemExit("usage: celesto-browser-wait-port <port> <timeout_seconds>")
 
 port = int(sys.argv[1])
 timeout = float(sys.argv[2])
@@ -1249,7 +1249,7 @@ raise SystemExit(1)
         browser_runner_js = r"""#!/usr/bin/env node
 "use strict";
 
-const { chromium } = require("/opt/smolvm-browser-runner/node_modules/playwright-core");
+const { chromium } = require("/opt/celesto-browser-runner/node_modules/playwright-core");
 
 function bounded(value, depth = 0) {
   if (depth > 6) return "[depth limit]";
@@ -1292,7 +1292,7 @@ async function main() {
   ]);
   const output = JSON.stringify({ ok: true, value: bounded(value) });
   if (Buffer.byteLength(output) > 262144) throw new Error("Playwright result exceeds 256 KiB.");
-  process.stdout.write(`SMOLVM_BROWSER_RESULT=${output}\n`, () => process.exit(0));
+  process.stdout.write(`CELESTO_BROWSER_RESULT=${output}\n`, () => process.exit(0));
 }
 
 main().catch((error) => {
@@ -1377,29 +1377,29 @@ RUN rm -f /etc/ssh/ssh_host_* && \\
     sed -ri 's/^#?PubkeyAuthentication .*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
 
 RUN mkdir -p \\
-    /opt/smolvm-browser/profiles \\
-    /opt/smolvm-browser/downloads \\
-    /opt/smolvm-browser/artifacts \\
-    /opt/smolvm-browser-runner && \\
+    /opt/celesto-browser/profiles \\
+    /opt/celesto-browser/downloads \\
+    /opt/celesto-browser/artifacts \\
+    /opt/celesto-browser-runner && \\
     useradd --system --create-home --home-dir /home/browser browser && \\
     useradd --system --create-home --home-dir /home/agent agent && \\
-    chown -R browser:browser /opt/smolvm-browser
+    chown -R browser:browser /opt/celesto-browser
 
 {desktop_setup}
 
-RUN cd /opt/smolvm-browser-runner && \\
+RUN cd /opt/celesto-browser-runner && \\
     npm init -y >/dev/null && \\
     npm install --omit=dev playwright-core@1.55.0 >/dev/null && \\
     npm cache clean --force >/dev/null 2>&1
 
-COPY smolvm-browser-session /usr/local/bin/smolvm-browser-session
-COPY smolvm-browser-wait-port /usr/local/bin/smolvm-browser-wait-port
-COPY smolvm-browser-runner /usr/local/bin/smolvm-browser-runner
-COPY smolvm-computer-connections.py /usr/local/lib/smolvm-computer-connections.py
+COPY celesto-browser-session /usr/local/bin/celesto-browser-session
+COPY celesto-browser-wait-port /usr/local/bin/celesto-browser-wait-port
+COPY celesto-browser-runner /usr/local/bin/celesto-browser-runner
+COPY celesto-computer-connections.py /usr/local/lib/celesto-computer-connections.py
 RUN chmod +x \
-    /usr/local/bin/smolvm-browser-session \
-    /usr/local/bin/smolvm-browser-wait-port \
-    /usr/local/bin/smolvm-browser-runner
+    /usr/local/bin/celesto-browser-session \
+    /usr/local/bin/celesto-browser-wait-port \
+    /usr/local/bin/celesto-browser-runner
 
 COPY init /init
 RUN chmod +x /init
@@ -1451,10 +1451,10 @@ RUN chmod +x /init
                 rootfs_path,
                 rootfs_size_mb,
                 extra_files={
-                    "smolvm-browser-session": browser_session_sh,
-                    "smolvm-browser-wait-port": wait_port_py,
-                    "smolvm-browser-runner": browser_runner_js,
-                    "smolvm-computer-connections.py": Path(__file__)
+                    "celesto-browser-session": browser_session_sh,
+                    "celesto-browser-wait-port": wait_port_py,
+                    "celesto-browser-runner": browser_runner_js,
+                    "celesto-computer-connections.py": Path(__file__)
                     .with_name("guest_connections.py")
                     .read_text(),
                     **({"computer-menu.xml": computer_menu_xml} if desktop else {}),
@@ -1520,7 +1520,7 @@ RUN chmod +x /init
                 raise ImageError(f"Invalid package name requested for installation: '{pkg}'")
 
         if ssh_public_key is None:
-            key_path = Path.home() / ".smolvm" / "keys" / "id_ed25519.pub"
+            key_path = Path.home() / ".celesto" / "keys" / "id_ed25519.pub"
             try:
                 key_value = key_path.read_text().strip()
             except OSError:
@@ -1558,7 +1558,7 @@ RUN rm -f /etc/ssh/ssh_host_* && \\
     sed -ri 's/^#?PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config && \\
     sed -ri 's/^#?PubkeyAuthentication .*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
 
-# Prepare OpenClaw directories and workspace. SmolVM attaches as root, so the
+# Prepare OpenClaw directories and workspace. Celesto attaches as root, so the
 # CLI, copied configuration, and dashboard gateway share one state directory.
 RUN mkdir -p /opt/openclaw /root/.openclaw /workspace
 
@@ -1653,15 +1653,15 @@ RUN chmod +x /init
             raise ImageError("Invalid SSH public key format")
         return key_text
 
-    def _base_init_script(self, custom_hostname: str = "smolvm", custom_commands: str = "") -> str:
+    def _base_init_script(self, custom_hostname: str = "celesto", custom_commands: str = "") -> str:
         """Base PID 1 init script used by SSH-capable images.
 
         Args:
-            custom_hostname: Hostname to set (default: smolvm).
+            custom_hostname: Hostname to set (default: celesto).
             custom_commands: Additional shell commands to inject before the PID 1 sleep loop.
         """
         return f"""#!/bin/sh
-# SmolVM custom init - runs as PID 1 inside Firecracker VM
+# Celesto custom init - runs as PID 1 inside Firecracker VM
 
 # ── Signal handling ──────────────────────────────────────────
 # Firecracker's SendCtrlAltDel sends Ctrl+Alt+Del to the guest
@@ -1670,7 +1670,7 @@ RUN chmod +x /init
 # in Firecracker, so the VM hangs).  We disable CAD so the
 # kernel sends SIGINT to PID 1 instead, where we trap it.
 shutdown() {{
-    echo "SmolVM init: shutting down..."
+    echo "Celesto init: shutting down..."
     kill -TERM -1 2>/dev/null
     sleep 0.2
     sync
@@ -1692,17 +1692,17 @@ log_ts() {{
     STAGE="$1"
     EPOCH="$(ts_epoch)"
     UPTIME="$(ts_uptime)"
-    LINE="SMOLVM_TS stage=${{STAGE}} epoch_s=${{EPOCH}} uptime_s=${{UPTIME}}"
+    LINE="CELESTO_TS stage=${{STAGE}} epoch_s=${{EPOCH}} uptime_s=${{UPTIME}}"
     echo "$LINE"
     if [ -d /run ]; then
-        mkdir -p /run/smolvm 2>/dev/null || true
+        mkdir -p /run/celesto 2>/dev/null || true
         printf '{{"stage":"%s","epoch_s":%s,"uptime_s":%s}}\n' "$STAGE" "$EPOCH" "$UPTIME" \
-            >> /run/smolvm/milestones.jsonl 2>/dev/null || true
+            >> /run/celesto/milestones.jsonl 2>/dev/null || true
         printf '{{"stage":"%s","epoch_s":%s,"uptime_s":%s}}\n' "$STAGE" "$EPOCH" "$UPTIME" \
-            >> /run/smolvm/boot-milestones.jsonl 2>/dev/null || true
+            >> /run/celesto/boot-milestones.jsonl 2>/dev/null || true
     fi
     if [ -d /var/log ]; then
-        echo "$LINE" >> /var/log/smolvm-boot.log 2>/dev/null || true
+        echo "$LINE" >> /var/log/celesto-boot.log 2>/dev/null || true
     fi
 }}
 
@@ -1739,11 +1739,11 @@ log_ts "root-ready"
 # sandboxes can still boot if the agent is missing, but vsock sandboxes require
 # the Rust agent to answer.
 log_ts "guest-agent-start"
-if [ -x /usr/local/bin/smolvm-guest-agent ]; then
-    /usr/local/bin/smolvm-guest-agent --listen vsock://1024 >/var/log/smolvm-agent.log 2>&1 &
-    echo "SmolVM init: guest agent started (PID=$!)"
+if [ -x /usr/local/bin/celesto-guest-agent ]; then
+    /usr/local/bin/celesto-guest-agent --listen vsock://1024 >/var/log/celesto-agent.log 2>&1 &
+    echo "Celesto init: guest agent started (PID=$!)"
 else
-    echo "SmolVM init: guest agent not found; vsock control will be unavailable" >&2
+    echo "Celesto init: guest agent not found; vsock control will be unavailable" >&2
 fi
 log_ts "guest-agent-started"
 
@@ -1779,15 +1779,16 @@ netmask_to_prefix() {{
 }}
 
 IP_CONFIG=$(cat /proc/cmdline | tr ' ' '\n' | grep '^ip=' | head -1)
-GUEST_MANAGED=$(cat /proc/cmdline | tr ' ' '\n' | grep '^smolvm.network=guest' | head -1)
+GUEST_MANAGED=$(cat /proc/cmdline | tr ' ' '\n' \
+    | grep -E '^(celesto|smolvm)\\.network=guest' | head -1)
 
 configure_guest_managed_network() {{
     ip link set lo up
 
     # A custom hook is the authoritative static/DHCP configuration supplied
     # inside the image. The interface name is passed as its first argument.
-    if [ -x /etc/smolvm/network.sh ]; then
-        /etc/smolvm/network.sh eth0
+    if [ -x /etc/celesto/network.sh ]; then
+        /etc/celesto/network.sh eth0
         return $?
     fi
 
@@ -1798,7 +1799,7 @@ configure_guest_managed_network() {{
         return
     fi
 
-    # SmolVM-provided images use guest-side DHCP when no static hook exists.
+    # Celesto-provided images use guest-side DHCP when no static hook exists.
     ip link set eth0 up 2>/dev/null || true
     if command -v udhcpc >/dev/null 2>&1 && udhcpc -q -n -t 5 -i eth0; then
         return
@@ -1807,7 +1808,7 @@ configure_guest_managed_network() {{
         return
     fi
 
-    echo "SmolVM init: eth0 has no guest network configuration; add /etc/smolvm/network.sh" >&2
+    echo "Celesto init: eth0 has no guest network configuration; add /etc/celesto/network.sh" >&2
     return 1
 }}
 
@@ -1878,28 +1879,29 @@ if [ -n "$HWCLOCK" ]; then
             sleep 30
         done
     ) &
-    echo "SmolVM init: clock-sync loop started (PID=$!)"
+    echo "Celesto init: clock-sync loop started (PID=$!)"
     log_ts "clock-sync-started"
 else
-    echo "SmolVM init: hwclock not found; clock-sync disabled"
+    echo "Celesto init: hwclock not found; clock-sync disabled"
     log_ts "clock-sync-disabled"
 fi
 
 # ── SSH ──────────────────────────────────────────────────────
 log_ts "ssh-hostkey-check-start"
 if ! ls /etc/ssh/ssh_host_*_key >/dev/null 2>&1; then
-    echo "SmolVM init: SSH host keys missing; generating Ed25519 key..."
+    echo "Celesto init: SSH host keys missing; generating Ed25519 key..."
     ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N "" -q 2>/dev/null
 fi
 log_ts "ssh-hostkey-check-done"
 
 # Pull authorized_keys from the kernel cmdline if the host injected one.
-# Format: smolvm.authorized_key_b64=<base64-of-the-pubkey-line>. Used for
-# published images that don't bake keys at build time, so each VM gets the
-# launching user's key without rebuilding the rootfs.
+# Format: celesto.authorized_key_b64=<base64-of-the-pubkey-line>. The legacy
+# parameter is accepted while published images transition to Celesto.
+# Published images don't bake keys at build time, so each VM gets the launching
+# user's key without rebuilding the rootfs.
 log_ts "ssh-authkey-inject-start"
 AUTHKEY_B64=$(cat /proc/cmdline | tr ' ' '\n' \
-    | grep '^smolvm\\.authorized_key_b64=' | head -1 | cut -d= -f2-)
+    | grep -E '^(celesto|smolvm)\\.authorized_key_b64=' | head -1 | cut -d= -f2-)
 if [ -n "$AUTHKEY_B64" ]; then
     DECODED=$(echo "$AUTHKEY_B64" | base64 -d 2>/dev/null)
     if [ -n "$DECODED" ]; then
@@ -1907,9 +1909,9 @@ if [ -n "$AUTHKEY_B64" ]; then
         chmod 700 /root/.ssh
         echo "$DECODED" > /root/.ssh/authorized_keys
         chmod 600 /root/.ssh/authorized_keys
-        echo "SmolVM init: installed authorized_keys from cmdline"
+        echo "Celesto init: installed authorized_keys from cmdline"
     else
-        echo "SmolVM init: smolvm.authorized_key_b64 present but failed to decode"
+        echo "Celesto init: celesto.authorized_key_b64 present but failed to decode"
     fi
 fi
 log_ts "ssh-authkey-inject-done"
@@ -1918,7 +1920,7 @@ log_ts "sshd-start"
 /usr/sbin/sshd -e
 log_ts "sshd-invoked"
 
-echo "SmolVM init complete: IP=${{GUEST_IP}}, SSH listening on port 22"
+echo "Celesto init complete: IP=${{GUEST_IP}}, SSH listening on port 22"
 log_ts "init-complete"
 
 # ── Custom Injections ───────────────────────────────────────
@@ -2006,8 +2008,8 @@ done
         """
         from celesto.images.published import BASE_KERNELS
 
-        smolvm_arch = "amd64" if self._host_arch_key() == "x86_64" else "arm64"
-        return BASE_KERNELS[smolvm_arch].image_url
+        celesto_arch = "amd64" if self._host_arch_key() == "x86_64" else "arm64"
+        return BASE_KERNELS[celesto_arch].image_url
 
     def _resolve_kernel_url(
         self,
@@ -2025,8 +2027,8 @@ done
             return kernel_url
         from celesto.images.published import BASE_KERNELS
 
-        smolvm_arch = "amd64" if self._host_arch_key() == "x86_64" else "arm64"
-        return BASE_KERNELS[smolvm_arch].elf_url
+        celesto_arch = "amd64" if self._host_arch_key() == "x86_64" else "arm64"
+        return BASE_KERNELS[celesto_arch].elf_url
 
     def _fingerprint_with_content(
         self,
@@ -2243,7 +2245,7 @@ done
         fingerprint_data: dict[str, typing.Any] | None = None,
     ) -> None:
         """Execute the Docker build and image conversion."""
-        docker_tag = f"smolvm-{name}"
+        docker_tag = f"celesto-{name}"
         # Bake the guest agent into every image. Centralized here so all five
         # build_* recipes inherit it without each repeating the COPY; /init
         # launches it, and the host reaches it over vsock.
@@ -2253,7 +2255,7 @@ done
         # though this COPY text is constant.
         dockerfile_content = (
             dockerfile_content
-            + "\n# SmolVM guest agent (vsock control plane)\n"
+            + "\n# Celesto guest agent (vsock control plane)\n"
             + f"COPY {_GUEST_AGENT_BUILD_FILE} {_GUEST_AGENT_GUEST_PATH}\n"
             + f"RUN chmod +x {_GUEST_AGENT_GUEST_PATH}\n"
         )
@@ -2408,7 +2410,7 @@ class DockerRootfsBuilder:
                         rootfs_path=temp_rootfs,
                         docker_platform=docker_platform,
                         context_files=context_files,
-                        docker_tag=f"smolvm-custom-{fingerprint[:16]}",
+                        docker_tag=f"celesto-custom-{fingerprint[:16]}",
                     )
                     temp_rootfs.replace(rootfs_path)
                     metadata_path.write_text(json.dumps(fingerprint_data, sort_keys=True))

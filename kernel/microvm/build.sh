@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the SmolVM QEMU/libkrun-tuned Linux kernel from upstream source.
+# Build the Celesto QEMU/libkrun-tuned Linux kernel from upstream source.
 #
 # Inputs (alongside this script in kernel/microvm/):
 #   linux.version    Pinned tarball version (e.g. "6.12.10")
@@ -12,7 +12,7 @@
 #
 # Usage:
 #   bash build.sh                                # builds for host arch
-#   SMOLVM_ARCH_OVERRIDE=arm64 bash build.sh     # cross-build (needs cross toolchain)
+#   CELESTO_ARCH_OVERRIDE=arm64 bash build.sh     # cross-build (needs cross toolchain)
 #   OUT_DIR=/tmp/k bash build.sh                 # custom output dir
 #   MAKE=gmake bash build.sh                     # use a specific GNU Make
 #
@@ -26,7 +26,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 LINUX_VERSION="$(cat "$SCRIPT_DIR/linux.version" | tr -d '[:space:]')"
 LINUX_SHA256_LINE="$(cat "$SCRIPT_DIR/linux.sha256")"
 COMMON_FRAGMENT="$SCRIPT_DIR/config.fragment"
-# Per-arch fragment is filled in once SMOLVM_ARCH is resolved, below.
+# Per-arch fragment is filled in once CELESTO_ARCH is resolved, below.
 
 find_make() {
     if [ -n "${MAKE:-}" ]; then
@@ -80,16 +80,16 @@ if ! version_at_least_4 "$MAKE_VERSION"; then
     exit 2
 fi
 
-# Host arch → SmolVM arch label. Same mapping the manifest uses.
+# Host arch → Celesto arch label. Same mapping the manifest uses.
 HOST_ARCH="$(uname -m)"
 case "$HOST_ARCH" in
-    x86_64|amd64)    SMOLVM_ARCH=amd64 ;;
-    aarch64|arm64)   SMOLVM_ARCH=arm64 ;;
+    x86_64|amd64)    CELESTO_ARCH=amd64 ;;
+    aarch64|arm64)   CELESTO_ARCH=arm64 ;;
     *) echo "unsupported host arch: $HOST_ARCH" >&2; exit 2 ;;
 esac
-SMOLVM_ARCH="${SMOLVM_ARCH_OVERRIDE:-$SMOLVM_ARCH}"
+CELESTO_ARCH="${CELESTO_ARCH_OVERRIDE:-$CELESTO_ARCH}"
 
-# SmolVM arch label → kernel ARCH= variable.
+# Celesto arch label → kernel ARCH= variable.
 #
 # We ship TWO artifacts per arch — same source build, different output formats:
 #   - vmlinux-<arch>.elf    The uncompressed ELF (kernel-source root).
@@ -103,18 +103,18 @@ SMOLVM_ARCH="${SMOLVM_ARCH_OVERRIDE:-$SMOLVM_ARCH}"
 #                           the boot wrapper for consistency.
 # The `make $KMAKE_TARGET` step builds both as a side effect — the wrapper
 # depends on the ELF — so producing two artifacts costs nothing extra.
-case "$SMOLVM_ARCH" in
+case "$CELESTO_ARCH" in
     amd64)  KARCH=x86_64; KMAKE_TARGET=bzImage; DEFCONFIG=x86_64_defconfig ;;
     arm64)  KARCH=arm64;  KMAKE_TARGET=Image;   DEFCONFIG=defconfig ;;
-    *) echo "internal error: unhandled SMOLVM_ARCH $SMOLVM_ARCH" >&2; exit 2 ;;
+    *) echo "internal error: unhandled CELESTO_ARCH $CELESTO_ARCH" >&2; exit 2 ;;
 esac
-case "$SMOLVM_ARCH" in
+case "$CELESTO_ARCH" in
     amd64)  IMAGE_REL=arch/x86/boot/bzImage ;;
     arm64)  IMAGE_REL=arch/arm64/boot/Image ;;
 esac
 ELF_REL=vmlinux  # ELF, root of the kernel source tree
 
-ARCH_FRAGMENT="$SCRIPT_DIR/config.$SMOLVM_ARCH.fragment"
+ARCH_FRAGMENT="$SCRIPT_DIR/config.$CELESTO_ARCH.fragment"
 if [ ! -f "$ARCH_FRAGMENT" ]; then
     echo "internal error: missing $ARCH_FRAGMENT" >&2
     exit 2
@@ -124,11 +124,11 @@ OUT_DIR="${OUT_DIR:-$PWD}"
 WORK_DIR="${WORK_DIR:-$(mktemp -d)}"
 TARBALL="$WORK_DIR/linux-$LINUX_VERSION.tar.xz"
 SRC_DIR="$WORK_DIR/linux-$LINUX_VERSION"
-ELF_ARTIFACT="$OUT_DIR/vmlinux-$SMOLVM_ARCH.elf"
-IMAGE_ARTIFACT="$OUT_DIR/vmlinux-$SMOLVM_ARCH.image"
+ELF_ARTIFACT="$OUT_DIR/vmlinux-$CELESTO_ARCH.elf"
+IMAGE_ARTIFACT="$OUT_DIR/vmlinux-$CELESTO_ARCH.image"
 JOBS="$(job_count)"
 
-echo "==> Linux $LINUX_VERSION → $SMOLVM_ARCH (kernel ARCH=$KARCH)"
+echo "==> Linux $LINUX_VERSION → $CELESTO_ARCH (kernel ARCH=$KARCH)"
 echo "    work dir:    $WORK_DIR"
 echo "    elf out:     $ELF_ARTIFACT"
 echo "    image out:   $IMAGE_ARTIFACT"
@@ -154,7 +154,7 @@ fi
 cd "$SRC_DIR"
 
 # 3. Apply baseline defconfig + our fragments (common + per-arch).
-echo "==> Generating .config (baseline=$DEFCONFIG + common + $SMOLVM_ARCH fragments)"
+echo "==> Generating .config (baseline=$DEFCONFIG + common + $CELESTO_ARCH fragments)"
 "$MAKE_BIN" ARCH="$KARCH" "$DEFCONFIG" >/dev/null
 
 # merge_config.sh accepts multiple fragments; -m mode merges, preserving any
@@ -218,9 +218,9 @@ verify_fragment "$ARCH_FRAGMENT"
 # the fragments. CI runs the full build; this is just for fast feedback
 # loops on a dev machine (or a Linux container). Truthy = 1/true/yes
 # (case-insensitive); empty/0/false/no = full build.
-case "$(printf '%s' "${SMOLVM_VERIFY_ONLY:-}" | tr '[:upper:]' '[:lower:]')" in
+case "$(printf '%s' "${CELESTO_VERIFY_ONLY:-}" | tr '[:upper:]' '[:lower:]')" in
     1|true|yes)
-        echo "==> SMOLVM_VERIFY_ONLY set; skipping kernel compile."
+        echo "==> CELESTO_VERIFY_ONLY set; skipping kernel compile."
         exit 0
         ;;
 esac
@@ -236,7 +236,7 @@ echo "==> Building kernel ($JOBS jobs)"
 mkdir -p "$OUT_DIR"
 cp "$IMAGE_REL" "$IMAGE_ARTIFACT"
 cp "$ELF_REL" "$ELF_ARTIFACT"
-cp .config "$OUT_DIR/vmlinux-$SMOLVM_ARCH.config"
+cp .config "$OUT_DIR/vmlinux-$CELESTO_ARCH.config"
 
 # Strip the ELF: with the default kernel build it's ~290 MB on arm64
 # (debug_info + symbols). Firecracker doesn't need any of that. Keep
@@ -262,4 +262,4 @@ fi
 echo "==> Done."
 echo "    $ELF_ARTIFACT    ($(wc -c <"$ELF_ARTIFACT" | tr -d ' ') bytes, ELF for Firecracker)"
 echo "    $IMAGE_ARTIFACT  ($(wc -c <"$IMAGE_ARTIFACT" | tr -d ' ') bytes, ${KMAKE_TARGET} for QEMU)"
-echo "    $OUT_DIR/vmlinux-$SMOLVM_ARCH.config"
+echo "    $OUT_DIR/vmlinux-$CELESTO_ARCH.config"

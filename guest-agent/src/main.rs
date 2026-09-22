@@ -1,8 +1,8 @@
 use clap::Parser;
-use smolvm_guest_agent::{handler, server, terminal};
+use celesto_guest_agent::{handler, server, terminal};
 
 #[derive(Parser)]
-#[command(name = "smolvm-guest-agent", about = "SmolVM guest control agent")]
+#[command(name = "celesto-guest-agent", about = "Celesto guest control agent")]
 struct Args {
     /// Listen address. Public builds default to vsock://1024.
     #[arg(long, default_value = server::DEFAULT_LISTEN)]

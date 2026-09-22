@@ -4,9 +4,9 @@ use std::fs;
 use std::path::Path;
 
 const BOOT_MILESTONE_PATHS: &[&str] = &[
-    "/run/smolvm/milestones.jsonl",
-    "/run/smolvm/boot-milestones.jsonl",
-    "/var/log/smolvm-boot.log",
+    "/run/celesto/milestones.jsonl",
+    "/run/celesto/boot-milestones.jsonl",
+    "/var/log/celesto-boot.log",
     "/var/log/boot.log",
 ];
 
@@ -72,7 +72,7 @@ fn parse_boot_milestone_line(line: &str) -> Option<BootMilestone> {
     if let Some(json) = parse_json_milestone(line) {
         return Some(json);
     }
-    parse_smolvm_ts_line(line)
+    parse_celesto_ts_line(line)
 }
 
 fn parse_json_milestone(line: &str) -> Option<BootMilestone> {
@@ -86,8 +86,8 @@ fn parse_json_milestone(line: &str) -> Option<BootMilestone> {
     })
 }
 
-fn parse_smolvm_ts_line(line: &str) -> Option<BootMilestone> {
-    let marker = "SMOLVM_TS ";
+fn parse_celesto_ts_line(line: &str) -> Option<BootMilestone> {
+    let marker = "CELESTO_TS ";
     let start = line.find(marker)? + marker.len();
     let fields = &line[start..];
     let mut stage = None;
@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn parses_console_and_json_boot_milestones() {
         let content = "\
-SMOLVM_TS stage=init-start epoch_s=1781280000 uptime_s=0.10
+CELESTO_TS stage=init-start epoch_s=1781280000 uptime_s=0.10
 {\"stage\":\"guest-agent-started\",\"epoch_s\":1781280001,\"uptime_s\":0.24}
 unrelated line
 ";

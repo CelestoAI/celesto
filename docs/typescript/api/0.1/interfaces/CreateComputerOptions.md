@@ -1,8 +1,8 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
 ***
 
-[@celestoai/smolvm](../README.md) / CreateComputerOptions
+[@celestoai/celesto](../README.md) / CreateComputerOptions
 
 # Interface: CreateComputerOptions
 

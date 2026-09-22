@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { SmolVM, type SmolVMClient } from "@celestoai/smolvm";
+import { Celesto, type CelestoClient } from "@celestoai/celesto";
 import { chromium } from "playwright-core";
 import { ActionBroker } from "./broker.js";
 import { redactBrowserOperation, validateBrowserOperation } from "./browser-operations.js";
@@ -26,7 +26,7 @@ type ViewListener = (view: ReturnType<typeof projectConversationView>) => void;
 export interface RuntimeDependencies {
   createAgent: typeof createAgent;
   createAgentWithModel: typeof createAgentWithModel;
-  createSmolVM: () => SmolVMClient;
+  createCelesto: () => CelestoClient;
   computerProvider?: ComputerProvider;
   connectOverCDP: typeof chromium.connectOverCDP;
   convertPageToMarkdown: typeof convertPageToMarkdown;
@@ -36,7 +36,7 @@ export interface RuntimeDependencies {
 const DEFAULT_RUNTIME_DEPENDENCIES: RuntimeDependencies = {
   createAgent,
   createAgentWithModel,
-  createSmolVM: () => new SmolVM({ createTimeoutMs: 180_000 }),
+  createCelesto: () => new Celesto({ createTimeoutMs: 180_000 }),
   connectOverCDP: chromium.connectOverCDP.bind(chromium),
   convertPageToMarkdown,
   browserDriver: hostBrowserDriver,
@@ -81,11 +81,11 @@ export class ConversationManager {
     runtime: Partial<RuntimeDependencies> = {},
     private readonly modelAccess?: ModelAccessService,
   ) {
-    const legacySmolVM = runtime.createSmolVM ?? DEFAULT_RUNTIME_DEPENDENCIES.createSmolVM;
+    const legacyCelesto = runtime.createCelesto ?? DEFAULT_RUNTIME_DEPENDENCIES.createCelesto;
     this.runtime = {
       ...DEFAULT_RUNTIME_DEPENDENCIES,
       ...runtime,
-      computerProvider: runtime.computerProvider ?? createComputerProvider({ provider: "smolvm" }, { createSmolVM: legacySmolVM }),
+      computerProvider: runtime.computerProvider ?? createComputerProvider({ provider: "local" }, { createCelesto: legacyCelesto }),
     };
     if (restored) {
       const active = restored.conversations.find((conversation) => conversation.id === restored.activeConversationId)!;

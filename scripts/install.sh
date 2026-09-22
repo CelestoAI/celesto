@@ -77,7 +77,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -n "${FIRECRACKER_DIR_ARG}" ]]; then
-    export SMOLVM_FIRECRACKER_DIR="${FIRECRACKER_DIR_ARG}"
+    export CELESTO_FIRECRACKER_DIR="${FIRECRACKER_DIR_ARG}"
 fi
 
 # ---------------------------------------------------------------------------

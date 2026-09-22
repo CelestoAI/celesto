@@ -37,11 +37,11 @@ def _assert_clock_sync_loop_before_sshd(script: str) -> None:
 
 
 def _assert_guest_agent_starts_before_network_and_ssh(script: str) -> None:
-    agent_start = script.index("/usr/local/bin/smolvm-guest-agent --listen vsock://1024")
+    agent_start = script.index("/usr/local/bin/celesto-guest-agent --listen vsock://1024")
     network_ready = (
         script.index('log_ts "net-ready"')
         if 'log_ts "net-ready"' in script
-        else script.index("hostname smolvm")
+        else script.index("hostname celesto")
     )
     assert agent_start < network_ready
     assert agent_start < script.index("ssh-keygen -t ed25519")
@@ -106,8 +106,8 @@ def test_ci_preset_init_launches_guest_agent_before_sshd() -> None:
     PR #310 baked the agent only into the Python builder, which is why
     published images shipped without it until this fix."""
     script = (_REPO_ROOT / "scripts" / "ci" / "preset-init.sh").read_text()
-    assert "/usr/local/bin/smolvm-guest-agent --listen vsock://1024" in script
-    assert "python3 /usr/local/bin/smolvm-guest-agent" not in script
+    assert "/usr/local/bin/celesto-guest-agent --listen vsock://1024" in script
+    assert "python3 /usr/local/bin/celesto-guest-agent" not in script
     assert "ssh-keygen -A" not in script
     assert "ssh-keygen -t ed25519" in script
     _assert_guest_agent_starts_before_network_and_ssh(script)
@@ -117,9 +117,9 @@ def test_ci_preset_init_launches_guest_agent_before_sshd() -> None:
 def test_ci_build_preset_bakes_guest_agent() -> None:
     """build-preset.sh must copy the guest agent into every published rootfs."""
     script = (_REPO_ROOT / "scripts" / "ci" / "build-preset.sh").read_text()
-    assert "target/$GUEST_AGENT_TARGET/release/smolvm-guest-agent" in script
+    assert "target/$GUEST_AGENT_TARGET/release/celesto-guest-agent" in script
     assert "src/celesto/guest_agent/agent.py" not in script
-    assert "/usr/local/bin/smolvm-guest-agent" in script
+    assert "/usr/local/bin/celesto-guest-agent" in script
 
 
 def test_ci_build_preset_preinstalls_stable_opencode() -> None:
@@ -154,7 +154,7 @@ def test_published_image_workflow_builds_and_smokes_linux_desktop() -> None:
     assert "linux-desktop-amd64-rootfs.ext4.zst" not in build
     assert "inputs.presets != 'linux-desktop'" not in build
     assert "contains(format(',{0},', inputs.presets), ',codex,')" in build
-    assert "smolvm-browser-session start computer" in smoke
+    assert "celesto-browser-session start computer" in smoke
     assert "command -v lxterminal" in smoke
     assert "command -v pcmanfm" in smoke
     assert "command -v mousepad" in smoke
@@ -167,9 +167,9 @@ def test_published_image_workflow_uploads_guest_agent_binaries() -> None:
     workflow = (_REPO_ROOT / ".github" / "workflows" / "build-published-images.yml").read_text()
     assert "guest-agent-binaries:" in workflow
     assert "if: ${{ inputs.presets == 'all' }}" in workflow
-    assert 'cargo build --release --target "$target" -p smolvm-guest-agent' in workflow
-    assert "smolvm-guest-agent-linux-amd64" in workflow
-    assert "smolvm-guest-agent-linux-arm64" in workflow
+    assert 'cargo build --release --target "$target" -p celesto-guest-agent' in workflow
+    assert "celesto-guest-agent-linux-amd64" in workflow
+    assert "celesto-guest-agent-linux-arm64" in workflow
     assert '"$ASSET_NAME"' in workflow
     assert '"${ASSET_NAME}.sha256"' in workflow
 
@@ -190,7 +190,7 @@ def test_e2e_uses_image_release_fallback_until_pinned_release_is_public() -> Non
     assert "application/vnd.github.raw" in workflow
     assert "contents/src/celesto/images/published.py?ref=$fallback" in workflow
     assert "using published-image catalog from $fallback" in workflow
-    assert "SMOLVM_IMAGES_RELEASE_TAG=${SMOLVM_IMAGES_RELEASE_TAG:-}" in workflow
+    assert "CELESTO_IMAGES_RELEASE_TAG=${CELESTO_IMAGES_RELEASE_TAG:-}" in workflow
     assert "github.event_name == 'pull_request'" not in workflow
 
 
@@ -219,18 +219,18 @@ def test_guest_agent_source_digest_tracks_rust_crate() -> None:
 def test_guest_agent_source_digest_tracks_release_binary_without_source(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("SMOLVM_GUEST_AGENT_BINARY", raising=False)
+    monkeypatch.delenv("CELESTO_GUEST_AGENT_BINARY", raising=False)
     monkeypatch.setattr(builder_mod, "_has_guest_agent_source_checkout", lambda: False)
     monkeypatch.setattr(
         builder_mod,
         "_guest_agent_release_asset",
-        lambda: ("https://example.invalid/agent-a", "smolvm-guest-agent-linux-amd64", "a" * 64),
+        lambda: ("https://example.invalid/agent-a", "celesto-guest-agent-linux-amd64", "a" * 64),
     )
     first = builder_mod._guest_agent_source_digest()
     monkeypatch.setattr(
         builder_mod,
         "_guest_agent_release_asset",
-        lambda: ("https://example.invalid/agent-b", "smolvm-guest-agent-linux-amd64", "b" * 64),
+        lambda: ("https://example.invalid/agent-b", "celesto-guest-agent-linux-amd64", "b" * 64),
     )
     second = builder_mod._guest_agent_source_digest()
 
@@ -253,7 +253,7 @@ def test_guest_agent_source_digest_tracks_env_binary(
 ) -> None:
     binary = tmp_path / "custom-agent"
     binary.write_bytes(b"first")
-    monkeypatch.setenv("SMOLVM_GUEST_AGENT_BINARY", str(binary))
+    monkeypatch.setenv("CELESTO_GUEST_AGENT_BINARY", str(binary))
 
     first = builder_mod._guest_agent_source_digest()
     binary.write_bytes(b"second")
@@ -270,7 +270,7 @@ def test_guest_agent_binary_honors_env_override(
 ) -> None:
     binary = tmp_path / "custom-agent"
     binary.write_bytes(b"custom")
-    monkeypatch.setenv("SMOLVM_GUEST_AGENT_BINARY", str(binary))
+    monkeypatch.setenv("CELESTO_GUEST_AGENT_BINARY", str(binary))
     monkeypatch.setattr(
         builder_mod,
         "_download_guest_agent_binary",
@@ -286,7 +286,7 @@ def test_guest_agent_binary_rejects_dynamic_env_override(
 ) -> None:
     binary = tmp_path / "dynamic-agent"
     binary.write_bytes(b"\x7fELF" + b"\0" * 128 + b"/lib64/ld-linux-x86-64.so.2")
-    monkeypatch.setenv("SMOLVM_GUEST_AGENT_BINARY", str(binary))
+    monkeypatch.setenv("CELESTO_GUEST_AGENT_BINARY", str(binary))
     monkeypatch.setattr(builder_mod.platform, "machine", lambda: "x86_64")
 
     with pytest.raises(ImageError) as exc_info:
@@ -295,7 +295,7 @@ def test_guest_agent_binary_rejects_dynamic_env_override(
     message = str(exc_info.value)
     assert "dynamically linked Linux binary" in message
     assert "cargo build --release --target x86_64-unknown-linux-musl" in message
-    assert "target/x86_64-unknown-linux-musl/release/smolvm-guest-agent" in message
+    assert "target/x86_64-unknown-linux-musl/release/celesto-guest-agent" in message
 
 
 def test_guest_agent_binary_downloads_release_without_source_checkout(
@@ -317,7 +317,7 @@ def test_guest_agent_binary_downloads_release_without_source_checkout(
         opened_urls.append(url)
         return Response(payload)
 
-    monkeypatch.delenv("SMOLVM_GUEST_AGENT_BINARY", raising=False)
+    monkeypatch.delenv("CELESTO_GUEST_AGENT_BINARY", raising=False)
     monkeypatch.setattr(builder_mod, "_has_guest_agent_source_checkout", lambda: False)
     monkeypatch.setattr(
         builder_mod, "_guest_agent_binary_cache_dir", lambda _cache_dir=None: tmp_path
@@ -326,7 +326,7 @@ def test_guest_agent_binary_downloads_release_without_source_checkout(
     monkeypatch.setattr(
         builder_mod,
         "_guest_agent_release_asset",
-        lambda: ("https://example.invalid/agent", "smolvm-guest-agent-linux-amd64", expected_sha),
+        lambda: ("https://example.invalid/agent", "celesto-guest-agent-linux-amd64", expected_sha),
     )
     monkeypatch.setattr(builder_mod.urllib.request, "urlopen", fake_urlopen)
     monkeypatch.setattr(
@@ -337,7 +337,7 @@ def test_guest_agent_binary_downloads_release_without_source_checkout(
 
     binary = builder_mod._guest_agent_binary()
 
-    assert binary.name == "smolvm-guest-agent-linux-amd64"
+    assert binary.name == "celesto-guest-agent-linux-amd64"
     assert binary.read_bytes() == payload
     assert binary.stat().st_mode & 0o111
     assert opened_urls == ["https://example.invalid/agent"]
@@ -356,7 +356,7 @@ def test_guest_agent_binary_rejects_bad_release_sha(
         def __exit__(self, *_exc: object) -> None:
             self.close()
 
-    monkeypatch.delenv("SMOLVM_GUEST_AGENT_BINARY", raising=False)
+    monkeypatch.delenv("CELESTO_GUEST_AGENT_BINARY", raising=False)
     monkeypatch.setattr(
         builder_mod, "_guest_agent_binary_cache_dir", lambda _cache_dir=None: tmp_path
     )
@@ -364,7 +364,7 @@ def test_guest_agent_binary_rejects_bad_release_sha(
     monkeypatch.setattr(
         builder_mod,
         "_guest_agent_release_asset",
-        lambda: ("https://example.invalid/agent", "smolvm-guest-agent-linux-amd64", "0" * 64),
+        lambda: ("https://example.invalid/agent", "celesto-guest-agent-linux-amd64", "0" * 64),
     )
     monkeypatch.setattr(
         builder_mod.urllib.request,
@@ -378,8 +378,8 @@ def test_guest_agent_binary_rejects_bad_release_sha(
 
 def test_base_init_script_launches_guest_agent_before_sshd() -> None:
     script = ImageBuilder()._default_init_script()
-    assert "/usr/local/bin/smolvm-guest-agent --listen vsock://1024" in script
-    assert "python3 /usr/local/bin/smolvm-guest-agent" not in script
+    assert "/usr/local/bin/celesto-guest-agent --listen vsock://1024" in script
+    assert "python3 /usr/local/bin/celesto-guest-agent" not in script
     assert "ssh-keygen -A" not in script
     assert "ssh-keygen -t ed25519" in script
     # The agent must start before sshd so the channel is up independent of it.
@@ -392,10 +392,10 @@ def test_base_init_script_runs_clock_sync_loop() -> None:
     recovers from host-sleep drift (issue #330)."""
     script = ImageBuilder()._default_init_script()
     _assert_clock_sync_loop_before_sshd(script)
-    assert script.index('echo "SmolVM init: clock-sync loop started') < script.index(
+    assert script.index('echo "Celesto init: clock-sync loop started') < script.index(
         'log_ts "clock-sync-started"'
     )
-    assert script.index('echo "SmolVM init: hwclock not found') < script.index(
+    assert script.index('echo "Celesto init: hwclock not found') < script.index(
         'log_ts "clock-sync-disabled"'
     )
 
@@ -449,7 +449,7 @@ def test_base_images_are_not_responsible_for_agent_runtime(
         getattr(builder, method_name)("ssh-ed25519 AAAA u@t")
 
     assert expected_base in captured["dockerfile"]
-    assert "smolvm-guest-agent" not in captured["dockerfile"]
+    assert "celesto-guest-agent" not in captured["dockerfile"]
 
 
 @patch("celesto.images.builder.subprocess.run")
@@ -459,7 +459,7 @@ def test_do_build_bakes_agent_into_context(
 ) -> None:
     """_do_build must drop the agent file into the build context and COPY it."""
     builder = ImageBuilder(cache_dir=tmp_path / "images")
-    fake_agent = tmp_path / "smolvm-guest-agent"
+    fake_agent = tmp_path / "celesto-guest-agent"
     fake_agent.write_bytes(b"rust-agent")
     fake_agent.chmod(0o755)
     captured: dict[str, object] = {}
@@ -486,7 +486,7 @@ def test_do_build_bakes_agent_into_context(
         patch.object(
             ImageBuilder,
             "_loopfs_helper_path",
-            return_value=Path("/usr/local/libexec/smolvm-loopfs-helper"),
+            return_value=Path("/usr/local/libexec/celesto-loopfs-helper"),
         ),
         patch.object(ImageBuilder, "_create_ext4_with_loopfs"),
         patch.object(ImageBuilder, "_download_kernel"),

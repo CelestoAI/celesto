@@ -1,8 +1,8 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
 ***
 
-[@celestoai/smolvm](../README.md) / SandboxFiles
+[@celestoai/celesto](../README.md) / SandboxFiles
 
 # Interface: SandboxFiles
 

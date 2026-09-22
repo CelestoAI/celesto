@@ -1,8 +1,8 @@
-import { SmolVM } from "@celestoai/smolvm";
+import { Celesto } from "@celestoai/celesto";
 
 async function main() {
-  const smolvm = new SmolVM({ onEvent: (event) => console.log(event.type) });
-  const sandbox = await smolvm.sandboxes.create({ network: { mode: "off" } });
+  const celesto = new Celesto({ onEvent: (event) => console.log(event.type) });
+  const sandbox = await celesto.sandboxes.create({ network: { mode: "off" } });
 
   try {
     await sandbox.files.write("/workspace/input.txt", "hello");
@@ -12,7 +12,7 @@ async function main() {
     );
     console.log(result.stdout);
   } finally {
-    await smolvm.close();
+    await celesto.close();
   }
 }
 

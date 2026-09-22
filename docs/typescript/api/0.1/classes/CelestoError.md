@@ -1,10 +1,10 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
 ***
 
-[@celestoai/smolvm](../README.md) / SmolVMError
+[@celestoai/celesto](../README.md) / CelestoError
 
-# Class: SmolVMError
+# Class: CelestoError
 
 A stable, actionable failure from the SDK or local runtime.
 
@@ -16,13 +16,13 @@ A stable, actionable failure from the SDK or local runtime.
 
 ### Constructor
 
-> **new SmolVMError**(`code`, `message`, `options`): `SmolVMError`
+> **new CelestoError**(`code`, `message`, `options`): `CelestoError`
 
 #### Parameters
 
 ##### code
 
-[`SmolVMErrorCode`](../type-aliases/SmolVMErrorCode.md)
+[`CelestoErrorCode`](../type-aliases/CelestoErrorCode.md)
 
 ##### message
 
@@ -30,11 +30,11 @@ A stable, actionable failure from the SDK or local runtime.
 
 ##### options
 
-[`SmolVMErrorOptions`](../interfaces/SmolVMErrorOptions.md)
+[`CelestoErrorOptions`](../interfaces/CelestoErrorOptions.md)
 
 #### Returns
 
-`SmolVMError`
+`CelestoError`
 
 #### Overrides
 
@@ -60,7 +60,7 @@ A stable, actionable failure from the SDK or local runtime.
 
 ### code
 
-> `readonly` **code**: [`SmolVMErrorCode`](../type-aliases/SmolVMErrorCode.md)
+> `readonly` **code**: [`CelestoErrorCode`](../type-aliases/CelestoErrorCode.md)
 
 ***
 

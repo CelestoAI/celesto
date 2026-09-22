@@ -20,7 +20,7 @@ On the same non-preemptible GCP `n2-standard-2` VM, run 100 baseline samples, 10
 
 ## Other modes and concurrency
 
-The earlier [GitHub Actions run](https://github.com/CelestoAI/SmolVM/actions/runs/34320335435) completed the following cases before cancellation. Keep these measurements separate from GCP; their absolute timings are not comparable across hosts.
+The earlier [GitHub Actions run](https://github.com/CelestoAI/Celesto/actions/runs/34320335435) completed the following cases before cancellation. Keep these measurements separate from GCP; their absolute timings are not comparable across hosts.
 
 | Candidate mode | Serial samples | Serial first-command p95 | Serial restore p95 | Concurrency-8 samples | Concurrent first-command p95 | Concurrent restore p95 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -33,8 +33,8 @@ Both concurrency baseline repeats completed (24 samples each). Their first-comma
 
 ## Correctness and installed-package evidence
 
-- Firecracker and QEMU E2E passed in [run 34314767896](https://github.com/CelestoAI/SmolVM/actions/runs/34314767896); explicit off/restricted support remains Firecracker-only.
-- The later controlled policy suite passed on both backends in [run 34320335435](https://github.com/CelestoAI/SmolVM/actions/runs/34320335435). Firecracker tests include actual nftables rejection before start and restore, no new guest process after rejection, and successful retry once installation works.
+- Firecracker and QEMU E2E passed in [run 34314767896](https://github.com/CelestoAI/Celesto/actions/runs/34314767896); explicit off/restricted support remains Firecracker-only.
+- The later controlled policy suite passed on both backends in [run 34320335435](https://github.com/CelestoAI/Celesto/actions/runs/34320335435). Firecracker tests include actual nftables rejection before start and restore, no new guest process after rejection, and successful retry once installation works.
 - Default/open, off, and restricted documentation examples passed from installed wheels, including command execution and allowed/denied HTTP probes. The GCP smoke matrix also passed all 12 two-sample cases in 402.57 seconds.
 - Focused local regressions: 214 passed. Benchmark harness tests: 2 passed. Normal PR checks passed on fixture-fix commit `2450b1a`; final documentation checks are tracked on PR #498. Draft-skipped E2E/review checks are not counted as passing evidence.
 

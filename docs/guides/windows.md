@@ -26,7 +26,7 @@ from celesto import Celesto
 with Celesto(
     os="windows",
     image="./win11.qcow2",
-    ssh_user="smolvm",
+    ssh_user="celesto",
     ssh_password="choose-a-strong-password",
 ) as vm:
     result = vm.run("Get-ComputerInfo | Select-Object WindowsProductName")

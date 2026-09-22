@@ -89,7 +89,7 @@ class TestDoctorFirecracker:
     ) -> None:
         """A configured folder should appear in the doctor failure and fix."""
         configured = tmp_path / "custom firecracker"
-        monkeypatch.setenv("SMOLVM_FIRECRACKER_DIR", str(configured))
+        monkeypatch.setenv("CELESTO_FIRECRACKER_DIR", str(configured))
         mock_host = MagicMock()
         mock_host.find_firecracker.return_value = None
 

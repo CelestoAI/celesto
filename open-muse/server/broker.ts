@@ -273,15 +273,15 @@ export class ActionBroker {
       await onDispatch?.();
       void summary;
       this.emit("tool.started", { tool, summary: toolEventSummary(tool) });
-      const command = await computer.exec(["/usr/local/bin/smolvm-browser-runner", encoded], { timeoutMs: 35_000 });
+      const command = await computer.exec(["/usr/local/bin/celesto-browser-runner", encoded], { timeoutMs: 35_000 });
       this.assertAgentControl(controlEpoch);
       if (!command.ok) {
         const programError = command.stderr.trim() || "The Playwright program failed inside the disposable browser.";
         throw new Error(programError);
       }
-      const marker = command.stdout.split("\n").reverse().find((line: string) => line.startsWith("SMOLVM_BROWSER_RESULT="));
+      const marker = command.stdout.split("\n").reverse().find((line: string) => line.startsWith("CELESTO_BROWSER_RESULT="));
       if (!marker) throw new Error("The browser runner returned an invalid result.");
-      const parsed = JSON.parse(marker.slice("SMOLVM_BROWSER_RESULT=".length)) as { ok?: unknown; value?: unknown } | null;
+      const parsed = JSON.parse(marker.slice("CELESTO_BROWSER_RESULT=".length)) as { ok?: unknown; value?: unknown } | null;
       if (parsed?.ok !== true) throw new Error("The browser runner returned an unsuccessful result.");
       const value = parsed.value as { programResult?: unknown; page?: unknown } | null;
       if (!value || typeof value !== "object" || !("programResult" in value) || value.programResult === "undefined") {

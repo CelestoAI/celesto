@@ -1,8 +1,8 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
 ***
 
-[@celestoai/smolvm](../README.md) / ExecResult
+[@celestoai/celesto](../README.md) / ExecResult
 
 # Interface: ExecResult
 

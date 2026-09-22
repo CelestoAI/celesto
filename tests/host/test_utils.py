@@ -210,12 +210,12 @@ class TestEnsureSSHKey:
         mock_run: MagicMock,
         tmp_path,
     ) -> None:
-        """Default key location should be ~/.smolvm/keys."""
+        """Default key location should be ~/.celesto/keys."""
         mock_home.return_value = tmp_path
 
         private_key, public_key = ensure_ssh_key()
 
-        expected_dir = tmp_path / ".smolvm" / "keys"
+        expected_dir = tmp_path / ".celesto" / "keys"
         assert private_key == expected_dir / "id_ed25519"
         assert public_key == expected_dir / "id_ed25519.pub"
         assert expected_dir.exists()

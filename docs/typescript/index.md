@@ -12,12 +12,12 @@ Install the Celesto runtime, the preview package, and a TypeScript runner:
 pip install 'celesto[server]==0.0.15a0'
 celesto setup
 celesto doctor
-npm install https://github.com/CelestoAI/SmolVM/releases/download/typescript-v0.1.0-preview.1/celestoai-smolvm-0.1.0-preview.1.tgz
+npm install https://github.com/CelestoAI/Celesto/releases/download/typescript-v0.1.0-preview.1/celestoai-celesto-0.1.0-preview.1.tgz
 npm install --save-dev tsx
 ```
 
-The separate TypeScript preview retains its `@celestoai/smolvm` package name
-and `SmolVM` class. Set `runtimePath: "celesto"` as shown below to use this alpha
+The separate TypeScript preview retains its `@celestoai/celesto` package name
+and `Celesto` class. Set `runtimePath: "celesto"` as shown below to use this alpha
 release of the Python runtime.
 
 The SDK starts a private local bridge on first use. Each client gets an isolated sandbox list and a random credential passed through a private process pipe. `close()` removes that client's sandboxes and stops the bridge.
@@ -27,22 +27,22 @@ The SDK starts a private local bridge on first use. Each client gets an isolated
 Lead with `try/finally` so cleanup also runs after an error:
 
 ```ts
-import { SmolVM } from "@celestoai/smolvm";
+import { Celesto } from "@celestoai/celesto";
 
-const smolvm = new SmolVM({ runtimePath: "celesto" });
-const sandbox = await smolvm.sandboxes.create(); // Ubuntu, open network
+const celesto = new Celesto({ runtimePath: "celesto" });
+const sandbox = await celesto.sandboxes.create(); // Ubuntu, open network
 
 try {
   const result = await sandbox.exec(["uname", "-a"]);
   console.log(result.stdout);
 } finally {
-  await smolvm.close();
+  await celesto.close();
 }
 ```
 
-`sandbox.delete()` and `smolvm.close()` are idempotent. `Symbol.asyncDispose` is also installed when the running Node version supports it, but the alpha documentation uses `try/finally` for compatibility and clarity.
+`sandbox.delete()` and `celesto.close()` are idempotent. `Symbol.asyncDispose` is also installed when the running Node version supports it, but the alpha documentation uses `try/finally` for compatibility and clarity.
 
-The first sandbox may need to download an image. Creation has a 10-minute deadline by default; set `createTimeoutMs` on `SmolVM` when a slower connection needs more time.
+The first sandbox may need to download an image. Creation has a 10-minute deadline by default; set `createTimeoutMs` on `Celesto` when a slower connection needs more time.
 
 ## Run commands
 
@@ -78,10 +78,10 @@ The source tree includes the browser-session API planned for the next TypeScript
 
 ```ts
 import { chromium } from "playwright-core";
-import { SmolVM } from "@celestoai/smolvm";
+import { Celesto } from "@celestoai/celesto";
 
-const smolvm = new SmolVM({ runtimePath: "celesto" });
-const session = await smolvm.browsers.create({
+const celesto = new Celesto({ runtimePath: "celesto" });
+const session = await celesto.browsers.create({
   mode: "live",
   profile: { mode: "ephemeral" },
   network: { mode: "open" },
@@ -96,18 +96,18 @@ try {
   console.log(session.viewerUrl);
   await browser.close();
 } finally {
-  await smolvm.close();
+  await celesto.close();
 }
 ```
 
-Use `mode: "headless"` when no live viewer is needed. A browser session also provides `exec(...)` for running a command as the unprivileged `agent` user inside that browser VM. On timeout, SmolVM attempts to delete the affected session and reports whether cleanup was confirmed.
+Use `mode: "headless"` when no live viewer is needed. A browser session also provides `exec(...)` for running a command as the unprivileged `agent` user inside that browser VM. On timeout, Celesto attempts to delete the affected session and reports whether cleanup was confirmed.
 
 ## Start a complete Linux computer
 
 Use a computer when the agent needs a visible desktop with Chromium, a terminal, a file manager, and a text editor. The grouped properties keep screen control separate from browser automation:
 
 ```ts
-const computer = await smolvm.computers.create();
+const computer = await celesto.computers.create();
 
 console.log(computer.display.viewerUrl);
 console.log(computer.browser.cdpUrl);
@@ -126,9 +126,9 @@ The computer also provides `exec(...)` and `files`. See the [Linux computers gui
 The default is `{ mode: "open" }`. Security-focused agents can turn access off or allow only IPv4 ranges:
 
 ```ts
-await smolvm.sandboxes.create({ network: { mode: "off" } });
+await celesto.sandboxes.create({ network: { mode: "off" } });
 
-await smolvm.sandboxes.create({
+await celesto.sandboxes.create({
   network: {
     mode: "restricted",
     allowedCidrs: ["203.0.113.0/24"],
@@ -136,7 +136,7 @@ await smolvm.sandboxes.create({
 });
 ```
 
-SmolVM validates the policy before it downloads an image. Backend-specific restrictions still apply; an unavailable combination throws `SmolVMError` with a stable code.
+Celesto validates the policy before it downloads an image. Backend-specific restrictions still apply; an unavailable combination throws `CelestoError` with a stable code.
 
 ## Cancel a command
 
@@ -152,18 +152,18 @@ On abort, the SDK asks the bridge to delete the sandbox and waits for confirmati
 ## Handle errors and diagnose setup
 
 ```ts
-import { SmolVMError } from "@celestoai/smolvm";
+import { CelestoError } from "@celestoai/celesto";
 
 try {
   await sandbox.exec(["python3", "job.py"]);
 } catch (error) {
-  if (error instanceof SmolVMError) {
+  if (error instanceof CelestoError) {
     console.error(error.code, error.message);
     if (error.recoveryCommand) console.error(error.recoveryCommand);
   }
 }
 
-console.log(await smolvm.diagnose());
+console.log(await celesto.diagnose());
 ```
 
 Diagnostics contain versions, platform support, and protocol compatibility. They never include the bridge credential. Construct the client with `{ debug: true }` to retain non-enumerable error causes during local development.

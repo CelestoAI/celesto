@@ -743,7 +743,7 @@ class TestNodeBootstrapFunction:
         assert "libstdc++" not in script
         assert "ripgrep" not in script
         assert "This Alpine image does not provide a compatible Node.js version" in script
-        assert "Run '$SMOLVM_NODE_RECOVERY_COMMAND'" in script
+        assert "Run '$CELESTO_NODE_RECOVERY_COMMAND'" in script
 
     def test_node_bootstrap_rejects_too_low(self) -> None:
         from celesto.presets._scripts import node_bootstrap
@@ -804,7 +804,7 @@ class TestTransferHostEnv:
         keys = transfer_host_env(channel, CODEX_PRESET)
 
         assert keys == ["OPENAI_API_KEY"]
-        assert any("smolvm_env.sh" in call.args[0] for call in channel.run.call_args_list)
+        assert any("celesto_env.sh" in call.args[0] for call in channel.run.call_args_list)
 
 
 class TestApplyPreset:
@@ -967,7 +967,7 @@ class TestApplyPreset:
         # extracted with failure-safe cleanup.
         ssh.put_file.assert_called_once()
         upload_target = ssh.put_file.call_args.args[1]
-        assert upload_target.startswith("/root/.smolvm-preset-")
+        assert upload_target.startswith("/root/.celesto-preset-")
         assert upload_target.endswith(".tar")
 
         commands_run = [call.args[0] for call in ssh.run.call_args_list]
@@ -993,7 +993,7 @@ class TestApplyPreset:
             apply_preset(ssh, preset)
 
         assert len(ssh.run.call_args_list) == 1
-        assert "smolvm_env.sh" not in ssh.run.call_args.args[0]
+        assert "celesto_env.sh" not in ssh.run.call_args.args[0]
 
     def test_setup_receives_exact_node_recovery_command(self) -> None:
         from celesto.presets._scripts import node_bootstrap
@@ -1011,10 +1011,10 @@ class TestApplyPreset:
 
         command = shlex.split(ssh.run.call_args_list[0].args[0])[2]
         assert (
-            "SMOLVM_NODE_RECOVERY_COMMAND='celesto claude start --name sbx-claude --os ubuntu'"
+            "CELESTO_NODE_RECOVERY_COMMAND='celesto claude start --name sbx-claude --os ubuntu'"
             in command
         )
-        assert "Run '$SMOLVM_NODE_RECOVERY_COMMAND'" in command
+        assert "Run '$CELESTO_NODE_RECOVERY_COMMAND'" in command
 
     def test_progress_callback_receives_steps(
         self,

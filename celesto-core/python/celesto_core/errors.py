@@ -1,19 +1,19 @@
-"""Public error types raised by smolvm-core wrapper modules."""
+"""Public error types raised by celesto-core wrapper modules."""
 
 from __future__ import annotations
 
 from typing import Any
 
 
-class SmolVMCoreError(Exception):
-    """Base class for smolvm-core library errors."""
+class CelestoCoreError(Exception):
+    """Base class for celesto-core library errors."""
 
 
-class CoreUnavailableError(SmolVMCoreError):
+class CoreUnavailableError(CelestoCoreError):
     """Raised when a requested native helper is not available."""
 
 
-class QMPError(SmolVMCoreError):
+class QMPError(CelestoCoreError):
     """Raised when QEMU monitor control fails."""
 
     def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
@@ -21,7 +21,7 @@ class QMPError(SmolVMCoreError):
         self.details = details or {}
 
 
-class FirecrackerAPIError(SmolVMCoreError):
+class FirecrackerAPIError(CelestoCoreError):
     """Raised when the Firecracker API returns an error response."""
 
     def __init__(self, message: str, *, status_code: int | None = None) -> None:
@@ -33,5 +33,5 @@ __all__ = [
     "CoreUnavailableError",
     "FirecrackerAPIError",
     "QMPError",
-    "SmolVMCoreError",
+    "CelestoCoreError",
 ]

@@ -99,8 +99,8 @@ class ComputerFiles:
 
     def read(self, path: str, *, max_bytes: int | None = None) -> bytes:
         guest_path = self._path(path)
-        guest_temporary = f"/tmp/smolvm-computer-read-{uuid.uuid4().hex}"
-        with tempfile.NamedTemporaryFile(prefix="smolvm-computer-read-", delete=False) as handle:
+        guest_temporary = f"/tmp/celesto-computer-read-{uuid.uuid4().hex}"
+        with tempfile.NamedTemporaryFile(prefix="celesto-computer-read-", delete=False) as handle:
             local_path = Path(handle.name)
         try:
             stage_command = "runuser -u agent -- sh -c " + shlex.quote(
@@ -127,11 +127,11 @@ class ComputerFiles:
         guest_path = self._path(path)
         payload = content.encode() if isinstance(content, str) else content
         local_path: Path | None = None
-        guest_temporary = f"/tmp/smolvm-computer-{uuid.uuid4().hex}"
-        destination_temporary = f"{guest_path}.smolvm-{uuid.uuid4().hex}.tmp"
+        guest_temporary = f"/tmp/celesto-computer-{uuid.uuid4().hex}"
+        destination_temporary = f"{guest_path}.celesto-{uuid.uuid4().hex}.tmp"
         try:
             with tempfile.NamedTemporaryFile(
-                prefix="smolvm-computer-write-", delete=False
+                prefix="celesto-computer-write-", delete=False
             ) as handle:
                 local_path = Path(handle.name)
                 handle.write(payload)
@@ -224,7 +224,7 @@ class _ComputerSandbox(_BrowserSandbox):
             return
         self._monitor_thread = threading.Thread(
             target=self._monitor_required_processes,
-            name=f"smolvm-computer-health-{self.computer_id}",
+            name=f"celesto-computer-health-{self.computer_id}",
             daemon=True,
         )
         self._monitor_thread.start()
@@ -305,7 +305,7 @@ class _ComputerSandbox(_BrowserSandbox):
         )
         if self._vm.status == VMState.RUNNING:
             with suppress(Exception):
-                self._vm.run("/usr/local/bin/smolvm-browser-session stop", timeout=30)
+                self._vm.run("/usr/local/bin/celesto-browser-session stop", timeout=30)
             with suppress(Exception):
                 self.collect_artifacts()
         try:

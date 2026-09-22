@@ -1,8 +1,8 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
 ***
 
-[@celestoai/smolvm](../README.md) / BrowserSessionClient
+[@celestoai/celesto](../README.md) / BrowserSessionClient
 
 # Interface: BrowserSessionClient
 

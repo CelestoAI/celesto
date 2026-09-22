@@ -37,9 +37,9 @@ Options:
   --skip-deps                 Do not install wget or tar
   --require-kvm               Fail if /dev/kvm is missing
   --firecracker-version <ver> Pin Firecracker release tag (default: built-in or
-                              \$SMOLVM_FIRECRACKER_VERSION / \$FC_VERSION env)
+                              \$CELESTO_FIRECRACKER_VERSION / \$FC_VERSION env)
   --firecracker-dir <dir>     Folder for Firecracker (default:
-                              \$SMOLVM_FIRECRACKER_DIR or ~/.smolvm/bin)
+                              \$CELESTO_FIRECRACKER_DIR or ~/.celesto/bin)
   --runtime-user <user>       User who will run Firecracker (internal setup option)
   -h, --help                  Show this help
 EOF_USAGE
@@ -70,7 +70,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --firecracker-dir)
             if [[ $# -lt 2 || -z "$2" || "$2" == -* ]]; then
-                echo "❌ --firecracker-dir needs a folder; for example, run 'smolvm setup --firecracker-dir \"$HOME/.local/bin\"'."
+                echo "❌ --firecracker-dir needs a folder; for example, run 'celesto setup --firecracker-dir \"$HOME/.local/bin\"'."
                 exit 1
             fi
             FIRECRACKER_DIR_OVERRIDE="$2"
@@ -78,7 +78,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --runtime-user)
             if [[ $# -lt 2 || -z "$2" || "$2" == -* ]]; then
-                echo "❌ --runtime-user needs the account that will run SmolVM."
+                echo "❌ --runtime-user needs the account that will run Celesto."
                 exit 1
             fi
             RUNTIME_USER_OVERRIDE="$2"
@@ -145,15 +145,15 @@ runtime_home=""
 
 if [[ -n "${FIRECRACKER_DIR_OVERRIDE}" ]]; then
     FIRECRACKER_DIR="${FIRECRACKER_DIR_OVERRIDE}"
-elif [[ -n "${SMOLVM_FIRECRACKER_DIR+x}" ]]; then
-    if [[ -z "${SMOLVM_FIRECRACKER_DIR//[[:space:]]/}" ]]; then
-        echo "❌ SMOLVM_FIRECRACKER_DIR is empty; run 'unset SMOLVM_FIRECRACKER_DIR', then run 'smolvm setup'."
+elif [[ -n "${CELESTO_FIRECRACKER_DIR+x}" ]]; then
+    if [[ -z "${CELESTO_FIRECRACKER_DIR//[[:space:]]/}" ]]; then
+        echo "❌ CELESTO_FIRECRACKER_DIR is empty; run 'unset CELESTO_FIRECRACKER_DIR', then run 'celesto setup'."
         exit 1
     fi
-    FIRECRACKER_DIR="${SMOLVM_FIRECRACKER_DIR}"
+    FIRECRACKER_DIR="${CELESTO_FIRECRACKER_DIR}"
 else
     runtime_home="$(resolve_user_home "${runtime_user}")"
-    FIRECRACKER_DIR="${runtime_home}/.smolvm/bin"
+    FIRECRACKER_DIR="${runtime_home}/.celesto/bin"
 fi
 
 # A configured folder does not require a home lookup, but use one when available
@@ -180,8 +180,8 @@ fi
 
 if [[ -n "${FC_VERSION_OVERRIDE}" ]]; then
     FC_VERSION="${FC_VERSION_OVERRIDE}"
-elif [[ -n "${SMOLVM_FIRECRACKER_VERSION:-}" ]]; then
-    FC_VERSION="${SMOLVM_FIRECRACKER_VERSION}"
+elif [[ -n "${CELESTO_FIRECRACKER_VERSION:-}" ]]; then
+    FC_VERSION="${CELESTO_FIRECRACKER_VERSION}"
 else
     FC_VERSION="${FC_VERSION:-v1.14.1}"
 fi
@@ -251,9 +251,9 @@ if [[ ! -f "${source_binary}" ]]; then
 fi
 
 if [[ ${EUID} -eq 0 && "${runtime_user}" != "root" && "${user_scoped_dir}" == "true" ]]; then
-    if [[ "${FIRECRACKER_DIR}" == "${runtime_home}/.smolvm/bin" ]]; then
+    if [[ "${FIRECRACKER_DIR}" == "${runtime_home}/.celesto/bin" ]]; then
         install -d -o "${runtime_user}" -g "${runtime_group}" -m 0755 \
-            "${runtime_home}/.smolvm" "${FIRECRACKER_DIR}"
+            "${runtime_home}/.celesto" "${FIRECRACKER_DIR}"
     else
         install -d -o "${runtime_user}" -g "${runtime_group}" -m 0755 "${FIRECRACKER_DIR}"
     fi

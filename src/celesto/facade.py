@@ -332,7 +332,7 @@ def _build_auto_config_image_name(
 ) -> str:
     """Build an OS-aware cache key for auto-configured images."""
     # Bump when /init behavior changes so an older cached rootfs cannot ignore
-    # a new host-side boot contract such as smolvm.network=guest.
+    # a new host-side boot contract such as celesto.network=guest.
     image_name = f"{guest_os.value}-ssh-key-guestnet-v1"
     if backend == BACKEND_QEMU:
         arch = platform.machine().lower()
@@ -523,8 +523,8 @@ def _build_s3_image_config(
             public_key_value = public_key_path.read_text().strip()
             seed_key = seed_cache_key(
                 ssh_public_key=public_key_value,
-                instance_id=f"smolvm-s3-{manifest.name}",
-                hostname="smolvm",
+                instance_id=f"celesto-s3-{manifest.name}",
+                hostname="celesto",
             )
             seed_dir = image_manager.cache_dir / "cloud-init-seeds"
             seed_path = seed_dir / f"{seed_key}.iso"
@@ -533,8 +533,8 @@ def _build_s3_image_config(
                     seed_path,
                     user_data=default_user_data(public_key_value),
                     meta_data=default_meta_data(
-                        instance_id=f"smolvm-s3-{manifest.name}",
-                        hostname="smolvm",
+                        instance_id=f"celesto-s3-{manifest.name}",
+                        hostname="celesto",
                     ),
                 )
             extra_drives.append(seed_path)
@@ -979,7 +979,7 @@ class Celesto:
             ``"Administrator"`` or whatever you baked into the qcow2).
         ssh_key_path: Optional SSH private key path. If omitted,
             Celesto first tries default SSH auth, then falls back to
-            ``~/.smolvm/keys/id_ed25519`` when needed.
+            ``~/.celesto/keys/id_ed25519`` when needed.
         ssh_password: Optional SSH password (paramiko password auth).
             Used when the guest has password-only SSH (e.g. a Windows
             POC qcow2). **Takes precedence over** *ssh_key_path*: when
@@ -1526,7 +1526,7 @@ class Celesto:
             ssh_user: SSH user for :meth:`run`.
             ssh_key_path: Optional SSH private key path. If omitted,
                 Celesto first tries default SSH auth, then falls back to
-                ``~/.smolvm/keys/id_ed25519`` when needed.
+                ``~/.celesto/keys/id_ed25519`` when needed.
             ssh_password: Optional SSH password (for Windows guests with
                 password-auth qcow2s).
             state_manager: Explicit inventory used by CLI integrations.
@@ -2151,7 +2151,7 @@ class Celesto:
         Single source of truth for the per-OS env-management dispatch
         (set/unset/list_env_vars) and for ``start()``'s post-boot
         env injection. Linux guests get the POSIX
-        ``/etc/profile.d/smolvm_env.sh`` path; Windows guests get the
+        ``/etc/profile.d/celesto_env.sh`` path; Windows guests get the
         ``HKCU\\Environment`` registry path via
         :mod:`celesto.env_windows`.
         """
@@ -2161,7 +2161,7 @@ class Celesto:
         """Set environment variables on a running VM.
 
         On Linux guests the variables are persisted in
-        ``/etc/profile.d/smolvm_env.sh`` and affect new login shells.
+        ``/etc/profile.d/celesto_env.sh`` and affect new login shells.
         On Windows guests they go into ``HKCU\\Environment`` via
         ``[Environment]::SetEnvironmentVariable`` and are visible to
         every fresh process spawned afterwards (subsequent ``vm.run()``
@@ -2939,7 +2939,7 @@ class Celesto:
         password: str | None = None
         machine = self._info.config.macos_machine
         if machine is not None:
-            password_path = machine.bundle_path / ".smolvm-vnc-password"
+            password_path = machine.bundle_path / ".celesto-vnc-password"
             try:
                 password = password_path.read_text(encoding="utf-8").strip() or None
             except OSError as exc:
@@ -3258,9 +3258,9 @@ class Celesto:
                     f"{qtag} {guest_path}"
                 )
             else:
-                lower = shlex.quote(f"/mnt/.smolvm-ws-{tag}")
-                upper = shlex.quote(f"/tmp/.smolvm-ws-{tag}-upper")
-                work = shlex.quote(f"/tmp/.smolvm-ws-{tag}-work")
+                lower = shlex.quote(f"/mnt/.celesto-ws-{tag}")
+                upper = shlex.quote(f"/tmp/.celesto-ws-{tag}-upper")
+                work = shlex.quote(f"/tmp/.celesto-ws-{tag}-work")
                 mount_script = (
                     f"modprobe 9p 2>/dev/null; "
                     f"modprobe 9pnet_virtio 2>/dev/null; "
@@ -3846,7 +3846,7 @@ modprobe 9pnet_virtio""".strip()
             attempts.append(attempt)
 
         # When no explicit key was provided, also try the default Celesto key
-        # (~/.smolvm/keys/id_ed25519). VMs created via auto-config always have
+        # (~/.celesto/keys/id_ed25519). VMs created via auto-config always have
         # this public key injected, so reconnecting via from_id() without an
         # explicit ssh_key_path should still authenticate correctly.
         if primary_key is None:

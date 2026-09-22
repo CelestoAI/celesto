@@ -47,10 +47,10 @@ from celesto.types import CommandEvent, CommandExitEvent, CommandResult
 
 logger = logging.getLogger(__name__)
 
-SMOLVM_AGENT_PORT = 1024
+CELESTO_AGENT_PORT = 1024
 """Guest vsock port where the Rust guest agent listens."""
 
-SMOLVM_TERMINAL_PORT = 1025
+CELESTO_TERMINAL_PORT = 1025
 """Guest vsock port where the Rust guest agent accepts terminal streams."""
 
 _READY_FAST_POLL_WINDOW = 1.0
@@ -127,7 +127,7 @@ class ControlCapabilities:
     protocol_version: int
     features: dict[str, Any]
     limits: dict[str, Any]
-    terminal_port: int = SMOLVM_TERMINAL_PORT
+    terminal_port: int = CELESTO_TERMINAL_PORT
 
     def enabled(self, *names: str) -> bool:
         for name in names:
@@ -179,7 +179,7 @@ def _vsock_unavailable_message(sandbox_name: str | None) -> str:
 
 
 def _parse_mode_header(value: str) -> int:
-    """Parse the guest's ``x-smolvm-file-mode`` header into safe permissions.
+    """Parse the guest's ``x-celesto-file-mode`` header into safe permissions.
 
     Masked for the same reason as :func:`_safe_tar_member_mode`: this value
     comes from the untrusted sandbox and is applied to a file on the host, so
@@ -465,7 +465,7 @@ class _SocketHTTPConnection(http.client.HTTPConnection):
     """HTTPConnection that uses a caller-supplied connected socket."""
 
     def __init__(self, open_socket: Callable[[], socket.socket], *, timeout: float) -> None:
-        super().__init__("smolvm-guest-agent", timeout=timeout)
+        super().__init__("celesto-guest-agent", timeout=timeout)
         self._open_socket = open_socket
 
     def connect(self) -> None:
@@ -489,7 +489,7 @@ class RustHttpVsockChannel:
         *,
         guest_cid: int | None = None,
         uds_path: str | Path | None = None,
-        agent_port: int = SMOLVM_AGENT_PORT,
+        agent_port: int = CELESTO_AGENT_PORT,
         connect_timeout: int = 10,
         sandbox_name: str | None = None,
     ) -> None:
@@ -510,7 +510,7 @@ class RustHttpVsockChannel:
         cls,
         guest_cid: int,
         *,
-        agent_port: int = SMOLVM_AGENT_PORT,
+        agent_port: int = CELESTO_AGENT_PORT,
         connect_timeout: int = 10,
         sandbox_name: str | None = None,
     ) -> RustHttpVsockChannel:
@@ -526,7 +526,7 @@ class RustHttpVsockChannel:
         cls,
         uds_path: str | Path,
         *,
-        agent_port: int = SMOLVM_AGENT_PORT,
+        agent_port: int = CELESTO_AGENT_PORT,
         connect_timeout: int = 10,
         sandbox_name: str | None = None,
     ) -> RustHttpVsockChannel:
@@ -651,7 +651,7 @@ class RustHttpVsockChannel:
             conn.request(method, path, body=body, headers=headers)
             resp = conn.getresponse()
             if max_bytes is not None:
-                for header in ("Content-Length", "x-smolvm-file-size"):
+                for header in ("Content-Length", "x-celesto-file-size"):
                     value = resp.getheader(header)
                     if value is None:
                         continue
@@ -694,7 +694,7 @@ class RustHttpVsockChannel:
                 protocol_version=protocol_version,
                 features=dict(features),
                 limits=dict(limits),
-                terminal_port=int(resp.get("terminal_port", SMOLVM_TERMINAL_PORT)),
+                terminal_port=int(resp.get("terminal_port", CELESTO_TERMINAL_PORT)),
             )
         return self._capabilities
 
@@ -903,14 +903,14 @@ class RustHttpVsockChannel:
             f"/files/content?{query}",
             max_bytes=stream_limit,
         )
-        expected_size = resp.getheader("x-smolvm-file-size")
+        expected_size = resp.getheader("x-celesto-file-size")
         if expected_size is not None and int(expected_size) != len(data):
             raise CelestoError(
                 f"Guest file response for '{remote_path}' had size {expected_size}, "
                 f"got {len(data)} bytes"
             )
         destination.write_bytes(data)
-        mode = resp.getheader("x-smolvm-file-mode")
+        mode = resp.getheader("x-celesto-file-mode")
         if mode is not None:
             os.chmod(destination, _parse_mode_header(mode))
         return destination

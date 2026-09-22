@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# configure-runtime-sudoers.sh - Configure scoped NOPASSWD sudo for SmolVM runtime.
+# configure-runtime-sudoers.sh - Configure scoped NOPASSWD sudo for Celesto runtime.
 set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
@@ -24,14 +24,14 @@ CHECK_ONLY=false
 REMOVE=false
 SKIP_RUNTIME_CHECK=false
 LOOPFS_HELPER_SRC="${SCRIPT_DIR}/image-build-loopfs.sh"
-LOOPFS_HELPER_DIR="/var/lib/smolvm/libexec"
-LOOPFS_HELPER_DST="${LOOPFS_HELPER_DIR}/smolvm-loopfs-helper"
+LOOPFS_HELPER_DIR="/var/lib/celesto/libexec"
+LOOPFS_HELPER_DST="${LOOPFS_HELPER_DIR}/celesto-loopfs-helper"
 
 usage() {
     cat <<EOF
 Usage: ${SCRIPT_NAME} [--runtime-user <user>] [--check-only] [--remove] [--skip-runtime-check]
 
-Configures scoped sudoers rules so SmolVM runtime commands can run without
+Configures scoped sudoers rules so Celesto runtime commands can run without
 interactive password prompts.
 
 Options:
@@ -40,7 +40,7 @@ Options:
   --remove                Remove generated runtime sudoers file.
   --skip-runtime-check    Install sudoers without running the post-install live
                           access self-test (use during AMI bake; verify on the
-                          runtime host with --check-only or 'smolvm doctor').
+                          runtime host with --check-only or 'celesto doctor').
   -h, --help              Show this help.
 EOF
 }
@@ -117,15 +117,15 @@ do
     fi
 done
 
-SUDOERS_FILE="/etc/sudoers.d/smolvm-runtime-${RUNTIME_USER}"
+SUDOERS_FILE="/etc/sudoers.d/celesto-runtime-${RUNTIME_USER}"
 
 validate_helper_directory() {
     local path
     local owner
     local mode
-    for path in /var /var/lib /var/lib/smolvm "${LOOPFS_HELPER_DIR}"; do
+    for path in /var /var/lib /var/lib/celesto "${LOOPFS_HELPER_DIR}"; do
         if [[ -L "${path}" ]]; then
-            echo "❌ Runtime helper folder cannot be a link: '${path}'; remove the link, then run 'smolvm setup' again."
+            echo "❌ Runtime helper folder cannot be a link: '${path}'; remove the link, then run 'celesto setup' again."
             return 1
         fi
         if [[ ! -e "${path}" ]]; then
@@ -134,7 +134,7 @@ validate_helper_directory() {
         owner="$(stat -c %u "${path}")"
         mode="$(stat -c %a "${path}")"
         if [[ "${owner}" != "0" ]] || (( (8#${mode} & 8#022) != 0 )); then
-            echo "❌ Runtime helper folder must be controlled by root: '${path}'; run 'sudo chown root:root ${path} && sudo chmod 755 ${path}', then run 'smolvm setup' again."
+            echo "❌ Runtime helper folder must be controlled by root: '${path}'; run 'sudo chown root:root ${path} && sudo chmod 755 ${path}', then run 'celesto setup' again."
             return 1
         fi
     done
@@ -142,7 +142,7 @@ validate_helper_directory() {
 
 validate_helper_file() {
     if [[ -L "${LOOPFS_HELPER_DST}" || ! -f "${LOOPFS_HELPER_DST}" || ! -x "${LOOPFS_HELPER_DST}" ]]; then
-        echo "❌ Runtime helper is missing or not executable: '${LOOPFS_HELPER_DST}'; run 'smolvm setup' to restore it."
+        echo "❌ Runtime helper is missing or not executable: '${LOOPFS_HELPER_DST}'; run 'celesto setup' to restore it."
         return 1
     fi
     local owner
@@ -150,18 +150,18 @@ validate_helper_file() {
     owner="$(stat -c %u "${LOOPFS_HELPER_DST}")"
     mode="$(stat -c %a "${LOOPFS_HELPER_DST}")"
     if [[ "${owner}" != "0" ]] || (( (8#${mode} & 8#022) != 0 )); then
-        echo "❌ Runtime helper must be controlled by root: '${LOOPFS_HELPER_DST}'; run 'smolvm setup' to restore it."
+        echo "❌ Runtime helper must be controlled by root: '${LOOPFS_HELPER_DST}'; run 'celesto setup' to restore it."
         return 1
     fi
 }
 
 install_loopfs_helper() {
     if [[ ! -f "${LOOPFS_HELPER_SRC}" ]]; then
-        echo "❌ Runtime helper source is missing: '${LOOPFS_HELPER_SRC}'; reinstall SmolVM, then run 'smolvm setup' again."
+        echo "❌ Runtime helper source is missing: '${LOOPFS_HELPER_SRC}'; reinstall Celesto, then run 'celesto setup' again."
         exit 1
     fi
     validate_helper_directory
-    "${INSTALL_BIN}" -d -o root -g root -m 0755 /var/lib/smolvm "${LOOPFS_HELPER_DIR}"
+    "${INSTALL_BIN}" -d -o root -g root -m 0755 /var/lib/celesto "${LOOPFS_HELPER_DIR}"
     validate_helper_directory
     "${INSTALL_BIN}" -o root -g root -m 0755 "${LOOPFS_HELPER_SRC}" "${LOOPFS_HELPER_DST}"
     validate_helper_file
@@ -173,11 +173,11 @@ render_sudoers() {
     # wildcards embedded inside argument values, so we cannot pin the route_localnet
     # sysctl to a per-tap pattern. Sysctl is widened to match the ip/nft scope.
     cat > "${target_file}" <<EOF
-# Managed by SmolVM (${SCRIPT_NAME}) for user ${RUNTIME_USER}
-# Allows only commands needed by SmolVM networking and the image-build helper.
-Cmnd_Alias SMOLVM_NET_CMDS = ${IP_BIN} *, ${NFT_BIN} *, ${SYSCTL_BIN} *
-Cmnd_Alias SMOLVM_IMG_CMDS = ${LOOPFS_HELPER_DST} *
-${RUNTIME_USER} ALL=(root) NOPASSWD: SMOLVM_NET_CMDS, SMOLVM_IMG_CMDS
+# Managed by Celesto (${SCRIPT_NAME}) for user ${RUNTIME_USER}
+# Allows only commands needed by Celesto networking and the image-build helper.
+Cmnd_Alias CELESTO_NET_CMDS = ${IP_BIN} *, ${NFT_BIN} *, ${SYSCTL_BIN} *
+Cmnd_Alias CELESTO_IMG_CMDS = ${LOOPFS_HELPER_DST} *
+${RUNTIME_USER} ALL=(root) NOPASSWD: CELESTO_NET_CMDS, CELESTO_IMG_CMDS
 EOF
 }
 
@@ -245,7 +245,7 @@ echo "✅ Installed runtime sudoers: ${SUDOERS_FILE}"
 echo "✅ Installed runtime helper: ${LOOPFS_HELPER_DST}"
 if [[ "${SKIP_RUNTIME_CHECK}" == "true" ]]; then
     echo "ℹ️ Skipping post-install runtime access check (--skip-runtime-check)."
-    echo "   Verify on the runtime host with --check-only or 'smolvm doctor'."
+    echo "   Verify on the runtime host with --check-only or 'celesto doctor'."
 else
     check_runtime_access
 fi

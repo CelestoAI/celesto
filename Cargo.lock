@@ -171,6 +171,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "celesto-core"
+version = "2026.6.24"
+dependencies = [
+ "futures-util",
+ "libc",
+ "log",
+ "netlink-packet-route",
+ "pyo3",
+ "pyo3-log",
+ "rtnetlink",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "zstd",
+]
+
+[[package]]
+name = "celesto-guest-agent"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "clap",
+ "hyper",
+ "hyper-util",
+ "libc",
+ "once_cell",
+ "portable-pty",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-vsock",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1022,44 +1060,6 @@ name = "smallvec"
 version = "1.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
-
-[[package]]
-name = "smolvm-core"
-version = "2026.6.24"
-dependencies = [
- "futures-util",
- "libc",
- "log",
- "netlink-packet-route",
- "pyo3",
- "pyo3-log",
- "rtnetlink",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "zstd",
-]
-
-[[package]]
-name = "smolvm-guest-agent"
-version = "0.1.0"
-dependencies = [
- "axum",
- "clap",
- "hyper",
- "hyper-util",
- "libc",
- "once_cell",
- "portable-pty",
- "serde",
- "serde_json",
- "tokio",
- "tokio-vsock",
- "tower",
- "tracing",
- "tracing-subscriber",
-]
 
 [[package]]
 name = "socket2"

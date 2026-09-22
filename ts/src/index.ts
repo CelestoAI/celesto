@@ -2,7 +2,7 @@ import process from "node:process";
 import { randomUUID } from "node:crypto";
 import { BrowserSession, type BrowserSessionResponse } from "./browser-session.js";
 import { ComputerSession, type ComputerResponse } from "./computer-session.js";
-import { SmolVMError } from "./errors.js";
+import { CelestoError } from "./errors.js";
 import { Sandbox } from "./sandbox.js";
 import { ProcessTransport } from "./transport.js";
 import type {
@@ -18,17 +18,22 @@ import type {
   ComputerCollection,
   DiagnoseResult,
   SandboxCollection,
-  SmolVMClient,
-  SmolVMEvent,
-  SmolVMOptions,
-  SmolVMTransport,
+  CelestoClient,
+  CelestoEvent,
+  CelestoOptions,
+  CelestoTransport,
 } from "./types.js";
 
-export { SmolVMError } from "./errors.js";
+export { CelestoError } from "./errors.js";
 export { Sandbox } from "./sandbox.js";
 export { BrowserSession } from "./browser-session.js";
 export { ComputerSession } from "./computer-session.js";
-export type { SmolVMErrorCode, SmolVMErrorOptions } from "./errors.js";
+export type {
+  CelestoErrorCode,
+  CelestoErrorOptions,
+  SmolVMErrorCode,
+  SmolVMErrorOptions,
+} from "./errors.js";
 export type * from "./types.js";
 
 const REQUIRED_CAPABILITIES = [
@@ -62,7 +67,7 @@ const REQUIRED_COMPUTER_CAPABILITIES = [
 function assertSupportedNode(): void {
   const [major = 0, minor = 0] = process.versions.node.split(".").map(Number);
   if (major < 20 || (major === 20 && minor < 4)) {
-    throw new SmolVMError("unsupported_node", "@celestoai/smolvm requires Node.js 20.4 or newer.", {
+    throw new CelestoError("unsupported_node", "@celestoai/celesto requires Node.js 20.4 or newer.", {
       operation: "client.create",
       actual: { nodeVersion: process.versions.node },
       recoveryCommand: "nvm install 20",
@@ -79,22 +84,22 @@ function timeoutOption(value: number | undefined, fallback: number, name: string
 }
 
 /** Entry point for creating disposable local sandboxes. */
-export class SmolVM implements SmolVMClient {
+export class Celesto implements CelestoClient {
   readonly sandboxes: SandboxCollection;
   readonly browsers: BrowserSessionCollection;
   readonly computers: ComputerCollection;
-  private readonly transport: SmolVMTransport;
+  private readonly transport: CelestoTransport;
   private readonly active = new Set<Sandbox>();
   private readonly activeBrowsers = new Set<BrowserSession>();
   private readonly activeComputers = new Set<ComputerSession>();
-  private readonly onEvent?: (event: SmolVMEvent) => void;
+  private readonly onEvent?: (event: CelestoEvent) => void;
   private readonly debug: boolean;
   private negotiation?: Promise<ReadonlySet<string>>;
   private closePromise?: Promise<void>;
   private transportClosePromise?: Promise<void>;
   private sessionClosed = false;
 
-  constructor(options: SmolVMOptions = {}) {
+  constructor(options: CelestoOptions = {}) {
     assertSupportedNode();
     this.onEvent = options.onEvent;
     this.debug = options.debug ?? false;
@@ -114,7 +119,7 @@ export class SmolVM implements SmolVMClient {
     this.computers = { create: (createOptions) => this.createComputer(createOptions) };
   }
 
-  private emit(event: SmolVMEvent): void {
+  private emit(event: CelestoEvent): void {
     if (event.type === "computer.error") {
       for (const computer of this.activeComputers) {
         if (computer.computerId === event.computerId) computer.markError();
@@ -152,7 +157,7 @@ export class SmolVM implements SmolVMClient {
         const capabilities = Array.isArray(result.capabilities) ? result.capabilities : [];
         const protocolVersion = result.protocol_version ?? -1;
         if (protocolVersion !== 1) {
-          throw new SmolVMError("protocol_incompatible", "The installed Celesto runtime is incompatible with this SDK.", {
+          throw new CelestoError("protocol_incompatible", "The installed Celesto runtime is incompatible with this SDK.", {
             operation: "runtime.negotiate",
             actual: { protocolVersion },
             recoveryCommand: "curl -sSL https://celesto.ai/install.sh | bash",
@@ -168,7 +173,7 @@ export class SmolVM implements SmolVMClient {
     const capabilities = await this.negotiation;
     const missing = required.filter((capability) => !capabilities.has(capability));
     if (missing.length > 0) {
-      throw new SmolVMError("protocol_incompatible", "The installed Celesto runtime is incompatible with this SDK.", {
+      throw new CelestoError("protocol_incompatible", "The installed Celesto runtime is incompatible with this SDK.", {
         operation: "runtime.negotiate",
         actual: { protocolVersion: 1, missingCapabilities: missing.join(",") },
         recoveryCommand: "curl -sSL https://celesto.ai/install.sh | bash",
@@ -197,7 +202,7 @@ export class SmolVM implements SmolVMClient {
         }),
       });
     } catch (cause) {
-      if (cause instanceof SmolVMError && cause.actual?.sessionClosed === true) {
+      if (cause instanceof CelestoError && cause.actual?.sessionClosed === true) {
         this.transitionSessionClosed();
       }
       throw cause;
@@ -245,7 +250,7 @@ export class SmolVM implements SmolVMClient {
         }),
       });
     } catch (cause) {
-      if (cause instanceof SmolVMError && cause.actual?.sessionClosed === true) {
+      if (cause instanceof CelestoError && cause.actual?.sessionClosed === true) {
         this.transitionSessionClosed();
       }
       throw cause;
@@ -292,7 +297,7 @@ export class SmolVM implements SmolVMClient {
         }),
       });
     } catch (cause) {
-      if (cause instanceof SmolVMError && cause.actual?.sessionClosed === true) {
+      if (cause instanceof CelestoError && cause.actual?.sessionClosed === true) {
         this.transitionSessionClosed();
       }
       throw cause;
@@ -342,9 +347,9 @@ export class SmolVM implements SmolVMClient {
         try { await computer.delete(); } catch (cause) { failures.push(cause); }
       }));
       if (this.activeComputers.size > 0) {
-        throw new SmolVMError(
+        throw new CelestoError(
           "cleanup_failed",
-          "One or more computers were not fully deleted; call computer.delete() or smolvm.close() again.",
+          "One or more computers were not fully deleted; call computer.delete() or celesto.close() again.",
           {
             operation: "client.close",
             actual: { failures: failures.length },
@@ -355,7 +360,7 @@ export class SmolVM implements SmolVMClient {
       }
       try { await this.closeTransport(); } catch (cause) { failures.push(cause); }
       if (failures.length > 0) {
-        throw new SmolVMError("cleanup_failed", "One or more sandboxes could not be deleted; the SDK session was closed.", {
+        throw new CelestoError("cleanup_failed", "One or more sandboxes could not be deleted; the SDK session was closed.", {
           operation: "client.close",
           actual: { failures: failures.length },
           cause: failures[0],
@@ -371,9 +376,12 @@ export class SmolVM implements SmolVMClient {
   }
 }
 
+/** @deprecated Import `Celesto` from `@celestoai/celesto` instead. */
+export { Celesto as SmolVM };
+
 const asyncDispose = (Symbol as typeof Symbol & { asyncDispose?: symbol }).asyncDispose;
 if (asyncDispose) {
-  Object.defineProperty(SmolVM.prototype, asyncDispose, {
-    value(this: SmolVM) { return this.close(); },
+  Object.defineProperty(Celesto.prototype, asyncDispose, {
+    value(this: Celesto) { return this.close(); },
   });
 }

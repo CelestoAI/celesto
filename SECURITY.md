@@ -1,10 +1,10 @@
 # Security Policy
 
-Thank you for helping keep SmolVM secure.
+Thank you for helping keep Celesto secure.
 
 ## Important Legal Note
 
-SmolVM is licensed under the **Apache License 2.0**. See [LICENSE](LICENSE).
+Celesto is licensed under the **Apache License 2.0**. See [LICENSE](LICENSE).
 
 This security policy is provided on a **best-effort** basis and is for process clarity only.
 It does **not** create any contractual, legal, or other binding obligation on maintainers.
@@ -19,7 +19,7 @@ All software and updates remain provided **"AS IS"**, without warranties, as des
 
 ## Supported Versions
 
-SmolVM is currently pre-1.0. Security fixes are prioritized for:
+Celesto is currently pre-1.0. Security fixes are prioritized for:
 
 | Version / Branch | Supported |
 | --- | --- |
@@ -35,7 +35,7 @@ Please **do not open public GitHub issues** for suspected vulnerabilities.
 
 Use GitHub's private vulnerability reporting flow:
 
-- **Private report:** https://github.com/CelestoAI/SmolVM/security/advisories/new
+- **Private report:** https://github.com/CelestoAI/Celesto/security/advisories/new
 
 If that link is unavailable, open a minimal issue asking maintainers for a private contact channel (without sensitive details).
 
@@ -72,15 +72,15 @@ We follow coordinated disclosure where possible:
 
 This policy covers vulnerabilities in this repository's code and release artifacts.
 
-Out-of-scope (unless caused by SmolVM code):
+Out-of-scope (unless caused by Celesto code):
 
 - Vulnerabilities in third-party dependencies/upstream projects
-- Host misconfiguration outside documented SmolVM setup
+- Host misconfiguration outside documented Celesto setup
 - Security findings without a realistic exploit path or impact
 
 ## Current SSH Trust Model (Important)
 
-SmolVM is optimized for non-interactive local sandbox workflows. To reduce user
+Celesto is optimized for non-interactive local sandbox workflows. To reduce user
 friction in ephemeral VM lifecycles, the current SSH path accepts unknown host
 keys on first connection (Paramiko `AutoAddPolicy`).
 
@@ -88,7 +88,7 @@ keys on first connection (Paramiko `AutoAddPolicy`).
 
 - This can allow man-in-the-middle attacks in untrusted network environments
   (CWE-295).
-- SmolVM should therefore be treated as a **trusted-host / trusted-network**
+- Celesto should therefore be treated as a **trusted-host / trusted-network**
   local runtime by default.
 
 ### Recommended Operational Guidance

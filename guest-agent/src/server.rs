@@ -70,6 +70,6 @@ pub async fn serve_tcp(app: Router, addr: &str) {
 
 #[cfg(not(feature = "tcp"))]
 pub async fn serve_tcp(_app: Router, _addr: &str) {
-    eprintln!("TCP listener support is disabled in public SmolVM guest-agent builds.");
+    eprintln!("TCP listener support is disabled in public Celesto guest-agent builds.");
     std::process::exit(1);
 }

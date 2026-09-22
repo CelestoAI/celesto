@@ -85,7 +85,7 @@ def test_browser_reconnect_requires_explicit_state_manager(tmp_path: Path) -> No
 
 
 @patch("celesto.browser._BrowserSandbox")
-def test_smolvm_browser_factory_starts_headless_sandbox(mock_sandbox_cls: MagicMock) -> None:
+def test_celesto_browser_factory_starts_headless_sandbox(mock_sandbox_cls: MagicMock) -> None:
     """Celesto.browser(headless=True) should start a CDP-only browser sandbox."""
     sandbox = MagicMock()
     mock_sandbox_cls.return_value = sandbox
@@ -112,7 +112,7 @@ def test_smolvm_browser_factory_starts_headless_sandbox(mock_sandbox_cls: MagicM
 
 
 @patch("celesto.browser._BrowserSandbox")
-def test_smolvm_browser_factory_starts_visible_sandbox(mock_sandbox_cls: MagicMock) -> None:
+def test_celesto_browser_factory_starts_visible_sandbox(mock_sandbox_cls: MagicMock) -> None:
     """Celesto.browser(headless=False) should start a visible browser sandbox."""
     sandbox = MagicMock()
     mock_sandbox_cls.return_value = sandbox
@@ -127,7 +127,7 @@ def test_smolvm_browser_factory_starts_visible_sandbox(mock_sandbox_cls: MagicMo
 
 
 @patch("celesto.browser._BrowserSandbox")
-def test_smolvm_browser_factory_forwards_network_policy(mock_sandbox_cls: MagicMock) -> None:
+def test_celesto_browser_factory_forwards_network_policy(mock_sandbox_cls: MagicMock) -> None:
     """Browser network restrictions should reach the underlying VM config."""
     sandbox = MagicMock()
     mock_sandbox_cls.return_value = sandbox
@@ -141,7 +141,7 @@ def test_smolvm_browser_factory_forwards_network_policy(mock_sandbox_cls: MagicM
 
 
 @patch("celesto.browser._DesktopSandbox")
-def test_smolvm_desktop_factory_starts_visible_sandbox(mock_sandbox_cls: MagicMock) -> None:
+def test_celesto_desktop_factory_starts_visible_sandbox(mock_sandbox_cls: MagicMock) -> None:
     """Celesto.desktop() should start a visible desktop sandbox."""
     sandbox = MagicMock()
     mock_sandbox_cls.return_value = sandbox
@@ -157,7 +157,7 @@ def test_smolvm_desktop_factory_starts_visible_sandbox(mock_sandbox_cls: MagicMo
 
 
 @patch("celesto.computer._ComputerSandbox")
-def test_smolvm_computer_factory_starts_linux_desktop(mock_sandbox_cls: MagicMock) -> None:
+def test_celesto_computer_factory_starts_linux_desktop(mock_sandbox_cls: MagicMock) -> None:
     """The computer factory should create one desktop-and-browser session."""
     sandbox = MagicMock(spec=_ComputerSandbox)
     mock_sandbox_cls.return_value = sandbox
@@ -188,7 +188,7 @@ def test_smolvm_computer_factory_starts_linux_desktop(mock_sandbox_cls: MagicMoc
     sandbox.enable_events.assert_called_once_with(events.append)
 
 
-def test_smolvm_computer_rejects_unknown_template_and_vcpu_count() -> None:
+def test_celesto_computer_rejects_unknown_template_and_vcpu_count() -> None:
     """Unsupported computer choices should fail before allocating a VM."""
     with pytest.raises(ValueError, match="template 'windows-desktop'"):
         Celesto.computer(template="windows-desktop")  # type: ignore[arg-type]
@@ -275,7 +275,7 @@ def test_computer_files_write_as_agent_and_replace_atomically() -> None:
     files.write("/workspace/nested/file.txt", "hello")
 
     uploaded_path = computer.vm.upload_file.call_args.args[1]
-    assert uploaded_path.startswith("/tmp/smolvm-computer-")
+    assert uploaded_path.startswith("/tmp/celesto-computer-")
     install_command = computer.vm.run.call_args_list[0].args[0]
     assert "mkdir -p -- /workspace/nested" in install_command
     assert "install -m 0644" in install_command
@@ -459,7 +459,7 @@ def test_computer_delete_without_vm_preserves_persisted_state() -> None:
 
 
 @patch("celesto.browser._BrowserSandbox")
-def test_smolvm_browser_factory_stops_sandbox_on_start_failure(
+def test_celesto_browser_factory_stops_sandbox_on_start_failure(
     mock_sandbox_cls: MagicMock,
 ) -> None:
     """Celesto.browser() should not leave a created sandbox around after start fails."""
@@ -475,7 +475,7 @@ def test_smolvm_browser_factory_stops_sandbox_on_start_failure(
 
 @patch("celesto.facade.logger")
 @patch("celesto.browser._BrowserSandbox")
-def test_smolvm_browser_factory_logs_cleanup_failure_without_replacing_start_error(
+def test_celesto_browser_factory_logs_cleanup_failure_without_replacing_start_error(
     mock_sandbox_cls: MagicMock,
     mock_logger: MagicMock,
 ) -> None:
@@ -495,7 +495,7 @@ def test_smolvm_browser_factory_logs_cleanup_failure_without_replacing_start_err
 
 
 @patch("celesto.browser._BrowserSandbox")
-def test_smolvm_browser_factory_rejects_invalid_resource_limits(
+def test_celesto_browser_factory_rejects_invalid_resource_limits(
     mock_sandbox_cls: MagicMock,
 ) -> None:
     """Invalid factory limits should fail before constructing the sandbox."""
@@ -512,7 +512,7 @@ def test_smolvm_browser_factory_rejects_invalid_resource_limits(
 
 
 @patch("celesto.browser._DesktopSandbox")
-def test_smolvm_desktop_factory_rejects_invalid_viewport(
+def test_celesto_desktop_factory_rejects_invalid_viewport(
     mock_sandbox_cls: MagicMock,
 ) -> None:
     """Viewport values should be validated before constructing the sandbox."""
@@ -931,7 +931,7 @@ def test_browser_session_start_persists_ready_state(
     vm.wait_for_guest_tcp_ports.side_effect = [False, True, True, True, True, True]
 
     def _run_side_effect(command: str, timeout: int = 30, shell: str = "login") -> CommandResult:
-        if command.startswith("/usr/local/bin/smolvm-browser-session start"):
+        if command.startswith("/usr/local/bin/celesto-browser-session start"):
             return CommandResult(exit_code=0, stdout="", stderr="")
         return CommandResult(exit_code=0, stdout="", stderr="")
 
@@ -1004,7 +1004,7 @@ def test_computer_start_requires_healthy_desktop_processes(
     assert "pgrep -x tint2" in desktop_probe
     assert "xdotool search --onlyvisible --classname tint2" in desktop_probe
     assert "xdotool search --onlyvisible --class chromium" in desktop_probe
-    assert "/workspace/.smolvm-ready-" in desktop_probe
+    assert "/workspace/.celesto-ready-" in desktop_probe
     session.close()
 
 
@@ -1040,7 +1040,7 @@ def test_browser_sandbox_start_uses_configured_qemu_cdp_forward(
 
     def _run_side_effect(command: str, timeout: int = 30, shell: str = "login") -> CommandResult:
         del timeout, shell
-        if command.startswith("/usr/local/bin/smolvm-browser-session start"):
+        if command.startswith("/usr/local/bin/celesto-browser-session start"):
             return CommandResult(exit_code=0, stdout="", stderr="")
         return CommandResult(exit_code=0, stdout="", stderr="")
 
@@ -1094,7 +1094,7 @@ def test_browser_wait_for_guest_port_falls_back_when_control_wait_unsupported() 
     assert session._wait_for_guest_port(9222, timeout=2.5) is True
 
     vm.run.assert_called_once_with(
-        "/usr/local/bin/smolvm-browser-wait-port 9222 2.5",
+        "/usr/local/bin/celesto-browser-wait-port 9222 2.5",
         timeout=7,
     )
 
@@ -1130,14 +1130,14 @@ def test_desktop_sandbox_start_exposes_viewer_and_display_only(
 
     def _run_side_effect(command: str, timeout: int = 30, shell: str = "login") -> CommandResult:
         del timeout, shell
-        if command.startswith("/usr/local/bin/smolvm-browser-wait-port 9222"):
+        if command.startswith("/usr/local/bin/celesto-browser-wait-port 9222"):
             raise AssertionError("desktop mode should not wait for CDP")
-        if command.startswith("/usr/local/bin/smolvm-browser-session start"):
+        if command.startswith("/usr/local/bin/celesto-browser-session start"):
             assert " desktop " in command
             return CommandResult(exit_code=0, stdout="", stderr="")
-        if command.startswith("/usr/local/bin/smolvm-browser-wait-port 6080"):
+        if command.startswith("/usr/local/bin/celesto-browser-wait-port 6080"):
             return CommandResult(exit_code=0, stdout="", stderr="")
-        if command.startswith("/usr/local/bin/smolvm-browser-wait-port 5900"):
+        if command.startswith("/usr/local/bin/celesto-browser-wait-port 5900"):
             return CommandResult(exit_code=0, stdout="", stderr="")
         return CommandResult(exit_code=0, stdout="", stderr="")
 

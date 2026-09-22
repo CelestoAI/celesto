@@ -74,7 +74,7 @@ class TestCheckForUpdate:
 
     def test_uses_fresh_cache(self, home_dir: Path) -> None:
         """A fresh cache entry short-circuits the PyPI call."""
-        cache = home_dir / ".smolvm" / ".celesto_version_check.json"
+        cache = home_dir / ".celesto" / ".celesto_version_check.json"
         cache.parent.mkdir(parents=True, exist_ok=True)
         cache.write_text(json.dumps({"latest": "0.2.0", "checked_at": time.time()}))
 
@@ -85,8 +85,8 @@ class TestCheckForUpdate:
             assert version_check.check_for_update() == "0.2.0"
             fetch.assert_not_called()
 
-    def test_ignores_legacy_smolvm_cache(self, home_dir: Path) -> None:
-        cache = home_dir / ".smolvm" / ".version_check.json"
+    def test_ignores_legacy_celesto_cache(self, home_dir: Path) -> None:
+        cache = home_dir / ".celesto" / ".version_check.json"
         cache.parent.mkdir(parents=True, exist_ok=True)
         cache.write_text(json.dumps({"latest": "0.0.36", "checked_at": time.time()}))
         with (
@@ -97,7 +97,7 @@ class TestCheckForUpdate:
             fetch.assert_called_once()
 
     def test_stale_cache_is_refreshed(self, home_dir: Path) -> None:
-        cache = home_dir / ".smolvm" / ".celesto_version_check.json"
+        cache = home_dir / ".celesto" / ".celesto_version_check.json"
         cache.parent.mkdir(parents=True, exist_ok=True)
         stale_ts = time.time() - (version_check.CACHE_TTL_SECONDS + 1)
         cache.write_text(json.dumps({"latest": "0.0.5", "checked_at": stale_ts}))
@@ -124,7 +124,7 @@ class TestMaybePrintUpdateNotice:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        monkeypatch.delenv("SMOLVM_DISABLE_VERSION_CHECK", raising=False)
+        monkeypatch.delenv("CELESTO_DISABLE_VERSION_CHECK", raising=False)
         monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
         self._force_tty(monkeypatch)
 
@@ -146,7 +146,7 @@ class TestMaybePrintUpdateNotice:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        monkeypatch.delenv("SMOLVM_DISABLE_VERSION_CHECK", raising=False)
+        monkeypatch.delenv("CELESTO_DISABLE_VERSION_CHECK", raising=False)
         monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
         self._force_tty(monkeypatch)
 
@@ -161,7 +161,7 @@ class TestMaybePrintUpdateNotice:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        monkeypatch.delenv("SMOLVM_DISABLE_VERSION_CHECK", raising=False)
+        monkeypatch.delenv("CELESTO_DISABLE_VERSION_CHECK", raising=False)
         monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
         self._force_tty(monkeypatch)
 
@@ -177,7 +177,7 @@ class TestMaybePrintUpdateNotice:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        monkeypatch.setenv("SMOLVM_DISABLE_VERSION_CHECK", "1")
+        monkeypatch.setenv("CELESTO_DISABLE_VERSION_CHECK", "1")
         monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
         self._force_tty(monkeypatch)
 
@@ -193,7 +193,7 @@ class TestMaybePrintUpdateNotice:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        monkeypatch.delenv("SMOLVM_DISABLE_VERSION_CHECK", raising=False)
+        monkeypatch.delenv("CELESTO_DISABLE_VERSION_CHECK", raising=False)
         monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
         monkeypatch.setattr("sys.stderr.isatty", lambda: False, raising=False)
 
@@ -209,7 +209,7 @@ class TestMaybePrintUpdateNotice:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        monkeypatch.delenv("SMOLVM_DISABLE_VERSION_CHECK", raising=False)
+        monkeypatch.delenv("CELESTO_DISABLE_VERSION_CHECK", raising=False)
         monkeypatch.setenv("PYTEST_CURRENT_TEST", "test_foo (call)")
         self._force_tty(monkeypatch)
 
@@ -225,7 +225,7 @@ class TestMaybePrintUpdateNotice:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        monkeypatch.delenv("SMOLVM_DISABLE_VERSION_CHECK", raising=False)
+        monkeypatch.delenv("CELESTO_DISABLE_VERSION_CHECK", raising=False)
         monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
         self._force_tty(monkeypatch)
 

@@ -164,7 +164,7 @@ async function observe(page: Page): Promise<Record<string, unknown>> {
       counts.set(key, nth + 1);
       const locatorId = randomUUID();
       const marked = await page.getByRole(role as Parameters<Page["getByRole"]>[0], { name, exact: true }).nth(nth)
-        .evaluate((node, id) => node.setAttribute("data-smolvm-browser-ref", id), locatorId)
+        .evaluate((node, id) => node.setAttribute("data-celesto-browser-ref", id), locatorId)
         .then(() => true, () => false);
       if (marked) {
         const publicName = redact(name).slice(0, 160);
@@ -210,7 +210,7 @@ async function extract(page: Page, target?: BrowserTarget): Promise<Record<strin
 }
 
 async function resolveTarget(page: Page, target: BrowserTarget): Promise<Locator> {
-  const candidates = page.locator(`[data-smolvm-browser-ref="${target.locatorId}"]`)
+  const candidates = page.locator(`[data-celesto-browser-ref="${target.locatorId}"]`)
     .and(page.getByRole(target.role as Parameters<Page["getByRole"]>[0], { name: target.name, exact: true }));
   if (await candidates.count() !== 1) throw new Error("The observed target is no longer available.");
   return candidates.first();

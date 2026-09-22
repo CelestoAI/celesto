@@ -60,7 +60,7 @@ class QMPClient:
         if _NativeQMPClient is None:
             raise CoreUnavailableError(
                 "QEMU control support is missing; "
-                "run `uv sync --reinstall-package smolvm-core` and try again."
+                "run `uv sync --reinstall-package celesto-core` and try again."
             )
 
         self.socket_path = socket_path

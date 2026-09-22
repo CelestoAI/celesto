@@ -1,10 +1,10 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
 ***
 
-[@celestoai/smolvm](../README.md) / SmolVMTransport
+[@celestoai/celesto](../README.md) / CelestoTransport
 
-# Interface: SmolVMTransport
+# Interface: CelestoTransport
 
 Sends private bridge requests; applications can implement it to test without a VM.
 

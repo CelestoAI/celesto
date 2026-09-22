@@ -1,10 +1,10 @@
-import { SmolVM } from "@celestoai/smolvm";
+import { Celesto } from "@celestoai/celesto";
 
 async function main() {
-  const smolvm = new SmolVM();
+  const celesto = new Celesto();
 
   try {
-    const computer = await smolvm.browsers.create({ mode: "live" });
+    const computer = await celesto.browsers.create({ mode: "live" });
     await computer.files.write("/workspace/task.txt", "visit example.com");
     console.log({
       sandboxId: computer.sandboxId,
@@ -13,7 +13,7 @@ async function main() {
       displayUrl: computer.displayUrl,
     });
   } finally {
-    await smolvm.close();
+    await celesto.close();
   }
 }
 

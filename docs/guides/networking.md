@@ -31,9 +31,9 @@ Create a bridged sandbox only after that check passes:
 celesto sandbox create --name demo --os alpine --network bridge --bridge br10
 ```
 
-The current Celesto Alpine image automatically asks the network for an address using DHCP (Dynamic Host Configuration Protocol). To use a static address instead, add an executable `/etc/smolvm/network.sh` script inside the guest disk. Celesto passes `eth0` as the script's first argument each time the guest boots. You can open the guest before it has an address because `celesto sandbox shell demo` uses a direct host-to-guest control channel rather than the network.
+The current Celesto Alpine image automatically asks the network for an address using DHCP (Dynamic Host Configuration Protocol). To use a static address instead, add an executable `/etc/celesto/network.sh` script inside the guest disk. Celesto passes `eth0` as the script's first argument each time the guest boots. You can open the guest before it has an address because `celesto sandbox shell demo` uses a direct host-to-guest control channel rather than the network.
 
-Custom images must understand the `smolvm.network=guest` boot setting and configure `eth0`. When creating `VMConfig` directly for a compatible image, set `guest_managed_networking=True`. Celesto rejects older published or custom images instead of starting them without working bridge configuration.
+Custom images must understand the `celesto.network=guest` boot setting and configure `eth0`. When creating `VMConfig` directly for a compatible image, set `guest_managed_networking=True`. Celesto rejects older published or custom images instead of starting them without working bridge configuration.
 
 Bridge mode deliberately does not provide Celesto NAT, port exposure, SSH from the host, workspace mounts, or outbound-domain controls. Connect to guest services from the bridged network, and use `celesto sandbox shell demo` for host administration.
 

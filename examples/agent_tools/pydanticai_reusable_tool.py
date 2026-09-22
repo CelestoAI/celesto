@@ -103,7 +103,7 @@ def _cleanup_vm(vm: Celesto | None) -> None:
         vm.close()
 
 
-def run_in_reusable_smolvm(
+def run_in_reusable_celesto(
     ctx: RunContext[SandboxDeps],
     command: str,
     timeout: int = 30,
@@ -126,12 +126,12 @@ def _build_agent() -> Any:
         deps_type=SandboxDeps,
         instructions=(
             "You are a coding assistant with access to a reusable Celesto sandbox. "
-            "For shell and file-system tasks, call run_in_reusable_smolvm exactly "
+            "For shell and file-system tasks, call run_in_reusable_celesto exactly "
             "once and then summarize the result."
         ),
     )
     agent.tool(docstring_format="google", require_parameter_descriptions=True)(
-        run_in_reusable_smolvm
+        run_in_reusable_celesto
     )
     return agent
 
@@ -142,7 +142,7 @@ def main() -> None:
     deps = SandboxDeps()
     try:
         first_prompt = (
-            "Use run_in_reusable_smolvm to run this exact command inside the sandbox: "
+            "Use run_in_reusable_celesto to run this exact command inside the sandbox: "
             "`printf 'persistent state from Celesto\\n' > /tmp/agent-note.txt && "
             "cat /tmp/agent-note.txt`. Then summarize what happened."
         )
@@ -152,7 +152,7 @@ def main() -> None:
         print(f"Reusable VM ID: {deps.vm.vm_id if deps.vm else '<none>'}")
 
         second_prompt = (
-            "Use run_in_reusable_smolvm to run this exact command inside the sandbox: "
+            "Use run_in_reusable_celesto to run this exact command inside the sandbox: "
             "`cat /tmp/agent-note.txt`. Then confirm that the file still exists."
         )
         second_result = agent.run_sync(second_prompt, deps=deps)

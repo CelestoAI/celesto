@@ -1,8 +1,8 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
 ***
 
-[@celestoai/smolvm](../README.md) / CommandFilesClient
+[@celestoai/celesto](../README.md) / CommandFilesClient
 
 # Interface: CommandFilesClient
 

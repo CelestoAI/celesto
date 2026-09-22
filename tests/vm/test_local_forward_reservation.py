@@ -98,7 +98,7 @@ def test_persisted_forward_prevents_reuse_after_owner_exits(sandboxes, monkeypat
     rules = []
 
     def listing(*args, **kwargs):
-        output = "table ip smolvm_nat {\n chain output {\n"
+        output = "table ip celesto_nat {\n chain output {\n"
         for _, _, chain, expression, comment in rules:
             if chain == "output":
                 output += f'  {expression} comment "{comment}"\n'

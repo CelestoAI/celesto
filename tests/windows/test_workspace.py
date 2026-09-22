@@ -658,7 +658,7 @@ class TestCliMountFlag:
     def test_create_with_mount_and_no_backend_selects_qemu(
         self,
         mock_build_auto_config: MagicMock,
-        mock_smolvm_cls: MagicMock,
+        mock_celesto_cls: MagicMock,
         tmp_path: Path,
     ) -> None:
         """`celesto sandbox create --mount /path` (no --backend) must auto-select QEMU
@@ -682,8 +682,8 @@ class TestCliMountFlag:
             ),
             None,
         )
-        mock_smolvm_cls.return_value.vm_id = "vm-mnt"
-        mock_smolvm_cls.return_value.info.status = VMState.RUNNING
+        mock_celesto_cls.return_value.vm_id = "vm-mnt"
+        mock_celesto_cls.return_value.info.status = VMState.RUNNING
 
         ret = main(["sandbox", "create", "--mount", str(tmp_path / "project"), "--json"])
 
@@ -695,7 +695,7 @@ class TestCliMountFlag:
     def test_create_with_mount_and_explicit_firecracker_left_alone(
         self,
         mock_build_auto_config: MagicMock,
-        mock_smolvm_cls: MagicMock,
+        mock_celesto_cls: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Explicit `--backend firecracker --mount /path` must NOT be silently
@@ -717,8 +717,8 @@ class TestCliMountFlag:
             ),
             None,
         )
-        mock_smolvm_cls.return_value.vm_id = "vm-mnt"
-        mock_smolvm_cls.return_value.info.status = VMState.RUNNING
+        mock_celesto_cls.return_value.vm_id = "vm-mnt"
+        mock_celesto_cls.return_value.info.status = VMState.RUNNING
 
         ret = main(
             [

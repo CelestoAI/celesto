@@ -43,7 +43,7 @@ from celesto.types import (
 
 @pytest.fixture(autouse=True)
 def _clear_qemu_machine_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("SMOLVM_QEMU_MACHINE", raising=False)
+    monkeypatch.delenv("CELESTO_QEMU_MACHINE", raising=False)
 
 
 def _qemu_vm_info(
@@ -312,7 +312,7 @@ def test_env_qemu_machine_q35_forces_compatibility_machine(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("SMOLVM_QEMU_MACHINE", "q35")
+    monkeypatch.setenv("CELESTO_QEMU_MACHINE", "q35")
     cmd = build_qemu_argv(
         _qemu_vm_info(tmp_path),
         qemu_bin=Path("/usr/bin/qemu-system-x86_64"),

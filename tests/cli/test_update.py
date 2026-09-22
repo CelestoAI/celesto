@@ -83,7 +83,7 @@ class TestIsUvToolInstall:
 
     def test_returns_false_when_only_celesto_core_in_uv_tool_list(self) -> None:
         mock_result = MagicMock()
-        mock_result.stdout = "smolvm-core v0.0.14\n"
+        mock_result.stdout = "celesto-core v0.0.14\n"
         with (
             patch("celesto.cli.update.shutil.which", return_value="/usr/bin/uv"),
             patch("celesto.cli.update.subprocess.run", return_value=mock_result),

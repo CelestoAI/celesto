@@ -69,10 +69,10 @@ def test_start_report_includes_shared_envelope_fields() -> None:
         "created_at",
         "git",
         "host",
-        "smolvm_version",
-        "smolvm_core",
+        "celesto_version",
+        "celesto_core",
     }
     assert {"commit", "branch", "dirty"} <= set(report["git"])
     assert {"system", "release", "machine", "python"} <= set(report["host"])
-    assert isinstance(report["smolvm_version"], str)
-    assert isinstance(report["smolvm_core"], str)
+    assert isinstance(report["celesto_version"], str)
+    assert isinstance(report["celesto_core"], str)

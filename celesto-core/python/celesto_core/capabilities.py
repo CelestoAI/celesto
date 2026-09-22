@@ -1,4 +1,4 @@
-"""Capability detection for smolvm-core."""
+"""Capability detection for celesto-core."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from . import disk, firecracker, network, qmp
 
 @dataclass(frozen=True, slots=True)
 class CoreCapabilities:
-    """Native helpers available in the installed smolvm-core wheel."""
+    """Native helpers available in the installed celesto-core wheel."""
 
     networking: bool
     disk_io: bool

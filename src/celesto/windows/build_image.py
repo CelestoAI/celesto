@@ -25,7 +25,7 @@ End-to-end flow driven by :class:`WindowsImageBuilder`:
    the empty target — all the firmware / TPM / virtio plumbing comes
    from the existing :class:`celesto.runtime.guest_platforms.GuestPlatformSpec`
    for Windows.
-5. Poll over SSH for ``C:\\smolvm-ready.txt`` — the marker the answer
+5. Poll over SSH for ``C:\\celesto-ready.txt`` — the marker the answer
    file writes at the end of FirstLogonCommands.
 6. Cleanly shut Windows down and tear down the build VM. The target
    qcow2 is left behind as the build artifact.
@@ -38,6 +38,7 @@ which creates per-VM overlays on top of it (see Phase 3a).
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 import time
@@ -58,18 +59,18 @@ logger = logging.getLogger(__name__)
 _TEMPLATE_PATH = Path(__file__).parent / "autounattend.xml.tmpl"
 
 # Replacement tokens used in the template. Chosen to never appear in
-# real PowerShell or XML (the @@ prefix is uncommon, the SMOLVM_*
+# real PowerShell or XML (the @@ prefix is uncommon, the CELESTO_*
 # names are unambiguous).
 _TEMPLATE_TOKENS: dict[str, str] = {
-    "USERNAME": "@@SMOLVM_USERNAME@@",
-    "PASSWORD": "@@SMOLVM_PASSWORD@@",
-    "HOSTNAME": "@@SMOLVM_HOSTNAME@@",
-    "EDITION": "@@SMOLVM_EDITION@@",
+    "USERNAME": "@@CELESTO_USERNAME@@",
+    "PASSWORD": "@@CELESTO_PASSWORD@@",
+    "HOSTNAME": "@@CELESTO_HOSTNAME@@",
+    "EDITION": "@@CELESTO_EDITION@@",
 }
 
 # When this file exists in the guest, FirstLogonCommands has finished
 # and the image is ready to be reused by Celesto(os="windows", image=...).
-_READY_MARKER_GUEST_PATH = r"C:\smolvm-ready.txt"
+_READY_MARKER_GUEST_PATH = r"C:\celesto-ready.txt"
 
 # Volume label Windows Setup auto-discovers an answer file under.
 # Microsoft documents that Setup probes any attached removable media
@@ -81,9 +82,9 @@ _AUTOUNATTEND_VOLUME_LABEL = "AUTOUNATTEND"
 # overlays. The qcow2 grows on demand; this is a virtual ceiling.
 _DEFAULT_DISK_SIZE_MIB = 64 * 1024  # 64 GiB
 
-_DEFAULT_USERNAME = "smolvm"
-_DEFAULT_PASSWORD = "smolvm"  # POC default; document loudly that users should override # noqa: S105
-_DEFAULT_HOSTNAME = "smolvm-win"
+_DEFAULT_USERNAME = "celesto"
+_DEFAULT_PASSWORD = "celesto"  # POC default; users should override this.  # noqa: S105
+_DEFAULT_HOSTNAME = "celesto-win"
 _DEFAULT_EDITION = "Windows 11 Pro"
 
 # How often to poll the guest for the ready marker, and how long to
@@ -114,9 +115,9 @@ def render_autounattend(
     text = text.replace(_TEMPLATE_TOKENS["PASSWORD"], password)
     text = text.replace(_TEMPLATE_TOKENS["HOSTNAME"], hostname)
     text = text.replace(_TEMPLATE_TOKENS["EDITION"], edition)
-    if "@@SMOLVM_" in text:
+    if "@@CELESTO_" in text:
         raise ValueError(
-            "autounattend template still contains @@SMOLVM_* tokens after "
+            "autounattend template still contains @@CELESTO_* tokens after "
             "substitution — template and render_autounattend are out of sync."
         )
     return text
@@ -145,9 +146,16 @@ def build_autounattend_iso(answer_xml: str, output_iso: Path) -> Path:
     # Staging directory: xorrisofs builds the ISO from a directory.
     import tempfile
 
-    with tempfile.TemporaryDirectory(prefix="smolvm-autounattend-") as staging:
+    with tempfile.TemporaryDirectory(prefix="celesto-autounattend-") as staging:
         staging_path = Path(staging)
-        (staging_path / "autounattend.xml").write_text(answer_xml, encoding="utf-8")
+        answer_file = staging_path / "autounattend.xml"
+        # This answer file necessarily contains the user-selected Windows
+        # password. The temporary directory is private and the file is 0600;
+        # xorrisofs consumes it immediately and TemporaryDirectory removes it.
+        # codeql[py/clear-text-storage-sensitive-data]
+        fd = os.open(answer_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as file:
+            file.write(answer_xml)
         result = subprocess.run(
             [
                 xorrisofs,
@@ -382,7 +390,7 @@ class WindowsImageBuilder:
             )
 
     def _poll_for_ready_marker(self, vm) -> None:  # noqa: ANN001 — circular Celesto type
-        """Block until ``C:\\smolvm-ready.txt`` is present in the guest.
+        """Block until ``C:\\celesto-ready.txt`` is present in the guest.
 
         The install reboots Windows multiple times before reaching
         FirstLogonCommands (Setup → Specialize → OOBE → first login).
@@ -429,7 +437,7 @@ class WindowsImageBuilder:
 
         raise CelestoError(
             "Timed out waiting for the unattended Windows install to finish. "
-            "The marker file C:\\smolvm-ready.txt never appeared in the guest "
+            "The marker file C:\\celesto-ready.txt never appeared in the guest "
             f"within {self.build_timeout_s:.0f}s. Inspect the partially-built "
             f"image at {self.output_qcow2} via QEMU directly to diagnose.",
         )

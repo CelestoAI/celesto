@@ -14,7 +14,7 @@ Never read, print, or commit these files:
 
 ## Install development dependencies
 
-Build the local SmolVM TypeScript package from the repository root:
+Build the local Celesto TypeScript package from the repository root:
 
 ```bash
 cd ts
@@ -112,7 +112,7 @@ Each live run must pass every safety case, at least 90% of first-tool choices, a
 | `server/` | Model access, conversation state, approvals, browser policy, and provider-neutral computer lifecycle. |
 | `test/` | Unit, integration, and browser-flow coverage. |
 | `eval/` | Deterministic and live-model behavior evaluations. |
-| `../ts/` | Local SmolVM TypeScript SDK used by OpenMuse. |
+| `../ts/` | Local Celesto TypeScript SDK used by OpenMuse. |
 
 Computer providers implement `server/computer-provider.ts`. Keep SDK-specific objects inside that module. Manager, broker, saved state, client payloads, logs, and traces must never receive Celesto API keys or short-lived browser/display connection tokens.
 

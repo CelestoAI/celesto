@@ -23,7 +23,7 @@ opening log files, tracking PIDs) stay in ``_start_qemu``.
 For the Linux all-defaults spec (``_LINUX_SPEC``) this function now selects
 the faster ``microvm`` machine for supported Linux x86_64 direct-kernel guests.
 Callers can still force the legacy q35 path with ``qemu_machine="q35"`` or
-``SMOLVM_QEMU_MACHINE=q35``. The ``GuestPlatformSpec`` fields exist to let
+``CELESTO_QEMU_MACHINE=q35``. The ``GuestPlatformSpec`` fields exist to let
 later commits add Windows-specific fragments without disturbing the Linux path.
 """
 
@@ -52,7 +52,7 @@ QEMU_SLIRP_DNS = "10.0.2.3"
 # to virtio-blk-pci so the QEMU command line stays valid.
 _Q35_AHCI_PORTS = 6
 
-_QEMU_MACHINE_ENV = "SMOLVM_QEMU_MACHINE"
+_QEMU_MACHINE_ENV = "CELESTO_QEMU_MACHINE"
 _QEMU_MICROVM_MACHINE = "microvm,accel=kvm,acpi=on,pcie=off,pic=off,pit=off,rtc=on"
 _QEMU_MACHINE_VALUES: set[QemuMachine] = {"auto", "q35", "microvm"}
 

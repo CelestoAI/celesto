@@ -9,7 +9,7 @@ Implementation decisions:
 - Explicit off/restricted modes are Firecracker-only; QEMU TAP keeps legacy domain support.
 - Each managed NAT interface gets an owned nftables table with early forward/input checks. Replacement is one transaction, including removal of blanket forwarding permission. This avoids shared rule-handle discovery and makes stale connection state unable to bypass explicit policies.
 - Open mode keeps existing private-network access, with earlier sandbox and IPv4 link-local isolation. No proxy or guest-image change was added.
-- The SDK, lifecycle checks, controlled Linux test suite, CI dependency, and benchmark script are implemented. The full regression suite passes (2,183 passed, 21 skipped, 33 deselected). The controlled Linux namespace packet test passes against both source and the installed wheel, including IPv6 positive/negative controls. Firecracker and QEMU E2E passed in [run 34314767896](https://github.com/CelestoAI/SmolVM/actions/runs/34314767896); explicit off/restricted modes remain Firecracker-only. The open-mode p95 increase is 0.61–0.83%, with stable baseline repeats; the proposed performance gate passes.
+- The SDK, lifecycle checks, controlled Linux test suite, CI dependency, and benchmark script are implemented. The full regression suite passes (2,183 passed, 21 skipped, 33 deselected). The controlled Linux namespace packet test passes against both source and the installed wheel, including IPv6 positive/negative controls. Firecracker and QEMU E2E passed in [run 34314767896](https://github.com/CelestoAI/Celesto/actions/runs/34314767896); explicit off/restricted modes remain Firecracker-only. The open-mode p95 increase is 0.61–0.83%, with stable baseline repeats; the proposed performance gate passes.
 
 Run `python scripts/benchmark-network-policy.py --help` for the measurement entry point. Use the same script and controlled endpoint against baseline and candidate checkouts on a disposable Linux runner.
 
@@ -82,13 +82,13 @@ Restricted v1 permits all ports/protocols at an allowed address. It is an IP pol
 Implementation requirements:
 
 1. Put mandatory isolation decisions ahead of generic accepts, established-connection accepts, and port-forward accepts. Inspect the actual complete chain ordering, not only the generated per-policy fragment.
-2. Cover both forwarded packets and packets addressed to the Linux host. Use an input hook for the latter; the existing forward hook is insufficient.
-3. Block traffic between managed sandboxes and to metadata destinations, including `169.254.169.254`, before destination allowances. Reject overlapping restricted ranges that would imply an exception to these mandatory blocks. Inventory any additional metadata routes actually supported by the deployment; do not claim a universal list.
-4. Private remote services can be explicitly allowed in restricted mode. Do not block all private address space in open mode as part of this release; that is a separate compatibility decision.
-5. Apply restricted/off rules and remove the TAP's blanket permission in one nft transaction. Failure must leave the old policy intact and propagate an error.
-6. Change NAT setup so callers can install address translation without first granting blanket egress. No temporary open window during create, repair, or restore.
-7. Share rule generation between sync and async paths. Keep execution wrappers separate and small.
-8. Remove only the sandbox's owned policy resources during cleanup. Before an interface name is reused, ensure stale rules and connection-tracking state cannot grant old permissions. Scope any connection-state cleanup narrowly; never flush the host's global table.
+1. Cover both forwarded packets and packets addressed to the Linux host. Use an input hook for the latter; the existing forward hook is insufficient.
+1. Block traffic between managed sandboxes and to metadata destinations, including `169.254.169.254`, before destination allowances. Reject overlapping restricted ranges that would imply an exception to these mandatory blocks. Inventory any additional metadata routes actually supported by the deployment; do not claim a universal list.
+1. Private remote services can be explicitly allowed in restricted mode. Do not block all private address space in open mode as part of this release; that is a separate compatibility decision.
+1. Apply restricted/off rules and remove the TAP's blanket permission in one nft transaction. Failure must leave the old policy intact and propagate an error.
+1. Change NAT setup so callers can install address translation without first granting blanket egress. No temporary open window during create, repair, or restore.
+1. Share rule generation between sync and async paths. Keep execution wrappers separate and small.
+1. Remove only the sandbox's owned policy resources during cleanup. Before an interface name is reused, ensure stale rules and connection-tracking state cannot grant old permissions. Scope any connection-state cleanup narrowly; never flush the host's global table.
 
 The existing global established-connection accept and separately removed `allowed_taps` membership are specific review points. The current unit tests do not prove full-chain precedence or transaction safety.
 
@@ -160,8 +160,8 @@ No guest-image change is planned. If implementation requires one, follow the exi
 ## 6. Delivery sequence
 
 1. **PR 1 — contract and regression harness:** add the new settings, compatibility validation, and controlled test fixtures. Keep new modes explicitly unavailable until enforcement lands; never merge an accepted but unenforced mode.
-2. **PR 2 — enforcement and lifecycle:** implement firewall changes and create/repair/restore/cleanup integration. Enable only supported, tested combinations. Land live tests alongside implementation.
-3. **PR 3 — release preparation:** update networking documentation and constructor descriptions, record benchmarks, wire required CI, and smoke the installed package. Ship the release here.
+1. **PR 2 — enforcement and lifecycle:** implement firewall changes and create/repair/restore/cleanup integration. Enable only supported, tested combinations. Land live tests alongside implementation.
+1. **PR 3 — release preparation:** update networking documentation and constructor descriptions, record benchmarks, wire required CI, and smoke the installed package. Ship the release here.
 
 If PR 1 is too small to justify a separate merge, combine it with PR 2. These are review boundaries, not an architecture requiring independently deployed components.
 

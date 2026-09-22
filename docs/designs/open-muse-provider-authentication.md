@@ -59,12 +59,12 @@ Provider support and account-login support are therefore separate capabilities. 
 ## Premises
 
 1. The user is choosing how OpenMuse may access a model, not configuring Pi internals.
-2. Account authentication happens in the user's normal browser. The agent's browser never participates.
-3. Pi provider descriptors are the runtime source of truth for available authentication methods.
-4. The first account release supports OpenAI Codex through Pi's existing OAuth flow.
-5. OpenAI and Gemini API keys remain advanced alternatives.
-6. Google account authentication is deferred until a Pi-compatible provider exposes and maintains it.
-7. OpenMuse remains a local, single-user application. Hosted callbacks and multi-user tenancy are separate designs.
+1. Account authentication happens in the user's normal browser. The agent's browser never participates.
+1. Pi provider descriptors are the runtime source of truth for available authentication methods.
+1. The first account release supports OpenAI Codex through Pi's existing OAuth flow.
+1. OpenAI and Gemini API keys remain advanced alternatives.
+1. Google account authentication is deferred until a Pi-compatible provider exposes and maintains it.
+1. OpenMuse remains a local, single-user application. Hosted callbacks and multi-user tenancy are separate designs.
 
 ## Approaches Considered
 
@@ -221,10 +221,10 @@ The selected provider/model is stored in this server-side local session until co
 Client startup follows these states:
 
 1. **No configured provider:** show the account chooser instead of creating a conversation.
-2. **Signing in:** show the browser, device-code, prompt, cancellation, and failure states from the active attempt.
-3. **Provider configured, no valid selection:** show available models and require an explicit choice. A curated recommendation may be preselected but remains visible before conversation creation.
-4. **Provider and model selected:** create or restore a compatible conversation and enter the existing chat UI.
-5. **Restored conversation lacks access:** preserve its messages, show **Reconnect OpenAI to continue this conversation**, and do not create a new VM or run the model.
+1. **Signing in:** show the browser, device-code, prompt, cancellation, and failure states from the active attempt.
+1. **Provider configured, no valid selection:** show available models and require an explicit choice. A curated recommendation may be preselected but remains visible before conversation creation.
+1. **Provider and model selected:** create or restore a compatible conversation and enter the existing chat UI.
+1. **Restored conversation lacks access:** preserve its messages, show **Reconnect OpenAI to continue this conversation**, and do not create a new VM or run the model.
 
 The advanced section offers OpenAI and Gemini API keys only when those providers are registered. Environment-provided keys appear as **Configured from your environment** and cannot be revealed or deleted through OpenMuse; the UI names the exact environment variable to remove outside the app.
 
@@ -245,10 +245,10 @@ If refresh fails, the current turn ends with a sanitized `auth_required` state. 
 Disconnecting a provider is explicit and local:
 
 1. block new turns for conversations bound to that provider;
-2. call `agent.abort()` for active model streams and await `agent.waitForIdle()` for at most ten seconds;
-3. mark affected conversations `auth_required` without deleting messages or VMs;
-4. call `Models.logout(providerId)`; and
-5. refresh the model-access summary.
+1. call `agent.abort()` for active model streams and await `agent.waitForIdle()` for at most ten seconds;
+1. mark affected conversations `auth_required` without deleting messages or VMs;
+1. call `Models.logout(providerId)`; and
+1. refresh the model-access summary.
 
 If settlement exceeds ten seconds, keep the provider blocked in memory, leave the credential stored, and report that disconnect did not finish; never delete credentials while an unconfirmed stream may still be using them. The UI says **Disconnected from OpenAI on this computer. Your provider account was not deleted.** only after deletion succeeds. If deletion from the local store fails, keep the provider blocked in memory and show the exact local recovery path without claiming success.
 
@@ -334,19 +334,19 @@ Keep live authentication outside pull-request CI. A release owner runs opt-in sm
 ## Success Criteria
 
 1. A fresh user can choose **Continue with OpenAI**, complete browser or device-code login, select an available Codex model, and send a first message without creating an API key.
-2. `OPENAI_API_KEY` remains a supported advanced path and existing source-checkout setup continues to work.
-3. The service and client contracts can add Gemini API-key support in milestone 2 without adding provider-specific routes or UI state.
-4. The UI never enables **Continue with Google** unless the installed provider exposes account authentication.
-5. OAuth tokens are absent from the client and VM. Typed API keys exist only transiently in an uncontrolled input and loopback request and are absent from retained client state, responses, the VM, conversation state, persisted events, diagnostics, test snapshots, and logs.
-6. Expired credentials refresh through Pi's locked flow. Refresh failure pauses the conversation and produces an actionable reconnect path.
-7. Logout aborts affected turns, removes the local credential, and preserves conversation messages.
-8. All deterministic OpenMuse checks pass without a real account or network request.
-9. A dependency contract test fails when the allowlisted provider capability surface changes unexpectedly.
-10. With `OPEN_MUSE_ENABLE_SUBSCRIPTION_AUTH` unset, subscription methods are unavailable until maintainers document current terms approval; the development-only opt-in is covered by CI.
+1. `OPENAI_API_KEY` remains a supported advanced path and existing source-checkout setup continues to work.
+1. The service and client contracts can add Gemini API-key support in milestone 2 without adding provider-specific routes or UI state.
+1. The UI never enables **Continue with Google** unless the installed provider exposes account authentication.
+1. OAuth tokens are absent from the client and VM. Typed API keys exist only transiently in an uncontrolled input and loopback request and are absent from retained client state, responses, the VM, conversation state, persisted events, diagnostics, test snapshots, and logs.
+1. Expired credentials refresh through Pi's locked flow. Refresh failure pauses the conversation and produces an actionable reconnect path.
+1. Logout aborts affected turns, removes the local credential, and preserves conversation messages.
+1. All deterministic OpenMuse checks pass without a real account or network request.
+1. A dependency contract test fails when the allowlisted provider capability surface changes unexpectedly.
+1. With `OPEN_MUSE_ENABLE_SUBSCRIPTION_AUTH` unset, subscription methods are unavailable until maintainers document current terms approval; the development-only opt-in is covered by CI.
 
 ## Distribution Plan
 
-OpenMuse remains part of the SmolVM source checkout and uses its existing `npm install` and `npm run dev` path. While the terms gate remains, `open-muse/README.md` keeps API-key setup as the primary supported path and documents account sign-in as a development-only smoke. After approval removes the flag, reorder the README so account sign-in is primary and API keys are advanced.
+OpenMuse remains part of the Celesto source checkout and uses its existing `npm install` and `npm run dev` path. While the terms gate remains, `open-muse/README.md` keeps API-key setup as the primary supported path and documents account sign-in as a development-only smoke. After approval removes the flag, reorder the README so account sign-in is primary and API keys are advanced.
 
 The existing OpenMuse GitHub Actions workflow runs type checking, unit tests, deterministic evaluations, client build, and browser tests. Add credential-redaction and provider-capability contract tests there. Live provider login stays in a manual release workflow that stores no auth artifacts.
 
@@ -362,12 +362,12 @@ Google account login is not a dependency for the first release. It becomes eligi
 ## Next Steps
 
 1. Build a no-network fake provider and in-memory `CredentialStore`, then prove the full auth-attempt protocol with server tests before touching real OAuth.
-2. Refactor agent creation around `ModelAccessService` and persist `providerId` plus `modelId` per conversation.
-3. Implement the owner-only atomic credential store and its security tests.
-4. Add model-access and auth-attempt routes behind the existing loopback session and CSRF checks.
-5. Add the approved three-state client flow and prevent conversation creation until access is ready.
-6. Register OpenAI Codex and OpenAI API-key providers explicitly; leave Gemini and Vertex for milestone 2.
-7. Run a local OpenAI account smoke with `OPEN_MUSE_ENABLE_SUBSCRIPTION_AUTH=1`, inspect logs and saved state for credential leakage, and document provider-terms approval before removing the temporary flag.
+1. Refactor agent creation around `ModelAccessService` and persist `providerId` plus `modelId` per conversation.
+1. Implement the owner-only atomic credential store and its security tests.
+1. Add model-access and auth-attempt routes behind the existing loopback session and CSRF checks.
+1. Add the approved three-state client flow and prevent conversation creation until access is ready.
+1. Register OpenAI Codex and OpenAI API-key providers explicitly; leave Gemini and Vertex for milestone 2.
+1. Run a local OpenAI account smoke with `OPEN_MUSE_ENABLE_SUBSCRIPTION_AUTH=1`, inspect logs and saved state for credential leakage, and document provider-terms approval before removing the temporary flag.
 
 ## The Assignment
 

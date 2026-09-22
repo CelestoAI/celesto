@@ -25,20 +25,20 @@ from scripts.benchmarks.metrics import stats
 def _sample_log() -> str:
     return """
 [    0.012345] Linux version 6.12.0
-SMOLVM_TS stage=init-start epoch_s=1781280000 uptime_s=0.10
-SMOLVM_TS stage=mounts-ready epoch_s=1781280000 uptime_s=0.12
-SMOLVM_TS stage=root-ready epoch_s=1781280000 uptime_s=0.15
-SMOLVM_TS stage=guest-agent-start epoch_s=1781280000 uptime_s=0.16
-SMOLVM_TS stage=guest-agent-started epoch_s=1781280000 uptime_s=0.18
-SMOLVM_TS stage=net-config-start epoch_s=1781280000 uptime_s=0.20
-SMOLVM_TS stage=net-ready epoch_s=1781280000 uptime_s=0.30
-SMOLVM_TS stage=ssh-hostkey-check-start epoch_s=1781280000 uptime_s=0.31
-SMOLVM_TS stage=ssh-hostkey-check-done epoch_s=1781280000 uptime_s=0.55
-SMOLVM_TS stage=ssh-authkey-inject-start epoch_s=1781280000 uptime_s=0.56
-SMOLVM_TS stage=ssh-authkey-inject-done epoch_s=1781280000 uptime_s=0.57
-SMOLVM_TS stage=sshd-start epoch_s=1781280000 uptime_s=0.58
-SMOLVM_TS stage=sshd-invoked epoch_s=1781280000 uptime_s=0.80
-SMOLVM_TS stage=init-complete epoch_s=1781280000 uptime_s=0.82
+CELESTO_TS stage=init-start epoch_s=1781280000 uptime_s=0.10
+CELESTO_TS stage=mounts-ready epoch_s=1781280000 uptime_s=0.12
+CELESTO_TS stage=root-ready epoch_s=1781280000 uptime_s=0.15
+CELESTO_TS stage=guest-agent-start epoch_s=1781280000 uptime_s=0.16
+CELESTO_TS stage=guest-agent-started epoch_s=1781280000 uptime_s=0.18
+CELESTO_TS stage=net-config-start epoch_s=1781280000 uptime_s=0.20
+CELESTO_TS stage=net-ready epoch_s=1781280000 uptime_s=0.30
+CELESTO_TS stage=ssh-hostkey-check-start epoch_s=1781280000 uptime_s=0.31
+CELESTO_TS stage=ssh-hostkey-check-done epoch_s=1781280000 uptime_s=0.55
+CELESTO_TS stage=ssh-authkey-inject-start epoch_s=1781280000 uptime_s=0.56
+CELESTO_TS stage=ssh-authkey-inject-done epoch_s=1781280000 uptime_s=0.57
+CELESTO_TS stage=sshd-start epoch_s=1781280000 uptime_s=0.58
+CELESTO_TS stage=sshd-invoked epoch_s=1781280000 uptime_s=0.80
+CELESTO_TS stage=init-complete epoch_s=1781280000 uptime_s=0.82
 [    0.901234] random: crng init done
 """
 

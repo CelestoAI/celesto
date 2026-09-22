@@ -2,6 +2,7 @@
 
 import json
 from dataclasses import FrozenInstanceError
+from pathlib import Path
 from unittest.mock import MagicMock, call
 
 import httpx
@@ -244,6 +245,35 @@ def test_guest_helper_supplies_system_path_for_raw_commands(monkeypatch, capsys)
     monkeypatch.setattr(guest_connections, "capabilities", capabilities)
     assert guest_connections.main() == 0
     assert json.loads(capsys.readouterr().out)["browser"] is True
+
+
+def test_guest_helper_uses_legacy_browser_paths_on_published_images(monkeypatch):
+    from celesto.images import guest_connections
+
+    legacy_session = guest_connections.Path("/usr/local/bin/smolvm-browser-session")
+    legacy_root = guest_connections.Path("/opt/smolvm-browser")
+
+    monkeypatch.setattr(
+        guest_connections.Path,
+        "is_file",
+        lambda path: path == legacy_session,
+    )
+    monkeypatch.setattr(
+        guest_connections.Path,
+        "is_dir",
+        lambda path: path == legacy_root,
+    )
+    namespace: dict[str, object] = {"__name__": "guest_helper_test"}
+    exec(
+        compile(
+            Path("src/celesto/images/guest_connections.py").read_text(),
+            "guest_connections.py",
+            "exec",
+        ),
+        namespace,
+    )
+    assert str(namespace["_BROWSER_SESSION"]) == str(legacy_session)
+    assert str(namespace["_BROWSER_ROOT"]) == str(legacy_root)
 
 
 def test_connection_prepares_ssh_before_opening_loopback_tunnel(runtime, monkeypatch):

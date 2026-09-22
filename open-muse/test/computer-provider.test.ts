@@ -7,8 +7,8 @@ import {
   type ProviderDependencies,
 } from "../server/computer-provider.js";
 
-test("computer provider configuration defaults to SmolVM and validates Celesto credentials", () => {
-  assert.deepEqual(computerProviderConfig({}), { provider: "smolvm" });
+test("computer provider configuration defaults to local Celesto and validates cloud credentials", () => {
+  assert.deepEqual(computerProviderConfig({}), { provider: "local" });
   assert.deepEqual(computerProviderConfig({
     OPENMUSE_COMPUTER_PROVIDER: "celesto",
     CELESTO_API_KEY: "key-secret",
@@ -16,15 +16,15 @@ test("computer provider configuration defaults to SmolVM and validates Celesto c
   }), { provider: "celesto", apiKey: "key-secret", apiUrl: "https://control.example" });
   assert.throws(
     () => computerProviderConfig({ OPENMUSE_COMPUTER_PROVIDER: "celesto" }),
-    /CELESTO_API_KEY is empty.*OPENMUSE_COMPUTER_PROVIDER=smolvm/,
+    /CELESTO_API_KEY is empty.*OPENMUSE_COMPUTER_PROVIDER=local/,
   );
   assert.throws(
     () => computerProviderConfig({ OPENMUSE_COMPUTER_PROVIDER: "remote" }),
-    /must be 'smolvm' or 'celesto'/,
+    /must be 'local' or 'celesto'/,
   );
 });
 
-test("SmolVM provider preserves the existing computer behavior behind the protocol", async () => {
+test("local Celesto provider preserves the existing computer behavior behind the protocol", async () => {
   const calls: string[] = [];
   const browser = {
     cdpUrl: null as string | null,
@@ -36,8 +36,8 @@ test("SmolVM provider preserves the existing computer behavior behind the protoc
     exec: async () => ({ ok: true, exitCode: 0, stdout: "ok", stderr: "", durationMs: 1 }),
     delete: async () => { calls.push("delete"); },
   };
-  const provider = createComputerProvider({ provider: "smolvm" }, {
-    createSmolVM: () => ({
+  const provider = createComputerProvider({ provider: "local" }, {
+    createCelesto: () => ({
       computers: { create: async (options: unknown) => { calls.push(JSON.stringify(options)); return computer; } },
       close: async () => { calls.push("close"); },
     }) as never,

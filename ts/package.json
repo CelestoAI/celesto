@@ -1,5 +1,5 @@
 {
-  "name": "@celestoai/smolvm",
+  "name": "@celestoai/celesto",
   "version": "0.1.0-preview.1",
   "description": "Local disposable computers for TypeScript AI agents.",
   "license": "Apache-2.0",

@@ -4,13 +4,13 @@ OpenMuse Research is a local web app that accepts one personal goal, researches 
 
 Generated from the OpenMuse Research office-hours session on 2026-09-12.
 Branch: `codex/open-muse-handoff`
-Repository: `CelestoAI/SmolVM`
+Repository: `CelestoAI/Celesto`
 Status: IMPLEMENTED — live OpenAI and release-host validation pending
 Mode: time-boxed open-source demo
 
 ## Outcome
 
-A developer can clone SmolVM, configure one OpenAI API key, start OpenMuse Research, run the built-in trip-planning goal, and download a ZIP containing:
+A developer can clone Celesto, configure one OpenAI API key, start OpenMuse Research, run the built-in trip-planning goal, and download a ZIP containing:
 
 - `brief.md`: assumptions, constraints, and a concise recommendation.
 - `itinerary.md`: a three-day schedule grouped by neighborhood.
@@ -25,7 +25,7 @@ Meta describes Muse as an agent that turns goals into plans, works through a ded
 
 Current open-source personal agents tend to optimize for breadth. OpenClaw connects many channels and tools through a gateway, while OpenManus combines a general agent loop with separate browser tooling. OpenMuse Research should not compete on integrations. Its demo claim is narrower:
 
-> Local does not mean the agent can touch your laptop. Every model-directed operation runs through a fixed tool inside a disposable SmolVM.
+> Local does not mean the agent can touch your laptop. Every model-directed operation runs through a fixed tool inside a disposable Celesto.
 
 Sources:
 
@@ -40,7 +40,7 @@ Sources:
 - Build a time-boxed, open-source demo rather than a general personal assistant.
 - Make goal-to-research-packet the only polished workflow.
 - Ship a local web app, not a hosted service or terminal-only program.
-- Use a React/Vite interface and a dedicated Node server. The Node server owns the agent loop and every SmolVM handle.
+- Use a React/Vite interface and a dedicated Node server. The Node server owns the agent loop and every Celesto handle.
 - Support one trusted local operator and one active run at a time.
 - Use OpenAI as the first tested provider through the Pi agent harness. Keep the model ID configurable.
 - Allow public-web research, but give the model only purpose-built tools. Do not expose a general shell tool.
@@ -50,16 +50,16 @@ Sources:
 
 The demo is done when all of these are true:
 
-1. On a supported machine with SmolVM installed and its image cached, a new developer can reach the finished packet in under ten minutes from `git clone`.
-2. The UI emits its first lifecycle event within two seconds of starting a run.
-3. The built-in goal produces all four required files and a downloadable ZIP.
-4. `budget.csv` parses successfully, uses INR, totals at or below ₹40,000, and includes a contingency line.
-5. Every factual or price claim in the Markdown output refers to an entry in `sources.json`.
-6. Success, cancellation, model failure, tool failure, client disconnect, and server shutdown leave no session-owned VM running.
-7. No model-selected command runs on the host. The OpenAI API key never enters the VM.
-8. The server listens on loopback by default and refuses a non-loopback bind unless a future design explicitly adds authentication.
-9. Unit tests run without a VM or network by using the SDK's structural mock interfaces.
-10. One real-VM smoke test exercises the packed TypeScript SDK artifact on Apple Silicon macOS and Linux x64 before the demo is announced.
+1. On a supported machine with Celesto installed and its image cached, a new developer can reach the finished packet in under ten minutes from `git clone`.
+1. The UI emits its first lifecycle event within two seconds of starting a run.
+1. The built-in goal produces all four required files and a downloadable ZIP.
+1. `budget.csv` parses successfully, uses INR, totals at or below ₹40,000, and includes a contingency line.
+1. Every factual or price claim in the Markdown output refers to an entry in `sources.json`.
+1. Success, cancellation, model failure, tool failure, client disconnect, and server shutdown leave no session-owned VM running.
+1. No model-selected command runs on the host. The OpenAI API key never enters the VM.
+1. The server listens on loopback by default and refuses a non-loopback bind unless a future design explicitly adds authentication.
+1. Unit tests run without a VM or network by using the SDK's structural mock interfaces.
+1. One real-VM smoke test exercises the packed TypeScript SDK artifact on Apple Silicon macOS and Linux x64 before the demo is announced.
 
 ## User journey
 
@@ -76,8 +76,8 @@ The user may edit the constraints before starting. Do not imply that arbitrary g
 OpenMuse Research returns a short, structured plan before using tools:
 
 1. Gather current travel and stay estimates.
-2. Compare walkable neighborhoods and activities.
-3. Build and verify the itinerary and budget.
+1. Compare walkable neighborhoods and activities.
+1. Build and verify the itinerary and budget.
 
 The user selects **Start research** or edits the constraints. This is plan confirmation, not permission for purchases or account access. Those actions do not exist in this release.
 
@@ -86,7 +86,7 @@ The user selects **Start research** or edits the constraints. This is plan confi
 The left pane keeps the goal and constraints visible. The right pane shows:
 
 - current phase and elapsed time;
-- SmolVM startup, image download, and sandbox readiness;
+- Celesto startup, image download, and sandbox readiness;
 - a curated command transcript containing executable name, purpose, duration, and exit status;
 - sources collected and artifacts written;
 - a **Stop** action that cancels the model loop and cleans up the sandbox.
@@ -156,7 +156,7 @@ Node control server
   ├── Pi Agent: capped model/tool loop
   ├── purpose-built tool policy
   ├── artifact export and ZIP response
-  └── SmolVM client: sole owner of sandbox lifecycle
+  └── Celesto client: sole owner of sandbox lifecycle
         │ authenticated private bridge
         ▼
 Disposable Ubuntu VM
@@ -211,11 +211,11 @@ examples/open-muse-research/
     └── smoke.test.ts
 ```
 
-Use the released `@celestoai/smolvm` tarball initially. Do not import from `ts/src` or depend on repository-relative build output. This keeps the example honest about the public installation path.
+Use the released `@celestoai/celesto` tarball initially. Do not import from `ts/src` or depend on repository-relative build output. This keeps the example honest about the public installation path.
 
 ## Runtime ownership
 
-`RunManager` is the only component allowed to construct `SmolVM`. Keep one active `RunContext`:
+`RunManager` is the only component allowed to construct `Celesto`. Keep one active `RunContext`:
 
 ```ts
 type RunPhase =
@@ -238,7 +238,7 @@ interface RunContext {
   constraints: string[];
   startedAt: string;
   abortController: AbortController;
-  smolvm?: SmolVM;
+  celesto?: Celesto;
   sandbox?: SandboxClient;
   artifacts: Partial<Record<ArtifactName, Uint8Array>>;
   events: RunEvent[];
@@ -248,11 +248,11 @@ interface RunContext {
 Rules:
 
 - Reject a second active run with HTTP `409` and a plain-English response.
-- Construct SmolVM only after plan confirmation.
-- Forward typed `SmolVMEvent` values into the run event stream through an explicit mapper.
+- Construct Celesto only after plan confirmation.
+- Forward typed `CelestoEvent` values into the run event stream through an explicit mapper.
 - Keep at most 500 events. Coalesce repeated `image.download` progress updates.
 - Copy verified artifacts to bounded host memory before deleting the VM. The complete packet must remain below 8 MiB, leaving margin under the SDK's 16 MiB file transfer limit.
-- Call `smolvm.close()` in `finally` for every terminal path.
+- Call `celesto.close()` in `finally` for every terminal path.
 - Install `SIGINT`, `SIGTERM`, `uncaughtException`, and `unhandledRejection` handlers that stop accepting work and await one bounded cleanup attempt before exit.
 - Rely on the SDK control pipe as the final safety net if the Node process is killed before JavaScript cleanup runs.
 
@@ -272,11 +272,11 @@ The first provider is OpenAI. Read `OPENAI_API_KEY` and `OPENAI_MODEL` only in t
 Suggested phases:
 
 1. **Plan:** ask the model for a three-step plan as structured data. No tools are available.
-2. **Confirm:** return the plan to the UI and wait for the user.
-3. **Research:** run the tool loop with `fetchPublicPage` and `recordFinding` active.
-4. **Build:** disable fetching; enable `calculateBudget` and `writeArtifact`.
-5. **Verify:** run the fixed packet verifier inside the VM. Give the model one structured correction opportunity if verification fails.
-6. **Export:** package the four allowed files in the VM, download the files and ZIP, and delete the VM.
+1. **Confirm:** return the plan to the UI and wait for the user.
+1. **Research:** run the tool loop with `fetchPublicPage` and `recordFinding` active.
+1. **Build:** disable fetching; enable `calculateBudget` and `writeArtifact`.
+1. **Verify:** run the fixed packet verifier inside the VM. Give the model one structured correction opportunity if verification fails.
+1. **Export:** package the four allowed files in the VM, download the files and ZIP, and delete the VM.
 
 Use separate bounded Pi agents to expose only the tools valid for the current phase. The first handles research tools; the second handles packet-building tools. This keeps cancellation and phase reporting easy to test.
 
@@ -410,12 +410,12 @@ Send an SSE heartbeat every 15 seconds. On reconnect, accept `Last-Event-ID` and
 
 ## Error mapping
 
-Translate `SmolVMError.code` at the server boundary. Preserve the code in debug logs, but keep UI messages short and actionable. Do not send causes, tokens, environment dumps, or guest stack traces to the browser.
+Translate `CelestoError.code` at the server boundary. Preserve the code in debug logs, but keep UI messages short and actionable. Do not send causes, tokens, environment dumps, or guest stack traces to the browser.
 
 At minimum, map:
 
 - unsupported Node or protocol mismatch → rerun the official installer;
-- missing runtime → install SmolVM;
+- missing runtime → install Celesto;
 - backend unavailable → run `celesto doctor` and show its exact backend recovery when available;
 - image or sandbox creation failure → retry after the reported recovery command;
 - timeout or abort → state whether the sandbox was deleted;
@@ -424,7 +424,7 @@ At minimum, map:
 ## Security boundaries
 
 - Treat the goal, fetched pages, model output, and artifact content as untrusted data.
-- The browser never receives the model API key or SmolVM bridge credential.
+- The browser never receives the model API key or Celesto bridge credential.
 - The VM receives no host paths, mounted folders, cookies, browser profile, SSH keys, cloud credentials, or model credentials.
 - Use argv arrays for every sandbox command.
 - Keep all guest paths under `/workspace/open-muse-research`; validate paths before SDK calls.
@@ -439,11 +439,11 @@ At minimum, map:
 Cancellation is a product feature, not a best-effort button:
 
 1. Abort the active model request.
-2. Pass the same `AbortSignal` to the active sandbox command.
-3. Stop scheduling tools.
-4. Preserve already downloaded, verified artifacts.
-5. Call `smolvm.close()` and await completion.
-6. Emit the cleanup outcome, then mark the run cancelled or failed.
+1. Pass the same `AbortSignal` to the active sandbox command.
+1. Stop scheduling tools.
+1. Preserve already downloaded, verified artifacts.
+1. Call `celesto.close()` and await completion.
+1. Emit the cleanup outcome, then mark the run cancelled or failed.
 
 The cleanup deadline is 15 seconds. If cleanup throws, call `close()` once more because it is idempotent. If the second attempt fails, emit one recovery command and keep the server in a degraded state that rejects new runs. Do not report completion while ownership is uncertain.
 
@@ -460,7 +460,7 @@ The cleanup deadline is 15 seconds. If cleanup throws, call `close()` once more 
 - Error mapping and secret redaction.
 - Idempotent cancellation and cleanup.
 
-Use fake `SmolVMClient`, `SandboxClient`, and model interfaces. Tests must prove that different tool inputs reach the fake sandbox rather than returning fixture constants.
+Use fake `CelestoClient`, `SandboxClient`, and model interfaces. Tests must prove that different tool inputs reach the fake sandbox rather than returning fixture constants.
 
 ### Integration tests without a real VM
 
@@ -484,7 +484,7 @@ Do not make normal CI depend on travel websites or live model APIs. Keep the liv
 
 - Create `examples/open-muse-research` with Vite, React, Node server, and one command to start both.
 - Add configuration validation and the empty goal screen.
-- Start a real SmolVM, write a fixture artifact, download it, and clean up.
+- Start a real Celesto, write a fixture artifact, download it, and clean up.
 - Render lifecycle events in the timeline.
 
 Exit test: entering the built-in goal returns one downloaded `brief.md` from a real VM.
@@ -547,21 +547,21 @@ CI must run typechecking, unit tests, production build, fake-runtime integration
 Resolve these during Milestone 1 without expanding scope:
 
 1. Select and pin the first tool-capable OpenAI model after a live compatibility probe; keep `OPENAI_MODEL` configurable.
-2. Choose whether queued constraints are accepted during all phases or only before artifact generation. Default to phase boundaries only.
-3. Decide whether the curated command transcript shows full public URLs or only hostnames. Default to hostnames to reduce accidental query-string disclosure.
+1. Choose whether queued constraints are accepted during all phases or only before artifact generation. Default to phase boundaries only.
+1. Decide whether the curated command transcript shows full public URLs or only hostnames. Default to hostnames to reduce accidental query-string disclosure.
 
 ## Next engineer checklist
 
 1. Create the example package and its lockfile.
-2. Implement `RunManager` with a fake SmolVM and fake model first.
-3. Build one real-VM vertical slice before styling beyond the approved layout.
-4. Add each model tool only after its validator and failure tests exist.
-5. Make success, cancel, and forced server shutdown pass the no-leaked-VM test.
-6. Run the built-in goal live, inspect every exported claim and price, and record cold/warm timings.
-7. Update this document when an approved decision changes; do not silently expand deferred scope.
+1. Implement `RunManager` with a fake Celesto and fake model first.
+1. Build one real-VM vertical slice before styling beyond the approved layout.
+1. Add each model tool only after its validator and failure tests exist.
+1. Make success, cancel, and forced server shutdown pass the no-leaked-VM test.
+1. Run the built-in goal live, inspect every exported claim and price, and record cold/warm timings.
+1. Update this document when an approved decision changes; do not silently expand deferred scope.
 
 ## What I noticed
 
 - The idea became sharper when “something like Muse” changed into one concrete result: a research packet.
-- Choosing a local web app kept the product feeling of Muse while preserving SmolVM's local execution story.
+- Choosing a local web app kept the product feeling of Muse while preserving Celesto's local execution story.
 - Choosing the middle architecture put effort into the visible experience without introducing a worker system that the demo does not need.

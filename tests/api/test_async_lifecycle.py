@@ -92,7 +92,7 @@ class TestAsyncRunCommand:
 # ---------------------------------------------------------------------------
 
 
-class TestAsyncSmolVMManager:
+class TestAsyncCelestoManager:
     """Tests for async lifecycle methods on CelestoManager."""
 
     @pytest.mark.asyncio
@@ -267,7 +267,7 @@ def _paused_sdk(
     return mock_sdk
 
 
-class TestAsyncSmolVMFacade:
+class TestAsyncCelestoFacade:
     """Tests for async facade methods."""
 
     @pytest.mark.asyncio

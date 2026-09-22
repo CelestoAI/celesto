@@ -65,7 +65,7 @@ def _sdk_error(
     return HTTPException(
         status_code=status_code,
         detail=detail,
-        headers={"X-SmolVM-Error-Code": code, **(headers or {})},
+        headers={"X-Celesto-Error-Code": code, **(headers or {})},
     )
 
 
@@ -185,8 +185,8 @@ def create_app(*, auth_token: str | None = None) -> FastAPI:
         sandboxes.clear()
 
     app = FastAPI(
-        title="SmolVM SDK bridge",
-        summary="A private local bridge for SmolVM SDK clients.",
+        title="Celesto SDK bridge",
+        summary="A private local bridge for Celesto SDK clients.",
         version="1",
         lifespan=lifespan,
     )
@@ -232,7 +232,7 @@ def create_app(*, auth_token: str | None = None) -> FastAPI:
             if not secrets.compare_digest(supplied, expected):
                 return JSONResponse(
                     status_code=401,
-                    headers={"X-SmolVM-Error-Code": "bridge_exit"},
+                    headers={"X-Celesto-Error-Code": "bridge_exit"},
                     content={
                         "detail": (
                             "SDK session authentication failed; create a new Celesto client."
@@ -249,7 +249,7 @@ def create_app(*, auth_token: str | None = None) -> FastAPI:
                 "transport_failed",
                 (
                     f"Sandbox '{sandbox_id}' is not part of this SDK session; create it again "
-                    "with smolvm.sandboxes.create()."
+                    "with celesto.sandboxes.create()."
                 ),
             )
         return vm
@@ -401,7 +401,7 @@ def create_app(*, auth_token: str | None = None) -> FastAPI:
             )
         temporary: Path | None = None
         try:
-            with tempfile.NamedTemporaryFile(prefix="smolvm-sdk-upload-", delete=False) as handle:
+            with tempfile.NamedTemporaryFile(prefix="celesto-sdk-upload-", delete=False) as handle:
                 temporary = Path(handle.name)
                 received = 0
                 async for chunk in request.stream():
@@ -464,7 +464,9 @@ def create_app(*, auth_token: str | None = None) -> FastAPI:
                     f"File in {resource_kind} '{resource_id}' exceeds the 16 MiB SDK limit; "
                     "choose a smaller file and retry files.read().",
                 )
-            with tempfile.NamedTemporaryFile(prefix="smolvm-sdk-download-", delete=False) as handle:
+            with tempfile.NamedTemporaryFile(
+                prefix="celesto-sdk-download-", delete=False
+            ) as handle:
                 temporary = Path(handle.name)
             await asyncio.to_thread(
                 vm.download_file,
@@ -699,7 +701,7 @@ def create_app(*, auth_token: str | None = None) -> FastAPI:
                         "to stop the complete session."
                     )
                 ),
-                headers={"X-SmolVM-Sandbox-Deleted": str(deleted).lower()},
+                headers={"X-Celesto-Sandbox-Deleted": str(deleted).lower()},
             ) from exc
         except (ValueError, CelestoError) as exc:
             raise _sdk_error(
@@ -965,7 +967,7 @@ def create_app(*, auth_token: str | None = None) -> FastAPI:
                         "to stop the complete session."
                     )
                 ),
-                headers={"X-SmolVM-Sandbox-Deleted": str(deleted).lower()},
+                headers={"X-Celesto-Sandbox-Deleted": str(deleted).lower()},
             ) from exc
         except (ValueError, CelestoError) as exc:
             raise _sdk_error(
@@ -1170,7 +1172,7 @@ def create_app(*, auth_token: str | None = None) -> FastAPI:
                         "to stop the complete session."
                     )
                 ),
-                headers={"X-SmolVM-Sandbox-Deleted": str(deleted).lower()},
+                headers={"X-Celesto-Sandbox-Deleted": str(deleted).lower()},
             ) from exc
         except (ValueError, CelestoError) as exc:
             raise _sdk_error(

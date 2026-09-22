@@ -63,7 +63,7 @@ def _format_command_result(exit_code: int, stdout: str, stderr: str) -> str:
     )
 
 
-def run_in_smolvm(command: str, timeout: int = 30) -> str:
+def run_in_celesto(command: str, timeout: int = 30) -> str:
     """Run a shell command inside an ephemeral Celesto sandbox.
 
     Args:
@@ -81,11 +81,11 @@ def _build_agent() -> Any:
         os.environ.get("PYDANTICAI_MODEL", DEFAULT_MODEL),
         instructions=(
             "You are a coding assistant with access to a secure Celesto sandbox. "
-            "For shell or Python inspection requests, call run_in_smolvm exactly "
+            "For shell or Python inspection requests, call run_in_celesto exactly "
             "once and then summarize the result."
         ),
     )
-    agent.tool_plain(docstring_format="google", require_parameter_descriptions=True)(run_in_smolvm)
+    agent.tool_plain(docstring_format="google", require_parameter_descriptions=True)(run_in_celesto)
     return agent
 
 
@@ -93,7 +93,7 @@ def main() -> None:
     """Run a minimal PydanticAI example with Celesto as a tool."""
     agent = _build_agent()
     prompt = (
-        "Use run_in_smolvm to run this exact command inside the sandbox: "
+        "Use run_in_celesto to run this exact command inside the sandbox: "
         "`uname -a && python3 --version`. Then summarize what you found."
     )
     result = agent.run_sync(prompt)

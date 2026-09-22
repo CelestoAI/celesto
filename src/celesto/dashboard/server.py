@@ -55,9 +55,9 @@ logger = logging.getLogger(__name__)
 RELEASES_URL = "https://api.github.com/repos/CelestoAI/Celesto/releases"
 DASHBOARD_ASSET_PREFIX = "celesto-dashboard-ui-"
 DASHBOARD_ASSET_SUFFIX = ".tar.gz"
-UI_DIST_ENV = "SMOLVM_DASHBOARD_UI_DIST"
-ALLOW_BETA_ENV = "SMOLVM_DASHBOARD_ALLOW_BETA"
-DASHBOARD_URL_ENV = "SMOLVM_DASHBOARD_URL"
+UI_DIST_ENV = "CELESTO_DASHBOARD_UI_DIST"
+ALLOW_BETA_ENV = "CELESTO_DASHBOARD_ALLOW_BETA"
+DASHBOARD_URL_ENV = "CELESTO_DASHBOARD_URL"
 
 
 def _resolve_ui_dist_path() -> Path:
@@ -266,7 +266,7 @@ def _ensure_latest_dashboard_ui_dist(target_dist: Path, *, allow_prerelease: boo
     try:
         logger.info("Preparing dashboard UI bundle (target tag=%s)", latest_tag)
         target_root.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix="smolvm-ui-", dir=str(target_root)) as tmp_dir:
+        with tempfile.TemporaryDirectory(prefix="celesto-ui-", dir=str(target_root)) as tmp_dir:
             tmp_path = Path(tmp_dir)
             archive_path = tmp_path / "dashboard-ui.tar.gz"
             extract_dir = tmp_path / "extract"
@@ -480,8 +480,8 @@ def _resolve_ssh_key_path() -> str | None:
     """Resolve the Celesto SSH private key for guest connections."""
     home = Path.home()
     candidates = [
-        home / ".smolvm" / "keys" / "id_ed25519",
-        home / ".smolvm" / "id_ed25519",
+        home / ".celesto" / "keys" / "id_ed25519",
+        home / ".celesto" / "id_ed25519",
     ]
     for candidate in candidates:
         if candidate.exists():
@@ -645,7 +645,7 @@ async def open_vm_desktop(vm_id: str) -> dict[str, str]:
                 f"'celesto sandbox start {vm_id}', then retry."
             ),
         )
-    password_path = vm.config.macos_machine.bundle_path / ".smolvm-vnc-password"
+    password_path = vm.config.macos_machine.bundle_path / ".celesto-vnc-password"
     try:
         password = password_path.read_text(encoding="utf-8").strip()
         if not password:

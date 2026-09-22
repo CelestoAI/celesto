@@ -160,13 +160,13 @@ def _images_release_tag() -> str:
     override is for CI jobs that need to test a branch before the bumped image
     release has been published.
     """
-    return os.environ.get("SMOLVM_IMAGES_RELEASE_TAG") or IMAGES_RELEASE_TAG
+    return os.environ.get("CELESTO_IMAGES_RELEASE_TAG") or IMAGES_RELEASE_TAG
 
 
 def cache_name(
     preset: Preset, arch: Arch, vmm: Vmm, version: str = __version__, *, os: Os = "ubuntu"
 ) -> str:
-    """Cache directory name under ``~/.smolvm/images/``.
+    """Cache directory name under ``~/.celesto/images/``.
 
     Keyed on the **CLI** version (not the images tag) so a CLI upgrade
     invalidates local caches even when the images tag hasn't moved —

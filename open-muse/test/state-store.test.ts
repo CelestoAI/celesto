@@ -568,7 +568,7 @@ test("approved browser actions clear approval data before the next durable turn"
     exec: async () => ({
       ok: true,
       exitCode: 0,
-      stdout: 'SMOLVM_BROWSER_RESULT={"ok":true,"value":{"programResult":{"done":true},"page":{"title":"Done","url":"https://example.com"}}}',
+      stdout: 'CELESTO_BROWSER_RESULT={"ok":true,"value":{"programResult":{"done":true},"page":{"title":"Done","url":"https://example.com"}}}',
       stderr: "",
       durationMs: 1,
     }),

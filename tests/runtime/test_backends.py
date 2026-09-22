@@ -268,7 +268,7 @@ def test_firecracker_probe_honors_configured_directory(
     binary = tmp_path / "firecracker"
     binary.write_text("#!/bin/sh\n")
     binary.chmod(0o755)
-    monkeypatch.setenv("SMOLVM_FIRECRACKER_DIR", str(tmp_path))
+    monkeypatch.setenv("CELESTO_FIRECRACKER_DIR", str(tmp_path))
     monkeypatch.setattr(b, "which", lambda _name: None)
 
     assert b._firecracker_binary_present() is True
@@ -282,7 +282,7 @@ def test_missing_configured_firecracker_does_not_fall_back_to_path(
     path_binary.parent.mkdir()
     path_binary.write_text("#!/bin/sh\n")
     path_binary.chmod(0o755)
-    monkeypatch.setenv("SMOLVM_FIRECRACKER_DIR", str(tmp_path / "missing"))
+    monkeypatch.setenv("CELESTO_FIRECRACKER_DIR", str(tmp_path / "missing"))
     monkeypatch.setattr(b, "which", lambda _name: path_binary)
 
     assert b._firecracker_binary_present() is False

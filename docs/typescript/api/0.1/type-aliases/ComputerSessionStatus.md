@@ -1,8 +1,8 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
 ***
 
-[@celestoai/smolvm](../README.md) / ComputerSessionStatus
+[@celestoai/celesto](../README.md) / ComputerSessionStatus
 
 # Type Alias: ComputerSessionStatus
 

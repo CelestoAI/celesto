@@ -1,4 +1,4 @@
-# SmolVM QEMU/libkrun kernel config fragment — arm64-only deltas.
+# Celesto QEMU/libkrun kernel config fragment — arm64-only deltas.
 #
 # Merged on top of `config.fragment` for arm64 builds. These symbols
 # don't exist on x86 (PCI_HOST_GENERIC is the arm64 generic PCI host

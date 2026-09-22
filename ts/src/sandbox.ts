@@ -1,4 +1,4 @@
-import { SmolVMError } from "./errors.js";
+import { CelestoError } from "./errors.js";
 import { RemoteFiles } from "./remote-files.js";
 import type { ExecResponse } from "./client/types.gen.js";
 import type {
@@ -7,8 +7,8 @@ import type {
   SandboxClient,
   SandboxFiles,
   SandboxStatus,
-  SmolVMEvent,
-  SmolVMTransport,
+  CelestoEvent,
+  CelestoTransport,
 } from "./types.js";
 
 function quoteArg(value: string): string {
@@ -26,8 +26,8 @@ export class Sandbox implements SandboxClient {
   private constructor(
     id: string,
     status: SandboxStatus,
-    private readonly transport: SmolVMTransport,
-    private readonly emit: (event: SmolVMEvent) => void,
+    private readonly transport: CelestoTransport,
+    private readonly emit: (event: CelestoEvent) => void,
     private readonly release: (sandbox: Sandbox) => void,
     private readonly closeSession: () => Promise<void>,
     private readonly debug: boolean,
@@ -46,8 +46,8 @@ export class Sandbox implements SandboxClient {
   static create(
     id: string,
     status: SandboxStatus,
-    transport: SmolVMTransport,
-    emit: (event: SmolVMEvent) => void,
+    transport: CelestoTransport,
+    emit: (event: CelestoEvent) => void,
     release: (sandbox: Sandbox) => void,
     closeSession: () => Promise<void>,
     debug: boolean,
@@ -81,7 +81,7 @@ export class Sandbox implements SandboxClient {
 
   async exec(command: string | readonly string[], options: ExecOptions = {}): Promise<ExecResult> {
     if (this.currentStatus === "deleted") {
-      throw new SmolVMError("transport_failed", `Sandbox '${this.id}' has been deleted; call smolvm.sandboxes.create() to create a replacement.`, {
+      throw new CelestoError("transport_failed", `Sandbox '${this.id}' has been deleted; call celesto.sandboxes.create() to create a replacement.`, {
         operation: "sandbox.exec",
         sandboxId: this.id,
       });
@@ -118,19 +118,19 @@ export class Sandbox implements SandboxClient {
       this.emit({ type: "command.completed", sandboxId: this.id, result });
       return result;
     } catch (cause) {
-      if (cause instanceof SmolVMError && cause.code === "command_timeout") {
+      if (cause instanceof CelestoError && cause.code === "command_timeout") {
         const sandboxDeleted = cause.actual?.sandboxDeleted === true;
         const cleanup = sandboxDeleted
           ? { sessionClosed: false }
           : await this.closeSessionToConfirmStop();
         if (sandboxDeleted) this.markDeleted();
-        throw new SmolVMError(
+        throw new CelestoError(
           "command_timeout",
           sandboxDeleted
             ? `Command timed out and sandbox '${this.id}' was deleted to confirm it stopped.`
             : cleanup.sessionClosed
               ? "Command timed out and the SDK session was closed to confirm it stopped."
-              : "Command timed out, but SmolVM could not confirm that it stopped; call smolvm.close() again.",
+              : "Command timed out, but Celesto could not confirm that it stopped; call celesto.close() again.",
           {
             operation: "sandbox.exec",
             sandboxId: this.id,
@@ -154,11 +154,11 @@ export class Sandbox implements SandboxClient {
         sessionClosed = cleanup.sessionClosed;
       }
       if (sandboxDeleted) this.markDeleted();
-      throw new SmolVMError("command_aborted", sandboxDeleted
+      throw new CelestoError("command_aborted", sandboxDeleted
         ? `Command was aborted and sandbox '${this.id}' was deleted to confirm it stopped.`
         : sessionClosed
           ? "Command was aborted and the SDK session was closed to confirm it stopped."
-          : "Command was aborted, but SmolVM could not confirm that it stopped; call smolvm.close() again.", {
+          : "Command was aborted, but Celesto could not confirm that it stopped; call celesto.close() again.", {
         operation: "sandbox.exec",
         sandboxId: this.id,
         actual: { sandboxDeleted, sessionClosed },
@@ -174,7 +174,7 @@ export class Sandbox implements SandboxClient {
     this.deletePromise = this.transport.request<void>(`/sandboxes/${encodeURIComponent(this.id)}`, {
       method: "DELETE",
     }).then(() => this.markDeleted()).catch((cause) => {
-      throw new SmolVMError("cleanup_failed", `Sandbox '${this.id}' could not be deleted; call smolvm.close() to end the complete session.`, {
+      throw new CelestoError("cleanup_failed", `Sandbox '${this.id}' could not be deleted; call celesto.close() to end the complete session.`, {
         operation: "sandbox.delete",
         sandboxId: this.id,
         cause,
@@ -188,7 +188,7 @@ export class Sandbox implements SandboxClient {
 
   private assertFilesAvailable(): void {
     if (this.currentStatus === "deleted") {
-      throw new SmolVMError("transport_failed", `Sandbox '${this.id}' has been deleted; call smolvm.sandboxes.create() to create a replacement.`, {
+      throw new CelestoError("transport_failed", `Sandbox '${this.id}' has been deleted; call celesto.sandboxes.create() to create a replacement.`, {
         operation: "files.access",
         sandboxId: this.id,
       });

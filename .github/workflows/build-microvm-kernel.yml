@@ -1,4 +1,4 @@
-# Build SmolVM's microvm Linux kernel and upload it to the GitHub
+# Build Celesto's microvm Linux kernel and upload it to the GitHub
 # Release named by published.py::IMAGES_RELEASE_TAG.
 #
 # Decoupled from build-published-images.yml on purpose: kernel cadence
@@ -86,7 +86,7 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         env:
           OUT_DIR: ${{ github.workspace }}/kernel-out
-          SMOLVM_ARCH_OVERRIDE: ${{ matrix.arch }}
+          CELESTO_ARCH_OVERRIDE: ${{ matrix.arch }}
         run: |
           mkdir -p "$OUT_DIR"
           bash kernel/microvm/build.sh
@@ -116,7 +116,7 @@ jobs:
             # Single source of truth — published.py::IMAGES_RELEASE_TAG.
             # Read it as a string instead of importing the package: this
             # workflow installs only the apt packages it needs to build
-            # a kernel and skips the smolvm Python deps (paramiko etc),
+            # a kernel and skips the celesto Python deps (paramiko etc),
             # so `from celesto.images.published import …` would ImportError.
             tag=$(awk -F'"' '/^IMAGES_RELEASE_TAG[[:space:]]*=/{print $2; exit}' src/celesto/images/published.py)
           fi
@@ -211,7 +211,7 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --draft \
               --title "Published images $TAG" \
-              --notes "Auto-generated draft release for SmolVM published images. Verify SHA-256 sums and content before publishing." \
+              --notes "Auto-generated draft release for Celesto published images. Verify SHA-256 sums and content before publishing." \
               || echo "Draft already exists (race with another matrix cell), continuing."
           fi
           # Skip-if-exists. The bumping protocol at

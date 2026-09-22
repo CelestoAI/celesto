@@ -183,14 +183,14 @@ def test_firecracker_request_disabled_native_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """SMOLVM_DISABLE_NATIVE_FIRECRACKER_API should fail instead of falling back."""
+    """CELESTO_DISABLE_NATIVE_FIRECRACKER_API should fail instead of falling back."""
     core_client = _core_client()
     client = _client(tmp_path)
-    monkeypatch.setenv("SMOLVM_DISABLE_NATIVE_FIRECRACKER_API", "1")
+    monkeypatch.setenv("CELESTO_DISABLE_NATIVE_FIRECRACKER_API", "1")
 
     with (
         patch("celesto.api.core_firecracker") as mock_core_firecracker,
-        pytest.raises(FirecrackerAPIError, match="unset `SMOLVM_DISABLE_NATIVE_FIRECRACKER_API`"),
+        pytest.raises(FirecrackerAPIError, match="unset `CELESTO_DISABLE_NATIVE_FIRECRACKER_API`"),
     ):
         mock_core_firecracker.available.return_value = True
         client.start_instance()

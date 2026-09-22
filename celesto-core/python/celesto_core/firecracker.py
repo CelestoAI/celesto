@@ -46,7 +46,7 @@ class FirecrackerClient:
         if not available():
             raise CoreUnavailableError(
                 "Firecracker control support is missing; "
-                "run `uv sync --reinstall-package smolvm-core` and try again."
+                "run `uv sync --reinstall-package celesto-core` and try again."
             )
         self.socket_path = Path(socket_path)
 

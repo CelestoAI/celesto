@@ -125,7 +125,7 @@ def test_inject_merge_false_clears_previously_managed_keys() -> None:
     assert "KEEP,NEW" in sentinel_cmd
 
 
-def test_inject_raises_smolvmerror_on_powershell_failure() -> None:
+def test_inject_raises_celestoerror_on_powershell_failure() -> None:
     ssh = MagicMock()
     ssh.run.side_effect = [_ok(""), _fail("set failed")]
     with pytest.raises(CelestoError, match="PowerShell env-var command failed"):
@@ -208,7 +208,7 @@ def test_remove_only_clears_keys_actually_managed() -> None:
 
 
 def test_inject_rejects_reserved_sentinel_name() -> None:
-    """Setting SMOLVM_ENV_MANAGED_KEYS via the public API must be rejected."""
+    """Setting CELESTO_ENV_MANAGED_KEYS via the public API must be rejected."""
     ssh = MagicMock()
     with pytest.raises(ValueError, match="reserved"):
         inject_env_vars(ssh, {_MANAGED_KEYS_SENTINEL: "anything"})
@@ -216,7 +216,7 @@ def test_inject_rejects_reserved_sentinel_name() -> None:
 
 
 def test_remove_rejects_reserved_sentinel_name() -> None:
-    """Removing SMOLVM_ENV_MANAGED_KEYS via the public API must be rejected."""
+    """Removing CELESTO_ENV_MANAGED_KEYS via the public API must be rejected."""
     ssh = MagicMock()
     with pytest.raises(ValueError, match="reserved"):
         remove_env_vars(ssh, [_MANAGED_KEYS_SENTINEL])

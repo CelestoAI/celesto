@@ -49,7 +49,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
         "--e2e-backend",
         choices=("all", *E2E_BACKENDS),
-        default=os.environ.get("SMOLVM_E2E_BACKEND", "all"),
+        default=os.environ.get("CELESTO_E2E_BACKEND", "all"),
         help="Backend to exercise in tests/e2e (default: all available backends).",
     )
 

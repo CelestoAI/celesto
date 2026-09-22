@@ -251,7 +251,7 @@ mod tests {
         let _guard = ENV_LOCK.lock().unwrap();
         let old_shell = std::env::var_os("SHELL");
         unsafe {
-            std::env::set_var("SHELL", "/definitely/missing/smolvm-test-shell");
+            std::env::set_var("SHELL", "/definitely/missing/celesto-test-shell");
         }
 
         let res = run_command(ExecRequest {
@@ -339,7 +339,7 @@ mod tests {
 
     fn tempfile_dir() -> PathBuf {
         let path = std::env::temp_dir().join(format!(
-            "smolvm-agent-exec-test-{}-{}",
+            "celesto-agent-exec-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

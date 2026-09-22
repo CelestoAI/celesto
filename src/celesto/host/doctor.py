@@ -479,7 +479,7 @@ def _check_kvm_runtime() -> DoctorCheck:
                 ),
                 fix=(
                     "Log out of this shell and reconnect to apply the new group, "
-                    "or run any other 'smolvm' command (such as 'celesto sandbox list') — "
+                    "or run any other 'celesto' command (such as 'celesto sandbox list') — "
                     "it will auto-activate the group via 'sg kvm' for that run."
                 ),
             )
@@ -617,7 +617,7 @@ def generate_doctor_report(backend: str | None = None) -> DoctorReport:
         missing_detail = (
             f"Not found at {configured_dir / 'firecracker'}"
             if configured_dir is not None
-            else "Not found in PATH or ~/.smolvm/bin"
+            else "Not found in PATH or ~/.celesto/bin"
         )
         setup_command = (
             "celesto setup"
@@ -656,8 +656,8 @@ def generate_doctor_report(backend: str | None = None) -> DoctorReport:
             )
 
         # Informational visibility into managed nftables objects.
-        checks.append(_check_nft_table("ip", "smolvm_nat"))
-        checks.append(_check_nft_table("inet", "smolvm_filter"))
+        checks.append(_check_nft_table("ip", "celesto_nat"))
+        checks.append(_check_nft_table("inet", "celesto_filter"))
 
         # Worker-node host-level security invariants (Decision 1.1.5).
         # These are surfaced as warnings in the default doctor report so local

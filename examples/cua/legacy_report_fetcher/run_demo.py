@@ -311,7 +311,7 @@ def run_pipeline(inbox: Path) -> str:
 
 def guest_download_dir(session_id: str) -> str:
     """Return the browser download folder inside the sandbox."""
-    return f"/opt/smolvm-browser/downloads/{session_id}"
+    return f"/opt/celesto-browser/downloads/{session_id}"
 
 
 def configure_browser_downloads(browser: Any, download_dir: str) -> None:

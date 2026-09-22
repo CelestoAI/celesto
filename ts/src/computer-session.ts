@@ -1,4 +1,4 @@
-import { SmolVMError } from "./errors.js";
+import { CelestoError } from "./errors.js";
 import { RemoteFiles } from "./remote-files.js";
 import type {
   ComputerBrowserClient,
@@ -9,8 +9,8 @@ import type {
   ExecOptions,
   ExecResult,
   SandboxFiles,
-  SmolVMEvent,
-  SmolVMTransport,
+  CelestoEvent,
+  CelestoTransport,
 } from "./types.js";
 import type { ExecResponse } from "./client/types.gen.js";
 
@@ -41,7 +41,7 @@ class ComputerBrowser implements ComputerBrowserClient {
   constructor(
     wire: ComputerBrowserResponse,
     private readonly computer: ComputerSession,
-    private readonly transport: SmolVMTransport,
+    private readonly transport: CelestoTransport,
   ) {
     this.currentStatus = wire.status;
     this.currentCdpUrl = wire.cdp_url ?? null;
@@ -83,16 +83,16 @@ export class ComputerSession implements ComputerSessionClient {
 
   private constructor(
     wire: ComputerResponse,
-    private readonly transport: SmolVMTransport,
-    private readonly emit: (event: SmolVMEvent) => void,
+    private readonly transport: CelestoTransport,
+    private readonly emit: (event: CelestoEvent) => void,
     private readonly release: (computer: ComputerSession) => void,
     private readonly closeSession: () => Promise<void>,
     private readonly debug: boolean,
   ) {
     if (wire.status !== "ready" || !wire.display.viewer_url || !wire.display.vnc_url) {
-      throw new SmolVMError(
+      throw new CelestoError(
         "computer_endpoint_unavailable",
-        `Computer '${wire.computer_id}' did not return a ready display; call smolvm.computers.create() to create a replacement.`,
+        `Computer '${wire.computer_id}' did not return a ready display; call celesto.computers.create() to create a replacement.`,
         { operation: "computer.create", sandboxId: wire.sandbox_id },
       );
     }
@@ -116,8 +116,8 @@ export class ComputerSession implements ComputerSessionClient {
   /** @internal */
   static create(
     wire: ComputerResponse,
-    transport: SmolVMTransport,
-    emit: (event: SmolVMEvent) => void,
+    transport: CelestoTransport,
+    emit: (event: CelestoEvent) => void,
     release: (computer: ComputerSession) => void,
     closeSession: () => Promise<void>,
     debug: boolean,
@@ -132,9 +132,9 @@ export class ComputerSession implements ComputerSessionClient {
   /** @internal */
   assertReady(operation: string): void {
     if (this.currentStatus !== "ready") {
-      throw new SmolVMError(
+      throw new CelestoError(
         "computer_deleted",
-        `Computer '${this.computerId}' is not ready; call smolvm.computers.create() to create a replacement.`,
+        `Computer '${this.computerId}' is not ready; call celesto.computers.create() to create a replacement.`,
         { operation, sandboxId: this.sandboxId },
       );
     }
@@ -143,7 +143,7 @@ export class ComputerSession implements ComputerSessionClient {
   async exec(command: string | readonly string[], options: ExecOptions = {}): Promise<ExecResult> {
     this.assertReady("computer.exec");
     if (options.signal?.aborted) {
-      throw new SmolVMError(
+      throw new CelestoError(
         "command_aborted",
         `Computer '${this.computerId}' did not start the command because its AbortSignal was already aborted.`,
         { operation: "computer.exec", sandboxId: this.sandboxId },
@@ -184,19 +184,19 @@ export class ComputerSession implements ComputerSessionClient {
       this.emit({ type: "command.completed", sandboxId: this.sandboxId, result });
       return result;
     } catch (cause) {
-      if (cause instanceof SmolVMError && cause.code === "command_timeout") {
+      if (cause instanceof CelestoError && cause.code === "command_timeout") {
         const computerDeleted = cause.actual?.sandboxDeleted === true;
         const cleanup = computerDeleted
           ? { sessionClosed: false }
           : await this.closeSessionToConfirmStop();
         if (computerDeleted) this.markDeleted();
-        throw new SmolVMError(
+        throw new CelestoError(
           "command_timeout",
           computerDeleted
             ? `Command timed out and computer '${this.computerId}' was deleted to confirm it stopped.`
             : cleanup.sessionClosed
               ? "Command timed out and the SDK session was closed to confirm it stopped."
-              : "Command timed out, but SmolVM could not confirm that it stopped; call smolvm.close() again.",
+              : "Command timed out, but Celesto could not confirm that it stopped; call celesto.close() again.",
           {
             operation: "computer.exec",
             sandboxId: this.sandboxId,
@@ -223,13 +223,13 @@ export class ComputerSession implements ComputerSessionClient {
         sessionClosed = cleanup.sessionClosed;
       }
       if (computerDeleted) this.markDeleted();
-      throw new SmolVMError(
+      throw new CelestoError(
         "command_aborted",
         computerDeleted
           ? `Command was aborted and computer '${this.computerId}' was deleted to confirm it stopped.`
           : sessionClosed
             ? "Command was aborted and the SDK session was closed to confirm it stopped."
-            : "Command was aborted, but SmolVM could not confirm that it stopped; call smolvm.close() again.",
+            : "Command was aborted, but Celesto could not confirm that it stopped; call celesto.close() again.",
         {
           operation: "computer.exec",
           sandboxId: this.sandboxId,
