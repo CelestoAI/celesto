@@ -89,12 +89,15 @@ _MAX_ERROR_BODY_BYTES = 64 * 1024
 _CONNECTION_TIMEOUT = 30.0
 
 
+_DEFAULT_CLOUD_BASE_URL = "https://api.celesto.ai"
+
+
 class _CloudComputer:
     def __init__(
         self,
         *,
         api_key: str | None = None,
-        base_url: str = "https://api.celesto.ai",
+        base_url: str = _DEFAULT_CLOUD_BASE_URL,
         organization_id: str | None = None,
         startup_timeout: float = 120,
         cleanup_timeout: float = 120,
@@ -108,9 +111,16 @@ class _CloudComputer:
     ) -> None:
         key = api_key if api_key is not None else os.environ.get("CELESTO_API_KEY")
         if not isinstance(key, str) or not key.strip():
-            from celesto.cli._credentials import read_api_key
+            from celesto.cli._credentials import read_credentials
 
-            key = read_api_key()
+            stored = read_credentials()
+            if stored:
+                key = stored["api_key"]
+                # Only substitute the stored base_url when the caller left
+                # base_url at its default; an explicit base_url (including an
+                # explicit production URL) always wins.
+                if base_url == _DEFAULT_CLOUD_BASE_URL and stored.get("base_url"):
+                    base_url = stored["base_url"]
         if not isinstance(key, str) or not key.strip():
             raise ValueError(
                 "Set CELESTO_API_KEY, pass api_key=, or run "

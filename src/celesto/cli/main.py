@@ -4316,6 +4316,15 @@ def _command_name_from_argv(args: Sequence[str]) -> str:
             # "ls" is an alias of "list"; successful runs report
             # "image.list", so parse errors must too.
             return "image.list"
+        if (
+            tokens[0] == "computer"
+            and tokens[1] == "port"
+            and len(tokens) >= 3
+            and tokens[2] in {"publish", "list", "unpublish"}
+        ):
+            # Successful runs report "computer.port_{verb}"; parse errors
+            # must match so JSON clients see one identifier per command.
+            return f"computer.port_{tokens[2]}"
         return f"{tokens[0]}.{tokens[1]}"
     return tokens[0]
 
@@ -4339,12 +4348,20 @@ DEFAULT_CLOUD_BASE_URL = "https://api.celesto.ai"
 def _fetch_authenticated_email(base_url: str, api_key: str) -> str:
     """Validate an API key against the cloud API and return its owner's email.
 
-    Raises ValueError if the server does not accept the key.
+    Raises ValueError if the server does not accept the key, or if base_url
+    would send that key over plaintext HTTP to a non-loopback host.
     """
+    from urllib.parse import urlsplit
+
     import httpx
 
     from _celesto_cloud_api.api.users.get_info_v1_users_info_get import sync_detailed
     from _celesto_cloud_api.client import AuthenticatedClient
+
+    parsed = urlsplit(base_url)
+    local_http = parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+    if parsed.scheme != "https" and not local_http:
+        raise ValueError("base_url must be an HTTPS origin; HTTP is only allowed for localhost.")
 
     client = AuthenticatedClient(
         base_url=base_url,

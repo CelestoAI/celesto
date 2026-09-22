@@ -66,6 +66,9 @@ def write_credentials(*, api_key: str, email: str, base_url: str) -> None:
     CREDENTIALS_PATH.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps({"api_key": api_key, "email": email, "base_url": base_url}, indent=2)
     fd = os.open(CREDENTIALS_PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    # The mode passed to os.open only applies when O_CREAT creates the file;
+    # an existing file keeps whatever permissions it already had.
+    os.fchmod(fd, 0o600)
     with os.fdopen(fd, "w") as handle:
         handle.write(payload)
 

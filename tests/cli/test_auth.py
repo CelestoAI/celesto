@@ -63,6 +63,44 @@ def test_login_rejects_invalid_key_without_storing(monkeypatch, capsys):
     assert _credentials.read_credentials() is None
 
 
+def test_login_rejects_remote_plaintext_http(capsys):
+    assert (
+        main(
+            [
+                "auth",
+                "login",
+                "--api-key",
+                "celesto_sk_test",
+                "--base-url",
+                "http://example.com",
+                "--json",
+            ]
+        )
+        == 1
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert "HTTPS" in payload["error"]["message"]
+
+
+def test_login_allows_localhost_http(monkeypatch):
+    monkeypatch.setattr(
+        "celesto.cli.main._fetch_authenticated_email", lambda base_url, api_key: "a@b.com"
+    )
+    assert (
+        main(
+            [
+                "auth",
+                "login",
+                "--api-key",
+                "celesto_sk_test",
+                "--base-url",
+                "http://localhost:8000",
+            ]
+        )
+        == 0
+    )
+
+
 def test_login_json_without_api_key_fails_instead_of_prompting(capsys):
     assert main(["auth", "login", "--json"]) == 1
     payload = json.loads(capsys.readouterr().out)
@@ -138,5 +176,16 @@ def test_logout_is_idempotent(capsys):
 
 def test_credentials_file_written_with_owner_only_permissions():
     _credentials.write_credentials(api_key="k", email="e", base_url="https://api.celesto.ai")
+    mode = _credentials.CREDENTIALS_PATH.stat().st_mode & 0o777
+    assert mode == 0o600
+
+
+def test_write_credentials_tightens_permissions_on_existing_file():
+    _credentials.CREDENTIALS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _credentials.CREDENTIALS_PATH.write_text("{}")
+    _credentials.CREDENTIALS_PATH.chmod(0o644)
+
+    _credentials.write_credentials(api_key="k", email="e", base_url="https://api.celesto.ai")
+
     mode = _credentials.CREDENTIALS_PATH.stat().st_mode & 0o777
     assert mode == 0o600
