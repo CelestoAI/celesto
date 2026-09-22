@@ -37,6 +37,8 @@ export function App() {
   const controlEpochRef = useRef("");
   const [approvalPending, setApprovalPending] = useState(false);
   const [conversationPending, setConversationPending] = useState(false);
+  const [modelActionPending, setModelActionPending] = useState(false);
+  const modelActionPendingRef = useRef(false);
   const [traces, setTraces] = useState<TraceSnapshot>();
   const [traceStatus, setTraceStatus] = useState<"ready" | "reconnecting" | "unavailable">("ready");
   const endRef = useRef<HTMLDivElement>(null);
@@ -447,17 +449,21 @@ export function App() {
 
           {selectedProvider?.configured && (
             <div className="provider-actions">
-              <button onClick={() => {
+              <button disabled={modelActionPending} onClick={() => {
+                if (modelActionPendingRef.current) return;
                 const modelId = selectedModelId;
                 const sameBinding = conversation?.providerId === selectedProviderId && conversation.modelId === modelId;
                 if (conversation?.modelAccessState === "ready" && sameBinding) { setShowModelSetup(false); return; }
+                modelActionPendingRef.current = true;
+                setModelActionPending(true);
                 void (!conversation
                   ? startConversation({ providerId: selectedProviderId, modelId })
                   : sameBinding
                     ? api.reconnectConversation(conversation.id).then((next) => { showConversation(next); setShowModelSetup(false); }).catch((caught) => setError(caught instanceof Error ? caught.message : "Could not reconnect."))
-                    : api.switchConversationModel(conversation.id, { providerId: selectedProviderId, modelId }).then((next) => { showConversation(next); setShowModelSetup(false); void refreshConversationList(); }).catch((caught) => setError(caught instanceof Error ? caught.message : "Could not switch models.")));
+                    : api.switchConversationModel(conversation.id, { providerId: selectedProviderId, modelId }).then((next) => { showConversation(next); setShowModelSetup(false); void refreshConversationList(); }).catch((caught) => setError(caught instanceof Error ? caught.message : "Could not switch models."))
+                ).finally(() => { modelActionPendingRef.current = false; setModelActionPending(false); });
               }}>
-                {!conversation ? "Start using OpenMuse" : conversation.providerId === selectedProviderId && conversation.modelId === selectedModelId ? "Return to conversation" : conversation.providerId === selectedProviderId ? "Switch model" : "Switch provider"}
+                {modelActionPending ? "Starting…" : !conversation ? "Start using OpenMuse" : conversation.providerId === selectedProviderId && conversation.modelId === selectedModelId ? "Return to conversation" : conversation.providerId === selectedProviderId ? "Switch model" : "Switch provider"}
               </button>
               {selectedProvider.source === "environment"
                 ? <p className="env-disconnect-note">To disconnect, remove <code>{selectedProvider.environmentVariable ?? "the provider credential"}</code> from your environment and restart OpenMuse.</p>
