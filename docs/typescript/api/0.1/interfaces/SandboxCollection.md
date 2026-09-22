@@ -1,6 +1,6 @@
 [**@celestoai/celesto**](../README.md)
 
-______________________________________________________________________
+***
 
 [@celestoai/celesto](../README.md) / SandboxCollection
 
@@ -12,7 +12,7 @@ Creates sandboxes owned by one Celesto client.
 
 ### create()
 
-> **create**(`options?`): `Promise`\<[`SandboxClient`](SandboxClient.md)>
+> **create**(`options?`): `Promise`\<[`SandboxClient`](SandboxClient.md)\>
 
 #### Parameters
 
@@ -22,4 +22,4 @@ Creates sandboxes owned by one Celesto client.
 
 #### Returns
 
-`Promise`\<[`SandboxClient`](SandboxClient.md)>
+`Promise`\<[`SandboxClient`](SandboxClient.md)\>

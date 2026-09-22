@@ -38,6 +38,7 @@ which creates per-VM overlays on top of it (see Phase 3a).
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 import time
@@ -147,7 +148,14 @@ def build_autounattend_iso(answer_xml: str, output_iso: Path) -> Path:
 
     with tempfile.TemporaryDirectory(prefix="celesto-autounattend-") as staging:
         staging_path = Path(staging)
-        (staging_path / "autounattend.xml").write_text(answer_xml, encoding="utf-8")
+        answer_file = staging_path / "autounattend.xml"
+        # This answer file necessarily contains the user-selected Windows
+        # password. The temporary directory is private and the file is 0600;
+        # xorrisofs consumes it immediately and TemporaryDirectory removes it.
+        # codeql[py/clear-text-storage-sensitive-data]
+        fd = os.open(answer_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as file:
+            file.write(answer_xml)
         result = subprocess.run(
             [
                 xorrisofs,

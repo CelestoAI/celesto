@@ -1,11 +1,11 @@
 [**@celestoai/celesto**](../README.md)
 
-______________________________________________________________________
+***
 
 [@celestoai/celesto](../README.md) / ComputerSessionStatus
 
 # Type Alias: ComputerSessionStatus
 
-> **ComputerSessionStatus** = `"ready"` | `"stopping"` | `"error"` | `"deleted"`
+> **ComputerSessionStatus** = `"ready"` \| `"stopping"` \| `"error"` \| `"deleted"`
 
 Whether a complete desktop computer is usable or has been deleted.

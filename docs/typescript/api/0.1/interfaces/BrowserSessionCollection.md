@@ -1,6 +1,6 @@
 [**@celestoai/celesto**](../README.md)
 
-______________________________________________________________________
+***
 
 [@celestoai/celesto](../README.md) / BrowserSessionCollection
 
@@ -12,7 +12,7 @@ Create browser computers that this Celesto client will clean up. A browser sessi
 
 ### create()
 
-> **create**(`options?`): `Promise`\<[`BrowserSessionClient`](BrowserSessionClient.md)>
+> **create**(`options?`): `Promise`\<[`BrowserSessionClient`](BrowserSessionClient.md)\>
 
 #### Parameters
 
@@ -22,4 +22,4 @@ Create browser computers that this Celesto client will clean up. A browser sessi
 
 #### Returns
 
-`Promise`\<[`BrowserSessionClient`](BrowserSessionClient.md)>
+`Promise`\<[`BrowserSessionClient`](BrowserSessionClient.md)\>

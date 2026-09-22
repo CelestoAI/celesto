@@ -1976,6 +1976,12 @@ class TestResolveBootArgs:
         assert " " not in encoded
         decoded = base64.b64decode(encoded).decode("utf-8")
         assert decoded == self._ED25519_KEY
+        legacy_token = next(
+            (p for p in args.split() if p.startswith("smolvm.authorized_key_b64=")),
+            None,
+        )
+        assert legacy_token is not None, args
+        assert base64.b64decode(legacy_token.split("=", 1)[1]).decode("utf-8") == self._ED25519_KEY
 
     def test_key_in_existing_boot_args_is_not_duplicated(
         self, smol_vm: CelestoManager, sample_config: VMConfig
@@ -1989,6 +1995,8 @@ class TestResolveBootArgs:
         args = smol_vm._resolve_boot_args(info)
         tokens = [p for p in args.split() if p.startswith("celesto.authorized_key_b64=")]
         assert tokens == ["celesto.authorized_key_b64=PRESET"]
+        legacy_tokens = [p for p in args.split() if p.startswith("smolvm.authorized_key_b64=")]
+        assert len(legacy_tokens) == 1
 
     def test_key_strip_whitespace_before_encoding(
         self, smol_vm: CelestoManager, sample_config: VMConfig
@@ -2009,6 +2017,7 @@ class TestResolveBootArgs:
 
         script = ImageBuilder()._default_init_script()
         assert "celesto.authorized_key_b64=" in script
+        assert "smolvm" in script
         assert "base64 -d" in script
         assert "/root/.ssh/authorized_keys" in script
         # Parser must run BEFORE sshd starts, otherwise the new key isn't picked up.

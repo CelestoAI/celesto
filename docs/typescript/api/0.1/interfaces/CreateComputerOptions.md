@@ -1,6 +1,6 @@
 [**@celestoai/celesto**](../README.md)
 
-______________________________________________________________________
+***
 
 [@celestoai/celesto](../README.md) / CreateComputerOptions
 
@@ -12,9 +12,9 @@ Start a complete Linux desktop with a display, Chromium, files, and commands.
 
 ### backend?
 
-> `optional` **backend?**: `"firecracker"` | `"qemu"` | `"auto"`
+> `optional` **backend?**: `"firecracker"` \| `"qemu"` \| `"auto"`
 
-______________________________________________________________________
+***
 
 ### display?
 
@@ -28,19 +28,19 @@ ______________________________________________________________________
 
 > **width**: `number`
 
-______________________________________________________________________
+***
 
 ### name?
 
 > `optional` **name?**: `string`
 
-______________________________________________________________________
+***
 
 ### network?
 
 > `optional` **network?**: [`NetworkPolicy`](../type-aliases/NetworkPolicy.md)
 
-______________________________________________________________________
+***
 
 ### resources?
 
@@ -58,14 +58,14 @@ ______________________________________________________________________
 
 > `optional` **vcpus?**: `2`
 
-______________________________________________________________________
+***
 
 ### template?
 
 > `optional` **template?**: `"linux-desktop"`
 
-______________________________________________________________________
+***
 
 ### workspace?
 
-> `optional` **workspace?**: readonly `object`\[\]
+> `optional` **workspace?**: readonly `object`[]

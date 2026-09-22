@@ -1,6 +1,6 @@
 [**@celestoai/celesto**](../README.md)
 
-______________________________________________________________________
+***
 
 [@celestoai/celesto](../README.md) / ComputerCollection
 
@@ -12,7 +12,7 @@ Create complete desktop computers owned by one Celesto client.
 
 ### create()
 
-> **create**(`options?`): `Promise`\<[`ComputerSessionClient`](ComputerSessionClient.md)>
+> **create**(`options?`): `Promise`\<[`ComputerSessionClient`](ComputerSessionClient.md)\>
 
 #### Parameters
 
@@ -22,4 +22,4 @@ Create complete desktop computers owned by one Celesto client.
 
 #### Returns
 
-`Promise`\<[`ComputerSessionClient`](ComputerSessionClient.md)>
+`Promise`\<[`ComputerSessionClient`](ComputerSessionClient.md)\>

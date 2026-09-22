@@ -1,6 +1,6 @@
 [**@celestoai/celesto**](../README.md)
 
-______________________________________________________________________
+***
 
 [@celestoai/celesto](../README.md) / CelestoClient
 
@@ -14,13 +14,13 @@ The mockable client contract for creating sandboxes, diagnosing setup, and clean
 
 > `readonly` **browsers**: [`BrowserSessionCollection`](BrowserSessionCollection.md)
 
-______________________________________________________________________
+***
 
 ### computers
 
 > `readonly` **computers**: [`ComputerCollection`](ComputerCollection.md)
 
-______________________________________________________________________
+***
 
 ### sandboxes
 
@@ -30,18 +30,18 @@ ______________________________________________________________________
 
 ### close()
 
-> **close**(): `Promise`\<`void`>
+> **close**(): `Promise`\<`void`\>
 
 #### Returns
 
-`Promise`\<`void`>
+`Promise`\<`void`\>
 
-______________________________________________________________________
+***
 
 ### diagnose()
 
-> **diagnose**(): `Promise`\<[`DiagnoseResult`](DiagnoseResult.md)>
+> **diagnose**(): `Promise`\<[`DiagnoseResult`](DiagnoseResult.md)\>
 
 #### Returns
 
-`Promise`\<[`DiagnoseResult`](DiagnoseResult.md)>
+`Promise`\<[`DiagnoseResult`](DiagnoseResult.md)\>

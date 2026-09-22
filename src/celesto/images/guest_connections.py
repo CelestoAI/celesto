@@ -18,6 +18,29 @@ from pathlib import Path
 RUNTIME = Path("/run/celesto-browser")
 LOGS = Path("/var/log/celesto-browser")
 
+# Published desktop images are released independently from the SDK. Keep this
+# helper able to start a browser on images built before the Celesto rename;
+# the host sends this script to the guest at connection time.
+_BROWSER_SESSION = next(
+    (
+        path
+        for path in (
+            Path("/usr/local/bin/celesto-browser-session"),
+            Path("/usr/local/bin/smolvm-browser-session"),
+        )
+        if path.is_file()
+    ),
+    Path("/usr/local/bin/celesto-browser-session"),
+)
+_BROWSER_ROOT = next(
+    (
+        path
+        for path in (Path("/opt/celesto-browser"), Path("/opt/smolvm-browser"))
+        if path.is_dir()
+    ),
+    Path("/opt/celesto-browser"),
+)
+
 
 def capabilities():
     common = all(shutil.which(tool) for tool in ("Xvfb", "openbox", "runuser"))
@@ -26,7 +49,7 @@ def capabilities():
     except KeyError:
         common = False
     browser = common and any(shutil.which(tool) for tool in ("chromium", "chromium-browser"))
-    browser = browser and Path("/usr/local/bin/celesto-browser-session").is_file()
+    browser = browser and _BROWSER_SESSION.is_file()
     display = common and all(shutil.which(tool) for tool in ("x11vnc", "websockify"))
     return {
         "version": 1,
@@ -133,14 +156,14 @@ def ensure(kind, timeout, proxy=None):
             # Reuse the browser without restarting it or changing its profile.
             if not listening(9223):
                 args = [
-                    "/usr/local/bin/celesto-browser-session",
+                    str(_BROWSER_SESSION),
                     "launch-browser",
                     "computer",
                     "1280",
                     "720",
                     "9222",
-                    "/opt/celesto-browser/profiles/computer",
-                    "/opt/celesto-browser/downloads/computer",
+                    str(_BROWSER_ROOT / "profiles/computer"),
+                    str(_BROWSER_ROOT / "downloads/computer"),
                     "1",
                 ]
                 if proxy:

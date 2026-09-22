@@ -1,6 +1,6 @@
 [**@celestoai/celesto**](../README.md)
 
-______________________________________________________________________
+***
 
 [@celestoai/celesto](../README.md) / SandboxClient
 
@@ -22,13 +22,13 @@ The mockable command, file, status, and deletion contract for one sandbox.
 
 [`CommandFilesClient`](CommandFilesClient.md).[`files`](CommandFilesClient.md#files)
 
-______________________________________________________________________
+***
 
 ### id
 
 > `readonly` **id**: `string`
 
-______________________________________________________________________
+***
 
 ### status
 
@@ -38,23 +38,23 @@ ______________________________________________________________________
 
 ### delete()
 
-> **delete**(): `Promise`\<`void`>
+> **delete**(): `Promise`\<`void`\>
 
 #### Returns
 
-`Promise`\<`void`>
+`Promise`\<`void`\>
 
-______________________________________________________________________
+***
 
 ### exec()
 
-> **exec**(`command`, `options?`): `Promise`\<[`ExecResult`](ExecResult.md)>
+> **exec**(`command`, `options?`): `Promise`\<[`ExecResult`](ExecResult.md)\>
 
 #### Parameters
 
 ##### command
 
-`string` | readonly `string`\[\]
+`string` \| readonly `string`[]
 
 ##### options?
 
@@ -62,7 +62,7 @@ ______________________________________________________________________
 
 #### Returns
 
-`Promise`\<[`ExecResult`](ExecResult.md)>
+`Promise`\<[`ExecResult`](ExecResult.md)\>
 
 #### Inherited from
 

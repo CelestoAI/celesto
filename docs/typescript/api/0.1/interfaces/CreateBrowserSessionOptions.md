@@ -1,6 +1,6 @@
 [**@celestoai/celesto**](../README.md)
 
-______________________________________________________________________
+***
 
 [@celestoai/celesto](../README.md) / CreateBrowserSessionOptions
 
@@ -14,61 +14,61 @@ Start an isolated browser computer with the resources and live view you need. Ch
 
 > `optional` **allowDownloads?**: `boolean`
 
-______________________________________________________________________
+***
 
 ### backend?
 
-> `optional` **backend?**: `"firecracker"` | `"qemu"` | `"libkrun"` | `"auto"`
+> `optional` **backend?**: `"firecracker"` \| `"qemu"` \| `"libkrun"` \| `"auto"`
 
-______________________________________________________________________
+***
 
 ### diskMiB?
 
 > `optional` **diskMiB?**: `number`
 
-______________________________________________________________________
+***
 
 ### memoryMiB?
 
 > `optional` **memoryMiB?**: `number`
 
-______________________________________________________________________
+***
 
 ### mode?
 
-> `optional` **mode?**: `"headless"` | `"live"`
+> `optional` **mode?**: `"headless"` \| `"live"`
 
-______________________________________________________________________
+***
 
 ### network?
 
 > `optional` **network?**: [`NetworkPolicy`](../type-aliases/NetworkPolicy.md)
 
-______________________________________________________________________
+***
 
 ### profile?
 
-> `optional` **profile?**: { `mode`: `"ephemeral"`; } | { `id`: `string`; `mode`: `"persistent"`; }
+> `optional` **profile?**: \{ `mode`: `"ephemeral"`; \} \| \{ `id`: `string`; `mode`: `"persistent"`; \}
 
-______________________________________________________________________
+***
 
 ### recordVideo?
 
 > `optional` **recordVideo?**: `boolean`
 
-______________________________________________________________________
+***
 
 ### sessionId?
 
 > `optional` **sessionId?**: `string`
 
-______________________________________________________________________
+***
 
 ### timeoutMinutes?
 
 > `optional` **timeoutMinutes?**: `number`
 
-______________________________________________________________________
+***
 
 ### viewport?
 

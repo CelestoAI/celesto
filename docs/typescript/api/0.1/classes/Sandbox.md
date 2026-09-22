@@ -1,6 +1,6 @@
 [**@celestoai/celesto**](../README.md)
 
-______________________________________________________________________
+***
 
 [@celestoai/celesto](../README.md) / Sandbox
 
@@ -22,7 +22,7 @@ One disposable local computer with commands, files, status, and explicit deletio
 
 [`SandboxClient`](../interfaces/SandboxClient.md).[`files`](../interfaces/SandboxClient.md#files)
 
-______________________________________________________________________
+***
 
 ### id
 
@@ -52,27 +52,27 @@ ______________________________________________________________________
 
 ### delete()
 
-> **delete**(): `Promise`\<`void`>
+> **delete**(): `Promise`\<`void`\>
 
 #### Returns
 
-`Promise`\<`void`>
+`Promise`\<`void`\>
 
 #### Implementation of
 
 [`SandboxClient`](../interfaces/SandboxClient.md).[`delete`](../interfaces/SandboxClient.md#delete)
 
-______________________________________________________________________
+***
 
 ### exec()
 
-> **exec**(`command`, `options?`): `Promise`\<[`ExecResult`](../interfaces/ExecResult.md)>
+> **exec**(`command`, `options?`): `Promise`\<[`ExecResult`](../interfaces/ExecResult.md)\>
 
 #### Parameters
 
 ##### command
 
-`string` | readonly `string`\[\]
+`string` \| readonly `string`[]
 
 ##### options?
 
@@ -80,7 +80,7 @@ ______________________________________________________________________
 
 #### Returns
 
-`Promise`\<[`ExecResult`](../interfaces/ExecResult.md)>
+`Promise`\<[`ExecResult`](../interfaces/ExecResult.md)\>
 
 #### Implementation of
 

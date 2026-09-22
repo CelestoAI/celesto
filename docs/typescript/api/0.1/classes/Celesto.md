@@ -1,6 +1,6 @@
 [**@celestoai/celesto**](../README.md)
 
-______________________________________________________________________
+***
 
 [@celestoai/celesto](../README.md) / Celesto
 
@@ -38,7 +38,7 @@ Entry point for creating disposable local sandboxes.
 
 [`CelestoClient`](../interfaces/CelestoClient.md).[`browsers`](../interfaces/CelestoClient.md#browsers)
 
-______________________________________________________________________
+***
 
 ### computers
 
@@ -48,7 +48,7 @@ ______________________________________________________________________
 
 [`CelestoClient`](../interfaces/CelestoClient.md).[`computers`](../interfaces/CelestoClient.md#computers)
 
-______________________________________________________________________
+***
 
 ### sandboxes
 
@@ -62,25 +62,25 @@ ______________________________________________________________________
 
 ### close()
 
-> **close**(): `Promise`\<`void`>
+> **close**(): `Promise`\<`void`\>
 
 #### Returns
 
-`Promise`\<`void`>
+`Promise`\<`void`\>
 
 #### Implementation of
 
 [`CelestoClient`](../interfaces/CelestoClient.md).[`close`](../interfaces/CelestoClient.md#close)
 
-______________________________________________________________________
+***
 
 ### diagnose()
 
-> **diagnose**(): `Promise`\<[`DiagnoseResult`](../interfaces/DiagnoseResult.md)>
+> **diagnose**(): `Promise`\<[`DiagnoseResult`](../interfaces/DiagnoseResult.md)\>
 
 #### Returns
 
-`Promise`\<[`DiagnoseResult`](../interfaces/DiagnoseResult.md)>
+`Promise`\<[`DiagnoseResult`](../interfaces/DiagnoseResult.md)\>
 
 #### Implementation of
 

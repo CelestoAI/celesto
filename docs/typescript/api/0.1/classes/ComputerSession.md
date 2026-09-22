@@ -1,6 +1,6 @@
 [**@celestoai/celesto**](../README.md)
 
-______________________________________________________________________
+***
 
 [@celestoai/celesto](../README.md) / ComputerSession
 
@@ -22,17 +22,17 @@ A complete Linux desktop with grouped display, browser, file, and command access
 
 [`ComputerSessionClient`](../interfaces/ComputerSessionClient.md).[`browser`](../interfaces/ComputerSessionClient.md#browser)
 
-______________________________________________________________________
+***
 
 ### capabilities
 
-> `readonly` **capabilities**: readonly `string`\[\]
+> `readonly` **capabilities**: readonly `string`[]
 
 #### Implementation of
 
 [`ComputerSessionClient`](../interfaces/ComputerSessionClient.md).[`capabilities`](../interfaces/ComputerSessionClient.md#capabilities)
 
-______________________________________________________________________
+***
 
 ### computerId
 
@@ -42,7 +42,7 @@ ______________________________________________________________________
 
 [`ComputerSessionClient`](../interfaces/ComputerSessionClient.md).[`computerId`](../interfaces/ComputerSessionClient.md#computerid)
 
-______________________________________________________________________
+***
 
 ### display
 
@@ -52,7 +52,7 @@ ______________________________________________________________________
 
 [`ComputerSessionClient`](../interfaces/ComputerSessionClient.md).[`display`](../interfaces/ComputerSessionClient.md#display)
 
-______________________________________________________________________
+***
 
 ### files
 
@@ -62,7 +62,7 @@ ______________________________________________________________________
 
 [`ComputerSessionClient`](../interfaces/ComputerSessionClient.md).[`files`](../interfaces/ComputerSessionClient.md#files)
 
-______________________________________________________________________
+***
 
 ### sandboxId
 
@@ -72,7 +72,7 @@ ______________________________________________________________________
 
 [`ComputerSessionClient`](../interfaces/ComputerSessionClient.md).[`sandboxId`](../interfaces/ComputerSessionClient.md#sandboxid)
 
-______________________________________________________________________
+***
 
 ### template
 
@@ -102,27 +102,27 @@ ______________________________________________________________________
 
 ### delete()
 
-> **delete**(): `Promise`\<`void`>
+> **delete**(): `Promise`\<`void`\>
 
 #### Returns
 
-`Promise`\<`void`>
+`Promise`\<`void`\>
 
 #### Implementation of
 
 [`ComputerSessionClient`](../interfaces/ComputerSessionClient.md).[`delete`](../interfaces/ComputerSessionClient.md#delete)
 
-______________________________________________________________________
+***
 
 ### exec()
 
-> **exec**(`command`, `options?`): `Promise`\<[`ExecResult`](../interfaces/ExecResult.md)>
+> **exec**(`command`, `options?`): `Promise`\<[`ExecResult`](../interfaces/ExecResult.md)\>
 
 #### Parameters
 
 ##### command
 
-`string` | readonly `string`\[\]
+`string` \| readonly `string`[]
 
 ##### options?
 
@@ -130,7 +130,7 @@ ______________________________________________________________________
 
 #### Returns
 
-`Promise`\<[`ExecResult`](../interfaces/ExecResult.md)>
+`Promise`\<[`ExecResult`](../interfaces/ExecResult.md)\>
 
 #### Implementation of
 

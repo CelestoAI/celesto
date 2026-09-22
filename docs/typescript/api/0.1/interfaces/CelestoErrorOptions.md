@@ -1,6 +1,6 @@
 [**@celestoai/celesto**](../README.md)
 
-______________________________________________________________________
+***
 
 [@celestoai/celesto](../README.md) / CelestoErrorOptions
 
@@ -12,39 +12,39 @@ Adds operation context and safe recovery details to a CelestoError.
 
 ### actual?
 
-> `optional` **actual?**: `Readonly`\<`Record`\<`string`, `string` | `number` | `boolean`>>
+> `optional` **actual?**: `Readonly`\<`Record`\<`string`, `string` \| `number` \| `boolean`\>\>
 
-______________________________________________________________________
+***
 
 ### cause?
 
 > `optional` **cause?**: `unknown`
 
-______________________________________________________________________
+***
 
 ### debug?
 
 > `optional` **debug?**: `boolean`
 
-______________________________________________________________________
+***
 
 ### helpUrl?
 
 > `optional` **helpUrl?**: `string`
 
-______________________________________________________________________
+***
 
 ### operation
 
 > **operation**: `string`
 
-______________________________________________________________________
+***
 
 ### recoveryCommand?
 
 > `optional` **recoveryCommand?**: `string`
 
-______________________________________________________________________
+***
 
 ### sandboxId?
 

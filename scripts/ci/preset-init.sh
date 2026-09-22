@@ -128,7 +128,7 @@ netmask_to_prefix() {
 }
 
 IP_CONFIG=$(cat /proc/cmdline | tr ' ' '\n' | grep '^ip=' | head -1)
-GUEST_MANAGED=$(cat /proc/cmdline | tr ' ' '\n' | grep '^celesto.network=guest' | head -1)
+GUEST_MANAGED=$(cat /proc/cmdline | tr ' ' '\n' | grep -E '^(celesto|smolvm)\.network=guest' | head -1)
 
 configure_guest_managed_network() {
     ip link set lo up
@@ -208,12 +208,13 @@ fi
 log_ts "ssh-hostkey-check-done"
 
 # ── Pubkey injection from kernel cmdline ─────────────────────
-# Format: celesto.authorized_key_b64=<base64-of-the-pubkey-line>.
-# Same mechanism as openclaw — published images don't bake keys at
-# build time, so each VM gets the launching user's key.
+# Format: celesto.authorized_key_b64=<base64-of-the-pubkey-line>. The legacy
+# parameter is accepted while published images transition to Celesto.
+# Published images don't bake keys at build time, so each VM gets the launching
+# user's key.
 log_ts "ssh-authkey-inject-start"
 AUTHKEY_B64=$(cat /proc/cmdline | tr ' ' '\n' \
-    | grep '^celesto\.authorized_key_b64=' | head -1 | cut -d= -f2-)
+    | grep -E '^(celesto|smolvm)\.authorized_key_b64=' | head -1 | cut -d= -f2-)
 if [ -n "$AUTHKEY_B64" ]; then
     DECODED=$(echo "$AUTHKEY_B64" | base64 -d 2>/dev/null)
     if [ -n "$DECODED" ]; then

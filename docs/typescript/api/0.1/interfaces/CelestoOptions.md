@@ -1,6 +1,6 @@
 [**@celestoai/celesto**](../README.md)
 
-______________________________________________________________________
+***
 
 [@celestoai/celesto](../README.md) / CelestoOptions
 
@@ -16,7 +16,7 @@ Configure runtime startup, lifecycle events, debugging, or a test transport.
 
 Time allowed to download an image and create a sandbox.
 
-______________________________________________________________________
+***
 
 ### debug?
 
@@ -24,7 +24,7 @@ ______________________________________________________________________
 
 Retain non-enumerable causes on CelestoError instances.
 
-______________________________________________________________________
+***
 
 ### onEvent?
 
@@ -42,7 +42,7 @@ Observe typed lifecycle events.
 
 `void`
 
-______________________________________________________________________
+***
 
 ### requestTimeoutMs?
 
@@ -50,7 +50,7 @@ ______________________________________________________________________
 
 Time allowed for ordinary bridge requests that do not manage a VM lifecycle operation.
 
-______________________________________________________________________
+***
 
 ### runtimePath?
 
@@ -58,7 +58,7 @@ ______________________________________________________________________
 
 Runtime executable path. Defaults to `celesto` on PATH.
 
-______________________________________________________________________
+***
 
 ### startupTimeoutMs?
 
@@ -66,7 +66,7 @@ ______________________________________________________________________
 
 Time allowed for the local bridge to start.
 
-______________________________________________________________________
+***
 
 ### transport?
 

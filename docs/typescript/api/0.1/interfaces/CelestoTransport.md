@@ -1,6 +1,6 @@
 [**@celestoai/celesto**](../README.md)
 
-______________________________________________________________________
+***
 
 [@celestoai/celesto](../README.md) / CelestoTransport
 
@@ -12,17 +12,17 @@ Sends private bridge requests; applications can implement it to test without a V
 
 ### close()
 
-> **close**(): `Promise`\<`void`>
+> **close**(): `Promise`\<`void`\>
 
 #### Returns
 
-`Promise`\<`void`>
+`Promise`\<`void`\>
 
-______________________________________________________________________
+***
 
 ### request()
 
-> **request**\<`T`>(`path`, `init?`): `Promise`\<`T`>
+> **request**\<`T`\>(`path`, `init?`): `Promise`\<`T`\>
 
 #### Type Parameters
 
@@ -42,13 +42,13 @@ ______________________________________________________________________
 
 #### Returns
 
-`Promise`\<`T`>
+`Promise`\<`T`\>
 
-______________________________________________________________________
+***
 
 ### requestBytes()
 
-> **requestBytes**(`path`, `init?`): `Promise`\<`Uint8Array`\<`ArrayBufferLike`>>
+> **requestBytes**(`path`, `init?`): `Promise`\<`Uint8Array`\<`ArrayBufferLike`\>\>
 
 #### Parameters
 
@@ -62,13 +62,13 @@ ______________________________________________________________________
 
 #### Returns
 
-`Promise`\<`Uint8Array`\<`ArrayBufferLike`>>
+`Promise`\<`Uint8Array`\<`ArrayBufferLike`\>\>
 
-______________________________________________________________________
+***
 
 ### requestStream()?
 
-> `optional` **requestStream**(`path`, `content`, `contentLength`): `Promise`\<`void`>
+> `optional` **requestStream**(`path`, `content`, `contentLength`): `Promise`\<`void`\>
 
 #### Parameters
 
@@ -78,7 +78,7 @@ ______________________________________________________________________
 
 ##### content
 
-`AsyncIterable`\<`Uint8Array`\<`ArrayBufferLike`>>
+`AsyncIterable`\<`Uint8Array`\<`ArrayBufferLike`\>\>
 
 ##### contentLength
 
@@ -86,4 +86,4 @@ ______________________________________________________________________
 
 #### Returns
 
-`Promise`\<`void`>
+`Promise`\<`void`\>

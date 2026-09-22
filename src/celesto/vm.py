@@ -3751,15 +3751,24 @@ class CelestoManager:
             parts = args.split()
 
         ssh_public_key = vm_info.config.ssh_public_key
-        if ssh_public_key and not any(
-            part.startswith("celesto.authorized_key_b64=") for part in parts
-        ):
+        if ssh_public_key:
             # Base64-encode so the value is a single space-free token — SSH
             # public keys contain spaces ("ssh-ed25519 AAAA... user@host") that
             # would otherwise split into separate cmdline params.
             encoded = base64.b64encode(ssh_public_key.strip().encode("utf-8")).decode("ascii")
-            args = f"{args} celesto.authorized_key_b64={encoded}".strip()
-            parts = args.split()
+            key_params = ("celesto.authorized_key_b64", "smolvm.authorized_key_b64")
+            missing_params = [
+                param
+                for param in key_params
+                if not any(part.startswith(f"{param}=") for part in parts)
+            ]
+            # Existing published images still read the legacy parameter. Send
+            # both names until all published images have been rebuilt.
+            if missing_params:
+                args = " ".join(
+                    f"{args} {param}={encoded}".strip() for param in missing_params
+                )
+                parts = args.split()
 
         if vm_info.network is None:
             return args
@@ -3767,7 +3776,10 @@ class CelestoManager:
         # Bridge mode: no Celesto-managed IP; add guest-managed marker.
         if vm_info.network.mode == "bridge":
             if not any(part.startswith("ip=") for part in parts):
-                args = f"{args} celesto.network=guest".strip()
+                network_params = ("celesto.network=guest", "smolvm.network=guest")
+                missing_params = [param for param in network_params if param not in parts]
+                if missing_params:
+                    args = " ".join(f"{args} {param}".strip() for param in missing_params)
             return args
 
         if any(part.startswith("ip=") for part in parts):
