@@ -1658,7 +1658,25 @@ def computer_run(computer_id: str, run_command: str, timeout: int, json_output: 
     )
 
 
+@computer.command("stop")
+@click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
+@json_option
+def computer_stop(computer_id: str, json_output: bool) -> Any:
+    """Pause a cloud computer; use 'computer start COMPUTER' to resume it."""
+    _before_command(json_output=json_output)
+    return _handlers()._run_computer(
+        _ns(computer_action="stop", computer_id=computer_id, provider="cloud", json=json_output)
+    )
+
+
 @computer.command("start")
+@click.argument(
+    "computer_id",
+    metavar="[computer]",
+    required=False,
+    default=None,
+    shell_complete=complete_browser_session_names,
+)
 @computer_provider_options
 @click.option(
     "--template",
@@ -1699,6 +1717,7 @@ def computer_run(computer_id: str, run_command: str, timeout: int, json_output: 
 @boot_timeout_option
 @json_option
 def computer_start(
+    computer_id: str | None,
     provider: str,
     template: str,
     name: str | None,
@@ -1710,11 +1729,16 @@ def computer_start(
     boot_timeout: float,
     json_output: bool,
 ) -> Any:
-    """Start a Linux desktop with Chromium, a terminal, and files."""
+    """Start a new local desktop, or resume an existing cloud computer by name."""
     _before_command(json_output=json_output)
+    if computer_id is not None:
+        # A name/id unambiguously means "resume that cloud computer"; local
+        # start/create never took a positional argument, so this is additive.
+        provider = "cloud"
     return _handlers()._run_computer(
         _ns(
             computer_action="start",
+            computer_id=computer_id,
             provider=provider,
             template=template,
             name=name,

@@ -219,6 +219,60 @@ def test_ssh_attaches_and_closes_without_deleting(monkeypatch):
     handle.delete.assert_not_called()
 
 
+def test_stop_always_dispatches_to_cloud(monkeypatch):
+    handler = Mock(return_value=0)
+    monkeypatch.setattr("celesto.cli.main._run_computer", handler)
+    assert main(["computer", "stop", "hypatia"]) == 0
+    args = handler.call_args.args[0]
+    assert (args.computer_action, args.computer_id, args.provider) == ("stop", "hypatia", "cloud")
+
+
+def test_cloud_stop_reports_status(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "celesto._providers.cloud.stop_cloud_computer",
+        lambda computer_id: {"computer_id": computer_id, "status": "stopped"},
+    )
+    assert main(["computer", "stop", "hypatia", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["data"] == {
+        "computer_id": "hypatia",
+        "status": "stopped",
+    }
+
+
+def test_start_with_id_forces_cloud_and_ignores_local_flag(monkeypatch):
+    handler = Mock(return_value=0)
+    monkeypatch.setattr("celesto.cli.main._run_computer", handler)
+    assert main(["computer", "start", "hypatia", "--local"]) == 0
+    args = handler.call_args.args[0]
+    assert (args.computer_action, args.computer_id, args.provider) == ("start", "hypatia", "cloud")
+
+
+def test_start_without_id_keeps_local_create_default(monkeypatch):
+    handler = Mock(return_value=0)
+    monkeypatch.setattr("celesto.cli.main._run_computer", handler)
+    assert main(["computer", "start"]) == 0
+    args = handler.call_args.args[0]
+    assert (args.computer_action, args.computer_id, args.provider) == ("start", None, "local")
+
+
+def test_cloud_start_without_id_fails_with_recovery(monkeypatch, capsys):
+    assert main(["computer", "start", "--cloud", "--json"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert "computer create --cloud" in payload["error"]["message"]
+
+
+def test_cloud_start_resumes_by_id(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "celesto._providers.cloud.start_cloud_computer",
+        lambda computer_id: {"computer_id": computer_id, "status": "running"},
+    )
+    assert main(["computer", "start", "hypatia", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["data"] == {
+        "computer_id": "hypatia",
+        "status": "running",
+    }
+
+
 def test_get_always_dispatches_to_cloud(monkeypatch):
     handler = Mock(return_value=0)
     monkeypatch.setattr("celesto.cli.main._run_computer", handler)

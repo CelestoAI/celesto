@@ -54,6 +54,27 @@ def run_cloud_computer(args: SimpleNamespace) -> int:
                 if result.stderr:
                     sys.stderr.write(result.stderr)
             return result.exit_code
+        elif action == "stop":
+            from celesto._providers.cloud import stop_cloud_computer
+
+            data = stop_cloud_computer(args.computer_id)
+            if json_output:
+                emit_json(command, 0, data=data)
+            else:
+                print(f"Stopped cloud computer '{args.computer_id}'.")
+        elif action == "start":
+            if not getattr(args, "computer_id", None):
+                raise ValueError(
+                    "A computer id is required to resume a cloud computer; "
+                    "run 'celesto computer create --cloud' to create a new one."
+                )
+            from celesto._providers.cloud import start_cloud_computer
+
+            data = start_cloud_computer(args.computer_id)
+            if json_output:
+                emit_json(command, 0, data=data)
+            else:
+                print(f"Started cloud computer '{args.computer_id}'.")
         elif action in {"delete", "terminal"}:
             handle = CloudComputer.get(args.computer_id)
             if action == "delete":

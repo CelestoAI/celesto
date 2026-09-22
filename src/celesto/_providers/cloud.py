@@ -42,6 +42,44 @@ def get_cloud_computer(computer_id: str) -> dict[str, str | int]:
         provider.close()
 
 
+def stop_cloud_computer(computer_id: str) -> dict[str, str]:
+    """Pause a cloud computer and return its public CLI fields."""
+    from _celesto_cloud_api.api.computers import stop_computer_v1_computers_computer_id_stop_post
+    from _celesto_cloud_api.models.computer_response import ComputerResponse
+
+    provider = CloudProvider()
+    provider.vm_id = computer_id
+    try:
+        computer = provider._call(
+            stop_computer_v1_computers_computer_id_stop_post.sync_detailed,
+            ComputerResponse,
+            uncertain_mutation=f"stop computer {computer_id}",
+            computer_id=computer_id,
+        )
+        return {"computer_id": computer.id, "status": computer.status}
+    finally:
+        provider.close()
+
+
+def start_cloud_computer(computer_id: str) -> dict[str, str]:
+    """Resume a paused cloud computer and return its public CLI fields."""
+    from _celesto_cloud_api.api.computers import start_computer_v1_computers_computer_id_start_post
+    from _celesto_cloud_api.models.computer_response import ComputerResponse
+
+    provider = CloudProvider()
+    provider.vm_id = computer_id
+    try:
+        computer = provider._call(
+            start_computer_v1_computers_computer_id_start_post.sync_detailed,
+            ComputerResponse,
+            uncertain_mutation=f"start computer {computer_id}",
+            computer_id=computer_id,
+        )
+        return {"computer_id": computer.id, "status": computer.status}
+    finally:
+        provider.close()
+
+
 def list_cloud_computers() -> list[dict[str, str]]:
     """Return public CLI fields without leaking generated models."""
     from _celesto_cloud_api.api.computers import list_computers_v1_computers_get
