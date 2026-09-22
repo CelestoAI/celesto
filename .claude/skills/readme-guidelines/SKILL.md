@@ -39,7 +39,7 @@ with Celesto() as vm:
 Explain every concept as if talking to a first-year CS student before using technical terms. Then go deeper if the reader needs it.
 
 - Bad: "SSH host keys are accepted on first connection via TOFU"
-- Good: "SmolVM automatically trusts new sandboxes on first connection to keep setup simple. (This is called trust-on-first-use, or TOFU — the same approach your browser uses for new websites.)"
+- Good: "Celesto uses SSH to run commands in a sandbox. SSH is a secure connection between your computer and the sandbox."
 
 ### 4. Introduce before you use
 Never use a value, flag, or identifier in a code block without explaining where it comes from. If a command prints a `session_id`, show that command *before* any command that takes `session_id` as input.
@@ -52,7 +52,7 @@ When reviewing a README, check each section against these rules:
 - [ ] Intro paragraph: can a newcomer understand it without prior context?
 - [ ] Quickstart: does it follow install → configure → first run, in that order?
 - [ ] Each code block: does it introduce exactly one new concept?
-- [ ] Each new identifier (`<session_id>`, `<vm_id>`): is it introduced before it's used?
+- [ ] Each new identifier (`<session-id>`, `<sandbox-name>`): is it introduced before it's used?
 - [ ] Jargon: is every technical term explained in plain language on first use?
 - [ ] Sections: does complexity increase monotonically top-to-bottom?
 - [ ] Examples table: are entries grouped by audience (getting started vs. advanced)?
