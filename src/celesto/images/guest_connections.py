@@ -33,11 +33,7 @@ _BROWSER_SESSION = next(
     Path("/usr/local/bin/celesto-browser-session"),
 )
 _BROWSER_ROOT = next(
-    (
-        path
-        for path in (Path("/opt/celesto-browser"), Path("/opt/smolvm-browser"))
-        if path.is_dir()
-    ),
+    (path for path in (Path("/opt/celesto-browser"), Path("/opt/smolvm-browser")) if path.is_dir()),
     Path("/opt/celesto-browser"),
 )
 

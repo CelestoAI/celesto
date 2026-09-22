@@ -3765,9 +3765,7 @@ class CelestoManager:
             # Existing published images still read the legacy parameter. Send
             # both names until all published images have been rebuilt.
             if missing_params:
-                args = " ".join(
-                    f"{args} {param}={encoded}".strip() for param in missing_params
-                )
+                args = " ".join(f"{args} {param}={encoded}".strip() for param in missing_params)
                 parts = args.split()
 
         if vm_info.network is None:
