@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from pathlib import Path
 from typing import TypedDict
 
@@ -65,12 +66,18 @@ def write_credentials(*, api_key: str, email: str, base_url: str) -> None:
     """Persist credentials at 0600, replacing anything already stored."""
     CREDENTIALS_PATH.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps({"api_key": api_key, "email": email, "base_url": base_url}, indent=2)
-    fd = os.open(CREDENTIALS_PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    # The mode passed to os.open only applies when O_CREAT creates the file;
-    # an existing file keeps whatever permissions it already had.
-    os.fchmod(fd, 0o600)
-    with os.fdopen(fd, "w") as handle:
-        handle.write(payload)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", dir=CREDENTIALS_PATH.parent, delete=False
+        ) as handle:
+            temporary_path = Path(handle.name)
+            os.fchmod(handle.fileno(), 0o600)
+            handle.write(payload)
+        os.replace(temporary_path, CREDENTIALS_PATH)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def delete_credentials() -> bool:

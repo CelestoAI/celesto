@@ -15,6 +15,7 @@
 """`celesto auth login/status/logout`."""
 
 import json
+import os
 from unittest.mock import Mock
 
 import pytest
@@ -189,3 +190,26 @@ def test_write_credentials_tightens_permissions_on_existing_file():
 
     mode = _credentials.CREDENTIALS_PATH.stat().st_mode & 0o777
     assert mode == 0o600
+
+
+def test_write_credentials_keeps_existing_file_if_replace_fails(monkeypatch):
+    _credentials.write_credentials(
+        api_key="old", email="old@example.com", base_url="https://api.celesto.ai"
+    )
+    original = _credentials.CREDENTIALS_PATH.read_text()
+    original_mode = _credentials.CREDENTIALS_PATH.stat().st_mode & 0o777
+
+    def fail_replace(source, destination):
+        assert source != destination
+        assert source.stat().st_mode & 0o777 == 0o600
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+    with pytest.raises(OSError, match="replace failed"):
+        _credentials.write_credentials(
+            api_key="new", email="new@example.com", base_url="https://api.celesto.ai"
+        )
+
+    assert _credentials.CREDENTIALS_PATH.read_text() == original
+    assert _credentials.CREDENTIALS_PATH.stat().st_mode & 0o777 == original_mode
+    assert list(_credentials.CREDENTIALS_PATH.parent.iterdir()) == [_credentials.CREDENTIALS_PATH]
