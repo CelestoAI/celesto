@@ -37,9 +37,9 @@ Each sandbox is a lightweight virtual machine, starts in about 500 ms, and can k
 
 ## Quickstart
 
-### 1. Install the CLI
+### 1. Install Celesto
 
-On Linux or macOS, this command installs Celesto, prepares the machine, and checks that it is ready:
+On Linux or macOS, this command installs the Celesto CLI and Python SDK, prepares the machine, and checks that it is ready:
 
 ```bash
 curl -fsSL https://celesto.ai/install.sh | bash
