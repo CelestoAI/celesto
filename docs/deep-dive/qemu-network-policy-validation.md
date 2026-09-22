@@ -89,7 +89,7 @@ PY
 # Prints /tmp/qemu-policy-bench.<generated suffix>/vm-config.json
 ```
 
-This historical comparison uses `smolvm==0.0.32` as its baseline; it is not an
+This historical comparison uses `celesto==0.0.32` as its baseline; it is not an
 installation command for the current Celesto release.
 
 Prepare separate installed-wheel environments with the same locked dependencies.
@@ -102,7 +102,7 @@ for version in baseline candidate; do
   uv venv --python .venv/bin/python "$POLICY_BENCH_DIR/$version"
   uv pip install --python "$POLICY_BENCH_DIR/$version/bin/python" -r "$POLICY_BENCH_DIR/dependencies.txt"
 done
-uv pip install --python "$POLICY_BENCH_DIR/baseline/bin/python" --no-deps smolvm==0.0.32
+uv pip install --python "$POLICY_BENCH_DIR/baseline/bin/python" --no-deps celesto==0.0.32
 uv pip install --python "$POLICY_BENCH_DIR/candidate/bin/python" --no-deps "$POLICY_BENCH_DIR"/wheels/*.whl
 ```
 
@@ -140,10 +140,10 @@ two retries, included in latency and reported as `forward_bind_retries`.
 
 Run baseline-open 100 samples, candidate-open 100, then baseline-open 100 on the same idle runner. Compare startup and restore separately. Sample candidate policies at concurrency one and eight with 24 samples; repeat with 100 when over budget. Keep environments separate and do not average away runner drift.
 
-The opt-in application suite is `tests/e2e/test_qemu_network_policy.py`, configured through `SMOLVM_QEMU_POLICY_CONFIG`. The packet checks are in `tests/e2e/test_network_policy.py`. Privileged checks belong on disposable machines.
+The opt-in application suite is `tests/e2e/test_qemu_network_policy.py`, configured through `CELESTO_QEMU_POLICY_CONFIG`. The packet checks are in `tests/e2e/test_network_policy.py`. Privileged checks belong on disposable machines.
 
 ## Archived evidence
 
-Raw samples, test logs, environment hashes, and the detailed historical methodology are preserved in the [pre-cleanup evidence snapshot](https://github.com/CelestoAI/SmolVM/tree/242bf792587a55f1b975fde364c9941ae4072372/docs/deep-dive/evidence/qemu-network-policy). The [downloadable source snapshot](https://github.com/CelestoAI/SmolVM/archive/242bf792587a55f1b975fde364c9941ae4072372.zip) includes that evidence directory; it is not an evidence-only attachment.
+Raw samples, test logs, environment hashes, and the detailed historical methodology are preserved in the [pre-cleanup evidence snapshot](https://github.com/CelestoAI/Celesto/tree/242bf792587a55f1b975fde364c9941ae4072372/docs/deep-dive/evidence/qemu-network-policy). The [downloadable source snapshot](https://github.com/CelestoAI/Celesto/archive/242bf792587a55f1b975fde364c9941ae4072372.zip) includes that evidence directory; it is not an evidence-only attachment.
 
 Generated artifacts are intentionally absent from the current source tree. Superseded runs in the historical archive do not count toward release clearance. Temporary benchmark machines and disks were deleted. No deployment, package publication, or guest-image release was performed.

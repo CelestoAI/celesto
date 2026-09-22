@@ -63,7 +63,7 @@ class VzRuntimeAdapter(RuntimeAdapter):
 
     @staticmethod
     def _vnc_password_path(bundle_path: Path) -> Path:
-        return bundle_path / ".smolvm-vnc-password"
+        return bundle_path / ".celesto-vnc-password"
 
     def _write_vnc_password(self, bundle_path: Path, password: str) -> None:
         path = self._vnc_password_path(bundle_path)

@@ -53,11 +53,11 @@ _BROWSER_DEBUG_PORT = 9222
 _BROWSER_LIVE_PORT = 6080
 _BROWSER_VNC_PORT = 5900
 _DEFAULT_BROWSER_BOOT_TIMEOUT = 90.0
-_BROWSER_GUEST_ROOT = "/opt/smolvm-browser"
+_BROWSER_GUEST_ROOT = "/opt/celesto-browser"
 _BROWSER_GUEST_PROFILE_ROOT = f"{_BROWSER_GUEST_ROOT}/profiles"
 _BROWSER_GUEST_DOWNLOAD_ROOT = f"{_BROWSER_GUEST_ROOT}/downloads"
 _BROWSER_GUEST_ARTIFACT_ROOT = f"{_BROWSER_GUEST_ROOT}/artifacts"
-_BROWSER_GUEST_LOG_ROOT = "/var/log/smolvm-browser"
+_BROWSER_GUEST_LOG_ROOT = "/var/log/celesto-browser"
 _BROWSER_KERNEL_PROFILE = KernelBootProfile.MICROVM_DIRECT
 _PUBLISHED_COMPUTER_DISK_SIZE_MIB = 8192
 _LOCAL_HTTP_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -147,7 +147,7 @@ def _guest_browser_session_command(
     proxy_endpoint: str | None = None,
 ) -> str:
     """Build a quoted guest launcher command with an optional proxy argument."""
-    parts = ["/usr/local/bin/smolvm-browser-session", action, *arguments]
+    parts = ["/usr/local/bin/celesto-browser-session", action, *arguments]
     if proxy_endpoint is not None:
         parts.append(proxy_endpoint)
     return " ".join(shlex.quote(part) for part in parts)
@@ -573,7 +573,7 @@ class _BrowserSandbox:
                         "pgrep -x chromium >/dev/null && "
                         "xdotool search --onlyvisible --classname tint2 >/dev/null && "
                         "xdotool search --onlyvisible --class chromium >/dev/null; "
-                        "probe=/workspace/.smolvm-ready-$$; "
+                        "probe=/workspace/.celesto-ready-$$; "
                         "trap 'rm -f \"$probe\"' EXIT; "
                         'printf ready >"$probe"; '
                         'test "$(cat "$probe")" = ready'
@@ -619,7 +619,7 @@ class _BrowserSandbox:
         if self._vm is not None:
             if self._vm.status == VMState.RUNNING:
                 with suppress(Exception):
-                    self._vm.run("/usr/local/bin/smolvm-browser-session stop", timeout=30)
+                    self._vm.run("/usr/local/bin/celesto-browser-session stop", timeout=30)
                 with suppress(Exception):
                     self.collect_artifacts()
             with suppress(Exception):
@@ -734,7 +734,7 @@ class _BrowserSandbox:
 
         if self._vm is not None and self._vm.status == VMState.RUNNING:
             command = (
-                "for file in /var/log/smolvm-browser/*.log; do "
+                "for file in /var/log/celesto-browser/*.log; do "
                 '[ -f "$file" ] || continue; '
                 f'echo "== $file =="; tail -n {tail} "$file"; '
                 "echo; "
@@ -858,7 +858,7 @@ class _BrowserSandbox:
         if control_wait_result is not None:
             return control_wait_result
 
-        command = f"/usr/local/bin/smolvm-browser-wait-port {port} {timeout}"
+        command = f"/usr/local/bin/celesto-browser-wait-port {port} {timeout}"
         result = self._vm.run(command, timeout=max(5, int(timeout) + 5))
         return result.ok
 

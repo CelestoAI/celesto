@@ -35,9 +35,9 @@ body:
     validations:
       required: true
   - type: input
-    id: smolvm_version
+    id: celesto_version
     attributes:
-      label: SmolVM version or commit
+      label: Celesto version or commit
       placeholder: e.g. v0.3.2 or main@<commit>
     validations:
       required: true
@@ -55,5 +55,5 @@ body:
     id: logs
     attributes:
       label: Relevant logs or output
-      description: Paste any traceback or `smolvm doctor --json --strict` output.
+      description: Paste any traceback or `celesto doctor --json --strict` output.
       render: shell

@@ -1,8 +1,8 @@
-# Real-KVM end-to-end smoke of the public SmolVM API.
+# Real-KVM end-to-end smoke of the public Celesto API.
 #
 # Unlike the unit suite (which mocks the hypervisor) and smoke-published-images
 # (which shells out to raw qemu), this boots actual micro-VMs *through the
-# SmolVM Python API* and walks their lifecycle — start, exec, file
+# Celesto Python API* and walks their lifecycle — start, exec, file
 # upload/download, pause/resume, snapshot/restore, stop/cleanup, and direct
 # bridge connectivity. QEMU and Firecracker are both exercised over SSH and vsock.
 #
@@ -98,7 +98,7 @@ jobs:
             "/repos/${{ github.repository }}/contents/src/celesto/images/published.py?ref=$fallback" \
             > src/celesto/images/published.py || gh api \
             -H "Accept: application/vnd.github.raw" \
-            "/repos/${{ github.repository }}/contents/src/smolvm/images/published.py?ref=$fallback" \
+            "/repos/${{ github.repository }}/contents/src/celesto/images/published.py?ref=$fallback" \
             > src/celesto/images/published.py
           echo "tag=" >> "$GITHUB_OUTPUT"
           echo "Pinned image release $source_tag is not public yet; using published-image catalog from $fallback"
@@ -120,7 +120,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: rust-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'smolvm-core/Cargo.toml', 'guest-agent/Cargo.toml') }}
+          key: rust-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'celesto-core/Cargo.toml', 'guest-agent/Cargo.toml') }}
           restore-keys: rust-${{ runner.os }}-
 
       - name: Install uv
@@ -165,27 +165,27 @@ jobs:
           fi
           ls -l /dev/kvm /dev/vhost-vsock || true
 
-      # uv workspace builds smolvm-core from the local smolvm-core/ directory.
+      # uv workspace builds celesto-core from the local celesto-core/ directory.
       - name: Install dependencies
         run: uv sync --extra dev
 
       - name: Assert native extension available
         run: |
-          sudo -n -E -u "$USER" -g kvm -- env "PATH=$PATH" "$(command -v uv)" run python -c "from smolvm_core import network; assert network.available(), 'Native extension reports native networking unavailable on Linux'; print('smolvm-core: OK')"
+          sudo -n -E -u "$USER" -g kvm -- env "PATH=$PATH" "$(command -v uv)" run python -c "from celesto_core import network; assert network.available(), 'Native extension reports native networking unavailable on Linux'; print('celesto-core: OK')"
 
       - name: Diagnostics (celesto doctor)
         run: sudo -n -E -u "$USER" -g kvm -- env "PATH=$PATH" "$(command -v uv)" run celesto doctor --backend "${{ matrix.backend }}" || true
 
       - name: Run e2e suite
         env:
-          SMOLVM_IMAGES_RELEASE_TAG: ${{ steps.image_release_fallback.outputs.tag }}
+          CELESTO_IMAGES_RELEASE_TAG: ${{ steps.image_release_fallback.outputs.tag }}
           POLICY_RELEASE_VALIDATION: ${{ inputs.policy_release_validation }}
         run: |
           test_paths=(tests/e2e)
           if [[ "$POLICY_RELEASE_VALIDATION" == "true" ]]; then
             test_paths=(tests/e2e/test_network_policy.py)
           fi
-          sudo -n -E -u "$USER" -g kvm -- env "PATH=$PATH" "SMOLVM_IMAGES_RELEASE_TAG=${SMOLVM_IMAGES_RELEASE_TAG:-}" "$(command -v uv)" run --with playwright --with websockets pytest -m e2e "${test_paths[@]}" -v --e2e-backend "${{ matrix.backend }}"
+          sudo -n -E -u "$USER" -g kvm -- env "PATH=$PATH" "CELESTO_IMAGES_RELEASE_TAG=${CELESTO_IMAGES_RELEASE_TAG:-}" "$(command -v uv)" run --with playwright --with websockets pytest -m e2e "${test_paths[@]}" -v --e2e-backend "${{ matrix.backend }}"
 
       - name: Build baseline and candidate wheels
         if: inputs.policy_release_validation && matrix.backend == 'firecracker'
@@ -194,7 +194,7 @@ jobs:
           # catalog are used on both versions on this same disposable runner.
           git fetch origin 685b7bd52d0de8efb1c88fe8cf053d0d3b64d171
           git worktree add --detach "$RUNNER_TEMP/policy-baseline" FETCH_HEAD
-          cp src/celesto/images/published.py "$RUNNER_TEMP/policy-baseline/src/smolvm/images/published.py"
+          cp src/celesto/images/published.py "$RUNNER_TEMP/policy-baseline/src/celesto/images/published.py"
           uv build --wheel --out-dir "$RUNNER_TEMP/policy-wheels/baseline" "$RUNNER_TEMP/policy-baseline"
           uv build --wheel --out-dir "$RUNNER_TEMP/policy-wheels/candidate"
           for version in baseline candidate; do
@@ -206,18 +206,18 @@ jobs:
       - name: Validate installed examples and measure network policy
         if: inputs.policy_release_validation && matrix.backend == 'firecracker'
         env:
-          SMOLVM_POLICY_BASELINE_PYTHON: ${{ runner.temp }}/policy-baseline-venv/bin/python
-          SMOLVM_POLICY_CANDIDATE_PYTHON: ${{ runner.temp }}/policy-candidate-venv/bin/python
-          SMOLVM_POLICY_RESULTS: ${{ runner.temp }}/policy-results
-          SMOLVM_POLICY_SAMPLES: ${{ inputs.policy_samples }}
+          CELESTO_POLICY_BASELINE_PYTHON: ${{ runner.temp }}/policy-baseline-venv/bin/python
+          CELESTO_POLICY_CANDIDATE_PYTHON: ${{ runner.temp }}/policy-candidate-venv/bin/python
+          CELESTO_POLICY_RESULTS: ${{ runner.temp }}/policy-results
+          CELESTO_POLICY_SAMPLES: ${{ inputs.policy_samples }}
         run: |
-          mkdir -p "$SMOLVM_POLICY_RESULTS"
-          git rev-parse HEAD > "$SMOLVM_POLICY_RESULTS/candidate-sha.txt"
-          git -C "$RUNNER_TEMP/policy-baseline" rev-parse HEAD > "$SMOLVM_POLICY_RESULTS/baseline-sha.txt"
-          lscpu > "$SMOLVM_POLICY_RESULTS/runner.txt"
-          cp src/celesto/images/published.py "$SMOLVM_POLICY_RESULTS/image-catalog.py"
-          uv pip freeze --python "$SMOLVM_POLICY_CANDIDATE_PYTHON" > "$SMOLVM_POLICY_RESULTS/candidate-packages.txt"
-          uv pip freeze --python "$SMOLVM_POLICY_BASELINE_PYTHON" > "$SMOLVM_POLICY_RESULTS/baseline-packages.txt"
+          mkdir -p "$CELESTO_POLICY_RESULTS"
+          git rev-parse HEAD > "$CELESTO_POLICY_RESULTS/candidate-sha.txt"
+          git -C "$RUNNER_TEMP/policy-baseline" rev-parse HEAD > "$CELESTO_POLICY_RESULTS/baseline-sha.txt"
+          lscpu > "$CELESTO_POLICY_RESULTS/runner.txt"
+          cp src/celesto/images/published.py "$CELESTO_POLICY_RESULTS/image-catalog.py"
+          uv pip freeze --python "$CELESTO_POLICY_CANDIDATE_PYTHON" > "$CELESTO_POLICY_RESULTS/candidate-packages.txt"
+          uv pip freeze --python "$CELESTO_POLICY_BASELINE_PYTHON" > "$CELESTO_POLICY_RESULTS/baseline-packages.txt"
           sudo -n -E -u "$USER" -g kvm -- env "PATH=$PATH" "$(command -v uv)" run \
             pytest -m e2e tests/e2e/test_network_policy_release.py -v -s --e2e-backend firecracker
 
@@ -232,15 +232,15 @@ jobs:
         if: failure()
         run: |
           echo "## e2e failed — recent VM/runtime logs" >> "$GITHUB_STEP_SUMMARY"
-          # SmolVM writes per-VM logs to <data_dir>/<vm_id>.log. data_dir resolves
-          # (see resolve_data_dir / _candidate_data_dirs in smolvm/vm.py) to
-          # $SMOLVM_DATA_DIR, else ${XDG_STATE_HOME:-$HOME/.local/state}/smolvm,
-          # else /var/lib/smolvm. (~/.smolvm holds image/key logs — kept too.)
+          # Celesto writes per-VM logs to <data_dir>/<vm_id>.log. data_dir resolves
+          # (see resolve_data_dir / _candidate_data_dirs in celesto/vm.py) to
+          # $CELESTO_DATA_DIR, else ${XDG_STATE_HOME:-$HOME/.local/state}/celesto,
+          # else /var/lib/celesto. (~/.celesto holds image/key logs — kept too.)
           for d in \
-              "$SMOLVM_DATA_DIR" \
-              "${XDG_STATE_HOME:-$HOME/.local/state}/smolvm" \
-              "/var/lib/smolvm" \
-              "$HOME/.smolvm"; do
+              "$CELESTO_DATA_DIR" \
+              "${XDG_STATE_HOME:-$HOME/.local/state}/celesto" \
+              "/var/lib/celesto" \
+              "$HOME/.celesto"; do
             [ -n "$d" ] && [ -d "$d" ] || continue
             echo "### $d" >> "$GITHUB_STEP_SUMMARY"
             find "$d" -name "*.log" -type f 2>/dev/null | while read -r f; do

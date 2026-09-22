@@ -177,7 +177,7 @@ def _run_install_phase(
         recovery_parts.extend(("--name", sandbox_name))
     recovery_parts.extend(("--os", "ubuntu"))
     recovery_command = shlex.join(recovery_parts)
-    context = f"SMOLVM_NODE_RECOVERY_COMMAND={shlex.quote(recovery_command)}\n"
+    context = f"CELESTO_NODE_RECOVERY_COMMAND={shlex.quote(recovery_command)}\n"
     command = f"bash -lc {shlex.quote(context + script)}"
     result = ssh.run(command, timeout=install_timeout, shell="raw")
     if not result.ok:
@@ -275,7 +275,7 @@ def _copy_file(
     try:
         if transform is not None:
             transformed = transform(local.read_bytes())
-            fd, tmp_name = tempfile.mkstemp(prefix=".smolvm-cfg-", suffix=".tmp")
+            fd, tmp_name = tempfile.mkstemp(prefix=".celesto-cfg-", suffix=".tmp")
             tmp_path = Path(tmp_name)
             # mkstemp creates the file 0o600; write via the fd to avoid a
             # world-readable window before upload.
@@ -341,7 +341,7 @@ def _copy_dir(
         # Keep credential archives under /root rather than world-searchable
         # /tmp. The EXIT trap removes the archive even when mkdir, chmod, or
         # extraction fails, so SSH keys cannot be left behind by a partial copy.
-        guest_tmp = f"/root/.smolvm-preset-{uuid4().hex}.tar"
+        guest_tmp = f"/root/.celesto-preset-{uuid4().hex}.tar"
         ssh.put_file(tmp_path, guest_tmp)
         cmd = (
             "set -e; "
@@ -523,7 +523,7 @@ def _write_secret_to_guest(ssh: CommChannel, content: str, guest_path: str, file
                 {"exit_code": result.exit_code, "stderr": result.stderr},
             )
 
-    fd, tmp_name = tempfile.mkstemp(prefix=".smolvm-secret-", suffix=".tmp")
+    fd, tmp_name = tempfile.mkstemp(prefix=".celesto-secret-", suffix=".tmp")
     tmp_path = Path(tmp_name)
     try:
         # mkstemp already creates the file with mode 0o600; write via the

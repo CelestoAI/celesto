@@ -1,8 +1,8 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
-***
+______________________________________________________________________
 
-[@celestoai/smolvm](../README.md) / DiagnoseResult
+[@celestoai/celesto](../README.md) / DiagnoseResult
 
 # Interface: DiagnoseResult
 
@@ -14,37 +14,37 @@ Reports whether this SDK and the installed local runtime can work together.
 
 > **nodeVersion**: `string`
 
-***
+______________________________________________________________________
 
 ### platform
 
 > **platform**: `string`
 
-***
+______________________________________________________________________
 
 ### problems
 
-> **problems**: readonly `string`[]
+> **problems**: readonly `string`\[\]
 
-***
+______________________________________________________________________
 
 ### protocolVersion
 
 > **protocolVersion**: `number`
 
-***
+______________________________________________________________________
 
 ### pythonVersion
 
 > **pythonVersion**: `string`
 
-***
+______________________________________________________________________
 
 ### runtimeVersion
 
 > **runtimeVersion**: `string`
 
-***
+______________________________________________________________________
 
 ### supported
 

@@ -5,7 +5,7 @@ import { mkdtemp, rm, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent } from "@earendil-works/pi-agent-core";
-import type { ComputerSessionClient } from "@celestoai/smolvm";
+import type { ComputerSessionClient } from "@celestoai/celesto";
 import type { Browser, BrowserContext, Frame, Page } from "playwright-core";
 import type { ActionBroker } from "../../server/broker.js";
 import { createApp } from "../../server/index.js";
@@ -63,7 +63,7 @@ class ScriptedRuntime {
   dependencies(): Partial<RuntimeDependencies> {
     return {
       createAgent: (_apiKey, _model, broker, _fixture, trace) => this.createAgent(broker, trace),
-      createSmolVM: () => this.createSmolVM(),
+      createCelesto: () => this.createCelesto(),
       connectOverCDP: async () => new FakeBrowser() as unknown as Browser,
       browserDriver: this.createBrowserDriver(),
     };
@@ -143,14 +143,14 @@ class ScriptedRuntime {
     };
   }
 
-  private createSmolVM() {
+  private createCelesto() {
     return {
       computers: { create: async () => {
         this.computerCreations += 1;
         return this.createComputer();
       } },
       close: async () => undefined,
-    } as unknown as ReturnType<RuntimeDependencies["createSmolVM"]>;
+    } as unknown as ReturnType<RuntimeDependencies["createCelesto"]>;
   }
 
   private createComputer(): ComputerSessionClient {
@@ -197,7 +197,7 @@ class ScriptedRuntime {
   private result(programResult: unknown) {
     return {
       ok: true, exitCode: 0, stderr: "", durationMs: 1,
-      stdout: `SMOLVM_BROWSER_RESULT=${JSON.stringify({ ok: true, value: { programResult, page: { title: "Example Domain", url: "https://example.com/" } } })}`,
+      stdout: `CELESTO_BROWSER_RESULT=${JSON.stringify({ ok: true, value: { programResult, page: { title: "Example Domain", url: "https://example.com/" } } })}`,
     };
   }
 }

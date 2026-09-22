@@ -1,5 +1,5 @@
 [workspace]
-members = ["smolvm-core", "guest-agent"]
+members = ["celesto-core", "guest-agent"]
 resolver = "2"
 
 [workspace.package]
@@ -7,8 +7,8 @@ edition = "2024"
 rust-version = "1.85"
 license = "Apache-2.0"
 authors = ["Celesto AI <hello@celesto.ai>"]
-homepage = "https://github.com/CelestoAI/SmolVM"
-repository = "https://github.com/CelestoAI/SmolVM"
+homepage = "https://github.com/CelestoAI/Celesto"
+repository = "https://github.com/CelestoAI/Celesto"
 keywords = ["sandbox", "vm", "microvm", "pyo3", "agents"]
 categories = ["virtualization", "api-bindings"]
 

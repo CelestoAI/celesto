@@ -16,7 +16,7 @@
     "check": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
-    "@celestoai/smolvm": "https://github.com/CelestoAI/SmolVM/releases/download/typescript-v0.1.0-preview.1/celestoai-smolvm-0.1.0-preview.1.tgz",
+    "@celestoai/celesto": "https://github.com/CelestoAI/Celesto/releases/download/typescript-v0.1.0-preview.1/celestoai-celesto-0.1.0-preview.1.tgz",
     "@earendil-works/pi-agent-core": "0.85.1",
     "@earendil-works/pi-ai": "0.85.1",
     "react": "^19.1.1",

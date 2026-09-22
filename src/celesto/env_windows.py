@@ -22,9 +22,9 @@ registry key and broadcasts ``WM_SETTINGCHANGE`` so new processes
 pick up the change).
 
 Because the Windows registry has no native "namespace" concept like
-the Linux ``/etc/profile.d/smolvm_env.sh`` single-file pattern, we
+the Linux ``/etc/profile.d/celesto_env.sh`` single-file pattern, we
 track which keys Celesto has managed via a sentinel registry value
-(``SMOLVM_ENV_MANAGED_KEYS``, comma-separated). Read/remove then scope
+(``CELESTO_ENV_MANAGED_KEYS``, comma-separated). Read/remove then scope
 to that list so Celesto never accidentally touches an env var the user
 set up themselves outside Celesto.
 
@@ -49,13 +49,13 @@ logger = logging.getLogger(__name__)
 # names Celesto has set. Lives in HKCU\Environment alongside the values it
 # tracks, so a Windows user inspecting their environment can see who set
 # which vars.
-_MANAGED_KEYS_SENTINEL = "SMOLVM_ENV_MANAGED_KEYS"
+_MANAGED_KEYS_SENTINEL = "CELESTO_ENV_MANAGED_KEYS"
 
 
 def _validate_windows_env_key(key: str) -> None:
     """Validate *key* with the shared rules + Windows-specific reserved-name check.
 
-    The sentinel ``SMOLVM_ENV_MANAGED_KEYS`` is how Celesto tracks which
+    The sentinel ``CELESTO_ENV_MANAGED_KEYS`` is how Celesto tracks which
     env vars it has set — letting a caller use that name as a regular
     env var would corrupt the bookkeeping and Celesto would no longer
     know which vars it owns. Reserve it loudly here.
@@ -199,7 +199,7 @@ def read_env_vars(ssh: SSHClient) -> dict[str, str]:
     """Read Celesto-managed environment variables from the Windows guest.
 
     Returns only the vars Celesto has set (tracked via the
-    ``SMOLVM_ENV_MANAGED_KEYS`` sentinel) — not the user's entire
+    ``CELESTO_ENV_MANAGED_KEYS`` sentinel) — not the user's entire
     HKCU\\Environment. Mirrors the Linux side's "only what we manage"
     semantic.
 

@@ -650,7 +650,7 @@ def test_windows_local_image_uses_per_vm_overlay_disk(tmp_path: Path) -> None:
     assert vm_info.config.rootfs_path == expected_overlay
     assert expected_overlay.read_text() == "overlay-bytes"
     # The user's baseline file is byte-identical AND mtime-identical —
-    # nothing wrote to it, so two SmolVMs in parallel can share it safely.
+    # nothing wrote to it, so two Celestos in parallel can share it safely.
     assert baseline.read_bytes() == b"baseline-bytes"
     assert baseline.stat().st_mtime_ns == baseline_mtime
     # The overlay was created with the baseline as the backing file.

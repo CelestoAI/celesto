@@ -18,7 +18,7 @@ from celesto.storage import MemoryStateManager
 
 def _run_isolated(script: str, data_dir: Path) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
-    env["SMOLVM_DATA_DIR"] = str(data_dir)
+    env["CELESTO_DATA_DIR"] = str(data_dir)
     result = subprocess.run(
         [sys.executable, "-c", script],
         check=False,
@@ -38,7 +38,7 @@ from pathlib import Path
 from celesto.vm import CelestoManager
 manager = CelestoManager(backend='qemu')
 assert type(manager.state).__name__ == 'MemoryStateManager'
-assert not (manager.data_dir / 'smolvm.db').exists()
+assert not (manager.data_dir / 'celesto.db').exists()
 assert 'celesto.cli._sqlite' not in sys.modules
 manager.close()
 print('ok')
@@ -56,7 +56,7 @@ import sys
 from pathlib import Path
 from celesto.server.app import create_app
 create_app()
-assert not (Path(__import__('os').environ['SMOLVM_DATA_DIR']) / 'smolvm.db').exists()
+assert not (Path(__import__('os').environ['CELESTO_DATA_DIR']) / 'celesto.db').exists()
 assert 'celesto.cli._sqlite' not in sys.modules
 print('ok')
 """,
@@ -66,7 +66,7 @@ print('ok')
 
 
 def test_cli_state_keeps_existing_database_location(tmp_path: Path) -> None:
-    db_path = tmp_path / "smolvm.db"
+    db_path = tmp_path / "celesto.db"
     state = create_cli_state_manager(db_path)
     try:
         assert db_path.exists()
@@ -88,7 +88,7 @@ def test_cli_service_reuses_one_inventory(tmp_path: Path) -> None:
 
     assert service.state_manager() is state_manager
     assert service.state_manager() is state_manager
-    create_state.assert_called_once_with(tmp_path / "smolvm.db")
+    create_state.assert_called_once_with(tmp_path / "celesto.db")
 
 
 def test_transient_resource_claims_coordinate_process_local_managers(tmp_path: Path) -> None:

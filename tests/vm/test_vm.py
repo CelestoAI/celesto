@@ -95,7 +95,7 @@ def _attach_mock_network(manager: CelestoManager) -> MagicMock:
     return mock_network
 
 
-class TestSmolVMCreate:
+class TestCelestoCreate:
     """Tests for VM creation."""
 
     @patch("celesto.vm.NetworkManager")
@@ -427,7 +427,7 @@ class TestSmolVMCreate:
                 "vm_id": "vm-vsock-env",
                 "backend": "firecracker",
                 "comm_channel": "vsock",
-                "env_vars": {"SMOLVM_TEST": "1"},
+                "env_vars": {"CELESTO_TEST": "1"},
             }
         )
 
@@ -617,7 +617,7 @@ class TestSmolVMCreate:
         mock_network.async_setup_ssh_port_forward.assert_not_called()
 
 
-class TestSmolVMDiskLifecycle:
+class TestCelestoDiskLifecycle:
     """Tests for per-VM disk materialization and cleanup."""
 
     @staticmethod
@@ -665,7 +665,7 @@ class TestSmolVMDiskLifecycle:
         source = tmp_path / "source.ext4"
         target = tmp_path / "target.ext4"
         self._write_sparse_file(source, hole_bytes)
-        monkeypatch.setenv("SMOLVM_DISABLE_NATIVE_DISK", "1")
+        monkeypatch.setenv("CELESTO_DISABLE_NATIVE_DISK", "1")
 
         with (
             patch(
@@ -700,7 +700,7 @@ class TestSmolVMDiskLifecycle:
         target = tmp_path / "target.ext4"
         self._write_sparse_file(source, hole_bytes)
         manager = CelestoManager(data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets")
-        monkeypatch.setenv("SMOLVM_DISABLE_NATIVE_DISK", "1")
+        monkeypatch.setenv("CELESTO_DISABLE_NATIVE_DISK", "1")
 
         with (
             patch(
@@ -1179,7 +1179,7 @@ class TestSmolVMDiskLifecycle:
         assert disk_path.stat().st_mtime_ns == original_mtime
 
 
-class TestSmolVMGet:
+class TestCelestoGet:
     """Tests for getting VM info."""
 
     @patch("celesto.vm.NetworkManager")
@@ -1208,7 +1208,7 @@ class TestSmolVMGet:
             smol_vm.get("nonexistent")
 
 
-class TestSmolVMList:
+class TestCelestoList:
     """Tests for listing VMs."""
 
     @patch("celesto.vm.NetworkManager")
@@ -1252,7 +1252,7 @@ class TestSmolVMList:
         assert len(vms) == 3
 
 
-class TestSmolVMDelete:
+class TestCelestoDelete:
     """Tests for VM deletion."""
 
     @patch("celesto.vm.NetworkManager")
@@ -1369,7 +1369,7 @@ class TestIPBasedTAPNaming:
         assert tap_names == ["tap2", "tap3", "tap4"]
 
 
-class TestSmolVMContextManager:
+class TestCelestoContextManager:
     """Tests for context manager support."""
 
     def test_context_manager(self, tmp_path: Path) -> None:
@@ -1391,7 +1391,7 @@ class TestSmolVMContextManager:
         assert smol_vm._closed
 
 
-class TestSmolVMFromId:
+class TestCelestoFromId:
     """Tests for from_id class method."""
 
     @patch("celesto.vm.NetworkManager")
@@ -1431,7 +1431,7 @@ class TestSmolVMFromId:
             )
 
 
-class TestSmolVMBootArgsAndSSHCommands:
+class TestCelestoBootArgsAndSSHCommands:
     """Tests for boot-arg injection and SSH helper commands."""
 
     @patch("celesto.runtime.firecracker.FirecrackerClient")
@@ -1581,7 +1581,7 @@ class TestDataDirResolution:
         """Explicit constructor arg should take precedence over environment override."""
         explicit_dir = tmp_path / "explicit"
         env_dir = tmp_path / "env"
-        monkeypatch.setenv("SMOLVM_DATA_DIR", str(env_dir))
+        monkeypatch.setenv("CELESTO_DATA_DIR", str(env_dir))
 
         sdk = CelestoManager(
             data_dir=explicit_dir,
@@ -1595,24 +1595,24 @@ class TestDataDirResolution:
             sdk.close()
 
     def test_uses_env_override(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """SMOLVM_DATA_DIR should be used when data_dir is not provided."""
+        """CELESTO_DATA_DIR should be used when data_dir is not provided."""
         env_dir = tmp_path / "state-from-env"
-        monkeypatch.setenv("SMOLVM_DATA_DIR", str(env_dir))
+        monkeypatch.setenv("CELESTO_DATA_DIR", str(env_dir))
         monkeypatch.delenv("SUDO_USER", raising=False)
 
         sdk = CelestoManager(socket_dir=tmp_path / "sockets", backend="firecracker")
         try:
             assert sdk.data_dir == env_dir
-            assert not (env_dir / "smolvm.db").exists()
+            assert not (env_dir / "celesto.db").exists()
         finally:
             sdk.close()
 
     def test_uses_xdg_state_home_for_non_root(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Non-root default should prefer $XDG_STATE_HOME/smolvm."""
+        """Non-root default should prefer $XDG_STATE_HOME/celesto."""
         xdg_state_home = tmp_path / "xdg-state"
-        monkeypatch.delenv("SMOLVM_DATA_DIR", raising=False)
+        monkeypatch.delenv("CELESTO_DATA_DIR", raising=False)
         monkeypatch.delenv("SUDO_USER", raising=False)
         monkeypatch.setenv("XDG_STATE_HOME", str(xdg_state_home))
 
@@ -1620,8 +1620,8 @@ class TestDataDirResolution:
             sdk = CelestoManager(socket_dir=tmp_path / "sockets", backend="firecracker")
 
         try:
-            assert sdk.data_dir == xdg_state_home / "smolvm"
-            assert not (sdk.data_dir / "smolvm.db").exists()
+            assert sdk.data_dir == xdg_state_home / "celesto"
+            assert not (sdk.data_dir / "celesto.db").exists()
         finally:
             sdk.close()
 
@@ -1636,7 +1636,7 @@ class TestDataDirResolution:
             pw_gid=1234,
         )
 
-        monkeypatch.delenv("SMOLVM_DATA_DIR", raising=False)
+        monkeypatch.delenv("CELESTO_DATA_DIR", raising=False)
         monkeypatch.delenv("XDG_STATE_HOME", raising=False)
         monkeypatch.setenv("SUDO_USER", "alice")
 
@@ -1648,8 +1648,8 @@ class TestDataDirResolution:
             sdk = CelestoManager(socket_dir=tmp_path / "sockets", backend="firecracker")
 
         try:
-            assert sdk.data_dir == sudo_home / ".local" / "state" / "smolvm"
-            assert not (sdk.data_dir / "smolvm.db").exists()
+            assert sdk.data_dir == sudo_home / ".local" / "state" / "celesto"
+            assert not (sdk.data_dir / "celesto.db").exists()
         finally:
             sdk.close()
 
@@ -1927,7 +1927,7 @@ class TestResolveBootArgs:
 
     Published images don't bake authorized_keys at build time. The launching
     user's pubkey is injected via the kernel cmdline as a base64-encoded
-    ``smolvm.authorized_key_b64`` param, which the guest's ``/init`` decodes
+    ``celesto.authorized_key_b64`` param, which the guest's ``/init`` decodes
     and writes to ``/root/.ssh/authorized_keys`` before sshd starts.
     """
 
@@ -1956,7 +1956,7 @@ class TestResolveBootArgs:
         self, smol_vm: CelestoManager, sample_config: VMConfig
     ) -> None:
         info = self._vm_info(smol_vm, sample_config)
-        assert "smolvm.authorized_key_b64=" not in smol_vm._resolve_boot_args(info)
+        assert "celesto.authorized_key_b64=" not in smol_vm._resolve_boot_args(info)
 
     def test_key_is_base64_encoded_into_cmdline(
         self, smol_vm: CelestoManager, sample_config: VMConfig
@@ -1967,7 +1967,7 @@ class TestResolveBootArgs:
         args = smol_vm._resolve_boot_args(info)
 
         token = next(
-            (p for p in args.split() if p.startswith("smolvm.authorized_key_b64=")),
+            (p for p in args.split() if p.startswith("celesto.authorized_key_b64=")),
             None,
         )
         assert token is not None, args
@@ -1984,11 +1984,11 @@ class TestResolveBootArgs:
             smol_vm,
             sample_config,
             ssh_public_key=self._ED25519_KEY,
-            boot_args="console=ttyS0 smolvm.authorized_key_b64=PRESET",
+            boot_args="console=ttyS0 celesto.authorized_key_b64=PRESET",
         )
         args = smol_vm._resolve_boot_args(info)
-        tokens = [p for p in args.split() if p.startswith("smolvm.authorized_key_b64=")]
-        assert tokens == ["smolvm.authorized_key_b64=PRESET"]
+        tokens = [p for p in args.split() if p.startswith("celesto.authorized_key_b64=")]
+        assert tokens == ["celesto.authorized_key_b64=PRESET"]
 
     def test_key_strip_whitespace_before_encoding(
         self, smol_vm: CelestoManager, sample_config: VMConfig
@@ -1999,7 +1999,7 @@ class TestResolveBootArgs:
         info = self._vm_info(smol_vm, sample_config, ssh_public_key=f"  {self._ED25519_KEY}\n\n")
         args = smol_vm._resolve_boot_args(info)
 
-        token = next(p for p in args.split() if p.startswith("smolvm.authorized_key_b64="))
+        token = next(p for p in args.split() if p.startswith("celesto.authorized_key_b64="))
         decoded = base64.b64decode(token.split("=", 1)[1]).decode("utf-8")
         assert decoded == self._ED25519_KEY
 
@@ -2008,7 +2008,7 @@ class TestResolveBootArgs:
         from celesto.images.builder import ImageBuilder
 
         script = ImageBuilder()._default_init_script()
-        assert "smolvm.authorized_key_b64=" in script
+        assert "celesto.authorized_key_b64=" in script
         assert "base64 -d" in script
         assert "/root/.ssh/authorized_keys" in script
         # Parser must run BEFORE sshd starts, otherwise the new key isn't picked up.

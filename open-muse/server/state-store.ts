@@ -84,7 +84,13 @@ const storedConversationV5Schema = z.object({
   conversations: z.array(legacyConversationRecordSchema).min(1).max(50),
 });
 const conversationRecordSchema = legacyConversationRecordSchema.extend({
-  computerReference: z.object({ provider: z.enum(["smolvm", "celesto"]), id: z.string().min(1).max(200) }).optional(),
+  computerReference: z.object({
+    provider: z.preprocess(
+      (value) => value === "smolvm" ? "local" : value,
+      z.enum(["local", "celesto"]),
+    ),
+    id: z.string().min(1).max(200),
+  }).optional(),
 });
 const storedConversationSchema = z.object({
   fileVersion: z.literal(6),

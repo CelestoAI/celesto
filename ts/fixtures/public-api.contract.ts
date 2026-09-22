@@ -1,8 +1,8 @@
-import { SmolVM, SmolVMError } from "../src/index.js";
+import { Celesto, CelestoError } from "../src/index.js";
 import type { WriteBrowserFileData } from "../src/client/index.js";
-import type { BrowserSessionClient, ComputerClient, SandboxClient, SmolVMClient } from "../src/index.js";
+import type { BrowserSessionClient, ComputerClient, SandboxClient, CelestoClient } from "../src/index.js";
 
-const client: SmolVMClient = new SmolVM({ onEvent: (event) => console.log(event.type) });
+const client: CelestoClient = new Celesto({ onEvent: (event) => console.log(event.type) });
 const browserFileWrite: WriteBrowserFileData = {
   body: new Blob(["hello"]),
   path: { session_id: "browser-demo" },
@@ -12,7 +12,7 @@ const browserFileWrite: WriteBrowserFileData = {
 
 async function run(sandbox: SandboxClient): Promise<void> {
   const result = await sandbox.exec(["printf", "%s", "hello"], { timeoutMs: 1_000 });
-  if (!result.ok) throw new SmolVMError("transport_failed", result.stderr, { operation: "example" });
+  if (!result.ok) throw new CelestoError("transport_failed", result.stderr, { operation: "example" });
   await sandbox.files.write("/workspace/result.txt", result.stdout);
 }
 

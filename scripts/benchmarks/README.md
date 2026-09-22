@@ -1,9 +1,9 @@
-# SmolVM Benchmarks
+# Celesto Benchmarks
 
-Measure the lifecycle timings AI agents actually feel when using SmolVM:
+Measure the lifecycle timings AI agents actually feel when using Celesto:
 **cold start**, **time-to-interactive**, **pause/resume**, and **snapshot create/restore**.
 
-The suite drives the public Python SDK (`celesto.facade.SmolVM`) — what it measures
+The suite drives the public Python SDK (`celesto.facade.Celesto`) — what it measures
 is what users get.
 
 ## Backends per platform
@@ -17,10 +17,10 @@ Firecracker on macOS errors out at startup.
 
 ## Prerequisites
 
-1. SmolVM installed and `celesto setup` completed for your platform.
-2. The default image is already pulled (`celesto doctor` will tell you, or run
+1. Celesto installed and `celesto setup` completed for your platform.
+1. The default image is already pulled (`celesto doctor` will tell you, or run
    `celesto sandbox create --name probe` once and `celesto sandbox delete probe`).
-3. Linux only: `celesto setup` configured the host networking and your user can
+1. Linux only: `celesto setup` configured the host networking and your user can
    talk to Firecracker.
 
 The lifecycle benchmark never escalates with `sudo`. Set things up first.
@@ -38,7 +38,7 @@ uv run python scripts/benchmarks/bench.py --only cold-start,tti --iterations 3
 uv run python scripts/benchmarks/bench.py --json
 
 # JSON to a file
-uv run python scripts/benchmarks/bench.py --output /tmp/smolvm-bench.json
+uv run python scripts/benchmarks/bench.py --output /tmp/celesto-bench.json
 
 # Force a specific backend (default: auto)
 uv run python scripts/benchmarks/bench.py --backend qemu
@@ -84,10 +84,10 @@ merge. The first command does not start a VM. The others create short-lived
 sandboxes and clean them up unless `--keep` is set:
 
 ```bash
-uv run python scripts/benchmarks/disk_io.py --json --output /tmp/smolvm-disk-io.json
-uv run python scripts/benchmarks/file_transfer.py --backend qemu --comm-channel vsock --json --output /tmp/smolvm-file-transfer.json
-uv run python scripts/benchmarks/preset_start.py --preset codex --backend qemu --comm-channel vsock --json --output /tmp/smolvm-preset-codex.json
-uv run python scripts/benchmarks/browser_ready.py --backend qemu --json --output /tmp/smolvm-browser-ready.json
+uv run python scripts/benchmarks/disk_io.py --json --output /tmp/celesto-disk-io.json
+uv run python scripts/benchmarks/file_transfer.py --backend qemu --comm-channel vsock --json --output /tmp/celesto-file-transfer.json
+uv run python scripts/benchmarks/preset_start.py --preset codex --backend qemu --comm-channel vsock --json --output /tmp/celesto-preset-codex.json
+uv run python scripts/benchmarks/browser_ready.py --backend qemu --json --output /tmp/celesto-browser-ready.json
 ```
 
 If `file_transfer.py` fails because the sandbox image does not support fast file
@@ -110,14 +110,14 @@ network access):
 
 ```bash
 uv run python scripts/benchmarks/networking.py --json
-uv run python scripts/benchmarks/networking.py --include-full-start --output /tmp/smolvm-networking.json
+uv run python scripts/benchmarks/networking.py --include-full-start --output /tmp/celesto-networking.json
 ```
 
 This benchmark is Linux-only and touches real host networking. It expects the
 same privileges as Firecracker TAP networking. The `native` mode uses Rust
 helpers when direct TAP privileges are available; rerun the benchmark with
 `sudo` or another root/CAP_NET_ADMIN launch path to measure that speedup.
-`forced-off` sets `SMOLVM_DISABLE_NATIVE_NETWORKING=1`, and
+`forced-off` sets `CELESTO_DISABLE_NATIVE_NETWORKING=1`, and
 `unprivileged-fallback` is skipped unless native can be attempted without
 direct TAP privileges and the existing sudo fallback is available. Run
 `celesto setup` first if the sudo fallback is missing.
@@ -148,7 +148,7 @@ full snapshot when the active disk has no backing file.
 Use `--variants qemu-vsock` or a comma-separated list such as
 `--variants qemu-vsock,firecracker-vsock` when you want a focused run.
 Each raw Ubuntu transport record includes `boot_telemetry` when the guest image
-emits `SMOLVM_TS` markers. The per-variant `summary` also includes
+emits `CELESTO_TS` markers. The per-variant `summary` also includes
 `boot_telemetry_stats`, so readiness changes can be traced to guest phases such
 as guest-agent startup, network setup, SSH host-key checks, and sshd startup.
 Snapshot runs report the same data as `snapshot_source_boot_telemetry` and
@@ -161,7 +161,7 @@ latency, or per-iteration raw data.
 
 | Benchmark      | Metrics                                                         | What it measures |
 |----------------|-----------------------------------------------------------------|------------------|
-| `cold-start`   | `host_create_ms`, `vmm_start_ms`, `guest_ready_wait_ms`, `total_fresh_ready_ms`, `first_command_ms`, `total_first_command_ms`, `boot_telemetry_stats` | First VM boot in this process. The image cache on disk is assumed already populated; "cold" means no warm SmolVM state in memory and no per-VM disk overlay yet. |
+| `cold-start`   | `host_create_ms`, `vmm_start_ms`, `guest_ready_wait_ms`, `total_fresh_ready_ms`, `first_command_ms`, `total_first_command_ms`, `boot_telemetry_stats` | First VM boot in this process. The image cache on disk is assumed already populated; "cold" means no warm Celesto state in memory and no per-VM disk overlay yet. |
 | `tti`          | same as `cold-start`                                            | Subsequent boots — the steady-state experience. `tti` runs a warm-up boot first (excluded from stats), then takes `--iterations` measurements. Compare `results["tti"]["stats"]["total_fresh_ready_ms"]["p50"]` to `results["cold-start"]["raw"][0]["total_fresh_ready_ms"]` to see the one-time cost. |
 | `pause-resume` | `pause_ms`, `resume_ms`                                         | Freeze and unfreeze a long-lived VM. |
 | `snapshot`     | `snapshot_create_ms`, `snapshot_restore_ms`, `snapshot_restore_to_ssh_ms` | Persist VM state and bring it back. Each iteration uses a fresh source VM. |
@@ -176,7 +176,7 @@ metric: host create + VMM start + guest boot until SSH is ready. Use
 latency.
 
 For `cold-start` and `tti`, each raw record also includes `boot_telemetry`
-when the guest image emits `SMOLVM_TS` markers from `/init`. This reports guest
+when the guest image emits `CELESTO_TS` markers from `/init`. This reports guest
 uptime at each init stage, stage offsets from `init-start`, named phase
 durations, and the last kernel printk timestamp when the runtime log contains
 kernel messages.
@@ -185,7 +185,7 @@ kernel messages.
 
 ```json
 {
-  "smolvm_version": "0.0.10",
+  "celesto_version": "0.0.10",
   "platform": {"system": "Darwin", "release": "...", "machine": "arm64"},
   "backend": "qemu",
   "iterations": 5,
@@ -248,7 +248,7 @@ becomes `{"status": "unsupported", "backend": "...", "reason": "..."}`.
 - **First-iteration noise**: cold-start iter 0 may include kernel-image fetch from disk
   cache, KVM warm-up, etc. The raw array is preserved so you can spot outliers.
 - **Cleanup**: every benchmark wraps work in `try/finally` and stops/deletes its VMs
-  even on error. The teardown chain is `vm.delete()` → `SmolVMManager.delete()` →
+  even on error. The teardown chain is `vm.delete()` → `CelestoManager.delete()` →
   direct SIGKILL + DB row removal, so flaky QEMU shutdown paths on macOS don't
   leak VMs. If a run is killed mid-flight, run `celesto sandbox list` to spot leftovers.
 - **CI**: not currently wired in. Run locally on each platform.

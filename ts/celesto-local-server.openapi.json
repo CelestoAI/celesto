@@ -1,8 +1,8 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "SmolVM SDK bridge",
-    "summary": "A private local bridge for SmolVM SDK clients.",
+    "title": "Celesto SDK bridge",
+    "summary": "A private local bridge for Celesto SDK clients.",
     "version": "1"
   },
   "paths": {

@@ -35,7 +35,7 @@ class TestParamikoLoggerSilenced:
     level when sshd is briefly unavailable. Celesto catches the SSHException
     and retries successfully, so the stderr noise from the failed attempt is
     misleading. The fix sets the ``paramiko.transport`` logger to CRITICAL
-    so per-retry races stay quiet; smolvm still surfaces real errors via
+    so per-retry races stay quiet; celesto still surfaces real errors via
     CelestoError with the original exception chained.
     """
 
@@ -49,16 +49,16 @@ class TestParamikoLoggerSilenced:
             f"({logging.CRITICAL}) so retry-loop EOF noise stays silent"
         )
 
-    def test_smolvm_ssh_logger_is_not_silenced(self) -> None:
-        """Silencing paramiko.transport must not affect smolvm's own logger."""
+    def test_celesto_ssh_logger_is_not_silenced(self) -> None:
+        """Silencing paramiko.transport must not affect celesto's own logger."""
         # celesto.ssh.logger should remain at its default (NOTSET / inherited),
-        # so smolvm's own info/debug messages are still surfaced.
-        smolvm_level = logging.getLogger("celesto.ssh").getEffectiveLevel()
+        # so celesto's own info/debug messages are still surfaced.
+        celesto_level = logging.getLogger("celesto.ssh").getEffectiveLevel()
         # Anything strictly below CRITICAL means we didn't accidentally
-        # blanket-silence the smolvm namespace.
-        assert smolvm_level < logging.CRITICAL, (
-            f"celesto.ssh logger level is {smolvm_level}; the paramiko "
-            "silencer must not affect smolvm's own loggers"
+        # blanket-silence the celesto namespace.
+        assert celesto_level < logging.CRITICAL, (
+            f"celesto.ssh logger level is {celesto_level}; the paramiko "
+            "silencer must not affect celesto's own loggers"
         )
 
 

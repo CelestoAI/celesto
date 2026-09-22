@@ -26,7 +26,7 @@ class CLIService:
         from celesto.cli.state import create_cli_state_manager
 
         self.data_dir = resolve_data_dir(data_dir)
-        self._state_manager = create_cli_state_manager(self.data_dir / "smolvm.db")
+        self._state_manager = create_cli_state_manager(self.data_dir / "celesto.db")
 
     def state_manager(self) -> StateManagerProtocol:
         """Return the inventory shared by this CLI service's handles."""

@@ -36,7 +36,7 @@ from celesto.macos.models import LumeVMDetails, MacOSInstallProgress, MacOSInsta
 from celesto.types import MacOSMachineConfig
 
 MACOS_DEFAULT_IMAGE = "macos-latest"
-MACOS_MANIFEST_NAME = "smolvm-manifest.json"
+MACOS_MANIFEST_NAME = "celesto-manifest.json"
 _MINIMUM_FREE_BYTES = 50 * 1024**3
 _MINIMUM_INSTALL_FREE_BYTES = 25 * 1024**3
 _MINIMUM_IPSW_BYTES = 1024**3

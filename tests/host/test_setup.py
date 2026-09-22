@@ -63,7 +63,7 @@ class TestPackagedAssetRoot:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        package_assets = tmp_path / "site-packages" / "smolvm" / "_setup_assets"
+        package_assets = tmp_path / "site-packages" / "celesto" / "_setup_assets"
         package_assets.mkdir(parents=True)
         fake_setup_py = _make_repo_checkout(tmp_path, with_scripts=True)
 
@@ -77,7 +77,7 @@ class TestPackagedAssetRoot:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        package_assets = tmp_path / "site-packages" / "smolvm" / "_setup_assets"
+        package_assets = tmp_path / "site-packages" / "celesto" / "_setup_assets"
         package_assets.mkdir(parents=True)
         fake_setup_py = _make_repo_checkout(tmp_path, with_scripts=False)
 
@@ -281,7 +281,7 @@ class TestBuildSetupCommand:
     ) -> None:
         asset_root = _make_asset_root(tmp_path)
         selected = tmp_path / "environment"
-        monkeypatch.setenv("SMOLVM_FIRECRACKER_DIR", str(selected))
+        monkeypatch.setenv("CELESTO_FIRECRACKER_DIR", str(selected))
 
         command = host_setup_module.build_setup_command(
             host_setup_module.SetupOptions(),

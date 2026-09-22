@@ -1,4 +1,4 @@
-//! PyO3 bindings for the private `smolvm_core._ffi` extension module.
+//! PyO3 bindings for the private `celesto_core._ffi` extension module.
 
 use pyo3::prelude::*;
 

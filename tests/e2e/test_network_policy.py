@@ -476,7 +476,7 @@ def test_firecracker_policy_install_failure(policy_lab, request, tmp_path, monke
     run_nft = NetworkManager._run_nft_script
 
     def reject_policy(self, script):
-        if "smolvm_policy_" in script:
+        if "celesto_policy_" in script:
             script += "\ninvalid nft syntax\n"
         return run_nft(self, script)
 

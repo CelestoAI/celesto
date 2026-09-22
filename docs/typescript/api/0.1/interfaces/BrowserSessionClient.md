@@ -1,8 +1,8 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
-***
+______________________________________________________________________
 
-[@celestoai/smolvm](../README.md) / BrowserSessionClient
+[@celestoai/celesto](../README.md) / BrowserSessionClient
 
 # Interface: BrowserSessionClient
 
@@ -18,13 +18,13 @@ Control a ready browser computer through private automation and viewing addresse
 
 > `readonly` **cdpUrl**: `string`
 
-***
+______________________________________________________________________
 
 ### displayUrl?
 
 > `readonly` `optional` **displayUrl?**: `string`
 
-***
+______________________________________________________________________
 
 ### files
 
@@ -34,31 +34,31 @@ Control a ready browser computer through private automation and viewing addresse
 
 [`CommandFilesClient`](CommandFilesClient.md).[`files`](CommandFilesClient.md#files)
 
-***
+______________________________________________________________________
 
 ### profileId?
 
 > `readonly` `optional` **profileId?**: `string`
 
-***
+______________________________________________________________________
 
 ### sandboxId
 
 > `readonly` **sandboxId**: `string`
 
-***
+______________________________________________________________________
 
 ### sessionId
 
 > `readonly` **sessionId**: `string`
 
-***
+______________________________________________________________________
 
 ### status
 
 > `readonly` **status**: [`BrowserSessionStatus`](../type-aliases/BrowserSessionStatus.md)
 
-***
+______________________________________________________________________
 
 ### viewerUrl?
 
@@ -68,23 +68,23 @@ Control a ready browser computer through private automation and viewing addresse
 
 ### delete()
 
-> **delete**(): `Promise`\<`void`\>
+> **delete**(): `Promise`\<`void`>
 
 #### Returns
 
-`Promise`\<`void`\>
+`Promise`\<`void`>
 
-***
+______________________________________________________________________
 
 ### exec()
 
-> **exec**(`command`, `options?`): `Promise`\<[`ExecResult`](ExecResult.md)\>
+> **exec**(`command`, `options?`): `Promise`\<[`ExecResult`](ExecResult.md)>
 
 #### Parameters
 
 ##### command
 
-`string` \| readonly `string`[]
+`string` | readonly `string`\[\]
 
 ##### options?
 
@@ -92,7 +92,7 @@ Control a ready browser computer through private automation and viewing addresse
 
 #### Returns
 
-`Promise`\<[`ExecResult`](ExecResult.md)\>
+`Promise`\<[`ExecResult`](ExecResult.md)>
 
 #### Inherited from
 

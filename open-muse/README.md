@@ -48,7 +48,7 @@ The download is needed only once. Later runs reuse the local image.
 
 ### 2. Build the local TypeScript SDK
 
-OpenMuse uses the unreleased SmolVM TypeScript package in `../ts`. Build it once from the repository root:
+OpenMuse uses the unreleased Celesto TypeScript package in `../ts`. Build it once from the repository root:
 
 ```bash
 cd ts
@@ -65,7 +65,7 @@ cd ../open-muse
 npm ci
 ```
 
-Create the local settings file. It points OpenMuse at the SmolVM runtime in this checkout:
+Create the local settings file. It points OpenMuse at the Celesto runtime in this checkout:
 
 ```bash
 test -f .env.local || cp .env.example .env.local
@@ -96,19 +96,19 @@ Send:
 
 > Open https://example.com and tell me what the page says.
 
-OpenMuse will open the public page directly. Watch the disposable desktop start and Chromium open the site. A normal first boot can take longer than later boots while SmolVM prepares the downloaded image.
+OpenMuse will open the public page directly. Watch the disposable desktop start and Chromium open the site. A normal first boot can take longer than later boots while Celesto prepares the downloaded image.
 
 Try one more prompt after the page opens:
 
 > Give me the raw page data as Markdown.
 
-Click **Stop** when you are done. OpenMuse deletes the conversation's computer and clears its association for both providers. When the server exits without **Stop**, local SmolVM computers are deleted while Celesto Cloud computers stay linked so the next OpenMuse process can reconnect.
+Click **Stop** when you are done. OpenMuse deletes the conversation's computer and clears its association for both providers. When the server exits without **Stop**, local Celesto computers are deleted while Celesto Cloud computers stay linked so the next OpenMuse process can reconnect.
 
 ## Everyday controls
 
 ### Chats and model settings
 
-Open **Chats** to start a new conversation or return to one of up to 50 saved local chats. Only the selected chat can use an agent or attached computer. With SmolVM, returning starts a fresh local computer only when needed. With Celesto Cloud, returning reconnects the computer saved with that conversation. **Reset conversation** permanently removes the selected transcript and computer after confirmation.
+Open **Chats** to start a new conversation or return to one of up to 50 saved local chats. Only the selected chat can use an agent or attached computer. With Celesto, returning starts a fresh local computer only when needed. With Celesto Cloud, returning reconnects the computer saved with that conversation. **Reset conversation** permanently removes the selected transcript and computer after confirmation.
 
 Select the current model in the header to open model settings. Use **Back to conversation** to return without changing it.
 
@@ -146,7 +146,7 @@ OpenMuse reads `.env.local` when the Node.js server starts.
 | --- | --- | --- |
 | `OPENAI_API_KEY` | unset | Uses an OpenAI API key without entering it in the app. |
 | `OPENAI_MODEL` | `gpt-5.6-luna` | Selects the initial model when an environment API key is used. |
-| `OPENMUSE_COMPUTER_PROVIDER` | `smolvm` | Uses local `smolvm` or hosted `celesto` computers. |
+| `OPENMUSE_COMPUTER_PROVIDER` | `local` | Uses local Celesto or hosted `celesto` computers. |
 | `CELESTO_RUNTIME` | `celesto` | Chooses the Celesto command. `.env.example` points to the source-checkout wrapper. |
 | `CELESTO_API_KEY` | unset | Required server-only credential when the computer provider is `celesto`. |
 | `CELESTO_API_URL` | Celesto production API | Optional development or self-hosted Celesto control-plane URL. |
@@ -175,7 +175,7 @@ If the image download was interrupted, retry it from the repository root:
 uv run celesto image pull linux-desktop
 ```
 
-### The SmolVM TypeScript package cannot be resolved
+### The Celesto TypeScript package cannot be resolved
 
 Rebuild the local package, then restart OpenMuse:
 
@@ -190,7 +190,7 @@ npm run build
 Confirm `.env.local` selects Celesto and contains its API key:
 
 ```dotenv
-OPENMUSE_COMPUTER_PROVIDER=celesto
+OPENMUSE_COMPUTER_PROVIDER=local
 CELESTO_API_KEY=your-key
 ```
 
@@ -208,7 +208,7 @@ OpenMuse restores `.open-muse/state.json` by design. Use **Reset conversation**,
 
 ## How it works
 
-The React client displays chat and the live desktop. A local Node.js server owns the model connection, credentials, approval checks, conversation state, and computer lifecycle. An OpenMuse-owned provider protocol selects local SmolVM or Celesto Cloud, while a host-owned Playwright connection sends approved browser operations to Chromium.
+The React client displays chat and the live desktop. A local Node.js server owns the model connection, credentials, approval checks, conversation state, and computer lifecycle. An OpenMuse-owned provider protocol selects local Celesto or Celesto Cloud, while a host-owned Playwright connection sends approved browser operations to Chromium.
 
 The model chooses structured operations and their arguments; it does not send executable Playwright code. New popups remain quarantined until the user adopts them. The browser automation address and raw remote-display address stay in the Node.js process, and the client receives only a short-lived path to the viewer.
 
@@ -216,7 +216,7 @@ An approved operation is recorded before it runs. A failure before dispatch appe
 
 ### Current security boundary
 
-Structured navigation rejects local and private literal addresses, but the initial general-web implementation still uses SmolVM's open network mode. DNS and subresource enforcement need the approved public-only egress proxy before OpenMuse should be treated as hardened against untrusted websites.
+Structured navigation rejects local and private literal addresses, but the initial general-web implementation still uses Celesto's open network mode. DNS and subresource enforcement need the approved public-only egress proxy before OpenMuse should be treated as hardened against untrusted websites.
 
 ## Contributing and help
 

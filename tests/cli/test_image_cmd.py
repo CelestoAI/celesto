@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for celesto image list/rm and the SMOLVM_IMAGE_DIR resolution."""
+"""Tests for celesto image list/rm and the CELESTO_IMAGE_DIR resolution."""
 
 from __future__ import annotations
 
@@ -50,9 +50,9 @@ def _make_cache_dirs(root: Path) -> None:
 
 
 class TestResolveImageDir:
-    def test_default_is_home_smolvm_images(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_default_is_home_celesto_images(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(IMAGE_DIR_ENV, raising=False)
-        assert resolve_image_dir() == Path.home() / ".smolvm" / "images"
+        assert resolve_image_dir() == Path.home() / ".celesto" / "images"
 
     def test_env_var_overrides_default(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -69,15 +69,15 @@ class TestResolveImageDir:
 
     def test_blank_env_var_falls_through(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(IMAGE_DIR_ENV, "  ")
-        assert resolve_image_dir() == Path.home() / ".smolvm" / "images"
+        assert resolve_image_dir() == Path.home() / ".celesto" / "images"
 
     def test_blank_explicit_arg_falls_through(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """`--image-dir "$UNSET"` must never target the current directory."""
         monkeypatch.delenv(IMAGE_DIR_ENV, raising=False)
-        assert resolve_image_dir("") == Path.home() / ".smolvm" / "images"
-        assert resolve_image_dir("   ") == Path.home() / ".smolvm" / "images"
+        assert resolve_image_dir("") == Path.home() / ".celesto" / "images"
+        assert resolve_image_dir("   ") == Path.home() / ".celesto" / "images"
         monkeypatch.setenv(IMAGE_DIR_ENV, str(tmp_path / "env"))
         assert resolve_image_dir("") == tmp_path / "env"
 

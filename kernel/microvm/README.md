@@ -1,8 +1,8 @@
-# SmolVM microvm Kernel
+# Celesto microvm Kernel
 
-This directory holds the recipe for the **only** Linux kernels SmolVM
+This directory holds the recipe for the **only** Linux kernels Celesto
 ships. One Linux source build per arch produces TWO artifacts that
-together cover every runtime SmolVM supports:
+together cover every runtime Celesto supports:
 
 - `vmlinux-<arch>.elf`  — the uncompressed ELF, for **Firecracker** and **libkrun**.
 - `vmlinux-<arch>.image` — the boot wrapper (`bzImage` on x86, `Image` on arm64), for **QEMU**.
@@ -13,7 +13,7 @@ expects.
 
 ## Why this exists
 
-Before 0.0.14a0 SmolVM fetched kernels from two external CDNs:
+Before 0.0.14a0 Celesto fetched kernels from two external CDNs:
 
 - **Firecracker's CI S3 bucket** (`s3.amazonaws.com/spec.ccfc.min/.../vmlinux-5.10.198`) — for Firecracker on Linux. Pinned to Linux 5.10.
 - **Ubuntu cloud-images** (`cloud-images.ubuntu.com/.../vmlinuz-generic`) — paired with a matching initrd for the QEMU+Ubuntu auto-config path.
@@ -44,7 +44,7 @@ in [`_kernel_format_for_vmm`](../../src/celesto/images/published.py).
 ## What features each runtime actually exercises
 
 Driver / Kconfig matrix — what's *required* (not just nice-to-have) for
-the runtimes SmolVM uses today:
+the runtimes Celesto uses today:
 
 | Feature group          | Kconfig (relevant)              | Firecracker | QEMU virt aarch64 | QEMU q35 amd64 | libkrun |
 |---                     |---                              |---          |---                |---             |---|
@@ -77,7 +77,7 @@ That's what the fragments in this directory encode.
   as Kconfig symbols in the Linux 6.x random.c rewrite. They're now
   cmdline params (`random.trust_cpu=on`, default ON) — we get the
   fast-sshd-hostkey-gen behavior for free.
-- `CONFIG_VIRTIO_FS` (virtiofs) — SmolVM's workspace mounts use
+- `CONFIG_VIRTIO_FS` (virtiofs) — Celesto's workspace mounts use
   virtio-9p instead. Adding virtiofs is a future enhancement; not
   load-bearing today.
 - KVM / Hypervisor.framework paravirt symbols (`CONFIG_KVM_GUEST`,
@@ -86,7 +86,7 @@ That's what the fragments in this directory encode.
   enables what's needed.
 - Kernel modules — see "no modules" row above. The kernel ships without
   `/lib/modules/$(uname -r)`, so userspace `modprobe` will fail with
-  "module not found" even for built-in drivers. The SmolVM facade's
+  "module not found" even for built-in drivers. The Celesto facade's
   workspace-mount probe treats `/proc/filesystems` as the source of
   truth for what's registered (see the fast-path in
   `_ensure_9p_workspace_support`).
@@ -121,7 +121,7 @@ MAKE=gmake bash build.sh
 Cross-builds work too if you have the toolchain:
 
 ```sh
-SMOLVM_ARCH_OVERRIDE=arm64 ARCH=arm64 \
+CELESTO_ARCH_OVERRIDE=arm64 ARCH=arm64 \
     CROSS_COMPILE=aarch64-linux-gnu- \
     bash build.sh
 ```
@@ -137,8 +137,8 @@ mismatched gcc flags):
 ```sh
 # Quick: stop after fragment verification (~30 s, no kernel compile).
 docker run --rm --platform=linux/arm64 \
-    -v "$PWD":/src:ro -e SMOLVM_VERIFY_ONLY=1 \
-    -e SMOLVM_ARCH_OVERRIDE=arm64 ubuntu:24.04 \
+    -v "$PWD":/src:ro -e CELESTO_VERIFY_ONLY=1 \
+    -e CELESTO_ARCH_OVERRIDE=arm64 ubuntu:24.04 \
     bash -c 'apt-get update -qq && \
         apt-get install -y --no-install-recommends \
         build-essential bc bison flex libssl-dev libelf-dev \
@@ -149,11 +149,11 @@ docker run --rm --platform=linux/arm64 \
 # Full: produces a real vmlinux in /tmp/out (~5–8 min on M-series).
 mkdir -p /tmp/out && docker run --rm --platform=linux/arm64 \
     -v "$PWD":/src:ro -v /tmp/out:/out -e OUT_DIR=/out \
-    -e SMOLVM_ARCH_OVERRIDE=arm64 ubuntu:24.04 \
-    bash -c '<same setup as above, drop SMOLVM_VERIFY_ONLY>'
+    -e CELESTO_ARCH_OVERRIDE=arm64 ubuntu:24.04 \
+    bash -c '<same setup as above, drop CELESTO_VERIFY_ONLY>'
 ```
 
-Swap `--platform=linux/amd64` + `SMOLVM_ARCH_OVERRIDE=amd64` for the x86 build.
+Swap `--platform=linux/amd64` + `CELESTO_ARCH_OVERRIDE=amd64` for the x86 build.
 
 ## Smoke-testing locally
 

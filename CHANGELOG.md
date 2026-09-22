@@ -30,11 +30,15 @@
 - Use `celesto` for all CLI commands, installation, updates, and shell completion.
 - Use `CELESTO_RUNTIME` to override the local executable used by the TypeScript SDK.
 - Update installation guides, examples, and release checks for the new package name.
+- Rename the native package to `celesto-core`, the TypeScript package to
+  `@celestoai/celesto`, and the guest agent to `celesto-guest-agent`.
+- New state and configuration use `~/.celesto` and `CELESTO_*`; legacy
+  `~/.smolvm` state and `SMOLVM_*` variables are read during the transition.
 
 ### Removed
 
 - The `smolvm` executable alias and old Python import path. This is a breaking release.
 - An obsolete OpenAI Agents example that depended on an unavailable integration.
 
-The native `smolvm-core` package and published VM images are unchanged. The separate
-TypeScript preview package remains `@celestoai/smolvm`.
+Published images from before this release retain their SmolVM guest protocol and
+should be rebuilt before using the renamed guest agent.

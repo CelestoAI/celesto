@@ -69,7 +69,7 @@ def finalize_downloads(
     timeout: float = 30.0,
 ) -> Path:
     """Copy downloaded files into the handoff folder and write manifest.json."""
-    downloads = downloads_dir or Path(f"/opt/smolvm-browser/downloads/{session_id}")
+    downloads = downloads_dir or Path(f"/opt/celesto-browser/downloads/{session_id}")
     inbox = inbox_dir or root / "artifacts" / "inbox" / "acme" / report_date
     expected = [f"orders_{report_date}.csv", f"inventory_{report_date}.csv"]
 

@@ -1,8 +1,8 @@
 [package]
-name = "smolvm-core"
+name = "celesto-core"
 version = "2026.6.24"
-description = "Rust-native core package for SmolVM"
-documentation = "https://docs.rs/smolvm-core"
+description = "Rust-native core package for Celesto"
+documentation = "https://docs.rs/celesto-core"
 readme = "README.md"
 edition.workspace = true
 rust-version.workspace = true
@@ -14,7 +14,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [lib]
-name = "smolvm_core"
+name = "celesto_core"
 crate-type = ["cdylib", "rlib"]
 
 [features]

@@ -31,9 +31,9 @@ LUME_ARCHIVE_URL = (
     "https://github.com/trycua/cua/releases/download/"
     f"lume-v{LUME_VERSION}/lume-{LUME_VERSION}-darwin-arm64.tar.gz"
 )
-LUME_BIN_DIR = Path.home() / ".smolvm" / "bin"
+LUME_BIN_DIR = Path.home() / ".celesto" / "bin"
 LUME_MANAGED_PATH = LUME_BIN_DIR / "lume"
-LUME_INSTALL_ROOT = Path.home() / ".smolvm" / "lib" / f"lume-{LUME_VERSION}"
+LUME_INSTALL_ROOT = Path.home() / ".celesto" / "lib" / f"lume-{LUME_VERSION}"
 _VERSION_LINE_RE = re.compile(r"^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$")
 
 
@@ -218,7 +218,7 @@ def install_pinned_lume(*, destination: Path = LUME_MANAGED_PATH) -> Path:
         else destination.parent / f".lume-{LUME_VERSION}"
     )
     install_root.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="smolvm-lume-", dir=str(install_root.parent)) as tmp:
+    with tempfile.TemporaryDirectory(prefix="celesto-lume-", dir=str(install_root.parent)) as tmp:
         tmp_dir = Path(tmp)
         archive = tmp_dir / "lume.tar.gz"
         staged = tmp_dir / "bundle"

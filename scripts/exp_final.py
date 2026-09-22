@@ -37,7 +37,7 @@ def build_py_alpine():
     kurl = BASE_KERNELS[to_published_arch(ARCH)].url_for(_kernel_format_for_vmm("qemu"))
     k, r = b.build_alpine_ssh(
         name="alpine-py-test",
-        ssh_password="smolvm",
+        ssh_password="celesto",
         rootfs_size_mb=512,
         kernel_profile=PROF,
         kernel_url=kurl,

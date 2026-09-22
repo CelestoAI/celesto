@@ -37,7 +37,7 @@ def build_image():
     kurl = BASE_KERNELS[to_published_arch(ARCH)].url_for(_kernel_format_for_vmm("qemu"))
     k, r = b.build_alpine_ssh(
         name="alpine-py-test",
-        ssh_password="smolvm",
+        ssh_password="celesto",
         rootfs_size_mb=512,
         kernel_profile=PROF,
         kernel_url=kurl,
@@ -84,7 +84,7 @@ def one(kernel, rootfs, *, channel, boot_args, tag) -> dict:
         t0 = time.perf_counter()
         kw = {"comm_channel": channel}
         if channel == "ssh":
-            kw["ssh_password"] = "smolvm"
+            kw["ssh_password"] = "celesto"
         vm = Celesto(config=cfg, **kw)
         rec["create"] = time.perf_counter() - t0
         t0 = time.perf_counter()

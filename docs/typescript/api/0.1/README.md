@@ -1,16 +1,16 @@
-**@celestoai/smolvm**
+**@celestoai/celesto**
 
-***
+______________________________________________________________________
 
-The SmolVM SDK lets a Node.js application create a disposable local computer, run commands, exchange files, inspect setup problems, and clean up when the work is done.
+The Celesto SDK lets a Node.js application create a disposable local computer, run commands, exchange files, inspect setup problems, and clean up when the work is done.
 
 ## Classes
 
 - [BrowserSession](classes/BrowserSession.md)
 - [ComputerSession](classes/ComputerSession.md)
 - [Sandbox](classes/Sandbox.md)
-- [SmolVM](classes/SmolVM.md)
-- [SmolVMError](classes/SmolVMError.md)
+- [Celesto](classes/Celesto.md)
+- [CelestoError](classes/CelestoError.md)
 
 ## Interfaces
 
@@ -30,10 +30,10 @@ The SmolVM SDK lets a Node.js application create a disposable local computer, ru
 - [SandboxClient](interfaces/SandboxClient.md)
 - [SandboxCollection](interfaces/SandboxCollection.md)
 - [SandboxFiles](interfaces/SandboxFiles.md)
-- [SmolVMClient](interfaces/SmolVMClient.md)
-- [SmolVMErrorOptions](interfaces/SmolVMErrorOptions.md)
-- [SmolVMOptions](interfaces/SmolVMOptions.md)
-- [SmolVMTransport](interfaces/SmolVMTransport.md)
+- [CelestoClient](interfaces/CelestoClient.md)
+- [CelestoErrorOptions](interfaces/CelestoErrorOptions.md)
+- [CelestoOptions](interfaces/CelestoOptions.md)
+- [CelestoTransport](interfaces/CelestoTransport.md)
 
 ## Type Aliases
 
@@ -43,5 +43,5 @@ The SmolVM SDK lets a Node.js application create a disposable local computer, ru
 - [ComputerSessionStatus](type-aliases/ComputerSessionStatus.md)
 - [NetworkPolicy](type-aliases/NetworkPolicy.md)
 - [SandboxStatus](type-aliases/SandboxStatus.md)
-- [SmolVMErrorCode](type-aliases/SmolVMErrorCode.md)
-- [SmolVMEvent](type-aliases/SmolVMEvent.md)
+- [CelestoErrorCode](type-aliases/CelestoErrorCode.md)
+- [CelestoEvent](type-aliases/CelestoEvent.md)

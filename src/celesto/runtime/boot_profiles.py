@@ -50,11 +50,11 @@ _SAFE_TRIM_FLAGS = "tsc=reliable no_timer_check"
 def _quiet_flag() -> str:
     """Return ``" quiet"`` unless verbose boot was requested.
 
-    Set ``SMOLVM_VERBOSE_BOOT=1`` to keep full kernel console output when
+    Set ``CELESTO_VERBOSE_BOOT=1`` to keep full kernel console output when
     debugging a boot that hangs or panics; the default suppresses it to cut
     time spent formatting printk over the serial line.
     """
-    verbose = os.environ.get("SMOLVM_VERBOSE_BOOT", "").strip().lower()
+    verbose = os.environ.get("CELESTO_VERBOSE_BOOT", "").strip().lower()
     if verbose in {"1", "true", "yes", "on"}:
         return ""
     return " quiet"
@@ -64,7 +64,7 @@ def safe_kernel_trim_args(*, quiet: bool | None = None) -> tuple[str, ...]:
     """Return latency-safe kernel command-line trims.
 
     ``quiet=None`` preserves Celesto's default behavior: include ``quiet``
-    unless ``SMOLVM_VERBOSE_BOOT`` asks for verbose kernel output. Pass
+    unless ``CELESTO_VERBOSE_BOOT`` asks for verbose kernel output. Pass
     ``quiet=True`` or ``quiet=False`` to force either behavior for a custom
     boot profile.
     """

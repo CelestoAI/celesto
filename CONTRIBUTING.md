@@ -2,7 +2,7 @@
 
 Thanks for your interest in contributing to Celesto.
 
-Celesto is developed in the open at [CelestoAI/SmolVM](https://github.com/CelestoAI/SmolVM), and we welcome bug reports, fixes, tests, docs improvements, and feature work.
+Celesto is developed in the open at [CelestoAI/Celesto](https://github.com/CelestoAI/Celesto), and we welcome bug reports, fixes, tests, docs improvements, and feature work.
 
 ## Security First
 
@@ -10,7 +10,7 @@ If you think you found a security vulnerability, do not open a public issue.
 
 Use GitHub private vulnerability reporting:
 
-- https://github.com/CelestoAI/SmolVM/security/advisories/new
+- https://github.com/CelestoAI/Celesto/security/advisories/new
 
 For policy details, see [SECURITY.md](SECURITY.md).
 
@@ -24,8 +24,8 @@ For policy details, see [SECURITY.md](SECURITY.md).
 ## Development Setup
 
 1. Fork and clone the repository.
-2. Create a feature branch from `main`.
-3. Install dependencies with `uv`.
+1. Create a feature branch from `main`.
+1. Install dependencies with `uv`.
 
 ```bash
 uv sync --extra dev

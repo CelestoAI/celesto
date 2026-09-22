@@ -10,7 +10,7 @@ On Linux or macOS, run:
 curl -fsSL https://celesto.ai/install.sh | bash
 ```
 
-The URL redirects to the [installer on GitHub](https://github.com/CelestoAI/SmolVM/blob/main/scripts/install.sh).
+The URL redirects to the [installer on GitHub](https://github.com/CelestoAI/Celesto/blob/main/scripts/install.sh).
 It installs `uv` if needed, uses it to install the Celesto CLI with server support
 in a separate Python environment, runs `celesto setup`, then runs `celesto doctor`.
 Running it again upgrades the existing Celesto uv tool installation.
@@ -55,12 +55,19 @@ complete the machine setup below as well. For TypeScript or local server use,
 install `celesto[server]==0.0.15a0` instead.
 
 The Python package is now named `celesto`, and Python code imports from `celesto`
-(for example, `from celesto import Computer`). Old `smolvm` Python imports are no
-longer supported. Use the `celesto` command; the `smolvm` command is no longer
-installed.
+(for example, `from celesto import Computer`). The retired `smolvm` Python import
+and command are not installed by this release.
 
-The `smolvm-core` package name is unchanged. It is installed automatically on
+The native helper is named `celesto-core`. It is installed automatically on
 supported Linux and macOS systems; most users do not need Rust installed.
+
+### Upgrade from SmolVM
+
+New Celesto installations write configuration under `~/.celesto` and use
+`CELESTO_*` environment variables. Existing `~/.smolvm` image, runtime, and
+state directories are read when no Celesto directory exists, so upgrade before
+deleting the old directory. `SMOLVM_*` variables continue to work temporarily,
+but replace each with its `CELESTO_*` equivalent before the next major release.
 
 ## Prepare your machine
 
@@ -82,7 +89,7 @@ celesto doctor
 
 ### Choose where Firecracker is stored
 
-On Linux, Firecracker is the program that starts a sandbox. Celesto stores it in `~/.smolvm/bin` by default, which works without changing system folders.
+On Linux, Firecracker is the program that starts a sandbox. Celesto stores it in `~/.celesto/bin` by default, which works without changing system folders.
 
 Choose another folder for one setup run with:
 
@@ -93,11 +100,11 @@ celesto setup --firecracker-dir "$HOME/.local/bin"
 If that folder is not already on `PATH`, set it for future Celesto commands:
 
 ```bash
-export SMOLVM_FIRECRACKER_DIR="$HOME/.local/bin"
+export CELESTO_FIRECRACKER_DIR="$HOME/.local/bin"
 celesto setup
 ```
 
-This setting changes only the Firecracker location. Images still use `SMOLVM_IMAGE_DIR`, and sandbox state still uses `SMOLVM_DATA_DIR`.
+This setting changes only the Firecracker location. Images still use `CELESTO_IMAGE_DIR`, and sandbox state still uses `CELESTO_DATA_DIR`.
 
 ### Fedora Atomic desktops
 

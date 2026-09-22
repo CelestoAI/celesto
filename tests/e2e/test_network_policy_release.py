@@ -17,7 +17,7 @@ from test_network_policy import policy_lab  # noqa: F401
 pytestmark = [
     pytest.mark.e2e,
     pytest.mark.skipif(
-        not os.environ.get("SMOLVM_POLICY_BASELINE_PYTHON"),
+        not os.environ.get("CELESTO_POLICY_BASELINE_PYTHON"),
         reason="Release matrix is opt-in through the E2E workflow dispatch",
     ),
 ]
@@ -26,13 +26,13 @@ pytestmark = [
 def test_installed_examples_and_performance(policy_lab, tmp_path):  # noqa: F811
     allowed, denied, *_ = policy_lab
     root = Path(__file__).resolve().parents[2]
-    results = Path(os.environ["SMOLVM_POLICY_RESULTS"])
+    results = Path(os.environ["CELESTO_POLICY_RESULTS"])
     results.mkdir(parents=True, exist_ok=True)
     interpreters = {
-        version: os.environ[f"SMOLVM_POLICY_{version.upper()}_PYTHON"]
+        version: os.environ[f"CELESTO_POLICY_{version.upper()}_PYTHON"]
         for version in ("baseline", "candidate")
     }
-    samples = int(os.environ.get("SMOLVM_POLICY_SAMPLES", "100"))
+    samples = int(os.environ.get("CELESTO_POLICY_SAMPLES", "100"))
 
     # Execute the actual documented context-manager examples from an installed
     # wheel, outside the checkout. Only the illustrative destination is replaced.

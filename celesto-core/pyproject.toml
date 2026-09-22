@@ -3,9 +3,9 @@ requires = ["maturin>=1.7,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "smolvm-core"
+name = "celesto-core"
 dynamic = ["version"]
-description = "Rust-accelerated runtime and network operations for SmolVM"
+description = "Rust-accelerated runtime and network operations for Celesto"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.11"
@@ -26,11 +26,11 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/CelestoAI/SmolVM"
-Repository = "https://github.com/CelestoAI/SmolVM"
+Homepage = "https://github.com/CelestoAI/Celesto"
+Repository = "https://github.com/CelestoAI/Celesto"
 Documentation = "https://docs.celesto.ai"
 
 [tool.maturin]
 features = ["extension-module"]
 python-source = "python"
-module-name = "smolvm_core._ffi"
+module-name = "celesto_core._ffi"

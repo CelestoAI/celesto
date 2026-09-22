@@ -1,8 +1,8 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
-***
+______________________________________________________________________
 
-[@celestoai/smolvm](../README.md) / CommandFilesClient
+[@celestoai/celesto](../README.md) / CommandFilesClient
 
 # Interface: CommandFilesClient
 
@@ -24,13 +24,13 @@ Run commands and exchange files with one disposable environment.
 
 ### exec()
 
-> **exec**(`command`, `options?`): `Promise`\<[`ExecResult`](ExecResult.md)\>
+> **exec**(`command`, `options?`): `Promise`\<[`ExecResult`](ExecResult.md)>
 
 #### Parameters
 
 ##### command
 
-`string` \| readonly `string`[]
+`string` | readonly `string`\[\]
 
 ##### options?
 
@@ -38,4 +38,4 @@ Run commands and exchange files with one disposable environment.
 
 #### Returns
 
-`Promise`\<[`ExecResult`](ExecResult.md)\>
+`Promise`\<[`ExecResult`](ExecResult.md)>

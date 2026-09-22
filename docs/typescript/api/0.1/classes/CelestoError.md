@@ -1,10 +1,10 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
-***
+______________________________________________________________________
 
-[@celestoai/smolvm](../README.md) / SmolVMError
+[@celestoai/celesto](../README.md) / CelestoError
 
-# Class: SmolVMError
+# Class: CelestoError
 
 A stable, actionable failure from the SDK or local runtime.
 
@@ -16,13 +16,13 @@ A stable, actionable failure from the SDK or local runtime.
 
 ### Constructor
 
-> **new SmolVMError**(`code`, `message`, `options`): `SmolVMError`
+> **new CelestoError**(`code`, `message`, `options`): `CelestoError`
 
 #### Parameters
 
 ##### code
 
-[`SmolVMErrorCode`](../type-aliases/SmolVMErrorCode.md)
+[`CelestoErrorCode`](../type-aliases/CelestoErrorCode.md)
 
 ##### message
 
@@ -30,11 +30,11 @@ A stable, actionable failure from the SDK or local runtime.
 
 ##### options
 
-[`SmolVMErrorOptions`](../interfaces/SmolVMErrorOptions.md)
+[`CelestoErrorOptions`](../interfaces/CelestoErrorOptions.md)
 
 #### Returns
 
-`SmolVMError`
+`CelestoError`
 
 #### Overrides
 
@@ -44,9 +44,9 @@ A stable, actionable failure from the SDK or local runtime.
 
 ### actual?
 
-> `readonly` `optional` **actual?**: `Readonly`\<`Record`\<`string`, `string` \| `number` \| `boolean`\>\>
+> `readonly` `optional` **actual?**: `Readonly`\<`Record`\<`string`, `string` | `number` | `boolean`>>
 
-***
+______________________________________________________________________
 
 ### cause?
 
@@ -56,19 +56,19 @@ A stable, actionable failure from the SDK or local runtime.
 
 `Error.cause`
 
-***
+______________________________________________________________________
 
 ### code
 
-> `readonly` **code**: [`SmolVMErrorCode`](../type-aliases/SmolVMErrorCode.md)
+> `readonly` **code**: [`CelestoErrorCode`](../type-aliases/CelestoErrorCode.md)
 
-***
+______________________________________________________________________
 
 ### helpUrl
 
 > `readonly` **helpUrl**: `string`
 
-***
+______________________________________________________________________
 
 ### message
 
@@ -78,7 +78,7 @@ A stable, actionable failure from the SDK or local runtime.
 
 `Error.message`
 
-***
+______________________________________________________________________
 
 ### name
 
@@ -88,25 +88,25 @@ A stable, actionable failure from the SDK or local runtime.
 
 `Error.name`
 
-***
+______________________________________________________________________
 
 ### operation
 
 > `readonly` **operation**: `string`
 
-***
+______________________________________________________________________
 
 ### recoveryCommand?
 
 > `readonly` `optional` **recoveryCommand?**: `string`
 
-***
+______________________________________________________________________
 
 ### sandboxId?
 
 > `readonly` `optional` **sandboxId?**: `string`
 
-***
+______________________________________________________________________
 
 ### stack?
 
@@ -116,7 +116,7 @@ A stable, actionable failure from the SDK or local runtime.
 
 `Error.stack`
 
-***
+______________________________________________________________________
 
 ### stackTraceLimit
 
@@ -204,7 +204,7 @@ a();
 
 `Error.captureStackTrace`
 
-***
+______________________________________________________________________
 
 ### prepareStackTrace()
 
@@ -218,7 +218,7 @@ a();
 
 ##### stackTraces
 
-`CallSite`[]
+`CallSite`\[\]
 
 #### Returns
 

@@ -74,7 +74,7 @@ def test_browser_session_command_preserves_legacy_shape_without_proxy() -> None:
     )
 
     assert command == (
-        "/usr/local/bin/smolvm-browser-session launch-browser headless 1280 720 9222 "
+        "/usr/local/bin/celesto-browser-session launch-browser headless 1280 720 9222 "
         "'/profile with space' /downloads 1"
     )
 
@@ -87,7 +87,7 @@ def test_browser_session_command_appends_one_quoted_proxy_argument() -> None:
     )
 
     assert command == (
-        "/usr/local/bin/smolvm-browser-session launch-browser headless 1280 http://10.0.2.100:3128"
+        "/usr/local/bin/celesto-browser-session launch-browser headless 1280 http://10.0.2.100:3128"
     )
 
 
@@ -117,7 +117,7 @@ def test_browser_start_threads_the_internal_proxy_to_the_guest(tmp_path: Path) -
     session._start_guest_browser()
 
     command = session._vm.run.call_args.args[0]
-    assert command.startswith("/usr/local/bin/smolvm-browser-session start headless")
+    assert command.startswith("/usr/local/bin/celesto-browser-session start headless")
     assert command.endswith("http://10.0.2.100:3128")
 
 
@@ -132,5 +132,5 @@ def test_browser_relaunch_threads_the_same_internal_proxy(tmp_path: Path) -> Non
     session._launch_guest_browser()
 
     command = session._vm.run.call_args.args[0]
-    assert command.startswith("/usr/local/bin/smolvm-browser-session launch-browser headless")
+    assert command.startswith("/usr/local/bin/celesto-browser-session launch-browser headless")
     assert command.endswith("http://10.0.2.100:3128")

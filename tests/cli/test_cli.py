@@ -394,7 +394,7 @@ class TestCliEnv:
         assert payload["data"]["vm_id"] == "vm001"
         assert payload["data"]["requested_keys"] == ["FOO"]
         assert payload["data"]["present_keys"] == ["FOO"]
-        assert "source /etc/profile.d/smolvm_env.sh" in payload["data"]["reload_hint"]
+        assert "source /etc/profile.d/celesto_env.sh" in payload["data"]["reload_hint"]
 
     def test_env_unset_json(
         self,
@@ -750,7 +750,7 @@ class TestCliCreate:
         capsys: pytest.CaptureFixture,
     ) -> None:
         """`celesto sandbox create` should auto-generate a VM name when omitted."""
-        monkeypatch.delenv("SMOLVM_BACKEND", raising=False)
+        monkeypatch.delenv("CELESTO_BACKEND", raising=False)
         config = MagicMock(vm_id="vm-a1b2c3d4")
         mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
 
@@ -811,7 +811,7 @@ class TestCliCreate:
         capsys: pytest.CaptureFixture,
     ) -> None:
         """`celesto sandbox create` should build, start, and report a named VM."""
-        monkeypatch.delenv("SMOLVM_BACKEND", raising=False)
+        monkeypatch.delenv("CELESTO_BACKEND", raising=False)
         config = MagicMock(vm_id="project-spacex")
         mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
 
@@ -890,7 +890,7 @@ class TestCliCreate:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """`celesto sandbox create --comm-channel ssh` preserves the SSH-ready contract."""
-        monkeypatch.delenv("SMOLVM_BACKEND", raising=False)
+        monkeypatch.delenv("CELESTO_BACKEND", raising=False)
         config = MagicMock(vm_id="project-spacex")
         mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
 
@@ -928,7 +928,7 @@ class TestCliCreate:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """`celesto sandbox create -n ...` should behave the same as `--name`."""
-        monkeypatch.delenv("SMOLVM_BACKEND", raising=False)
+        monkeypatch.delenv("CELESTO_BACKEND", raising=False)
         config = MagicMock(vm_id="computer")
         mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
 
@@ -978,7 +978,7 @@ class TestCliCreate:
         capsys: pytest.CaptureFixture,
     ) -> None:
         """`celesto sandbox create --json` should emit the shared envelope."""
-        monkeypatch.delenv("SMOLVM_BACKEND", raising=False)
+        monkeypatch.delenv("CELESTO_BACKEND", raising=False)
         config = MagicMock(vm_id="project-spacex")
         mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
 
@@ -1126,7 +1126,7 @@ class TestCliCreate:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """The 4096 MiB CLI default only applies to debian/ubuntu, not alpine."""
-        monkeypatch.delenv("SMOLVM_BACKEND", raising=False)
+        monkeypatch.delenv("CELESTO_BACKEND", raising=False)
         mock_build_auto_config.return_value = (MagicMock(vm_id="vm"), "/tmp/id_ed25519")
         vm = MagicMock()
         vm.vm_id = "vm"
@@ -1573,7 +1573,7 @@ class TestCliWindowsBuildImage:
         assert 'Celesto(os="windows"' in out_text
         assert "celesto sandbox create --os windows" not in out_text
         assert 'ssh_password="<hidden>"' in out_text
-        assert 'ssh_password="smolvm"' not in out_text
+        assert 'ssh_password="celesto"' not in out_text
 
     @pytest.mark.parametrize("username", [r"DOMAIN\user", 'name"quoted'])
     @patch("celesto.cli.main.console_stdout")
@@ -2647,14 +2647,14 @@ class TestCliSetup:
         """A one-shot custom folder should name the persistent environment setting."""
         mock_run_setup.return_value = 0
         selected = tmp_path / "not-on-path"
-        monkeypatch.delenv("SMOLVM_FIRECRACKER_DIR", raising=False)
+        monkeypatch.delenv("CELESTO_FIRECRACKER_DIR", raising=False)
         monkeypatch.setenv("PATH", "/usr/bin")
 
         ret = main(["setup", "--firecracker-dir", str(selected)])
 
         assert ret == 0
         output = "".join(capsys.readouterr().out.split())
-        assert f"runexportSMOLVM_FIRECRACKER_DIR={selected}" in output
+        assert f"runexportCELESTO_FIRECRACKER_DIR={selected}" in output
 
     @patch("celesto.cli.commands.options.platform.system", return_value="Linux")
     def test_setup_remove_runtime_config_rejects_firecracker_dir(
@@ -3002,7 +3002,7 @@ class TestCliBrowser:
 
         with patch(
             "celesto.cli.main.importlib.metadata.version",
-            side_effect=importlib.metadata.PackageNotFoundError("smolvm"),
+            side_effect=importlib.metadata.PackageNotFoundError("celesto"),
         ):
             assert _current_version_is_prerelease() is False
 
@@ -3099,11 +3099,11 @@ class TestCliComputer:
 
 
 class TestCliUi:
-    """Tests for `smolvm ui`."""
+    """Tests for `celesto ui`."""
 
     @patch("celesto.cli.main.importlib.import_module")
     def test_ui_defaults(self, mock_import: MagicMock) -> None:
-        """`smolvm ui` should launch uvicorn with defaults."""
+        """`celesto ui` should launch uvicorn with defaults."""
         mock_uvicorn = MagicMock()
         mock_import.return_value = mock_uvicorn
 
@@ -3182,7 +3182,7 @@ class TestCliUi:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """Pre-release smolvm version should auto-enable beta UI assets."""
+        """Pre-release celesto version should auto-enable beta UI assets."""
         monkeypatch.setitem(main.__globals__, "_current_version_is_prerelease", lambda: True)
         mock_uvicorn = MagicMock()
 
@@ -3206,7 +3206,7 @@ class TestCliUi:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        """Stable smolvm version should NOT auto-enable beta UI assets."""
+        """Stable celesto version should NOT auto-enable beta UI assets."""
         monkeypatch.setitem(main.__globals__, "_current_version_is_prerelease", lambda: False)
         mock_uvicorn = MagicMock()
         mock_import.return_value = mock_uvicorn
@@ -3917,7 +3917,7 @@ class TestCliInfo:
 
 
 class TestCliStart:
-    """Tests for `smolvm <preset> start`."""
+    """Tests for `celesto <preset> start`."""
 
     def _make_vm_mock(self, vm_id: str = "sbx-codex") -> MagicMock:
         vm = MagicMock()
@@ -3983,7 +3983,7 @@ class TestCliStart:
 
     def test_launch_snippet_runs_when_env_file_missing(self, tmp_path: Path) -> None:
         """The remote command built by `_exec_launch_command` must exec the
-        harness even when /etc/profile.d/smolvm_env.sh does not exist —
+        harness even when /etc/profile.d/celesto_env.sh does not exist —
         regression for claude-code with subscription auth where no
         ANTHROPIC_API_KEY is set on the host, so env injection writes
         nothing and the file is never created."""
@@ -4016,7 +4016,7 @@ class TestCliStart:
         # The snippet calls `exec claude`; for the runtime check we
         # substitute a benign command we can verify ran.
         snippet = remote.replace("exec claude", "echo LAUNCHED")
-        snippet = snippet.replace("/etc/profile.d/smolvm_env.sh", str(missing_env_file))
+        snippet = snippet.replace("/etc/profile.d/celesto_env.sh", str(missing_env_file))
         completed = subprocess.run(
             ["bash", "-c", snippet], capture_output=True, text=True, check=False
         )
@@ -4060,7 +4060,7 @@ class TestCliStart:
 
         missing_env_file = tmp_path / "missing.sh"
         snippet = remote.replace("exec claude", "command -v claude")
-        snippet = snippet.replace("/etc/profile.d/smolvm_env.sh", str(missing_env_file))
+        snippet = snippet.replace("/etc/profile.d/celesto_env.sh", str(missing_env_file))
         completed = subprocess.run(
             ["bash", "-c", snippet],
             capture_output=True,
@@ -4499,7 +4499,7 @@ class TestCliStart:
         # Remote command must guard the env-file source and still exec the
         # harness if the file is missing (preset may inject zero env vars).
         remote = cmd[-1]
-        assert "/etc/profile.d/smolvm_env.sh" in remote
+        assert "/etc/profile.d/celesto_env.sh" in remote
         assert remote.endswith("; exec codex"), (
             "exec must chain with ';' not '&&' so a missing env file does "
             f"not abort the launch — got {remote!r}"
@@ -4788,7 +4788,7 @@ class TestOpenClawCommands:
         mock_track.assert_called_once_with(vm, "sbx-claw", 39876, 18789)
         assert vm.run.call_args_list[0].args[0] == "openclaw --version"
         assert "--bind loopback" in vm.run.call_args_list[1].args[0]
-        assert "/etc/profile.d/smolvm_env.sh" in vm.run.call_args_list[1].args[0]
+        assert "/etc/profile.d/celesto_env.sh" in vm.run.call_args_list[1].args[0]
         assert "https://127.0.0.1:18789/" in vm.run.call_args_list[1].args[0]
         assert "--insecure" in vm.run.call_args_list[1].args[0]
         assert 'kill "$gateway_pid"' in vm.run.call_args_list[1].args[0]
@@ -5190,7 +5190,7 @@ class TestOpenClawCommands:
 class TestPublishedImageLaunchPath:
     """Tests for the published-image launch path.
 
-    ``smolvm <preset> start`` uses a pre-built rootfs from GitHub Releases
+    ``celesto <preset> start`` uses a pre-built rootfs from GitHub Releases
     via ensure_published_image, then boots directly. Tooling assumed to be
     preinstalled in the image.
     """
@@ -5612,7 +5612,7 @@ class TestCliImage:
         assert payload["data"]["already_cached"] is True
         # tmp_path is not where sandbox starts look for images.
         assert len(payload["data"]["warnings"]) == 1
-        assert "SMOLVM_IMAGE_DIR" in payload["data"]["warnings"][0]
+        assert "CELESTO_IMAGE_DIR" in payload["data"]["warnings"][0]
         mock_ensure_published.assert_called_once()
         call = mock_ensure_published.call_args
         assert call.args == ("codex", "amd64", "firecracker", "ubuntu")

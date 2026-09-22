@@ -11,7 +11,7 @@ const MAX_BUSY_RETRIES: u32 = 3;
 /// Retries on EBUSY from TUNSETPERSIST up to MAX_BUSY_RETRIES times, because the
 /// kernel briefly holds the device between TUNSETIFF and TUNSETPERSIST, especially
 /// under load or after rapid VM creation/deletion cycles. This mirrors the retry
-/// logic already present in the Python fallback (src/smolvm/host/network.py).
+/// logic already present in the Python fallback (src/celesto/host/network.py).
 pub fn create(name: &str, owner_uid: u32) -> Result<(), NetlinkError> {
     let mut backoff_ms: u64 = 100;
 

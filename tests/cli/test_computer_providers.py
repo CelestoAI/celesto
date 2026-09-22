@@ -13,7 +13,7 @@ from celesto.types import VMState
 
 @pytest.fixture(autouse=True)
 def isolated_state(monkeypatch, tmp_path):
-    monkeypatch.setenv("SMOLVM_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CELESTO_DATA_DIR", str(tmp_path))
     monkeypatch.setattr("celesto.cli.commands.app._before_command", lambda **kwargs: None)
 
 

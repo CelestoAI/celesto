@@ -1,18 +1,18 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
-***
+______________________________________________________________________
 
-[@celestoai/smolvm](../README.md) / SandboxCollection
+[@celestoai/celesto](../README.md) / SandboxCollection
 
 # Interface: SandboxCollection
 
-Creates sandboxes owned by one SmolVM client.
+Creates sandboxes owned by one Celesto client.
 
 ## Methods
 
 ### create()
 
-> **create**(`options?`): `Promise`\<[`SandboxClient`](SandboxClient.md)\>
+> **create**(`options?`): `Promise`\<[`SandboxClient`](SandboxClient.md)>
 
 #### Parameters
 
@@ -22,4 +22,4 @@ Creates sandboxes owned by one SmolVM client.
 
 #### Returns
 
-`Promise`\<[`SandboxClient`](SandboxClient.md)\>
+`Promise`\<[`SandboxClient`](SandboxClient.md)>

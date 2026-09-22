@@ -1,8 +1,8 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
-***
+______________________________________________________________________
 
-[@celestoai/smolvm](../README.md) / SandboxFiles
+[@celestoai/celesto](../README.md) / SandboxFiles
 
 # Interface: SandboxFiles
 
@@ -12,7 +12,7 @@ Read, write, upload, and download files for one sandbox.
 
 ### download()
 
-> **download**(`sandboxPath`, `localPath`): `Promise`\<`void`\>
+> **download**(`sandboxPath`, `localPath`): `Promise`\<`void`>
 
 Download to a temporary host file, then rename it atomically.
 
@@ -28,13 +28,13 @@ Download to a temporary host file, then rename it atomically.
 
 #### Returns
 
-`Promise`\<`void`\>
+`Promise`\<`void`>
 
-***
+______________________________________________________________________
 
 ### read()
 
-> **read**(`path`): `Promise`\<`string`\>
+> **read**(`path`): `Promise`\<`string`>
 
 Read a UTF-8 text file from an absolute sandbox path.
 
@@ -46,13 +46,13 @@ Read a UTF-8 text file from an absolute sandbox path.
 
 #### Returns
 
-`Promise`\<`string`\>
+`Promise`\<`string`>
 
-***
+______________________________________________________________________
 
 ### upload()
 
-> **upload**(`localPath`, `sandboxPath`): `Promise`\<`void`\>
+> **upload**(`localPath`, `sandboxPath`): `Promise`\<`void`>
 
 Stream a host file when the transport supports it; otherwise buffer the complete file before writing it.
 
@@ -68,13 +68,13 @@ Stream a host file when the transport supports it; otherwise buffer the complete
 
 #### Returns
 
-`Promise`\<`void`\>
+`Promise`\<`void`>
 
-***
+______________________________________________________________________
 
 ### write()
 
-> **write**(`path`, `content`): `Promise`\<`void`\>
+> **write**(`path`, `content`): `Promise`\<`void`>
 
 Write text or bytes to an absolute sandbox path.
 
@@ -86,8 +86,8 @@ Write text or bytes to an absolute sandbox path.
 
 ##### content
 
-`string` \| `Uint8Array`\<`ArrayBufferLike`\>
+`string` | `Uint8Array`\<`ArrayBufferLike`>
 
 #### Returns
 
-`Promise`\<`void`\>
+`Promise`\<`void`>

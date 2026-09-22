@@ -1,8 +1,8 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
-***
+______________________________________________________________________
 
-[@celestoai/smolvm](../README.md) / ComputerClient
+[@celestoai/celesto](../README.md) / ComputerClient
 
 # ~~Type Alias: ComputerClient~~
 

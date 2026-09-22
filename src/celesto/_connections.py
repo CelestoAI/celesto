@@ -118,7 +118,7 @@ def _guest(vm: Celesto, args: list[str], deadline: float) -> dict[str, Any]:
     except Exception:
         raise CelestoError(
             f"Computer '{vm.vm_id}' could not prepare a connection; "
-            f"run 'celesto sandbox ssh {vm.vm_id}' to inspect /var/log/smolvm-browser."
+            f"run 'celesto sandbox ssh {vm.vm_id}' to inspect /var/log/celesto-browser."
         ) from None
 
 
@@ -218,7 +218,7 @@ def local_connection(
                 vm.unexpose_local(host_port, port)
         raise CelestoError(
             f"Computer '{vm.vm_id}' could not connect; "
-            f"run 'celesto sandbox ssh {vm.vm_id}' to inspect /var/log/smolvm-browser."
+            f"run 'celesto sandbox ssh {vm.vm_id}' to inspect /var/log/celesto-browser."
         ) from None
     forwards[port] = host_port
     return connection

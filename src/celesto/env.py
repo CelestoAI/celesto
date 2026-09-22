@@ -16,7 +16,7 @@
 
 Provides helpers to inject, read, and remove environment variables
 inside a running microVM via SSH.  Variables are persisted to
-``/etc/profile.d/smolvm_env.sh`` so that every new login shell
+``/etc/profile.d/celesto_env.sh`` so that every new login shell
 sources them automatically.
 
 All file writes are **atomic** (write to tmp → ``mv`` into place) to
@@ -34,7 +34,7 @@ from celesto.exceptions import CelestoError
 logger = logging.getLogger(__name__)
 
 # Path inside the guest where env vars are persisted.
-ENV_FILE = "/etc/profile.d/smolvm_env.sh"
+ENV_FILE = "/etc/profile.d/celesto_env.sh"
 
 # Regex for valid POSIX shell identifier (used as env var key).
 _VALID_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -155,7 +155,7 @@ def _atomic_write(ssh: CommChannel, content: str) -> "CommandResult":  # noqa: F
     cmd = (
         "set -e; "
         f"mkdir -p {env_dir}; "
-        f"_t=$(mktemp {env_dir}/.smolvm_env.XXXXXXXXXX); "
+        f"_t=$(mktemp {env_dir}/.celesto_env.XXXXXXXXXX); "
         "trap 'rm -f \"$_t\"' EXIT; "
         f"printf '%s' '{b64}' | base64 -d > \"$_t\"; "
         f'chmod 0644 "$_t"; '
@@ -167,7 +167,7 @@ def _atomic_write(ssh: CommChannel, content: str) -> "CommandResult":  # noqa: F
 def read_env_vars(ssh: CommChannel) -> dict[str, str]:
     """Read current Celesto-managed environment variables from the guest.
 
-    Parses ``/etc/profile.d/smolvm_env.sh`` for ``export KEY=VALUE``
+    Parses ``/etc/profile.d/celesto_env.sh`` for ``export KEY=VALUE``
     lines.  Uses ``shlex`` in POSIX mode to correctly handle all
     quoting styles produced by ``shlex.quote``.
 

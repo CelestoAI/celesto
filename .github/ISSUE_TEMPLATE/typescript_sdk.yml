@@ -1,5 +1,5 @@
 name: TypeScript SDK problem
-description: Report an installation or integration blocker in @celestoai/smolvm
+description: Report an installation or integration blocker in @celestoai/celesto
 title: "[TypeScript]: "
 labels: [bug, typescript]
 body:
@@ -22,7 +22,7 @@ body:
     id: versions
     attributes:
       label: Versions and platform
-      description: Include Node, SDK, SmolVM runtime, operating system, architecture, and backend.
+      description: Include Node, SDK, Celesto runtime, operating system, architecture, and backend.
     validations:
       required: true
   - type: textarea
@@ -36,7 +36,7 @@ body:
     id: diagnostics
     attributes:
       label: Redacted diagnostics
-      description: Paste `await smolvm.diagnose()` output. Remove paths or values you consider sensitive.
+      description: Paste `await celesto.diagnose()` output. Remove paths or values you consider sensitive.
       render: json
     validations:
       required: true

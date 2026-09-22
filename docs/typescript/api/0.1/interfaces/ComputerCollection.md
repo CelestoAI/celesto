@@ -1,18 +1,18 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
-***
+______________________________________________________________________
 
-[@celestoai/smolvm](../README.md) / ComputerCollection
+[@celestoai/celesto](../README.md) / ComputerCollection
 
 # Interface: ComputerCollection
 
-Create complete desktop computers owned by one SmolVM client.
+Create complete desktop computers owned by one Celesto client.
 
 ## Methods
 
 ### create()
 
-> **create**(`options?`): `Promise`\<[`ComputerSessionClient`](ComputerSessionClient.md)\>
+> **create**(`options?`): `Promise`\<[`ComputerSessionClient`](ComputerSessionClient.md)>
 
 #### Parameters
 
@@ -22,4 +22,4 @@ Create complete desktop computers owned by one SmolVM client.
 
 #### Returns
 
-`Promise`\<[`ComputerSessionClient`](ComputerSessionClient.md)\>
+`Promise`\<[`ComputerSessionClient`](ComputerSessionClient.md)>

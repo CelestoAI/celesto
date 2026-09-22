@@ -31,7 +31,7 @@ def test_render_substitutes_all_four_placeholders() -> None:
         edition="Windows 11 Home",
     )
     # No template tokens survive.
-    assert "@@SMOLVM_" not in text
+    assert "@@CELESTO_" not in text
     # All four values appear at least once.
     assert "<Name>alice</Name>" in text
     assert "<Value>secret-pw</Value>" in text
@@ -39,11 +39,11 @@ def test_render_substitutes_all_four_placeholders() -> None:
     assert "<Value>Windows 11 Home</Value>" in text
 
 
-def test_render_defaults_to_smolvm_smolvm_smolvm_win_pro() -> None:
+def test_render_defaults_to_celesto_celesto_celesto_win_pro() -> None:
     text = render_autounattend()
-    assert "<Name>smolvm</Name>" in text
-    assert "<Value>smolvm</Value>" in text
-    assert "<ComputerName>smolvm-win</ComputerName>" in text
+    assert "<Name>celesto</Name>" in text
+    assert "<Value>celesto</Value>" in text
+    assert "<ComputerName>celesto-win</ComputerName>" in text
     assert "<Value>Windows 11 Pro</Value>" in text
 
 

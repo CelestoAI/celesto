@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { SmolVM, SmolVMError, type SandboxClient, type SmolVMClient, type SmolVMEvent } from "@celestoai/smolvm";
+import { Celesto, CelestoError, type SandboxClient, type CelestoClient, type CelestoEvent } from "@celestoai/celesto";
 import { ARTIFACT_NAMES } from "./artifact-contract.js";
 import type { Workflow } from "./agent.js";
 import { redactedLog, toPublicError } from "./errors.js";
@@ -22,7 +22,7 @@ interface RunContext {
   plan: string[];
   startedAt: string;
   abortController: AbortController;
-  client?: SmolVMClient;
+  client?: CelestoClient;
   sandbox?: SandboxClient;
   artifacts: Partial<Record<ArtifactName, Uint8Array>>;
   zip?: Uint8Array;
@@ -35,7 +35,7 @@ interface RunContext {
 
 const DOWNLOAD_WINDOW_MS = 15 * 60_000;
 
-export type SmolVMFactory = (onEvent: (event: SmolVMEvent) => void) => SmolVMClient;
+export type CelestoFactory = (onEvent: (event: CelestoEvent) => void) => CelestoClient;
 
 export class RunManager {
   private readonly plans = new Map<string, PlanRecord>();
@@ -46,7 +46,7 @@ export class RunManager {
 
   constructor(
     private readonly workflow: Workflow,
-    private readonly clientFactory: SmolVMFactory = (onEvent) => new SmolVM({ onEvent, createTimeoutMs: 600_000 }),
+    private readonly clientFactory: CelestoFactory = (onEvent) => new Celesto({ onEvent, createTimeoutMs: 600_000 }),
     private readonly scriptLoader: () => Promise<Record<string, string>> = loadScripts,
     private readonly retentionMs = DOWNLOAD_WINDOW_MS,
   ) {}
@@ -163,7 +163,7 @@ export class RunManager {
       else {
         outcome = "failed";
         failure = toPublicError(error);
-        const operation = error instanceof SmolVMError ? ` code=${error.code} operation=${error.operation}` : "";
+        const operation = error instanceof CelestoError ? ` code=${error.code} operation=${error.operation}` : "";
         console.error(`OpenMuse Research run failed phase=${context.phase}${operation}: ${redactedLog(error)}`);
       }
     } finally {
@@ -175,7 +175,7 @@ export class RunManager {
       } catch {
         outcome = "failed";
         this.degraded = true;
-        const recovery = context.sandbox ? `smolvm sandbox delete ${context.sandbox.id}` : "smolvm doctor";
+        const recovery = context.sandbox ? `celesto sandbox delete ${context.sandbox.id}` : "celesto doctor";
         this.emit(context, { type: "run.warning", message: "Cleanup needs attention.", recovery });
       }
     }
@@ -211,7 +211,7 @@ export class RunManager {
       context.cleanupConfirmed = true;
       this.emit(context, { type: "vm.lifecycle", name: "Temporary computer deleted" });
     } catch (error) {
-      throw new AggregateError([firstError, error], "SmolVM cleanup failed twice");
+      throw new AggregateError([firstError, error], "Celesto cleanup failed twice");
     }
   }
 
@@ -244,7 +244,7 @@ export class RunManager {
     for (const listener of context.listeners) listener(event);
   }
 
-  private mapVmEvent(context: RunContext, event: SmolVMEvent): void {
+  private mapVmEvent(context: RunContext, event: CelestoEvent): void {
     const progress = event.type === "image.download" && event.totalBytes
       ? Math.min(1, event.receivedBytes / event.totalBytes)
       : undefined;

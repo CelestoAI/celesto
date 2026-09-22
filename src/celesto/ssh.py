@@ -78,7 +78,7 @@ class _LimitedWriter:
 # the next attempt succeeds — but the stderr noise from the failed attempt
 # is misleading because the operation as a whole succeeded.
 #
-# Every paramiko exception that smolvm cares about is already wrapped into
+# Every paramiko exception that celesto cares about is already wrapped into
 # a CelestoError with the original message preserved (see :meth:`_connect`),
 # and the original exception is chained via ``raise ... from e`` so the full
 # traceback stays available. Suppressing paramiko's own transport logger to

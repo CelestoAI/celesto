@@ -28,7 +28,7 @@ from celesto.types import (
 def _info(tmp_path: Path, *, status: VMState = VMState.RUNNING) -> VMInfo:
     bundle = tmp_path / "storage" / "mac-test"
     bundle.mkdir(parents=True)
-    (bundle / ".smolvm-vnc-password").write_text("secret\n")
+    (bundle / ".celesto-vnc-password").write_text("secret\n")
     config = VMConfig(
         vm_id="mac-test",
         guest_os=GuestOS.MACOS,
@@ -110,7 +110,7 @@ def test_open_desktop_uses_private_password_without_returning_it(tmp_path: Path)
 def test_open_desktop_password_read_error_names_recovery(tmp_path: Path) -> None:
     vm = _facade(_info(tmp_path))
     assert vm.info.config.macos_machine is not None
-    (vm.info.config.macos_machine.bundle_path / ".smolvm-vnc-password").unlink()
+    (vm.info.config.macos_machine.bundle_path / ".celesto-vnc-password").unlink()
 
     with pytest.raises(CelestoError, match="celesto sandbox desktop mac-test"):
         vm.open_desktop()

@@ -1,8 +1,8 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
-***
+______________________________________________________________________
 
-[@celestoai/smolvm](../README.md) / ComputerDisplayClient
+[@celestoai/celesto](../README.md) / ComputerDisplayClient
 
 # Interface: ComputerDisplayClient
 
@@ -14,7 +14,7 @@ Addresses for watching and controlling the visible Linux desktop.
 
 > `readonly` **viewerUrl**: `string`
 
-***
+______________________________________________________________________
 
 ### vncUrl
 

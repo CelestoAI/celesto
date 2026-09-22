@@ -34,7 +34,7 @@ except ImportError:  # pragma: no cover - script execution path
 def default_paths() -> list[Path]:
     """Return the default local paths worth recording for benchmark runs."""
 
-    data_dir = Path(os.environ.get("SMOLVM_DATA_DIR", "~/.smolvm")).expanduser()
+    data_dir = Path(os.environ.get("CELESTO_DATA_DIR", "~/.celesto")).expanduser()
     return [data_dir / "images", data_dir / "browser-sessions"]
 
 

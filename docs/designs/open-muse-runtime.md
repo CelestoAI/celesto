@@ -12,7 +12,7 @@ This design supersedes:
 - the conversation lifecycle, UI synchronization, approval flow, and HTTP/event contract in [open-muse.md](open-muse.md);
 - the approval policy and approval lifecycle in [open-muse-general-web.md](open-muse-general-web.md).
 
-The computer-provider boundary, Celesto/SmolVM lifecycle, browser isolation, network restrictions, durable operation journal, and viewer security in the existing designs remain authoritative.
+The computer-provider boundary, Celesto/Celesto lifecycle, browser isolation, network restrictions, durable operation journal, and viewer security in the existing designs remain authoritative.
 
 ## Outcome
 
@@ -40,11 +40,11 @@ The approval path exposes the structural bug. `ActionBroker.runWebOperation()` r
 
 Verified findings:
 
-- **[P1] (confidence: 10/10)** `open-muse/server/broker.ts:164` returns `{ approvalRequired: true, ... }` from a confirmation boundary instead of suspending the tool call.
-- **[P1] (confidence: 10/10)** `open-muse/server/manager.ts:692-708` appends assistant output before checking `pendingApproval`, allowing confirmation prose to become a normal assistant message.
-- **[P1] (confidence: 10/10)** `open-muse/server/manager.ts:429-448` creates a synthetic second model prompt after approval rather than completing the original tool call.
-- **[P1] (confidence: 10/10)** `open-muse/server/types.ts:50-63` and `open-muse/server/manager.ts:47-62` define overlapping mutable lifecycle authorities.
-- **[P2] (confidence: 10/10)** `open-muse/client/App.tsx:76-108` maintains two event streams with different update rules, while conversation events are only invalidations that cause another HTTP fetch.
+- **\[P1\] (confidence: 10/10)** `open-muse/server/broker.ts:164` returns `{ approvalRequired: true, ... }` from a confirmation boundary instead of suspending the tool call.
+- **\[P1\] (confidence: 10/10)** `open-muse/server/manager.ts:692-708` appends assistant output before checking `pendingApproval`, allowing confirmation prose to become a normal assistant message.
+- **\[P1\] (confidence: 10/10)** `open-muse/server/manager.ts:429-448` creates a synthetic second model prompt after approval rather than completing the original tool call.
+- **\[P1\] (confidence: 10/10)** `open-muse/server/types.ts:50-63` and `open-muse/server/manager.ts:47-62` define overlapping mutable lifecycle authorities.
+- **\[P2\] (confidence: 10/10)** `open-muse/client/App.tsx:76-108` maintains two event streams with different update rules, while conversation events are only invalidations that cause another HTTP fetch.
 
 ## Architecture
 
@@ -79,10 +79,10 @@ Only `ConversationRuntime` may change conversation activity. Effects report comp
 ### Minimal module boundaries
 
 1. `ConversationManager` remains the HTTP-facing facade for conversation history, activation, and model/provider selection.
-2. `ConversationRuntime` owns active state, command serialization, interruption, model turns, confirmations, browser effects, and cleanup.
-3. `ActionPolicy` is a pure `ProposedAction -> allow | confirm | deny` function.
-4. `projectConversationView()` is a pure redacting projection.
-5. The existing broker becomes a browser executor. It executes decisions but does not own approval or conversation state.
+1. `ConversationRuntime` owns active state, command serialization, interruption, model turns, confirmations, browser effects, and cleanup.
+1. `ActionPolicy` is a pure `ProposedAction -> allow | confirm | deny` function.
+1. `projectConversationView()` is a pure redacting projection.
+1. The existing broker becomes a browser executor. It executes decisions but does not own approval or conversation state.
 
 Do not create separate services for approvals, control, traces, viewer state, cleanup, and model turns. They are runtime transitions, not independent domains.
 
@@ -374,45 +374,45 @@ No new model evaluation cases or live-model matrix are part of this rewrite. Thi
 The rewrite lands as one PR but is implemented in dependency order.
 
 1. Define the canonical runtime state, commands, transition reducer, public view, and table-driven tests. Do not connect effects yet.
-2. Move model, computer, browser, confirmation, control, cleanup, and persistence orchestration behind `ConversationRuntime`. Keep existing providers, browser driver, state store, and operation journal.
-3. Replace broker-owned approval with a suspended tool promise. Add the pure effect-based policy and semantic follow-link/search actions.
-4. Route all mutations through commands. Publish full views through one SSE stream and preserve viewer websocket isolation.
-5. Replace React lifecycle inference with one view subscription and server-provided `availableCommands`. Remove local approval/conversation locks and the separate trace stream.
-6. Migrate persistence and restart normalization to canonical state, including Celesto computer reconnection and unknown-effect recovery.
-7. Replace obsolete tests, add the complete runtime/integration/E2E matrix, remove compatibility paths, and update both older design documents.
+1. Move model, computer, browser, confirmation, control, cleanup, and persistence orchestration behind `ConversationRuntime`. Keep existing providers, browser driver, state store, and operation journal.
+1. Replace broker-owned approval with a suspended tool promise. Add the pure effect-based policy and semantic follow-link/search actions.
+1. Route all mutations through commands. Publish full views through one SSE stream and preserve viewer websocket isolation.
+1. Replace React lifecycle inference with one view subscription and server-provided `availableCommands`. Remove local approval/conversation locks and the separate trace stream.
+1. Migrate persistence and restart normalization to canonical state, including Celesto computer reconnection and unknown-effect recovery.
+1. Replace obsolete tests, add the complete runtime/integration/E2E matrix, remove compatibility paths, and update both older design documents.
 
 Structural and behavioral changes should be committed separately while developing, even though they ship in one PR: first the runtime types/reducer, then effect integration, then transport/client migration, then cleanup.
 
 ## Implementation Tasks
 
-- [ ] **T1 (P1, human: ~1 day / CC: ~1h)** — Runtime — Introduce canonical activity, commands, reducer, and public view.
+- \[ \] **T1 (P1, human: ~1 day / CC: ~1h)** — Runtime — Introduce canonical activity, commands, reducer, and public view.
   - Surfaced by: Architecture — overlapping lifecycle authorities.
   - Files: `open-muse/server/types.ts`, new runtime/view modules, runtime tests.
   - Verify: exhaustive transition and projection tests.
-- [ ] **T2 (P1, human: ~1 day / CC: ~1.5h)** — Approval — Suspend the original browser tool and centralize allow/confirm/deny policy.
+- \[ \] **T2 (P1, human: ~1 day / CC: ~1.5h)** — Approval — Suspend the original browser tool and centralize allow/confirm/deny policy.
   - Surfaced by: Architecture — model-visible approval result and synthetic resume prompt.
   - Files: `open-muse/server/agent.ts`, `open-muse/server/broker.ts`, new policy module, browser tests.
   - Verify: no assistant message before resolution; exact action executes once.
-- [ ] **T3 (P1, human: ~1 day / CC: ~1.5h)** — Runtime integration — Move model, control, interruption, persistence, and cleanup orchestration into the runtime.
+- \[ \] **T3 (P1, human: ~1 day / CC: ~1.5h)** — Runtime integration — Move model, control, interruption, persistence, and cleanup orchestration into the runtime.
   - Surfaced by: Code quality — manager owns unrelated mutable authorities.
   - Files: `open-muse/server/manager.ts`, runtime, state store, trace integration.
   - Verify: interruption and recovery contract suite.
-- [ ] **T4 (P1, human: ~1 day / CC: ~1h)** — Transport/UI — Replace invalidation/refetch and separate trace streams with bounded full views.
+- \[ \] **T4 (P1, human: ~1 day / CC: ~1h)** — Transport/UI — Replace invalidation/refetch and separate trace streams with bounded full views.
   - Surfaced by: Architecture — client/server state divergence.
   - Files: `open-muse/server/index.ts`, `open-muse/client/api.ts`, `open-muse/client/App.tsx`, trace client.
   - Verify: HTTP/SSE integration and reconnect tests.
-- [ ] **T5 (P1, human: ~1 day / CC: ~1.5h)** — Test suite — Replace legacy state-coupled tests and add critical E2E flows.
+- \[ \] **T5 (P1, human: ~1 day / CC: ~1.5h)** — Test suite — Replace legacy state-coupled tests and add critical E2E flows.
   - Surfaced by: Test review — existing tests encode obsolete approval and lifecycle fields.
   - Files: `open-muse/test/`, `open-muse/test/e2e/`.
   - Verify: typecheck, unit/integration suite, build, and E2E suite all pass.
-- [ ] **T6 (P2, human: ~2h / CC: ~20m)** — Documentation — Remove stale lifecycle and approval guidance.
+- \[ \] **T6 (P2, human: ~2h / CC: ~20m)** — Documentation — Remove stale lifecycle and approval guidance.
   - Surfaced by: Architecture — approved docs still require `409` waiting behavior and mechanical approvals.
   - Files: `docs/designs/open-muse.md`, `docs/designs/open-muse-general-web.md`, `open-muse/README.md` if user-facing behavior changes.
   - Verify: documentation matches the final command/state table.
 
 ## What already exists
 
-- `computer-provider.ts` already provides the correct SmolVM/Celesto boundary and persists Celesto references; reuse it unchanged except for runtime callbacks.
+- `computer-provider.ts` already provides the correct Celesto/Celesto boundary and persists Celesto references; reuse it unchanged except for runtime callbacks.
 - `browser-driver.ts` already validates and executes structured operations; reuse it as the low-level executor.
 - `operation-lifecycle.ts` already models approved/dispatched/completed/unknown outcomes; keep it as the durability boundary for consequential effects.
 - `state-store.ts` already performs bounded atomic checkpointing and secret redaction; migrate its schema rather than replacing storage.
@@ -422,7 +422,7 @@ Structural and behavioral changes should be committed separately while developin
 
 ## NOT in scope
 
-- Rewriting the SmolVM or Celesto computer providers: their protocol boundary is already correct.
+- Rewriting the Celesto or Celesto computer providers: their protocol boundary is already correct.
 - XState, event sourcing, workflow engines, queues, databases, or distributed coordination: unnecessary for a loopback single-user app.
 - Remote multi-user OpenMuse hosting and authentication: the application remains loopback-only.
 - Incremental client patches or a bidirectional command websocket: full bounded views are simpler.
@@ -439,15 +439,15 @@ Sequential implementation, no parallelization opportunity. The runtime state and
 ## Completion criteria
 
 1. Public navigation, safe link traversal, and search complete without approval.
-2. Consequential actions produce one UI confirmation and no assistant confirmation message.
-3. Approval continues the original tool call and cannot repeat the exact action.
-4. A new message, chat switch, model switch, takeover, or Stop interrupts current model work.
-5. React renders only the latest server view and uses `availableCommands`; it contains no lifecycle policy.
-6. SSE reconnect converges with one full view and traces cannot disagree with conversation state.
-7. Viewer and browser-automation health remain independently visible.
-8. Restart never replays a pending or dispatched effect.
-9. SmolVM and Celesto Cloud pass the same runtime lifecycle contract.
-10. All failure modes above have deterministic tests and actionable user-facing errors.
+1. Consequential actions produce one UI confirmation and no assistant confirmation message.
+1. Approval continues the original tool call and cannot repeat the exact action.
+1. A new message, chat switch, model switch, takeover, or Stop interrupts current model work.
+1. React renders only the latest server view and uses `availableCommands`; it contains no lifecycle policy.
+1. SSE reconnect converges with one full view and traces cannot disagree with conversation state.
+1. Viewer and browser-automation health remain independently visible.
+1. Restart never replays a pending or dispatched effect.
+1. Celesto and Celesto Cloud pass the same runtime lifecycle contract.
+1. All failure modes above have deterministic tests and actionable user-facing errors.
 
 ## Review completion summary
 

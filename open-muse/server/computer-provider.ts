@@ -1,7 +1,7 @@
 import { Computer, CelestoApiError, type ClientConfig } from "@celestoai/sdk";
-import { SmolVM, type ComputerSessionClient, type ExecOptions, type ExecResult, type SmolVMClient } from "@celestoai/smolvm";
+import { Celesto, type ComputerSessionClient, type ExecOptions, type ExecResult, type CelestoClient } from "@celestoai/celesto";
 
-export type ComputerProviderId = "smolvm" | "celesto";
+export type ComputerProviderId = "local" | "celesto";
 export type DisplayMode = "read_only" | "read_write";
 
 export interface ComputerReference {
@@ -25,34 +25,34 @@ export interface ComputerProvider {
 }
 
 export type ComputerProviderConfig =
-  | { provider: "smolvm" }
+  | { provider: "local" }
   | { provider: "celesto"; apiKey: string; apiUrl?: string };
 
 type CloudComputer = Computer;
 
 export interface ProviderDependencies {
-  createSmolVM: () => SmolVMClient;
+  createCelesto: () => CelestoClient;
   createCloudComputer: (options: Parameters<typeof Computer.create>[0], config: ClientConfig) => Promise<CloudComputer>;
   getCloudComputer: (id: string, config: ClientConfig) => Promise<CloudComputer>;
   wait: (milliseconds: number) => Promise<void>;
 }
 
 const DEFAULT_DEPENDENCIES: ProviderDependencies = {
-  createSmolVM: () => new SmolVM({ createTimeoutMs: 180_000 }),
+  createCelesto: () => new Celesto({ createTimeoutMs: 180_000 }),
   createCloudComputer: (options, config) => Computer.create(options, config) as Promise<CloudComputer>,
   getCloudComputer: (id, config) => Computer.get(id, config) as Promise<CloudComputer>,
   wait: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
 };
 
 export function computerProviderConfig(env: NodeJS.ProcessEnv = process.env): ComputerProviderConfig {
-  const provider = env.OPENMUSE_COMPUTER_PROVIDER?.trim() || "smolvm";
-  if (provider === "smolvm") return { provider };
+  const provider = env.OPENMUSE_COMPUTER_PROVIDER?.trim() || "local";
+  if (provider === "local") return { provider };
   if (provider !== "celesto") {
-    throw new Error("OPENMUSE_COMPUTER_PROVIDER must be 'smolvm' or 'celesto'. Set it in open-muse/.env.local, then restart OpenMuse.");
+    throw new Error("OPENMUSE_COMPUTER_PROVIDER must be 'local' or 'celesto'. Set it in open-muse/.env.local, then restart OpenMuse.");
   }
   const apiKey = env.CELESTO_API_KEY?.trim();
   if (!apiKey) {
-    throw new Error("Celesto Cloud is selected, but CELESTO_API_KEY is empty. Add it to open-muse/.env.local, or set OPENMUSE_COMPUTER_PROVIDER=smolvm.");
+    throw new Error("Celesto Cloud is selected, but CELESTO_API_KEY is empty. Add it to open-muse/.env.local, or set OPENMUSE_COMPUTER_PROVIDER=local.");
   }
   const apiUrl = env.CELESTO_API_URL?.trim();
   return { provider, apiKey, ...(apiUrl ? { apiUrl } : {}) };
@@ -63,22 +63,22 @@ export function createComputerProvider(
   dependencies: Partial<ProviderDependencies> = {},
 ): ComputerProvider {
   const runtime = { ...DEFAULT_DEPENDENCIES, ...dependencies };
-  return config.provider === "smolvm"
-    ? smolvmComputerProvider(runtime)
-    : celestoComputerProvider(config, runtime);
+  return config.provider === "local"
+    ? localComputerProvider(runtime)
+    : cloudComputerProvider(config, runtime);
 }
 
-function smolvmComputerProvider(runtime: ProviderDependencies): ComputerProvider {
+function localComputerProvider(runtime: ProviderDependencies): ComputerProvider {
   return {
-    id: "smolvm",
+    id: "local",
     async create(options) {
-      const client = runtime.createSmolVM();
+      const client = runtime.createCelesto();
       try {
         const computer = await client.computers.create({
           display: options.viewport,
           network: { mode: options.network },
         });
-        return wrapSmolVMComputer(client, computer);
+        return wrapCelestoComputer(client, computer);
       } catch (error) {
         await client.close().catch(() => undefined);
         throw error;
@@ -88,7 +88,7 @@ function smolvmComputerProvider(runtime: ProviderDependencies): ComputerProvider
   };
 }
 
-function wrapSmolVMComputer(client: SmolVMClient, computer: ComputerSessionClient): OpenMuseComputer {
+function wrapCelestoComputer(client: CelestoClient, computer: ComputerSessionClient): OpenMuseComputer {
   let released = false;
   const release = async () => {
     if (released) return;
@@ -114,7 +114,7 @@ function wrapSmolVMComputer(client: SmolVMClient, computer: ComputerSessionClien
   };
 }
 
-function celestoComputerProvider(config: Extract<ComputerProviderConfig, { provider: "celesto" }>, runtime: ProviderDependencies): ComputerProvider {
+function cloudComputerProvider(config: Extract<ComputerProviderConfig, { provider: "celesto" }>, runtime: ProviderDependencies): ComputerProvider {
   const clientConfig: ClientConfig = { apiKey: config.apiKey, ...(config.apiUrl ? { baseUrl: config.apiUrl } : {}) };
   return {
     id: "celesto",

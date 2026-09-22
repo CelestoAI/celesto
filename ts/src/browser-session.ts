@@ -1,12 +1,12 @@
-import { SmolVMError } from "./errors.js";
+import { CelestoError } from "./errors.js";
 import { RemoteFiles } from "./remote-files.js";
 import type {
   BrowserSessionClient,
   BrowserSessionStatus,
   ExecOptions,
   ExecResult,
-  SmolVMEvent,
-  SmolVMTransport,
+  CelestoEvent,
+  CelestoTransport,
   SandboxFiles,
 } from "./types.js";
 import type { ExecResponse } from "./client/types.gen.js";
@@ -26,7 +26,7 @@ export interface BrowserSessionResponse {
   profile_id?: string | null;
 }
 
-/** Run commands in an isolated browser computer owned by one SmolVM client. A browser session is the disposable Chromium environment and its private connection endpoints. */
+/** Run commands in an isolated browser computer owned by one Celesto client. A browser session is the disposable Chromium environment and its private connection endpoints. */
 export class BrowserSession implements BrowserSessionClient {
   readonly sessionId: string;
   readonly sandboxId: string;
@@ -40,14 +40,14 @@ export class BrowserSession implements BrowserSessionClient {
 
   private constructor(
     wire: BrowserSessionResponse,
-    private readonly transport: SmolVMTransport,
-    private readonly emit: (event: SmolVMEvent) => void,
+    private readonly transport: CelestoTransport,
+    private readonly emit: (event: CelestoEvent) => void,
     private readonly release: (browser: BrowserSession) => void,
   ) {
     if (wire.status !== "ready" || !wire.cdp_url) {
-      throw new SmolVMError(
+      throw new CelestoError(
         "browser_endpoint_unavailable",
-        `Browser session '${wire.session_id}' did not return ready automation endpoints; call smolvm.browsers.create() to create a replacement.`,
+        `Browser session '${wire.session_id}' did not return ready automation endpoints; call celesto.browsers.create() to create a replacement.`,
         { operation: "browser.create", sandboxId: wire.sandbox_id },
       );
     }
@@ -69,8 +69,8 @@ export class BrowserSession implements BrowserSessionClient {
   /** @internal */
   static create(
     wire: BrowserSessionResponse,
-    transport: SmolVMTransport,
-    emit: (event: SmolVMEvent) => void,
+    transport: CelestoTransport,
+    emit: (event: CelestoEvent) => void,
     release: (browser: BrowserSession) => void,
   ): BrowserSession {
     return new BrowserSession(wire, transport, emit, release);
@@ -116,7 +116,7 @@ export class BrowserSession implements BrowserSessionClient {
       return result;
     } catch (cause) {
       if (
-        cause instanceof SmolVMError
+        cause instanceof CelestoError
         && cause.code === "command_timeout"
         && cause.actual?.sandboxDeleted === true
       ) {
@@ -128,9 +128,9 @@ export class BrowserSession implements BrowserSessionClient {
 
   private assertReady(operation: string): void {
     if (this.currentStatus !== "ready") {
-      throw new SmolVMError(
+      throw new CelestoError(
         "browser_deleted",
-        `Browser session '${this.sessionId}' is not ready; call smolvm.browsers.create() to create a replacement.`,
+        `Browser session '${this.sessionId}' is not ready; call celesto.browsers.create() to create a replacement.`,
         { operation, sandboxId: this.sandboxId },
       );
     }

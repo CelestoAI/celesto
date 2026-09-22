@@ -1,4 +1,4 @@
-name: Publish smolvm-core
+name: Publish celesto-core
 
 on:
   push:
@@ -28,18 +28,18 @@ jobs:
 
           version = tag.removeprefix(core_tag_prefix)
 
-          cargo_text = Path("smolvm-core/Cargo.toml").read_text()
+          cargo_text = Path("celesto-core/Cargo.toml").read_text()
           cargo_match = re.search(r'^version = "([^"]+)"$', cargo_text, re.MULTILINE)
           if cargo_match is None:
-              raise SystemExit("Could not find version in smolvm-core/Cargo.toml")
+              raise SystemExit("Could not find version in celesto-core/Cargo.toml")
 
           cargo_version = cargo_match.group(1)
           if cargo_version != version:
               raise SystemExit(
-                  f"Tag {tag!r} does not match smolvm-core/Cargo.toml version {cargo_version!r}."
+                  f"Tag {tag!r} does not match celesto-core/Cargo.toml version {cargo_version!r}."
               )
 
-          print(f"Release preflight OK for smolvm-core {version}.")
+          print(f"Release preflight OK for celesto-core {version}.")
           PY
 
   build-linux:
@@ -53,7 +53,7 @@ jobs:
 
       - uses: PyO3/maturin-action@v1
         with:
-          working-directory: smolvm-core
+          working-directory: celesto-core
           target: ${{ matrix.target }}
           args: --release --out dist --find-interpreter
           manylinux: auto
@@ -61,7 +61,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-linux-${{ matrix.target }}
-          path: smolvm-core/dist
+          path: celesto-core/dist
 
   build-macos:
     needs: verify-release
@@ -81,14 +81,14 @@ jobs:
 
       - uses: PyO3/maturin-action@v1
         with:
-          working-directory: smolvm-core
+          working-directory: celesto-core
           target: ${{ matrix.target }}
           args: --release --out dist --find-interpreter
 
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-macos-${{ matrix.target }}
-          path: smolvm-core/dist
+          path: celesto-core/dist
 
   build-sdist:
     needs: verify-release
@@ -98,14 +98,14 @@ jobs:
 
       - uses: PyO3/maturin-action@v1
         with:
-          working-directory: smolvm-core
+          working-directory: celesto-core
           command: sdist
           args: --out dist
 
       - uses: actions/upload-artifact@v4
         with:
           name: sdist
-          path: smolvm-core/dist
+          path: celesto-core/dist
 
   publish:
     needs: [build-linux, build-macos, build-sdist]

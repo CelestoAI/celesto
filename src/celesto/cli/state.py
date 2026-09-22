@@ -6,7 +6,7 @@
 """CLI-owned persistent inventory.
 
 The Python SDK and HTTP API use process-local state. Only CLI surfaces open
-``smolvm.db`` so separate command invocations can discover and reconnect to
+``celesto.db`` so separate command invocations can discover and reconnect to
 sandboxes.
 """
 

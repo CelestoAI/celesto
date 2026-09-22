@@ -106,7 +106,7 @@ def resolve_setup_script(
     raise FileNotFoundError(
         "Missing packaged setup asset.\n"
         f"Expected: {script_path}\n"
-        "Reinstall smolvm or rebuild the wheel so setup assets are included."
+        "Reinstall celesto or rebuild the wheel so setup assets are included."
     )
 
 

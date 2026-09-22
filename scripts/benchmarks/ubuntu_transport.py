@@ -51,7 +51,7 @@ from celesto.images.published import _images_release_tag  # noqa: E402
 from celesto.types import SnapshotType  # noqa: E402
 from celesto.vm import CelestoManager, resolve_data_dir  # noqa: E402
 
-logger = logging.getLogger("smolvm.bench.ubuntu_transport")
+logger = logging.getLogger("celesto.bench.ubuntu_transport")
 
 RootfsSource = Literal["published", "current-init"]
 Transport = Literal["ssh", "vsock"]
@@ -160,7 +160,7 @@ def rootfs_with_current_init(rootfs_path: Path, *, cache_dir: Path | None = None
 
     rootfs_path = rootfs_path.resolve()
     fingerprint = _current_init_fingerprint(rootfs_path)
-    cache_root = cache_dir or (Path.home() / ".smolvm" / "benchmarks" / "current-init")
+    cache_root = cache_dir or (Path.home() / ".celesto" / "benchmarks" / "current-init")
     cache_root.mkdir(parents=True, exist_ok=True)
 
     target = cache_root / f"{rootfs_path.parent.name}-{fingerprint}.ext4"
@@ -717,7 +717,7 @@ def main() -> None:
         default="auto",
         help="Snapshot type for --include-snapshot. auto uses diff snapshots.",
     )
-    parser.add_argument("--output", type=Path, default=Path("/tmp/smolvm-ubuntu-transport.json"))
+    parser.add_argument("--output", type=Path, default=Path("/tmp/celesto-ubuntu-transport.json"))
     parser.add_argument("--json", action="store_true", help="Print the full JSON report.")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()

@@ -1,4 +1,4 @@
-# SmolVM QEMU/libkrun kernel config fragment — amd64-only deltas.
+# Celesto QEMU/libkrun kernel config fragment — amd64-only deltas.
 #
 # Merged on top of `config.fragment` for x86 builds. These symbols
 # don't exist on arm64 (8250 is broadly available but only relevant

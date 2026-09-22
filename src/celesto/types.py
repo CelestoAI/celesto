@@ -670,11 +670,11 @@ class VMConfig(BaseModel):
         ssh_public_key: Optional OpenSSH public key (one-line ``authorized_keys``
             format) to install in the guest's ``/root/.ssh/authorized_keys`` at
             first boot. Passed via the kernel command line as
-            ``smolvm.authorized_key_b64=<base64>`` and read by ``/init``. Use
+            ``celesto.authorized_key_b64=<base64>`` and read by ``/init``. Use
             this for published pre-built images that don't bake keys at build
             time, so each VM gets the launching user's key without rebuilding.
         guest_managed_networking: Whether the guest image understands
-            ``smolvm.network=guest`` and can configure its own interface.
+            ``celesto.network=guest`` and can configure its own interface.
             Required for bridge mode so older cached or custom images cannot
             silently boot without usable networking.
     """

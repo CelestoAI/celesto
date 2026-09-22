@@ -4,11 +4,11 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { ComputerSession, SmolVM, SmolVMError } from "../src/index.js";
+import { ComputerSession, Celesto, CelestoError } from "../src/index.js";
 import { ProcessTransport } from "../src/transport.js";
-import type { SmolVMTransport } from "../src/index.js";
+import type { CelestoTransport } from "../src/index.js";
 
-class FakeTransport implements SmolVMTransport {
+class FakeTransport implements CelestoTransport {
   readonly calls: Array<{ path: string; init?: RequestInit }> = [];
   closeCount = 0;
   files = new Map<string, Uint8Array>();
@@ -75,7 +75,7 @@ class FakeTransport implements SmolVMTransport {
 test("creates Ubuntu by default and maps command results", async () => {
   const transport = new FakeTransport();
   const events: string[] = [];
-  const client = new SmolVM({ transport, onEvent: (event) => events.push(event.type) });
+  const client = new Celesto({ transport, onEvent: (event) => events.push(event.type) });
   const sandbox = await client.sandboxes.create({ network: { mode: "off" } });
   const result = await sandbox.exec(["printf", "%s", "a b"]);
 
@@ -92,7 +92,7 @@ test("creates Ubuntu by default and maps command results", async () => {
 test("creates a ready live browser session and deletes it once", async () => {
   const transport = new FakeTransport();
   const events: string[] = [];
-  const client = new SmolVM({ transport, onEvent: (event) => events.push(event.type) });
+  const client = new Celesto({ transport, onEvent: (event) => events.push(event.type) });
   const browser = await client.browsers.create({
     sessionId: "browser-test",
     mode: "live",
@@ -125,7 +125,7 @@ test("creates a ready live browser session and deletes it once", async () => {
   assert.equal(browser.status, "stopping");
   await assert.rejects(
     () => browser.exec("echo too-late"),
-    /call smolvm\.browsers\.create\(\) to create a replacement/,
+    /call celesto\.browsers\.create\(\) to create a replacement/,
   );
   await assert.rejects(() => browser.files.read("/workspace/input.txt"), /not ready/);
   await Promise.all([deletion, browser.delete()]);
@@ -137,7 +137,7 @@ test("creates a ready live browser session and deletes it once", async () => {
 test("creates a Linux computer with grouped display and browser access", async () => {
   const transport = new FakeTransport();
   const events: string[] = [];
-  const client = new SmolVM({ transport, onEvent: (event) => events.push(event.type) });
+  const client = new Celesto({ transport, onEvent: (event) => events.push(event.type) });
   const computer = await client.computers.create({
     name: "computer-test",
     display: { width: 1440, height: 900 },
@@ -183,7 +183,7 @@ test("computer cleanup stays retryable when the first delete fails", async () =>
       if (path === "/computers/computer-test" && init?.method === "DELETE") {
         this.calls.push({ path, init });
         if (this.attempts++ === 0) {
-          throw new SmolVMError("cleanup_failed", "busy", { operation: "computer.delete" });
+          throw new CelestoError("cleanup_failed", "busy", { operation: "computer.delete" });
         }
         return undefined as T;
       }
@@ -191,7 +191,7 @@ test("computer cleanup stays retryable when the first delete fails", async () =>
     }
   }
   const transport = new RetryDeleteTransport();
-  const client = new SmolVM({ transport });
+  const client = new Celesto({ transport });
   const computer = await client.computers.create({ name: "computer-test" });
 
   await assert.rejects(() => client.close(), /not fully deleted/);
@@ -221,17 +221,17 @@ test("computer creation rejects a response without a usable display", async () =
       return super.request(path, init);
     }
   }
-  const client = new SmolVM({ transport: new MissingDisplayTransport() });
+  const client = new Celesto({ transport: new MissingDisplayTransport() });
 
   await assert.rejects(
     () => client.computers.create(),
-    (error: unknown) => error instanceof SmolVMError
+    (error: unknown) => error instanceof CelestoError
       && error.code === "computer_endpoint_unavailable",
   );
 });
 
 test("deleted computers reject commands, files, and browser relaunch", async () => {
-  const client = new SmolVM({ transport: new FakeTransport() });
+  const client = new Celesto({ transport: new FakeTransport() });
   const computer = await client.computers.create({ name: "computer-test" });
   await computer.delete();
 
@@ -242,7 +242,7 @@ test("deleted computers reject commands, files, and browser relaunch", async () 
 });
 
 test("required desktop process failures move the computer to error", async () => {
-  const client = new SmolVM({ transport: new FakeTransport() });
+  const client = new Celesto({ transport: new FakeTransport() });
   const computer = await client.computers.create({ name: "computer-test" });
 
   assert.ok(computer instanceof ComputerSession);
@@ -257,7 +257,7 @@ test("required desktop process failures move the computer to error", async () =>
 
 test("computer files round trip text through the grouped file API", async () => {
   const transport = new FakeTransport();
-  const client = new SmolVM({ transport });
+  const client = new Celesto({ transport });
   const computer = await client.computers.create({ name: "computer-test" });
 
   await computer.files.write("/workspace/note.txt", "desktop");
@@ -270,7 +270,7 @@ test("computer files round trip text through the grouped file API", async () => 
 
 test("computer commands reject empty argv and invalid timeouts before transport", async () => {
   const transport = new FakeTransport();
-  const client = new SmolVM({ transport });
+  const client = new Celesto({ transport });
   const computer = await client.computers.create({ name: "computer-test" });
   const callsBefore = transport.calls.length;
 
@@ -284,7 +284,7 @@ test("computer timeout records server-confirmed deletion", async () => {
   class ComputerTimeoutTransport extends FakeTransport {
     override async request<T>(path: string, init?: RequestInit): Promise<T> {
       if (path === "/computers/computer-test/exec") {
-        throw new SmolVMError("command_timeout", "timed out and deleted", {
+        throw new CelestoError("command_timeout", "timed out and deleted", {
           operation: "computer.exec",
           actual: { sandboxDeleted: true },
         });
@@ -292,12 +292,12 @@ test("computer timeout records server-confirmed deletion", async () => {
       return super.request(path, init);
     }
   }
-  const client = new SmolVM({ transport: new ComputerTimeoutTransport() });
+  const client = new Celesto({ transport: new ComputerTimeoutTransport() });
   const computer = await client.computers.create({ name: "computer-test" });
 
   await assert.rejects(
     () => computer.exec("sleep 60"),
-    (error: unknown) => error instanceof SmolVMError
+    (error: unknown) => error instanceof CelestoError
       && error.code === "command_timeout"
       && error.actual?.computerDeleted === true,
   );
@@ -307,14 +307,14 @@ test("computer timeout records server-confirmed deletion", async () => {
 test("an already-aborted computer command does not start or delete the computer", async () => {
   const transport = new FakeTransport();
   const events: string[] = [];
-  const client = new SmolVM({ transport, onEvent: (event) => events.push(event.type) });
+  const client = new Celesto({ transport, onEvent: (event) => events.push(event.type) });
   const computer = await client.computers.create({ name: "computer-test" });
   const controller = new AbortController();
   controller.abort();
 
   await assert.rejects(
     () => computer.exec("sleep 60", { signal: controller.signal }),
-    (error: unknown) => error instanceof SmolVMError && error.code === "command_aborted",
+    (error: unknown) => error instanceof CelestoError && error.code === "command_aborted",
   );
   assert.equal(computer.status, "ready");
   assert.equal(transport.calls.some((call) => call.path.endsWith("/exec")), false);
@@ -343,7 +343,7 @@ test("aborting an in-flight computer command cancels it and deletes the computer
   }
   const transport = new InFlightAbortTransport();
   const events: string[] = [];
-  const client = new SmolVM({ transport, onEvent: (event) => events.push(event.type) });
+  const client = new Celesto({ transport, onEvent: (event) => events.push(event.type) });
   const computer = await client.computers.create({ name: "computer-test" });
   const controller = new AbortController();
 
@@ -353,7 +353,7 @@ test("aborting an in-flight computer command cancels it and deletes the computer
 
   await assert.rejects(
     command,
-    (error: unknown) => error instanceof SmolVMError
+    (error: unknown) => error instanceof CelestoError
       && error.code === "command_aborted"
       && error.actual?.computerDeleted === true,
   );
@@ -369,11 +369,11 @@ test("aborting an in-flight computer command cancels it and deletes the computer
 });
 
 test("browser computers upload and atomically download files", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "smolvm-browser-files-"));
+  const directory = await mkdtemp(join(tmpdir(), "celesto-browser-files-"));
   const localInput = join(directory, "input.bin");
   const localOutput = join(directory, "nested", "output.bin");
   const content = new Uint8Array([0, 1, 2, 255]);
-  const client = new SmolVM({ transport: new FakeTransport() });
+  const client = new Celesto({ transport: new FakeTransport() });
   const computer = await client.browsers.create();
 
   try {
@@ -392,7 +392,7 @@ test("browser timeout records the server-confirmed session deletion", async () =
   class BrowserTimeoutTransport extends FakeTransport {
     override async request<T>(path: string, init?: RequestInit): Promise<T> {
       if (path.includes("/browser-sessions/") && path.endsWith("/exec")) {
-        throw new SmolVMError("command_timeout", "timed out and deleted", {
+        throw new CelestoError("command_timeout", "timed out and deleted", {
           operation: "POST browser exec",
           actual: { sandboxDeleted: true },
         });
@@ -401,7 +401,7 @@ test("browser timeout records the server-confirmed session deletion", async () =
     }
   }
   const events: string[] = [];
-  const client = new SmolVM({
+  const client = new Celesto({
     transport: new BrowserTimeoutTransport(),
     onEvent: (event) => events.push(event.type),
   });
@@ -409,7 +409,7 @@ test("browser timeout records the server-confirmed session deletion", async () =
 
   await assert.rejects(
     () => browser.exec("sleep 60"),
-    (error: unknown) => error instanceof SmolVMError
+    (error: unknown) => error instanceof CelestoError
       && error.code === "command_timeout"
       && error.actual?.sandboxDeleted === true,
   );
@@ -418,7 +418,7 @@ test("browser timeout records the server-confirmed session deletion", async () =
   assert.equal(events.at(-1), "browser.deleted");
   await assert.rejects(
     () => browser.exec("echo retry"),
-    (error: unknown) => error instanceof SmolVMError && error.code === "browser_deleted",
+    (error: unknown) => error instanceof CelestoError && error.code === "browser_deleted",
   );
 });
 
@@ -432,11 +432,11 @@ test("browser sessions require browser runtime capabilities without breaking san
       return super.request(path, init);
     }
   }
-  const client = new SmolVM({ transport: new SandboxOnlyTransport() });
+  const client = new Celesto({ transport: new SandboxOnlyTransport() });
   assert.equal((await client.sandboxes.create()).status, "running");
   await assert.rejects(
     () => client.browsers.create(),
-    (error: unknown) => error instanceof SmolVMError
+    (error: unknown) => error instanceof CelestoError
       && error.code === "protocol_incompatible"
       && String(error.actual?.missingCapabilities).includes("browser.create"),
   );
@@ -444,11 +444,11 @@ test("browser sessions require browser runtime capabilities without breaking san
 
 test("validates bridge request deadlines", () => {
   assert.throws(
-    () => new SmolVM({ transport: new FakeTransport(), requestTimeoutMs: 0 }),
+    () => new Celesto({ transport: new FakeTransport(), requestTimeoutMs: 0 }),
     /requestTimeoutMs must be an integer/,
   );
   assert.throws(
-    () => new SmolVM({ transport: new FakeTransport(), createTimeoutMs: 0 }),
+    () => new Celesto({ transport: new FakeTransport(), createTimeoutMs: 0 }),
     /createTimeoutMs must be an integer/,
   );
 });
@@ -457,7 +457,7 @@ test("process transport preserves computer error codes from the runtime", async 
   const server = createServer((_request, response) => {
     response.statusCode = 409;
     response.setHeader("content-type", "application/json");
-    response.setHeader("x-smolvm-error-code", "computer_already_exists");
+    response.setHeader("x-celesto-error-code", "computer_already_exists");
     response.end(JSON.stringify({ detail: "Computer 'computer-demo' already exists." }));
   });
   await new Promise<void>((resolve, reject) => {
@@ -476,7 +476,7 @@ test("process transport preserves computer error codes from the runtime", async 
   try {
     await assert.rejects(
       () => transport.request("/computers", { method: "POST" }),
-      (error: unknown) => error instanceof SmolVMError
+      (error: unknown) => error instanceof CelestoError
         && error.code === "computer_already_exists",
     );
   } finally {
@@ -516,7 +516,7 @@ test("sandbox creation timeout invalidates every handle in its SDK session", asy
     token: "test-token",
   });
   const deleted: string[] = [];
-  const client = new SmolVM({
+  const client = new Celesto({
     transport,
     onEvent: (event) => {
       if (event.type === "sandbox.deleted") deleted.push(event.sandboxId);
@@ -528,7 +528,7 @@ test("sandbox creation timeout invalidates every handle in its SDK session", asy
   try {
     await assert.rejects(
       () => client.sandboxes.create(),
-      (error: unknown) => error instanceof SmolVMError
+      (error: unknown) => error instanceof CelestoError
         && error.code === "sandbox_create_failed"
         && error.actual?.createTimeoutMs === 20
         && error.actual?.sessionClosed === true,
@@ -545,13 +545,13 @@ test("sandbox creation timeout invalidates every handle in its SDK session", asy
 });
 
 test("file helpers use content endpoints and validate paths", async () => {
-  const client = new SmolVM({ transport: new FakeTransport() });
+  const client = new Celesto({ transport: new FakeTransport() });
   const sandbox = await client.sandboxes.create();
   await sandbox.files.write("/workspace/input.txt", "hello");
   assert.equal(await sandbox.files.read("/workspace/input.txt"), "hello");
   await assert.rejects(
     () => sandbox.files.read("relative.txt"),
-    (error: unknown) => error instanceof SmolVMError
+    (error: unknown) => error instanceof CelestoError
       && error.code === "invalid_path"
       && error.message.includes(`Sandbox '${sandbox.id}'`)
       && error.message.includes("files.read('/workspace/file')"),
@@ -560,7 +560,7 @@ test("file helpers use content endpoints and validate paths", async () => {
 
 test("a custom image does not receive an implicit OS override", async () => {
   const transport = new FakeTransport();
-  const client = new SmolVM({ transport });
+  const client = new Celesto({ transport });
   await client.sandboxes.create({ image: "s3://bucket/image/" });
   const createBody = JSON.parse(String(transport.calls.find((call) => call.path === "/sandboxes")?.init?.body));
   assert.equal("os" in createBody, false);
@@ -568,7 +568,7 @@ test("a custom image does not receive an implicit OS override", async () => {
 
 test("delete and close are idempotent", async () => {
   const transport = new FakeTransport();
-  const client = new SmolVM({ transport });
+  const client = new Celesto({ transport });
   const sandbox = await client.sandboxes.create();
   await Promise.all([sandbox.delete(), sandbox.delete()]);
   await Promise.all([client.close(), client.close()]);
@@ -578,7 +578,7 @@ test("delete and close are idempotent", async () => {
 });
 
 test("diagnostics excludes bridge credentials", async () => {
-  const client = new SmolVM({ transport: new FakeTransport() });
+  const client = new Celesto({ transport: new FakeTransport() });
   const report = await client.diagnose();
   assert.equal(report.runtimeVersion, "test");
   assert.equal(JSON.stringify(report).includes("token"), false);
@@ -591,9 +591,9 @@ test("rejects an incompatible runtime protocol with a stable error", async () =>
       return super.request(path, init);
     }
   }
-  const client = new SmolVM({ transport: new OldTransport() });
+  const client = new Celesto({ transport: new OldTransport() });
   await assert.rejects(() => client.sandboxes.create(), (error: unknown) =>
-    error instanceof SmolVMError && error.code === "protocol_incompatible",
+    error instanceof CelestoError && error.code === "protocol_incompatible",
   );
 });
 
@@ -608,14 +608,14 @@ for (const selection of ["option", "environment", "path"] as const) {
     if (selection === "environment") process.env.CELESTO_RUNTIME = runtime;
     else delete process.env.CELESTO_RUNTIME;
     if (selection === "path") process.env.PATH = directory;
-    const client = new SmolVM({
+    const client = new Celesto({
       ...(selection === "option" ? { runtimePath: runtime } : {}),
       startupTimeoutMs: 1_000,
     });
 
     try {
       await assert.rejects(() => client.sandboxes.create(), (error: unknown) =>
-        error instanceof SmolVMError
+        error instanceof CelestoError
           && error.code === "protocol_incompatible"
           && error.recoveryCommand === "curl -sSL https://celesto.ai/install.sh | bash",
       );
@@ -638,10 +638,10 @@ test("abort confirms sandbox deletion before rejecting", async () => {
     }
   }
   const transport = new AbortTransport();
-  const client = new SmolVM({ transport });
+  const client = new Celesto({ transport });
   const sandbox = await client.sandboxes.create();
   await assert.rejects(() => sandbox.exec(["sleep", "60"]), (error: unknown) =>
-    error instanceof SmolVMError
+    error instanceof CelestoError
       && error.code === "command_aborted"
       && error.actual?.sandboxDeleted === true,
   );
@@ -652,7 +652,7 @@ test("timeout records the server-confirmed sandbox deletion", async () => {
   class TimeoutTransport extends FakeTransport {
     override async request<T>(path: string, init?: RequestInit): Promise<T> {
       if (path.endsWith("/exec")) {
-        throw new SmolVMError("command_timeout", "timed out and deleted", {
+        throw new CelestoError("command_timeout", "timed out and deleted", {
           operation: "POST exec",
           actual: { sandboxDeleted: true },
         });
@@ -660,10 +660,10 @@ test("timeout records the server-confirmed sandbox deletion", async () => {
       return super.request(path, init);
     }
   }
-  const client = new SmolVM({ transport: new TimeoutTransport() });
+  const client = new Celesto({ transport: new TimeoutTransport() });
   const sandbox = await client.sandboxes.create();
   await assert.rejects(() => sandbox.exec("sleep 60"), (error: unknown) =>
-    error instanceof SmolVMError
+    error instanceof CelestoError
       && error.code === "command_timeout"
       && error.actual?.sandboxDeleted === true,
   );
@@ -674,7 +674,7 @@ test("timeout session cleanup invalidates every active sandbox", async () => {
   class TimeoutTransport extends FakeTransport {
     override async request<T>(path: string, init?: RequestInit): Promise<T> {
       if (path.endsWith("/exec")) {
-        throw new SmolVMError("command_timeout", "timed out without deletion", {
+        throw new CelestoError("command_timeout", "timed out without deletion", {
           operation: "POST exec",
           actual: { sandboxDeleted: false },
         });
@@ -684,7 +684,7 @@ test("timeout session cleanup invalidates every active sandbox", async () => {
   }
   const transport = new TimeoutTransport();
   const deleted: string[] = [];
-  const client = new SmolVM({
+  const client = new Celesto({
     transport,
     onEvent: (event) => {
       if (event.type === "sandbox.deleted") deleted.push(event.sandboxId);
@@ -694,7 +694,7 @@ test("timeout session cleanup invalidates every active sandbox", async () => {
   const second = await client.sandboxes.create();
 
   await assert.rejects(() => first.exec("sleep 60"), (error: unknown) =>
-    error instanceof SmolVMError
+    error instanceof CelestoError
       && error.code === "command_timeout"
       && error.actual?.sessionClosed === true,
   );
@@ -716,7 +716,7 @@ test("abort session cleanup invalidates every active sandbox", async () => {
   }
   const transport = new AbortCleanupTransport();
   const deleted: string[] = [];
-  const client = new SmolVM({
+  const client = new Celesto({
     transport,
     onEvent: (event) => {
       if (event.type === "sandbox.deleted") deleted.push(event.sandboxId);
@@ -726,7 +726,7 @@ test("abort session cleanup invalidates every active sandbox", async () => {
   const second = await client.sandboxes.create();
 
   await assert.rejects(() => first.exec(["sleep", "60"]), (error: unknown) =>
-    error instanceof SmolVMError
+    error instanceof CelestoError
       && error.code === "command_aborted"
       && error.actual?.sessionClosed === true,
   );
@@ -742,7 +742,7 @@ test("timeout keeps the sandbox active when session cleanup fails", async () => 
   class CleanupFailureTransport extends FakeTransport {
     override async request<T>(path: string, init?: RequestInit): Promise<T> {
       if (path.endsWith("/exec")) {
-        throw new SmolVMError("command_timeout", "timed out without deletion", {
+        throw new CelestoError("command_timeout", "timed out without deletion", {
           operation: "POST exec",
           actual: { sandboxDeleted: false },
         });
@@ -756,11 +756,11 @@ test("timeout keeps the sandbox active when session cleanup fails", async () => 
     }
   }
   const transport = new CleanupFailureTransport();
-  const client = new SmolVM({ transport });
+  const client = new Celesto({ transport });
   const sandbox = await client.sandboxes.create();
 
   await assert.rejects(() => sandbox.exec("sleep 60"), (error: unknown) =>
-    error instanceof SmolVMError
+    error instanceof CelestoError
       && error.code === "command_timeout"
       && error.actual?.sandboxDeleted === false
       && error.actual?.sessionClosed === false,
@@ -784,7 +784,7 @@ test("a failed capability request can be retried", async () => {
     }
   }
   const transport = new RetryTransport();
-  const client = new SmolVM({ transport });
+  const client = new Celesto({ transport });
   await assert.rejects(() => client.sandboxes.create(), /bridge warming up/);
   await client.sandboxes.create();
   assert.equal(transport.attempts, 2);
@@ -798,10 +798,10 @@ test("close ends the transport even when sandbox cleanup fails", async () => {
     }
   }
   const transport = new CleanupTransport();
-  const client = new SmolVM({ transport });
+  const client = new Celesto({ transport });
   await client.sandboxes.create();
   await assert.rejects(() => client.close(), (error: unknown) =>
-    error instanceof SmolVMError && error.code === "cleanup_failed",
+    error instanceof CelestoError && error.code === "cleanup_failed",
   );
   assert.equal(transport.closeCount, 1);
 });

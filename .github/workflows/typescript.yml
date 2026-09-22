@@ -39,8 +39,8 @@ jobs:
           package="$(npm pack --silent)"
           fixture="$(mktemp -d)"
           npm install --prefix "$fixture" "$PWD/$package" typescript@5.9.3 @types/node@20.19.43
-          printf '%s\n' 'import { SmolVM } from "@celestoai/smolvm";' 'const vm = new SmolVM({ transport: { request: async <T,>() => ({}) as T, requestBytes: async () => new Uint8Array(), close: async () => {} } });' 'void vm.close();' > "$fixture/esm.mts"
-          printf '%s\n' 'const { SmolVM } = require("@celestoai/smolvm");' 'const vm = new SmolVM({ transport: { request: async () => ({}), requestBytes: async () => new Uint8Array(), close: async () => {} } });' 'void vm.close();' > "$fixture/commonjs.cjs"
+          printf '%s\n' 'import { Celesto } from "@celestoai/celesto";' 'const vm = new Celesto({ transport: { request: async <T,>() => ({}) as T, requestBytes: async () => new Uint8Array(), close: async () => {} } });' 'void vm.close();' > "$fixture/esm.mts"
+          printf '%s\n' 'const { Celesto } = require("@celestoai/celesto");' 'const vm = new Celesto({ transport: { request: async () => ({}), requestBytes: async () => new Uint8Array(), close: async () => {} } });' 'void vm.close();' > "$fixture/commonjs.cjs"
           cp examples/quickstart.ts "$fixture/quickstart.ts"
           "$fixture/node_modules/.bin/tsc" --noEmit --strict --skipLibCheck --module nodenext --moduleResolution nodenext --target es2022 "$fixture/esm.mts"
           "$fixture/node_modules/.bin/tsc" --noEmit --strict --skipLibCheck --module commonjs --moduleResolution node --target es2022 "$fixture/quickstart.ts"
@@ -51,7 +51,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         with:
           name: typescript-package
-          path: ts/celestoai-smolvm-*.tgz
+          path: ts/celestoai-celesto-*.tgz
 
   prerelease:
     if: startsWith(github.ref, 'refs/tags/typescript-v')
@@ -68,7 +68,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          archive="$(find . -name 'celestoai-smolvm-*.tgz' -print -quit)"
+          archive="$(find . -name 'celestoai-celesto-*.tgz' -print -quit)"
           version="$(tar -xOf "$archive" package/package.json | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>console.log(JSON.parse(s).version))")"
           expected="typescript-v${version}"
           test "${GITHUB_REF_NAME}" = "$expected"

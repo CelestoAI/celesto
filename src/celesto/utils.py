@@ -250,7 +250,7 @@ def ensure_ssh_key(key_dir: Path | None = None) -> tuple[Path, Path]:
     """Ensure an ED25519 SSH key pair exists for the current user.
 
     Args:
-        key_dir: Directory to store keys. Defaults to ``~/.smolvm/keys``.
+        key_dir: Directory to store keys. Defaults to ``~/.celesto/keys``.
 
     Returns:
         Tuple of (private_key_path, public_key_path).
@@ -274,7 +274,7 @@ def ensure_ssh_key(key_dir: Path | None = None) -> tuple[Path, Path]:
             except KeyError:
                 pass  # Fallback to root's home if user lookup fails.
 
-        base_dir = user_home / ".smolvm"
+        base_dir = user_home / ".celesto"
         key_dir = base_dir / "keys"
 
     key_dir = Path(key_dir)
@@ -343,7 +343,7 @@ def ensure_ssh_key(key_dir: Path | None = None) -> tuple[Path, Path]:
             "-f",
             str(private_key),
             "-C",
-            "smolvm-auto",
+            "celesto-auto",
         ],
         check=True,
         stdin=subprocess.DEVNULL,

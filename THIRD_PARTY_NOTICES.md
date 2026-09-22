@@ -2,7 +2,7 @@
 
 ## Lume
 
-SmolVM can download the Lume 0.4.0 executable from the Cua project to run local macOS desktop sandboxes through Apple's Virtualization framework.
+Celesto can download the Lume 0.4.0 executable from the Cua project to run local macOS desktop sandboxes through Apple's Virtualization framework.
 
 Source: <https://github.com/trycua/cua/tree/ee15ae942cefe809fd97a565220eca9c6a295ac0/libs/lume>
 

@@ -1,8 +1,8 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
-***
+______________________________________________________________________
 
-[@celestoai/smolvm](../README.md) / ExecOptions
+[@celestoai/celesto](../README.md) / ExecOptions
 
 # Interface: ExecOptions
 
@@ -14,19 +14,19 @@ Choose where and how long a command runs, plus its environment and cancellation 
 
 > `optional` **cwd?**: `string`
 
-***
+______________________________________________________________________
 
 ### env?
 
-> `optional` **env?**: `Readonly`\<`Record`\<`string`, `string`\>\>
+> `optional` **env?**: `Readonly`\<`Record`\<`string`, `string`>>
 
-***
+______________________________________________________________________
 
 ### signal?
 
 > `optional` **signal?**: `AbortSignal`
 
-***
+______________________________________________________________________
 
 ### timeoutMs?
 

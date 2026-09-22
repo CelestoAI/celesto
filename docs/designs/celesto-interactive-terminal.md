@@ -40,7 +40,7 @@ transport does not expose durable session IDs. Passing `terminal_id` to a local
 computer fails before the computer is provisioned. `attach()` returns `None` in
 both environments; a terminal attachment is not a command execution result.
 
-Ctrl+] detaches from a cloud terminal without asking the remote shell to exit.
+Ctrl+\] detaches from a cloud terminal without asking the remote shell to exit.
 Local terminals retain their existing transport behavior and end when the local
 attachment ends. This capability difference is explicit rather than simulated.
 
@@ -193,15 +193,15 @@ There are no silent, untested failure modes in the planned public path.
 
 ## Implementation tasks
 
-- [x] Add the public `TerminalConnection` and the private bounded WebSocket bridge.
-- [x] Add cloud session creation through the generated endpoint with validation
+- \[x\] Add the public `TerminalConnection` and the private bounded WebSocket bridge.
+- \[x\] Add cloud session creation through the generated endpoint with validation
   and secret-safe wrapping.
-- [x] Add `Computer.terminal()` and route local and cloud providers through the
+- \[x\] Add `Computer.terminal()` and route local and cloud providers through the
   same public return type.
-- [x] Promote `websockets` to a direct dependency and update the lockfile.
-- [x] Add unit and live control-plane tests, then run focused tests, the full
+- \[x\] Promote `websockets` to a direct dependency and update the lockfile.
+- \[x\] Add unit and live control-plane tests, then run focused tests, the full
   non-E2E suite, Ruff, mypy, and a wheel-content/import smoke.
-- [x] Document the public API and mark the terminal roadmap item complete.
+- \[x\] Document the public API and mark the terminal roadmap item complete.
 
 Sequential implementation, no parallelization opportunity: the public type,
 provider adapters, tests, and documentation all share the same Python SDK contract.
@@ -217,7 +217,7 @@ provider adapters, tests, and documentation all share the same Python SDK contra
 - A generic public raw-WebSocket descriptor: it would leak provider details and
   force local callers into a cloud-shaped abstraction.
 - Backend or gateway changes: the required endpoint and protocol already exist.
-- A new package or artifact: this ships in the existing `smolvm` distribution's
+- A new package or artifact: this ships in the existing `celesto` distribution's
   `celesto` namespace and existing wheel workflow.
 
 ## Review findings

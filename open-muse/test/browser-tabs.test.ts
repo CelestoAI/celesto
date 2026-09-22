@@ -242,7 +242,7 @@ test("superseded browser startup closes its CDP connection and clears tab state"
     delete: async () => undefined,
   };
   const manager = new ConversationManager("", "gpt-5-mini", false, undefined, undefined, {
-    computerProvider: { id: "smolvm", create: async () => computer, reconnect: async () => undefined },
+    computerProvider: { id: "celesto", create: async () => computer, reconnect: async () => undefined },
     connectOverCDP: async () => browser,
   });
   const created = await manager.create();

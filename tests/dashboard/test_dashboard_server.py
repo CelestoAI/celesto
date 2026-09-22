@@ -98,7 +98,7 @@ def test_latest_dashboard_release_asset_rejects_legacy_prefix(
             "prerelease": True,
             "assets": [
                 {
-                    "name": "smolvm-dashboard-ui-celesto-v0.0.15a0.tar.gz",
+                    "name": "celesto-dashboard-ui-celesto-v0.0.15a0.tar.gz",
                     "browser_download_url": "https://example.invalid/legacy.tar.gz",
                 }
             ],
@@ -179,7 +179,7 @@ def test_latest_dashboard_release_asset_allows_prerelease_with_flag(
 
 
 def test_resolve_ui_dist_path_honors_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """SMOLVM_DASHBOARD_UI_DIST should override default dist path resolution."""
+    """CELESTO_DASHBOARD_UI_DIST should override default dist path resolution."""
     custom = Path("/tmp/custom-ui-dist")
     monkeypatch.setenv(server.UI_DIST_ENV, str(custom))
 
@@ -200,7 +200,7 @@ def test_resolve_ui_dist_path_uses_state_dir_when_repo_layout_missing(
     tmp_path: Path,
 ) -> None:
     """Installed-package layout should fallback to resolve_data_dir()."""
-    fake_server = tmp_path / "site-packages" / "smolvm" / "dashboard" / "server.py"
+    fake_server = tmp_path / "site-packages" / "celesto" / "dashboard" / "server.py"
     fake_server.parent.mkdir(parents=True)
     fake_server.write_text("", encoding="utf-8")
 
@@ -695,7 +695,7 @@ def test_open_vm_desktop_keeps_password_on_host(
 
     bundle = tmp_path / "mac-test"
     bundle.mkdir()
-    (bundle / ".smolvm-vnc-password").write_text("private-secret\n")
+    (bundle / ".celesto-vnc-password").write_text("private-secret\n")
     vm = SimpleNamespace(
         display=DesktopEndpoint(port=5901),
         config=SimpleNamespace(macos_machine=SimpleNamespace(bundle_path=bundle)),
@@ -864,9 +864,9 @@ def test_resolve_ssh_key_path_finds_keys_dir(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """_resolve_ssh_key_path should find keys in ~/.smolvm/keys/."""
+    """_resolve_ssh_key_path should find keys in ~/.celesto/keys/."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    key_path = tmp_path / ".smolvm" / "keys" / "id_ed25519"
+    key_path = tmp_path / ".celesto" / "keys" / "id_ed25519"
     key_path.parent.mkdir(parents=True)
     key_path.write_text("dummy-key")
 

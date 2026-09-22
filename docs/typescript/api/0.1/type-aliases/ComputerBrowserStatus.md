@@ -1,11 +1,11 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
-***
+______________________________________________________________________
 
-[@celestoai/smolvm](../README.md) / ComputerBrowserStatus
+[@celestoai/celesto](../README.md) / ComputerBrowserStatus
 
 # Type Alias: ComputerBrowserStatus
 
-> **ComputerBrowserStatus** = `"ready"` \| `"closed"` \| `"error"`
+> **ComputerBrowserStatus** = `"ready"` | `"closed"` | `"error"`
 
 Whether Chromium inside a computer is ready for automation.

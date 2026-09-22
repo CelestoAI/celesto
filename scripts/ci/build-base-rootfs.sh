@@ -38,7 +38,7 @@ SIZE_MB="${2:-$DEFAULT_SIZE_MB}"
 
 mkdir -p "$OUT_DIR"
 
-TAG="smolvm-base-rootfs-${OS}"
+TAG="celesto-base-rootfs-${OS}"
 
 echo "==> Building $OS base rootfs Docker image..."
 docker build -t "$TAG" -f "$DOCKERFILE" "$SCRIPT_DIR"
@@ -65,7 +65,7 @@ docker export "$CID" > "$OUT_DIR/rootfs.tar"
 
 echo "==> Creating ${SIZE_MB}M ext4 image..."
 dd if=/dev/zero of="$OUT_DIR/base-rootfs.ext4" bs=1M count=0 seek="$SIZE_MB" 2>/dev/null
-mkfs.ext4 -F -L smolvm-rootfs "$OUT_DIR/base-rootfs.ext4" >/dev/null 2>&1
+mkfs.ext4 -F -L celesto-rootfs "$OUT_DIR/base-rootfs.ext4" >/dev/null 2>&1
 
 MNT=$(mktemp -d)
 mount -o loop "$OUT_DIR/base-rootfs.ext4" "$MNT"

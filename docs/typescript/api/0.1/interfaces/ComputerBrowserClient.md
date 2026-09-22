@@ -1,8 +1,8 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
-***
+______________________________________________________________________
 
-[@celestoai/smolvm](../README.md) / ComputerBrowserClient
+[@celestoai/celesto](../README.md) / ComputerBrowserClient
 
 # Interface: ComputerBrowserClient
 
@@ -12,9 +12,9 @@ Chromium included in a Linux computer, with automation available when it is open
 
 ### cdpUrl
 
-> `readonly` **cdpUrl**: `string` \| `null`
+> `readonly` **cdpUrl**: `string` | `null`
 
-***
+______________________________________________________________________
 
 ### status
 
@@ -24,8 +24,8 @@ Chromium included in a Linux computer, with automation available when it is open
 
 ### launch()
 
-> **launch**(): `Promise`\<`void`\>
+> **launch**(): `Promise`\<`void`>
 
 #### Returns
 
-`Promise`\<`void`\>
+`Promise`\<`void`>

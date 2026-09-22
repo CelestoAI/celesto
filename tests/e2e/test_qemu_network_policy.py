@@ -1,6 +1,6 @@
 """Real QEMU application contract; opt in with a disposable baked test image.
 
-Set SMOLVM_QEMU_POLICY_CONFIG to a VMConfig JSON using qemu-policy-init.sh
+Set CELESTO_QEMU_POLICY_CONFIG to a VMConfig JSON using qemu-policy-init.sh
 and qemu-policy-app.py from assets/. Works on Linux/KVM and macOS/HVF.
 """
 
@@ -28,7 +28,7 @@ from celesto.types import InternetSettings, VMConfig
 pytestmark = [
     pytest.mark.e2e,
     pytest.mark.skipif(
-        not os.environ.get("SMOLVM_QEMU_POLICY_CONFIG"),
+        not os.environ.get("CELESTO_QEMU_POLICY_CONFIG"),
         reason="Requires disposable QEMU test image",
     ),
 ]
@@ -85,7 +85,7 @@ def websocket_echo(port):
 
 @pytest.fixture
 def template():
-    return json.loads(Path(os.environ["SMOLVM_QEMU_POLICY_CONFIG"]).read_text())
+    return json.loads(Path(os.environ["CELESTO_QEMU_POLICY_CONFIG"]).read_text())
 
 
 @pytest.mark.parametrize("mode", ["open", "off", "restricted"])
@@ -95,7 +95,7 @@ def test_application_without_control_agent(template, tmp_path, monkeypatch, mode
     if mode == "restricted" and not tap:
         pytest.skip("CIDRs require Linux TAP")
     # Linux TAP callers can set the controlled lab's allowed address here.
-    allowed = os.environ.get("SMOLVM_QEMU_POLICY_ALLOWED", "1.1.1.1")
+    allowed = os.environ.get("CELESTO_QEMU_POLICY_ALLOWED", "1.1.1.1")
     policy = InternetSettings(mode=mode, allowed_cidrs=[allowed] if mode == "restricted" else [])
     values = dict(template, vm_id=f"qpolicy-{uuid4().hex[:12]}", internet_settings=policy)
     launch_port = free_port() if not tap else None
@@ -269,7 +269,7 @@ def test_tap_destinations_and_real_install_failure(
     run_nft = NetworkManager._run_nft_script
 
     def reject(self, script):
-        if "smolvm_policy_" in script:
+        if "celesto_policy_" in script:
             script += "\ninvalid nft syntax\n"
         return run_nft(self, script)
 

@@ -30,12 +30,12 @@ from typing import BinaryIO
 
 logger = logging.getLogger(__name__)
 
-_NATIVE_DISABLE_ENV = "SMOLVM_DISABLE_NATIVE_DISK"
+_NATIVE_DISABLE_ENV = "CELESTO_DISABLE_NATIVE_DISK"
 _TRUE_ENV_VALUES = {"1", "true", "yes"}
 _SPARSE_CHUNK_SIZE = 1024 * 1024
 
 try:
-    from smolvm_core import disk as core_disk
+    from celesto_core import disk as core_disk
 except ImportError:  # pragma: no cover - depends on optional wheel availability
     core_disk = None  # type: ignore[assignment]
 

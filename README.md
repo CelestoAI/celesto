@@ -253,9 +253,9 @@ from celesto import Celesto
 
 with Celesto(
     os="windows",
-    image="~/.smolvm/images/win11.qcow2",
-    ssh_user="smolvm",
-    ssh_password="smolvm",
+    image="~/.celesto/images/win11.qcow2",
+    ssh_user="celesto",
+    ssh_password="celesto",
 ) as vm:
     print(vm.run("Write-Output 'hello from windows'").stdout)
 ```
@@ -266,7 +266,7 @@ Create an image from a Windows ISO:
 celesto windows build-image \
     --iso ./Win11.iso \
     --virtio-win-iso ./virtio-win.iso \
-    --output ~/.smolvm/images/win11.qcow2
+    --output ~/.celesto/images/win11.qcow2
 ```
 
 Windows guests require a Linux host with KVM. Host mounts, network controls, and snapshots remain Linux-only. See the [Windows guide](docs/guides/windows.md) for image setup and guest requirements.

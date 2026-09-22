@@ -1,4 +1,4 @@
-import type { SmolVMError } from "./errors.js";
+import type { CelestoError } from "./errors.js";
 
 /** The current lifecycle state of a sandbox, including local deletion. */
 export type SandboxStatus =
@@ -93,10 +93,10 @@ export interface ExecResult {
   durationMs: number;
 }
 
-export type SmolVMEvent =
+export type CelestoEvent =
   | { type: "runtime.starting" }
   | { type: "runtime.ready"; protocolVersion: number }
-  | { type: "runtime.error"; error: SmolVMError }
+  | { type: "runtime.error"; error: CelestoError }
   | { type: "image.download"; image: string; receivedBytes: number; totalBytes?: number }
   | { type: "sandbox.starting" }
   | { type: "sandbox.ready"; sandboxId: string }
@@ -152,7 +152,7 @@ export interface SandboxClient extends CommandFilesClient {
   delete(): Promise<void>;
 }
 
-/** Creates sandboxes owned by one SmolVM client. */
+/** Creates sandboxes owned by one Celesto client. */
 export interface SandboxCollection {
   create(options?: CreateSandboxOptions): Promise<SandboxClient>;
 }
@@ -169,7 +169,7 @@ export interface BrowserSessionClient extends CommandFilesClient {
   delete(): Promise<void>;
 }
 
-/** Create browser computers that this SmolVM client will clean up. A browser session is one isolated Chromium environment. */
+/** Create browser computers that this Celesto client will clean up. A browser session is one isolated Chromium environment. */
 export interface BrowserSessionCollection {
   create(options?: CreateBrowserSessionOptions): Promise<BrowserSessionClient>;
 }
@@ -199,13 +199,13 @@ export interface ComputerSessionClient extends CommandFilesClient {
   delete(): Promise<void>;
 }
 
-/** Create complete desktop computers owned by one SmolVM client. */
+/** Create complete desktop computers owned by one Celesto client. */
 export interface ComputerCollection {
   create(options?: CreateComputerOptions): Promise<ComputerSessionClient>;
 }
 
 /** The mockable client contract for creating sandboxes, diagnosing setup, and cleaning up. */
-export interface SmolVMClient {
+export interface CelestoClient {
   readonly sandboxes: SandboxCollection;
   readonly browsers: BrowserSessionCollection;
   readonly computers: ComputerCollection;
@@ -214,7 +214,7 @@ export interface SmolVMClient {
 }
 
 /** Sends private bridge requests; applications can implement it to test without a VM. */
-export interface SmolVMTransport {
+export interface CelestoTransport {
   request<T>(path: string, init?: RequestInit): Promise<T>;
   requestBytes(path: string, init?: RequestInit): Promise<Uint8Array>;
   requestStream?(
@@ -226,9 +226,9 @@ export interface SmolVMTransport {
 }
 
 /** Configure runtime startup, lifecycle events, debugging, or a test transport. */
-export interface SmolVMOptions {
+export interface CelestoOptions {
   /** Observe typed lifecycle events. */
-  onEvent?: (event: SmolVMEvent) => void;
+  onEvent?: (event: CelestoEvent) => void;
   /** Runtime executable path. Defaults to `celesto` on PATH. */
   runtimePath?: string;
   /** Time allowed for the local bridge to start. */
@@ -237,8 +237,17 @@ export interface SmolVMOptions {
   createTimeoutMs?: number;
   /** Time allowed for ordinary bridge requests that do not manage a VM lifecycle operation. */
   requestTimeoutMs?: number;
-  /** Retain non-enumerable causes on SmolVMError instances. */
+  /** Retain non-enumerable causes on CelestoError instances. */
   debug?: boolean;
   /** Supply a structural transport in tests; normal applications should omit this. */
-  transport?: SmolVMTransport;
+  transport?: CelestoTransport;
 }
+
+/** @deprecated Use `CelestoClient` instead. */
+export type SmolVMClient = CelestoClient;
+/** @deprecated Use `CelestoEvent` instead. */
+export type SmolVMEvent = CelestoEvent;
+/** @deprecated Use `CelestoOptions` instead. */
+export type SmolVMOptions = CelestoOptions;
+/** @deprecated Use `CelestoTransport` instead. */
+export type SmolVMTransport = CelestoTransport;

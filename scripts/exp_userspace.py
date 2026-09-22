@@ -6,7 +6,7 @@ a variant image that bakes host keys at build time and skips keygen in /init,
 then measures SSH-path time-to-interact vs the baseline.
 
 All on QEMU, same Alpine+python3 base, default boot args. Ground-truth boot time
-comes from the guest's SMOLVM_TS uptime markers (not 'quiet'-suppressed printk).
+comes from the guest's CELESTO_TS uptime markers (not 'quiet'-suppressed printk).
 """
 
 from __future__ import annotations
@@ -74,19 +74,19 @@ def build(name: str, dockerfile: str):
         kernel_path,
         rootfs_path,
         rootfs_size_mb=512,
-        build_args={"SSH_PASSWORD": "smolvm"},
+        build_args={"SSH_PASSWORD": "celesto"},
         kernel_url=kurl,
     )
     return str(kernel_path), str(rootfs_path)
 
 
 def markers(name: str) -> dict:
-    """Parse SMOLVM_TS uptime markers; return stage -> uptime_s."""
+    """Parse CELESTO_TS uptime markers; return stage -> uptime_s."""
     log = resolve_data_dir() / f"{name}.log"
     out = {}
     if log.exists():
         for m in re.finditer(
-            r"SMOLVM_TS stage=(\S+).*?uptime_s=([\d.]+)", log.read_text(errors="replace")
+            r"CELESTO_TS stage=(\S+).*?uptime_s=([\d.]+)", log.read_text(errors="replace")
         ):
             out[m.group(1)] = float(m.group(2))
     return out
@@ -110,7 +110,7 @@ def one(kernel, rootfs, tag) -> dict:
     vm = None
     try:
         t0 = time.perf_counter()
-        vm = Celesto(config=cfg, ssh_password="smolvm", comm_channel="ssh")
+        vm = Celesto(config=cfg, ssh_password="celesto", comm_channel="ssh")
         rec["create"] = time.perf_counter() - t0
         t0 = time.perf_counter()
         vm.start()

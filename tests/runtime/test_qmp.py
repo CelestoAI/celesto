@@ -27,8 +27,8 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from smolvm_core import errors as core_errors
-from smolvm_core import qmp as core_qmp
+from celesto_core import errors as core_errors
+from celesto_core import qmp as core_qmp
 
 import celesto.qmp as qmp_module
 from celesto.exceptions import CelestoError
@@ -499,7 +499,7 @@ def test_live_block_backup_against_installed_qemu(tmp_path: Path) -> None:
 
     source = tmp_path / "source.qcow2"
     target = tmp_path / "target.qcow2"
-    socket_dir = Path(tempfile.mkdtemp(prefix="smolvm-qmp-"))
+    socket_dir = Path(tempfile.mkdtemp(prefix="celesto-qmp-"))
     socket_path = socket_dir / "qmp.sock"
     subprocess.run([qemu_img, "create", "-f", "qcow2", str(source), "16M"], check=True)
     subprocess.run([qemu_img, "create", "-f", "qcow2", str(target), "16M"], check=True)
@@ -618,7 +618,7 @@ def test_qmp_connect_can_retry_after_capabilities_handshake_failure(
 
 
 def test_native_qmp_client_smoke_exercises_socket_protocol(qmp_socket_path: Path) -> None:
-    """The public smolvm-core QMP client should exercise the native socket protocol."""
+    """The public celesto-core QMP client should exercise the native socket protocol."""
     assert core_qmp.available()
 
     socket_path = qmp_socket_path
@@ -706,7 +706,7 @@ def test_qmp_client_requires_native_binding(
     assert exc_info.value.details == {"socket_path": str(socket_path)}
 
 
-def test_qmp_native_errors_become_smolvm_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_qmp_native_errors_become_celesto_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     """Core QMP exceptions should not leak past the public Celesto wrapper."""
 
     class BrokenCoreClient:

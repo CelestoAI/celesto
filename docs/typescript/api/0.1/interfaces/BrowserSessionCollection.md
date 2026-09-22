@@ -1,18 +1,18 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
-***
+______________________________________________________________________
 
-[@celestoai/smolvm](../README.md) / BrowserSessionCollection
+[@celestoai/celesto](../README.md) / BrowserSessionCollection
 
 # Interface: BrowserSessionCollection
 
-Create browser computers that this SmolVM client will clean up. A browser session is one isolated Chromium environment.
+Create browser computers that this Celesto client will clean up. A browser session is one isolated Chromium environment.
 
 ## Methods
 
 ### create()
 
-> **create**(`options?`): `Promise`\<[`BrowserSessionClient`](BrowserSessionClient.md)\>
+> **create**(`options?`): `Promise`\<[`BrowserSessionClient`](BrowserSessionClient.md)>
 
 #### Parameters
 
@@ -22,4 +22,4 @@ Create browser computers that this SmolVM client will clean up. A browser sessio
 
 #### Returns
 
-`Promise`\<[`BrowserSessionClient`](BrowserSessionClient.md)\>
+`Promise`\<[`BrowserSessionClient`](BrowserSessionClient.md)>

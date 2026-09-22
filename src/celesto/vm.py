@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Any, TextIO
 from uuid import uuid4
 
+from celesto._compat import existing_legacy_path
 from celesto._network_policy import parse_network_policy, validate_network_policy_options
 from celesto.comm.select import ChannelResolution, VsockNotSupportedError, resolve_comm_channel
 from celesto.exceptions import (
@@ -101,8 +102,8 @@ from celesto.utils import RUNTIME_PRIVILEGE_SETUP_HINT, which
 logger = logging.getLogger(__name__)
 
 # Default paths
-DEFAULT_DATA_DIR_ENV = "SMOLVM_DATA_DIR"
-DEFAULT_SYSTEM_DATA_DIR = Path("/var/lib/smolvm")
+DEFAULT_DATA_DIR_ENV = "CELESTO_DATA_DIR"
+DEFAULT_SYSTEM_DATA_DIR = Path("/var/lib/celesto")
 DEFAULT_SOCKET_DIR = Path("/tmp")
 
 # Marks a per-VM disk that outlives its VM row on purpose, so the reclaim
@@ -263,7 +264,7 @@ def _candidate_data_dirs() -> list[Path]:
         else:
             xdg_state_home = user_home / ".local" / "state"
 
-    user_state_dir = xdg_state_home / "smolvm"
+    user_state_dir = existing_legacy_path(xdg_state_home / "celesto", xdg_state_home / "smolvm")
 
     if os.geteuid() == 0 and sudo_user is None:
         # Direct root session: keep system path first.
@@ -277,7 +278,7 @@ def resolve_data_dir(data_dir: Path | None = None) -> Path:
 
     Priority:
     1) Explicit ``data_dir`` argument.
-    2) ``SMOLVM_DATA_DIR`` environment override.
+    2) ``CELESTO_DATA_DIR`` environment override.
     3) Auto-detected writable defaults (user state dir first for dev UX).
     """
     if data_dir is not None:
@@ -356,8 +357,8 @@ class CelestoManager:
 
         Args:
             data_dir: Directory for state database. If omitted, Celesto resolves
-                a writable default (``$SMOLVM_DATA_DIR`` -> user state dir ->
-                ``/var/lib/smolvm`` as fallback).
+                a writable default (``$CELESTO_DATA_DIR`` -> user state dir ->
+                ``/var/lib/celesto`` as fallback).
             socket_dir: Directory for VM sockets (default: /tmp).
             backend: Runtime backend (``firecracker``, ``qemu``, or ``auto``).
                 Defaults to ``auto`` via :func:`celesto.runtime.backends.resolve_backend`.
@@ -1595,7 +1596,7 @@ class CelestoManager:
 
         # Firecracker check
         if not host_info.capabilities.get(HostCapability.FIRECRACKER, False):
-            errors.append("'firecracker' binary not found in PATH or ~/.smolvm/bin/")
+            errors.append("'firecracker' binary not found in PATH or ~/.celesto/bin/")
 
         # Dependency checks
         errors.extend(host_info.missing_deps)
@@ -3751,13 +3752,13 @@ class CelestoManager:
 
         ssh_public_key = vm_info.config.ssh_public_key
         if ssh_public_key and not any(
-            part.startswith("smolvm.authorized_key_b64=") for part in parts
+            part.startswith("celesto.authorized_key_b64=") for part in parts
         ):
             # Base64-encode so the value is a single space-free token — SSH
             # public keys contain spaces ("ssh-ed25519 AAAA... user@host") that
             # would otherwise split into separate cmdline params.
             encoded = base64.b64encode(ssh_public_key.strip().encode("utf-8")).decode("ascii")
-            args = f"{args} smolvm.authorized_key_b64={encoded}".strip()
+            args = f"{args} celesto.authorized_key_b64={encoded}".strip()
             parts = args.split()
 
         if vm_info.network is None:
@@ -3766,7 +3767,7 @@ class CelestoManager:
         # Bridge mode: no Celesto-managed IP; add guest-managed marker.
         if vm_info.network.mode == "bridge":
             if not any(part.startswith("ip=") for part in parts):
-                args = f"{args} smolvm.network=guest".strip()
+                args = f"{args} celesto.network=guest".strip()
             return args
 
         if any(part.startswith("ip=") for part in parts):

@@ -1,10 +1,10 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
-***
+______________________________________________________________________
 
-[@celestoai/smolvm](../README.md) / SmolVMOptions
+[@celestoai/celesto](../README.md) / CelestoOptions
 
-# Interface: SmolVMOptions
+# Interface: CelestoOptions
 
 Configure runtime startup, lifecycle events, debugging, or a test transport.
 
@@ -16,15 +16,15 @@ Configure runtime startup, lifecycle events, debugging, or a test transport.
 
 Time allowed to download an image and create a sandbox.
 
-***
+______________________________________________________________________
 
 ### debug?
 
 > `optional` **debug?**: `boolean`
 
-Retain non-enumerable causes on SmolVMError instances.
+Retain non-enumerable causes on CelestoError instances.
 
-***
+______________________________________________________________________
 
 ### onEvent?
 
@@ -36,13 +36,13 @@ Observe typed lifecycle events.
 
 ##### event
 
-[`SmolVMEvent`](../type-aliases/SmolVMEvent.md)
+[`CelestoEvent`](../type-aliases/CelestoEvent.md)
 
 #### Returns
 
 `void`
 
-***
+______________________________________________________________________
 
 ### requestTimeoutMs?
 
@@ -50,7 +50,7 @@ Observe typed lifecycle events.
 
 Time allowed for ordinary bridge requests that do not manage a VM lifecycle operation.
 
-***
+______________________________________________________________________
 
 ### runtimePath?
 
@@ -58,7 +58,7 @@ Time allowed for ordinary bridge requests that do not manage a VM lifecycle oper
 
 Runtime executable path. Defaults to `celesto` on PATH.
 
-***
+______________________________________________________________________
 
 ### startupTimeoutMs?
 
@@ -66,10 +66,10 @@ Runtime executable path. Defaults to `celesto` on PATH.
 
 Time allowed for the local bridge to start.
 
-***
+______________________________________________________________________
 
 ### transport?
 
-> `optional` **transport?**: [`SmolVMTransport`](SmolVMTransport.md)
+> `optional` **transport?**: [`CelestoTransport`](CelestoTransport.md)
 
 Supply a structural transport in tests; normal applications should omit this.

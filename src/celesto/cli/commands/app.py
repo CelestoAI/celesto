@@ -536,7 +536,7 @@ def sandbox_prune(
     default=None,
     metavar="DIR",
     help=(
-        "Folder for the Firecracker program (default: $SMOLVM_FIRECRACKER_DIR or ~/.smolvm/bin)."
+        "Folder for the Firecracker program (default: $CELESTO_FIRECRACKER_DIR or ~/.celesto/bin)."
     ),
 )
 def setup(
@@ -1361,9 +1361,9 @@ def windows() -> None:
 @click.option("--iso", "windows_iso", required=True, metavar="PATH")
 @click.option("--virtio-win-iso", "virtio_win_iso", required=True, metavar="PATH")
 @click.option("--output", "output_qcow2", required=True, metavar="PATH")
-@click.option("--username", default="smolvm", show_default=True)
-@click.option("--password", default="smolvm", show_default=True)
-@click.option("--hostname", default="smolvm-win", show_default=True)
+@click.option("--username", default="celesto", show_default=True)
+@click.option("--password", default="celesto", show_default=True)
+@click.option("--hostname", default="celesto-win", show_default=True)
 @click.option("--edition", default="Windows 11 Pro", show_default=True)
 @click.option("--disk-size", "disk_size_mib", type=positive_int_type(), default=64 * 1024)
 @click.option("--build-timeout", "build_timeout_s", type=positive_float_type(), default=45 * 60)

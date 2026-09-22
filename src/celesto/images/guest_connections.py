@@ -15,8 +15,8 @@ import sys
 import time
 from pathlib import Path
 
-RUNTIME = Path("/run/smolvm-browser")
-LOGS = Path("/var/log/smolvm-browser")
+RUNTIME = Path("/run/celesto-browser")
+LOGS = Path("/var/log/celesto-browser")
 
 
 def capabilities():
@@ -26,7 +26,7 @@ def capabilities():
     except KeyError:
         common = False
     browser = common and any(shutil.which(tool) for tool in ("chromium", "chromium-browser"))
-    browser = browser and Path("/usr/local/bin/smolvm-browser-session").is_file()
+    browser = browser and Path("/usr/local/bin/celesto-browser-session").is_file()
     display = common and all(shutil.which(tool) for tool in ("x11vnc", "websockify"))
     return {
         "version": 1,
@@ -133,14 +133,14 @@ def ensure(kind, timeout, proxy=None):
             # Reuse the browser without restarting it or changing its profile.
             if not listening(9223):
                 args = [
-                    "/usr/local/bin/smolvm-browser-session",
+                    "/usr/local/bin/celesto-browser-session",
                     "launch-browser",
                     "computer",
                     "1280",
                     "720",
                     "9222",
-                    "/opt/smolvm-browser/profiles/computer",
-                    "/opt/smolvm-browser/downloads/computer",
+                    "/opt/celesto-browser/profiles/computer",
+                    "/opt/celesto-browser/downloads/computer",
                     "1",
                 ]
                 if proxy:

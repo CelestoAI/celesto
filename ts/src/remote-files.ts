@@ -2,13 +2,13 @@ import { createReadStream } from "node:fs";
 import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
-import { SmolVMError } from "./errors.js";
-import type { SandboxFiles, SmolVMTransport } from "./types.js";
+import { CelestoError } from "./errors.js";
+import type { SandboxFiles, CelestoTransport } from "./types.js";
 
 /** @internal */
 export class RemoteFiles implements SandboxFiles {
   constructor(
-    private readonly transport: SmolVMTransport,
+    private readonly transport: CelestoTransport,
     private readonly resourcePath: string,
     private readonly resourceName: string,
     private readonly assertAvailable: () => void,
@@ -44,7 +44,7 @@ export class RemoteFiles implements SandboxFiles {
     );
     const parent = dirname(localPath);
     await mkdir(parent, { recursive: true });
-    const temporary = join(parent, `.${basename(localPath)}.smolvm-${randomUUID()}.tmp`);
+    const temporary = join(parent, `.${basename(localPath)}.celesto-${randomUUID()}.tmp`);
     try {
       await writeFile(temporary, bytes);
       await rename(temporary, localPath);
@@ -61,7 +61,7 @@ export class RemoteFiles implements SandboxFiles {
 
   private absolutePath(path: string, recoveryCall: string): string {
     if (!path.startsWith("/")) {
-      throw new SmolVMError(
+      throw new CelestoError(
         "invalid_path",
         `${this.resourceName} paths must be absolute; call ${recoveryCall}.`,
         { operation: "files.path", actual: { path } },

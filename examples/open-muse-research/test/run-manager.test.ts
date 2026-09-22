@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { SandboxClient, SandboxStatus, SmolVMClient } from "@celestoai/smolvm";
+import type { SandboxClient, SandboxStatus, CelestoClient } from "@celestoai/celesto";
 import type { Workflow } from "../server/agent.js";
 import { RunManager } from "../server/run-manager.js";
 
@@ -25,7 +25,7 @@ class MemorySandbox implements SandboxClient {
   async delete() { this.status = "deleted"; }
 }
 
-class MemoryClient implements SmolVMClient {
+class MemoryClient implements CelestoClient {
   readonly sandbox = new MemorySandbox();
   closeCount = 0;
   readonly sandboxes = { create: async () => this.sandbox };

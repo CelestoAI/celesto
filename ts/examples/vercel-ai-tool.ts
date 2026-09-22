@@ -1,12 +1,12 @@
 import { tool } from "ai";
 import { z } from "zod";
-import type { SandboxClient } from "@celestoai/smolvm";
+import type { SandboxClient } from "@celestoai/celesto";
 
 /** Create a command tool whose every model-proposed invocation needs approval. */
 export function createSandboxTools(sandbox: SandboxClient) {
   return {
     runCommand: tool({
-      description: "Run an approved command in the disposable SmolVM computer.",
+      description: "Run an approved command in the disposable Celesto computer.",
       inputSchema: z.object({
         argv: z.array(z.string()).min(1).describe("Executable followed by its arguments"),
         cwd: z.string().startsWith("/").default("/workspace"),

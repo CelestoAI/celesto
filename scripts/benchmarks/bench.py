@@ -55,7 +55,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from boot_telemetry import collect_boot_telemetry, summarize_boot_telemetry  # noqa: E402
 from metrics import Phase, stats  # noqa: E402
 
-logger = logging.getLogger("smolvm.bench")
+logger = logging.getLogger("celesto.bench")
 
 ALL_BENCHMARKS = ("cold-start", "tti", "pause-resume", "snapshot")
 
@@ -418,7 +418,7 @@ def _print_human(report: dict[str, Any]) -> None:
     print("=" * 72)
     print("Celesto Benchmark Report")
     print("=" * 72)
-    print(f"smolvm   : {report['smolvm_version']}")
+    print(f"celesto   : {report['celesto_version']}")
     print(f"platform : {report['platform']['system']} {report['platform']['machine']}")
     print(f"backend  : {report['backend']}")
     print(f"iters    : {report['iterations']}")
@@ -455,7 +455,7 @@ def _print_human(report: dict[str, Any]) -> None:
 # ── Main ─────────────────────────────────────────────────────────────
 
 
-def _smolvm_version() -> str:
+def _celesto_version() -> str:
     try:
         from importlib.metadata import version
 
@@ -530,7 +530,7 @@ def main() -> None:
     duration_s = round(time.monotonic() - started, 1)
 
     report: dict[str, Any] = {
-        "smolvm_version": _smolvm_version(),
+        "celesto_version": _celesto_version(),
         "platform": {
             "system": _platform.system(),
             "release": _platform.release(),

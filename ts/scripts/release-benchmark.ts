@@ -1,11 +1,11 @@
 import { performance } from "node:perf_hooks";
-import { SmolVM, type SmolVMEvent } from "../src/index.js";
+import { Celesto, type CelestoEvent } from "../src/index.js";
 
 for (const run of ["cold", "warm"] as const) {
   const started = performance.now();
   const phases: Array<{ type: string; atMs: number }> = [];
-  const client = new SmolVM({
-    onEvent(event: SmolVMEvent) {
+  const client = new Celesto({
+    onEvent(event: CelestoEvent) {
       phases.push({ type: event.type, atMs: Math.round(performance.now() - started) });
     },
   });

@@ -46,7 +46,7 @@ DEFAULT_NETMASK = "16"
 
 # Matches the native EPERM signal precisely (\b prevents "errno 13" matching).
 _EPERM_RE = re.compile(r"\berrno 1\b|Operation not permitted")
-_NATIVE_DISABLE_ENV = "SMOLVM_DISABLE_NATIVE_NETWORKING"
+_NATIVE_DISABLE_ENV = "CELESTO_DISABLE_NATIVE_NETWORKING"
 _TRUE_ENV_VALUES = {"1", "true", "yes"}
 _T = TypeVar("_T")
 
@@ -112,9 +112,9 @@ def _mark_native_unprivileged() -> None:
 
 # Celesto-managed nftables objects
 _NFT_NAT_FAMILY = "ip"
-_NFT_NAT_TABLE = "smolvm_nat"
+_NFT_NAT_TABLE = "celesto_nat"
 _NFT_FILTER_FAMILY = "inet"
-_NFT_FILTER_TABLE = "smolvm_filter"
+_NFT_FILTER_TABLE = "celesto_filter"
 
 # Named maps/sets for O(1) element add/delete (replaces per-VM rules)
 _NFT_MAP_DNAT_EXT = "dnat_ext"  # host_port → guest_ip . guest_port
@@ -1002,14 +1002,14 @@ class NetworkManager:
                     _NFT_NAT_TABLE,
                     "prerouting",
                     f"iifname {self._quote(iface)} dnat to tcp dport map @{_NFT_MAP_DNAT_EXT}",
-                    "smolvm:map:prerouting:dnat_ext",
+                    "celesto:map:prerouting:dnat_ext",
                 ),
                 (
                     _NFT_NAT_FAMILY,
                     _NFT_NAT_TABLE,
                     "output",
                     f"ip daddr 127.0.0.1/32 dnat to tcp dport map @{_NFT_MAP_DNAT_LOCAL}",
-                    "smolvm:map:output:dnat_local",
+                    "celesto:map:output:dnat_local",
                 ),
                 (
                     _NFT_NAT_FAMILY,
@@ -1019,7 +1019,7 @@ class NetworkManager:
                         f"ip saddr 127.0.0.0/8 ip daddr . tcp dport @{_NFT_SET_SNAT_RETURN}"
                         f" counter snat to {self.host_ip}"
                     ),
-                    "smolvm:map:postrouting:snat_return",
+                    "celesto:map:postrouting:snat_return",
                 ),
                 (
                     _NFT_FILTER_FAMILY,
@@ -1029,7 +1029,7 @@ class NetworkManager:
                         f"ip daddr . tcp dport @{_NFT_SET_FWD_ALLOW}"
                         " ct state new,related,established counter accept"
                     ),
-                    "smolvm:map:forward:fwd_allow",
+                    "celesto:map:forward:fwd_allow",
                 ),
                 (
                     _NFT_FILTER_FAMILY,
@@ -1039,7 +1039,7 @@ class NetworkManager:
                         f"iifname @{_NFT_SET_ALLOWED_TAPS}"
                         f" oifname {self._quote(iface)} counter accept"
                     ),
-                    "smolvm:map:forward:allowed_taps",
+                    "celesto:map:forward:allowed_taps",
                 ),
             ]
         )
@@ -1056,14 +1056,14 @@ class NetworkManager:
                     _NFT_NAT_TABLE,
                     "prerouting",
                     f"iifname {self._quote(iface)} dnat to tcp dport map @{_NFT_MAP_DNAT_EXT}",
-                    "smolvm:map:prerouting:dnat_ext",
+                    "celesto:map:prerouting:dnat_ext",
                 ),
                 (
                     _NFT_NAT_FAMILY,
                     _NFT_NAT_TABLE,
                     "output",
                     f"ip daddr 127.0.0.1/32 dnat to tcp dport map @{_NFT_MAP_DNAT_LOCAL}",
-                    "smolvm:map:output:dnat_local",
+                    "celesto:map:output:dnat_local",
                 ),
                 (
                     _NFT_NAT_FAMILY,
@@ -1073,7 +1073,7 @@ class NetworkManager:
                         f"ip saddr 127.0.0.0/8 ip daddr . tcp dport @{_NFT_SET_SNAT_RETURN}"
                         f" counter snat to {self.host_ip}"
                     ),
-                    "smolvm:map:postrouting:snat_return",
+                    "celesto:map:postrouting:snat_return",
                 ),
                 (
                     _NFT_FILTER_FAMILY,
@@ -1083,7 +1083,7 @@ class NetworkManager:
                         f"ip daddr . tcp dport @{_NFT_SET_FWD_ALLOW}"
                         " ct state new,related,established counter accept"
                     ),
-                    "smolvm:map:forward:fwd_allow",
+                    "celesto:map:forward:fwd_allow",
                 ),
                 (
                     _NFT_FILTER_FAMILY,
@@ -1093,7 +1093,7 @@ class NetworkManager:
                         f"iifname @{_NFT_SET_ALLOWED_TAPS}"
                         f" oifname {self._quote(iface)} counter accept"
                     ),
-                    "smolvm:map:forward:allowed_taps",
+                    "celesto:map:forward:allowed_taps",
                 ),
             ]
         )
@@ -1388,21 +1388,21 @@ class NetworkManager:
                     _NFT_NAT_TABLE,
                     "postrouting",
                     f"oifname {self._quote(iface)} counter masquerade",
-                    f"smolvm:global:nat:masquerade:{iface}",
+                    f"celesto:global:nat:masquerade:{iface}",
                 ),
                 (
                     _NFT_FILTER_FAMILY,
                     _NFT_FILTER_TABLE,
                     "forward",
                     "ct state related,established counter accept",
-                    "smolvm:global:forward:established",
+                    "celesto:global:forward:established",
                 ),
                 (
                     _NFT_FILTER_FAMILY,
                     _NFT_FILTER_TABLE,
                     "forward",
                     (f"iifname {self._quote('tap*')} oifname {self._quote('tap*')} counter drop"),
-                    "smolvm:global:forward:tap-isolation",
+                    "celesto:global:forward:tap-isolation",
                 ),
             ]
         )
@@ -1440,21 +1440,21 @@ class NetworkManager:
                     _NFT_NAT_TABLE,
                     "postrouting",
                     f"oifname {self._quote(iface)} counter masquerade",
-                    f"smolvm:global:nat:masquerade:{iface}",
+                    f"celesto:global:nat:masquerade:{iface}",
                 ),
                 (
                     _NFT_FILTER_FAMILY,
                     _NFT_FILTER_TABLE,
                     "forward",
                     "ct state related,established counter accept",
-                    "smolvm:global:forward:established",
+                    "celesto:global:forward:established",
                 ),
                 (
                     _NFT_FILTER_FAMILY,
                     _NFT_FILTER_TABLE,
                     "forward",
                     (f"iifname {self._quote('tap*')} oifname {self._quote('tap*')} counter drop"),
-                    "smolvm:global:forward:tap-isolation",
+                    "celesto:global:forward:tap-isolation",
                 ),
             ]
         )
@@ -1573,7 +1573,7 @@ class NetworkManager:
         )
 
         # Legacy: remove comment-based rules from pre-migration VMs.
-        comment = f"smolvm:{vm_id}:ssh"
+        comment = f"celesto:{vm_id}:ssh"
         self._delete_nft_rules(_NFT_NAT_FAMILY, _NFT_NAT_TABLE, comment=comment)
         self._delete_nft_rules(_NFT_FILTER_FAMILY, _NFT_FILTER_TABLE, comment=comment)
 
@@ -1609,7 +1609,7 @@ class NetworkManager:
         )
 
         # Legacy: remove comment-based rules from pre-migration VMs.
-        comment = f"smolvm:{vm_id}:ssh"
+        comment = f"celesto:{vm_id}:ssh"
         await self._async_delete_nft_rules(_NFT_NAT_FAMILY, _NFT_NAT_TABLE, comment=comment)
         await self._async_delete_nft_rules(_NFT_FILTER_FAMILY, _NFT_FILTER_TABLE, comment=comment)
 
@@ -1623,7 +1623,7 @@ class NetworkManager:
         rules are the ownership record after that socket's process has exited.
         Parse only our numeric NAT table, including the existing SSH port map.
         """
-        comment = f"smolvm:{vm_id}:local:{host_port}:{guest_port}"
+        comment = f"celesto:{vm_id}:local:{host_port}:{guest_port}"
         target = f"{guest_ip}:{guest_port}"
         in_output = False
         for line in output.splitlines():
@@ -1674,7 +1674,7 @@ class NetworkManager:
         self.enable_ip_forwarding()
         self._ensure_nftables_base()
 
-        comment = f"smolvm:{vm_id}:local:{host_port}:{guest_port}"
+        comment = f"celesto:{vm_id}:local:{host_port}:{guest_port}"
         target = f"{guest_ip}:{guest_port}"
 
         # Unlike best-effort cleanup listings, ownership reads must fail closed.
@@ -1742,7 +1742,7 @@ class NetworkManager:
         await self.async_enable_ip_forwarding()
         await self._async_ensure_nftables_base()
 
-        comment = f"smolvm:{vm_id}:local:{host_port}:{guest_port}"
+        comment = f"celesto:{vm_id}:local:{host_port}:{guest_port}"
         target = f"{guest_ip}:{guest_port}"
 
         try:
@@ -1808,7 +1808,7 @@ class NetworkManager:
         if guest_port < 1 or guest_port > 65535:
             raise ValueError("guest_port must be 1-65535")
 
-        comment = f"smolvm:{vm_id}:local:{host_port}:{guest_port}"
+        comment = f"celesto:{vm_id}:local:{host_port}:{guest_port}"
 
         self._delete_nft_rules(_NFT_NAT_FAMILY, _NFT_NAT_TABLE, comment=comment)
         self._delete_nft_rules(_NFT_FILTER_FAMILY, _NFT_FILTER_TABLE, comment=comment)
@@ -1830,7 +1830,7 @@ class NetworkManager:
         if guest_port < 1 or guest_port > 65535:
             raise ValueError("guest_port must be 1-65535")
 
-        comment = f"smolvm:{vm_id}:local:{host_port}:{guest_port}"
+        comment = f"celesto:{vm_id}:local:{host_port}:{guest_port}"
 
         await self._async_delete_nft_rules(_NFT_NAT_FAMILY, _NFT_NAT_TABLE, comment=comment)
         await self._async_delete_nft_rules(_NFT_FILTER_FAMILY, _NFT_FILTER_TABLE, comment=comment)
@@ -1840,7 +1840,7 @@ class NetworkManager:
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
 
-        prefix = f"smolvm:{vm_id}:local:"
+        prefix = f"celesto:{vm_id}:local:"
 
         self._delete_nft_rules(
             _NFT_NAT_FAMILY,
@@ -1858,7 +1858,7 @@ class NetworkManager:
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
 
-        prefix = f"smolvm:{vm_id}:local:"
+        prefix = f"celesto:{vm_id}:local:"
 
         await self._async_delete_nft_rules(
             _NFT_NAT_FAMILY,
@@ -1886,7 +1886,7 @@ class NetworkManager:
 
         # Legacy: remove comment-based per-TAP rule from pre-migration VMs.
         iface = self.outbound_interface
-        comment = f"smolvm:nat:tap:{tap_name}:to:{iface}"
+        comment = f"celesto:nat:tap:{tap_name}:to:{iface}"
         self._delete_nft_rules(
             _NFT_FILTER_FAMILY,
             _NFT_FILTER_TABLE,
@@ -1911,7 +1911,7 @@ class NetworkManager:
             self._outbound_interface = await self._async_detect_outbound_interface()
         iface = self._outbound_interface
 
-        comment = f"smolvm:nat:tap:{tap_name}:to:{iface}"
+        comment = f"celesto:nat:tap:{tap_name}:to:{iface}"
         await self._async_delete_nft_rules(
             _NFT_FILTER_FAMILY,
             _NFT_FILTER_TABLE,
@@ -1922,7 +1922,7 @@ class NetworkManager:
     def _policy_table(tap_device: str) -> str:
         if not re.fullmatch(r"tap[0-9]+", tap_device):
             raise ValueError("Network policy requires a managed NAT interface.")
-        return f"smolvm_policy_{tap_device}"
+        return f"celesto_policy_{tap_device}"
 
     def _network_policy_script(
         self, tap_device: str, allowed_ips: list[str] | None, *, guest_ip: str | None = None
@@ -2120,7 +2120,7 @@ class NetworkManager:
         3. Accept the allowed IPv4 destinations.
         4. Drop everything else.
         """
-        comment_prefix = f"smolvm:egress:{tap_device}"
+        comment_prefix = f"celesto:egress:{tap_device}"
         tap = self._quote(tap_device)
         lines = [
             (
@@ -2199,7 +2199,7 @@ class NetworkManager:
         self._ensure_nftables_base()
         iface = self.outbound_interface
 
-        comment_prefix = f"smolvm:egress:{tap_device}"
+        comment_prefix = f"celesto:egress:{tap_device}"
         old_egress_delete_lines = self._find_nft_delete_rule_lines(
             _NFT_FILTER_FAMILY,
             _NFT_FILTER_TABLE,
@@ -2208,7 +2208,7 @@ class NetworkManager:
         old_nat_accept_delete_lines = self._find_nft_delete_rule_lines(
             _NFT_FILTER_FAMILY,
             _NFT_FILTER_TABLE,
-            comment=f"smolvm:nat:tap:{tap_device}:to:{iface}",
+            comment=f"celesto:nat:tap:{tap_device}:to:{iface}",
         )
         script_lines = self._egress_rule_lines(tap_device, allowed_ips)
 
@@ -2249,7 +2249,7 @@ class NetworkManager:
             self._outbound_interface = await self._async_detect_outbound_interface()
         iface = self._outbound_interface
 
-        comment_prefix = f"smolvm:egress:{tap_device}"
+        comment_prefix = f"celesto:egress:{tap_device}"
         old_egress_delete_lines = await self._async_find_nft_delete_rule_lines(
             _NFT_FILTER_FAMILY,
             _NFT_FILTER_TABLE,
@@ -2258,7 +2258,7 @@ class NetworkManager:
         old_nat_accept_delete_lines = await self._async_find_nft_delete_rule_lines(
             _NFT_FILTER_FAMILY,
             _NFT_FILTER_TABLE,
-            comment=f"smolvm:nat:tap:{tap_device}:to:{iface}",
+            comment=f"celesto:nat:tap:{tap_device}:to:{iface}",
         )
         script_lines = self._egress_rule_lines(tap_device, allowed_ips)
 
@@ -2299,7 +2299,7 @@ class NetworkManager:
         self._delete_nft_rules(
             _NFT_FILTER_FAMILY,
             _NFT_FILTER_TABLE,
-            comment_prefix=f"smolvm:egress:{tap_device}:",
+            comment_prefix=f"celesto:egress:{tap_device}:",
         )
 
     async def async_remove_egress_rules(self, tap_device: str) -> None:
@@ -2315,7 +2315,7 @@ class NetworkManager:
         await self._async_delete_nft_rules(
             _NFT_FILTER_FAMILY,
             _NFT_FILTER_TABLE,
-            comment_prefix=f"smolvm:egress:{tap_device}:",
+            comment_prefix=f"celesto:egress:{tap_device}:",
         )
 
     def generate_mac(self, vm_number: int) -> str:
@@ -2423,7 +2423,9 @@ class NetworkManager:
             )
 
         members = self._get_bridge_members(bridge_name)
-        external_members = [name for name in members if not self._is_smolvm_bridge_tap_member(name)]
+        external_members = [
+            name for name in members if not self._is_celesto_bridge_tap_member(name)
+        ]
         if not external_members:
             return BridgeInspection(
                 bridge_name=bridge_name,
@@ -2446,7 +2448,7 @@ class NetworkManager:
         """Read-only validation of a Linux bridge (async)."""
         return await asyncio.to_thread(self.inspect_bridge, bridge_name)
 
-    def _is_smolvm_bridge_tap_member(self, interface_name: str) -> bool:
+    def _is_celesto_bridge_tap_member(self, interface_name: str) -> bool:
         """Return whether a bridge member carries Celesto's TAP ownership marker."""
         if not interface_name.startswith("svmb"):
             return False
@@ -2458,7 +2460,7 @@ class NetworkManager:
         return (
             isinstance(info_data, dict)
             and info_data.get("type") == "tap"
-            and str(link_info.get("ifalias") or "").startswith("smolvm-bridge:")
+            and str(link_info.get("ifalias") or "").startswith("celesto-bridge:")
         )
 
     def _get_bridge_members(self, bridge_name: str) -> list[str]:
@@ -2506,7 +2508,7 @@ class NetworkManager:
 
     @staticmethod
     def _bridge_tap_alias(vm_id: str) -> str:
-        return f"smolvm-bridge:{vm_id}"
+        return f"celesto-bridge:{vm_id}"
 
     def _require_owned_bridge_tap(self, tap_name: str, vm_id: str) -> dict[str, object]:
         """Return link metadata only when a TAP is demonstrably owned by this VM."""

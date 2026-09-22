@@ -1,4 +1,4 @@
-import type { SandboxClient } from "@celestoai/smolvm";
+import type { SandboxClient } from "@celestoai/celesto";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import { Type } from "typebox";
 import { z } from "zod";

@@ -16,7 +16,7 @@
 
 When a user runs ``sudo usermod -aG kvm $USER``, the new group only takes
 effect for *new* login sessions. Their current shell (and any child
-processes, including ``smolvm``) keeps the old group set, so ``/dev/kvm``
+processes, including ``celesto``) keeps the old group set, so ``/dev/kvm``
 remains inaccessible until they log out and back in. This module detects
 that exact state and re-execs the CLI under ``sg kvm -c …`` so the kvm
 group is active for the rest of the run, sparing first-time users a
@@ -37,11 +37,11 @@ from pathlib import Path
 
 # Internal env var used as a loop guard so the re-exec'd child does not
 # re-enter the helper and fork forever.
-_REEXEC_DONE_ENV = "SMOLVM_KVM_REEXEC_DONE"
+_REEXEC_DONE_ENV = "CELESTO_KVM_REEXEC_DONE"
 
 # User-facing escape hatch: setting this disables the re-exec entirely,
 # useful for advanced users, scripts, or debugging.
-_REEXEC_DISABLE_ENV = "SMOLVM_NO_KVM_REEXEC"
+_REEXEC_DISABLE_ENV = "CELESTO_NO_KVM_REEXEC"
 
 # Subcommands that should *not* trigger a re-exec. Two groups:
 #

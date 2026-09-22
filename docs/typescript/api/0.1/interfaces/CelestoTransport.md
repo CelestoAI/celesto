@@ -1,0 +1,89 @@
+[**@celestoai/celesto**](../README.md)
+
+______________________________________________________________________
+
+[@celestoai/celesto](../README.md) / CelestoTransport
+
+# Interface: CelestoTransport
+
+Sends private bridge requests; applications can implement it to test without a VM.
+
+## Methods
+
+### close()
+
+> **close**(): `Promise`\<`void`>
+
+#### Returns
+
+`Promise`\<`void`>
+
+______________________________________________________________________
+
+### request()
+
+> **request**\<`T`>(`path`, `init?`): `Promise`\<`T`>
+
+#### Type Parameters
+
+##### T
+
+`T`
+
+#### Parameters
+
+##### path
+
+`string`
+
+##### init?
+
+`RequestInit`
+
+#### Returns
+
+`Promise`\<`T`>
+
+______________________________________________________________________
+
+### requestBytes()
+
+> **requestBytes**(`path`, `init?`): `Promise`\<`Uint8Array`\<`ArrayBufferLike`>>
+
+#### Parameters
+
+##### path
+
+`string`
+
+##### init?
+
+`RequestInit`
+
+#### Returns
+
+`Promise`\<`Uint8Array`\<`ArrayBufferLike`>>
+
+______________________________________________________________________
+
+### requestStream()?
+
+> `optional` **requestStream**(`path`, `content`, `contentLength`): `Promise`\<`void`>
+
+#### Parameters
+
+##### path
+
+`string`
+
+##### content
+
+`AsyncIterable`\<`Uint8Array`\<`ArrayBufferLike`>>
+
+##### contentLength
+
+`number`
+
+#### Returns
+
+`Promise`\<`void`>

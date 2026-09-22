@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# system-setup.sh - System-level setup for SmolVM (no Python/venv).
+# system-setup.sh - System-level setup for Celesto (no Python/venv).
 # Installs Firecracker and host dependencies. Docker is optional.
 # Can optionally configure command-scoped NOPASSWD sudo for runtime operations.
 set -euo pipefail
@@ -55,18 +55,18 @@ Options:
   --check-only                   Only validate system prerequisites; do not install.
   --with-docker                  Install Docker (required for SSH image demo).
   --skip-deps                    Do not install missing operating-system packages.
-  --configure-runtime            Configure scoped NOPASSWD sudoers for SmolVM runtime.
+  --configure-runtime            Configure scoped NOPASSWD sudoers for Celesto runtime.
   --remove-runtime-config        Remove generated runtime sudoers config.
   --runtime-user <user>          Target user for runtime sudoers/docker group (default: invoking user).
   --for-bake                     Bake-friendly install: implies --skip-kvm-check and
                                  --skip-runtime-check. Use during AMI builds, then run
-                                 'smolvm doctor' on the runtime host to verify.
+                                 'celesto doctor' on the runtime host to verify.
   --skip-kvm-check               Do not require /dev/kvm at install time.
   --skip-runtime-check           Skip the post-install sudoers self-test on the live host.
   --firecracker-version <ver>    Pin Firecracker release tag (e.g. v1.14.1). Falls back
-                                 to \$SMOLVM_FIRECRACKER_VERSION or the built-in default.
+                                 to \$CELESTO_FIRECRACKER_VERSION or the built-in default.
   --firecracker-dir <dir>        Folder for Firecracker (default:
-                                 \$SMOLVM_FIRECRACKER_DIR or ~/.smolvm/bin).
+                                 \$CELESTO_FIRECRACKER_DIR or ~/.celesto/bin).
   -h, --help                     Show this help.
 EOF_USAGE
 }
@@ -182,12 +182,12 @@ resolve_user_home() {
 }
 
 resolve_firecracker_directory() {
-    if [[ "${FIRECRACKER_DIR_CONFIGURED}" != "true" && -n "${SMOLVM_FIRECRACKER_DIR+x}" ]]; then
-        if [[ -z "${SMOLVM_FIRECRACKER_DIR//[[:space:]]/}" ]]; then
-            echo "❌ SMOLVM_FIRECRACKER_DIR is empty; run 'unset SMOLVM_FIRECRACKER_DIR', then run 'smolvm setup'."
+    if [[ "${FIRECRACKER_DIR_CONFIGURED}" != "true" && -n "${CELESTO_FIRECRACKER_DIR+x}" ]]; then
+        if [[ -z "${CELESTO_FIRECRACKER_DIR//[[:space:]]/}" ]]; then
+            echo "❌ CELESTO_FIRECRACKER_DIR is empty; run 'unset CELESTO_FIRECRACKER_DIR', then run 'celesto setup'."
             return 1
         fi
-        FIRECRACKER_DIR="${SMOLVM_FIRECRACKER_DIR}"
+        FIRECRACKER_DIR="${CELESTO_FIRECRACKER_DIR}"
         FIRECRACKER_DIR_CONFIGURED=true
     fi
     if [[ -z "${FIRECRACKER_DIR}" ]]; then
@@ -198,11 +198,11 @@ resolve_firecracker_directory() {
             runtime_user="root"
         fi
         if [[ -z "${runtime_user}" ]]; then
-            echo "❌ SmolVM could not determine your account; rerun with '--runtime-user $(id -un)'."
+            echo "❌ Celesto could not determine your account; rerun with '--runtime-user $(id -un)'."
             return 1
         fi
         runtime_home="$(resolve_user_home "${runtime_user}")"
-        FIRECRACKER_DIR="${runtime_home}/.smolvm/bin"
+        FIRECRACKER_DIR="${runtime_home}/.celesto/bin"
     fi
     if [[ "${FIRECRACKER_DIR}" != /* ]]; then
         echo "❌ Firecracker folder must be absolute: '${FIRECRACKER_DIR}'; rerun with '--firecracker-dir /absolute/path'."
@@ -284,8 +284,8 @@ ensure_kvm_group_membership() {
 # the rule is harmless there and avoids a footgun if the host later
 # grows a desktop session.
 install_kvm_udev_rule() {
-    local rule_path="/etc/udev/rules.d/65-smolvm-kvm.rules"
-    local rule_body='# Managed by smolvm setup. Do not edit by hand.
+    local rule_path="/etc/udev/rules.d/65-celesto-kvm.rules"
+    local rule_body='# Managed by celesto setup. Do not edit by hand.
 KERNEL=="kvm", GROUP="kvm", MODE="0660", TAG+="uaccess"
 '
 
@@ -461,33 +461,33 @@ install_missing_dependencies() {
     local packages=()
     if [[ -e /run/ostree-booted ]] && command -v rpm-ostree >/dev/null 2>&1; then
         mapfile -t packages < <(packages_for_commands dnf "${missing_commands[@]}")
-        echo "❌ Required commands are missing: ${missing_commands[*]}; run 'sudo rpm-ostree install ${packages[*]}', reboot, then run 'smolvm setup --skip-deps'."
+        echo "❌ Required commands are missing: ${missing_commands[*]}; run 'sudo rpm-ostree install ${packages[*]}', reboot, then run 'celesto setup --skip-deps'."
         return 1
     fi
 
     if command -v apt-get >/dev/null 2>&1; then
         mapfile -t packages < <(packages_for_commands apt "${missing_commands[@]}")
         if ! apt-get update -qq; then
-            echo "⚠️  Package-list refresh failed; SmolVM will try the existing package list."
+            echo "⚠️  Package-list refresh failed; Celesto will try the existing package list."
         fi
         DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${packages[@]}"
     elif command -v dnf >/dev/null 2>&1; then
         mapfile -t packages < <(packages_for_commands dnf "${missing_commands[@]}")
         dnf install -y "${packages[@]}"
     else
-        echo "❌ Required commands are missing: ${missing_commands[*]}; install them with your operating system, then run 'smolvm setup --skip-deps'."
+        echo "❌ Required commands are missing: ${missing_commands[*]}; install them with your operating system, then run 'celesto setup --skip-deps'."
         return 1
     fi
 
     collect_missing_commands "${required_commands[@]}"
     if [[ ${#missing_commands[@]} -ne 0 ]]; then
-        echo "❌ Required commands are still missing: ${missing_commands[*]}; install them, then run 'smolvm setup --skip-deps'."
+        echo "❌ Required commands are still missing: ${missing_commands[*]}; install them, then run 'celesto setup --skip-deps'."
         return 1
     fi
 }
 
 if [[ "${CHECK_ONLY}" == "true" ]]; then
-    echo "=== SmolVM System Check ==="
+    echo "=== Celesto System Check ==="
     run_checks
     if [[ ${#missing_items[@]} -ne 0 ]]; then
         echo ""
@@ -506,13 +506,13 @@ if [[ "${CHECK_ONLY}" == "true" ]]; then
     exit 0
 fi
 
-echo "=== SmolVM System Setup ==="
+echo "=== Celesto System Setup ==="
 
 echo "Checking KVM..."
 if [[ ! -e /dev/kvm ]]; then
     if [[ "${SKIP_KVM_CHECK}" == "true" ]]; then
         echo "ℹ️ /dev/kvm not present; skipping KVM check (--skip-kvm-check / --for-bake)."
-        echo "   Run 'smolvm doctor' on the runtime host to verify KVM before booting VMs."
+        echo "   Run 'celesto doctor' on the runtime host to verify KVM before booting VMs."
     else
         echo "❌ /dev/kvm not found. Enable KVM or nested virtualization."
         echo "   For bake-time installs on hosts without /dev/kvm, pass --for-bake."
@@ -540,7 +540,7 @@ collect_missing_commands "${required_commands[@]}"
 if [[ "${SKIP_DEPS}" == "true" ]]; then
     echo "Skipping operating-system package installation (--skip-deps)"
     if [[ ${#missing_commands[@]} -ne 0 ]]; then
-        echo "❌ Required commands are missing: ${missing_commands[*]}; install them, then run 'smolvm setup --skip-deps'."
+        echo "❌ Required commands are missing: ${missing_commands[*]}; install them, then run 'celesto setup --skip-deps'."
         exit 1
     fi
 else
@@ -551,7 +551,7 @@ if [[ -n "${firecracker_path}" ]]; then
     echo "✅ Firecracker already installed: ${firecracker_path}"
 else
     if [[ ! -f "${INSTALL_SCRIPT}" ]]; then
-        echo "❌ Firecracker installer is missing: '${INSTALL_SCRIPT}'; reinstall SmolVM, then run 'smolvm setup' again."
+        echo "❌ Firecracker installer is missing: '${INSTALL_SCRIPT}'; reinstall Celesto, then run 'celesto setup' again."
         exit 1
     fi
     echo "Installing Firecracker in '${FIRECRACKER_DIR}'..."
@@ -569,7 +569,7 @@ fi
 
 if [[ -z "${firecracker_path}" ]]; then
     printf -v firecracker_dir_arg '%q' "${FIRECRACKER_DIR}"
-    echo "❌ Firecracker is missing from '${FIRECRACKER_DIR}'; run this command: smolvm setup --firecracker-dir ${firecracker_dir_arg}"
+    echo "❌ Firecracker is missing from '${FIRECRACKER_DIR}'; run this command: celesto setup --firecracker-dir ${firecracker_dir_arg}"
     exit 1
 fi
 
@@ -578,11 +578,11 @@ if [[ "${WITH_DOCKER}" == "true" ]]; then
         echo "✅ Docker already installed"
     else
         if [[ -e /run/ostree-booted ]]; then
-            echo "❌ Docker is not installed; install it through your operating system, or rerun 'smolvm setup' without '--with-docker'."
+            echo "❌ Docker is not installed; install it through your operating system, or rerun 'celesto setup' without '--with-docker'."
             exit 1
         fi
         if ! command -v curl >/dev/null 2>&1; then
-            echo "❌ curl is missing; install it, then rerun 'smolvm setup --with-docker'."
+            echo "❌ curl is missing; install it, then rerun 'celesto setup --with-docker'."
             exit 1
         fi
         echo "Installing Docker..."

@@ -1,12 +1,12 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
-***
+______________________________________________________________________
 
-[@celestoai/smolvm](../README.md) / BrowserSession
+[@celestoai/celesto](../README.md) / BrowserSession
 
 # Class: BrowserSession
 
-Run commands in an isolated browser computer owned by one SmolVM client. A browser session is the disposable Chromium environment and its private connection endpoints.
+Run commands in an isolated browser computer owned by one Celesto client. A browser session is the disposable Chromium environment and its private connection endpoints.
 
 ## Implements
 
@@ -22,7 +22,7 @@ Run commands in an isolated browser computer owned by one SmolVM client. A brows
 
 [`BrowserSessionClient`](../interfaces/BrowserSessionClient.md).[`cdpUrl`](../interfaces/BrowserSessionClient.md#cdpurl)
 
-***
+______________________________________________________________________
 
 ### displayUrl?
 
@@ -32,7 +32,7 @@ Run commands in an isolated browser computer owned by one SmolVM client. A brows
 
 [`BrowserSessionClient`](../interfaces/BrowserSessionClient.md).[`displayUrl`](../interfaces/BrowserSessionClient.md#displayurl)
 
-***
+______________________________________________________________________
 
 ### files
 
@@ -42,7 +42,7 @@ Run commands in an isolated browser computer owned by one SmolVM client. A brows
 
 [`BrowserSessionClient`](../interfaces/BrowserSessionClient.md).[`files`](../interfaces/BrowserSessionClient.md#files)
 
-***
+______________________________________________________________________
 
 ### profileId?
 
@@ -52,7 +52,7 @@ Run commands in an isolated browser computer owned by one SmolVM client. A brows
 
 [`BrowserSessionClient`](../interfaces/BrowserSessionClient.md).[`profileId`](../interfaces/BrowserSessionClient.md#profileid)
 
-***
+______________________________________________________________________
 
 ### sandboxId
 
@@ -62,7 +62,7 @@ Run commands in an isolated browser computer owned by one SmolVM client. A brows
 
 [`BrowserSessionClient`](../interfaces/BrowserSessionClient.md).[`sandboxId`](../interfaces/BrowserSessionClient.md#sandboxid)
 
-***
+______________________________________________________________________
 
 ### sessionId
 
@@ -72,7 +72,7 @@ Run commands in an isolated browser computer owned by one SmolVM client. A brows
 
 [`BrowserSessionClient`](../interfaces/BrowserSessionClient.md).[`sessionId`](../interfaces/BrowserSessionClient.md#sessionid)
 
-***
+______________________________________________________________________
 
 ### viewerUrl?
 
@@ -102,27 +102,27 @@ Run commands in an isolated browser computer owned by one SmolVM client. A brows
 
 ### delete()
 
-> **delete**(): `Promise`\<`void`\>
+> **delete**(): `Promise`\<`void`>
 
 #### Returns
 
-`Promise`\<`void`\>
+`Promise`\<`void`>
 
 #### Implementation of
 
 [`BrowserSessionClient`](../interfaces/BrowserSessionClient.md).[`delete`](../interfaces/BrowserSessionClient.md#delete)
 
-***
+______________________________________________________________________
 
 ### exec()
 
-> **exec**(`command`, `options?`): `Promise`\<[`ExecResult`](../interfaces/ExecResult.md)\>
+> **exec**(`command`, `options?`): `Promise`\<[`ExecResult`](../interfaces/ExecResult.md)>
 
 #### Parameters
 
 ##### command
 
-`string` \| readonly `string`[]
+`string` | readonly `string`\[\]
 
 ##### options?
 
@@ -130,7 +130,7 @@ Run commands in an isolated browser computer owned by one SmolVM client. A brows
 
 #### Returns
 
-`Promise`\<[`ExecResult`](../interfaces/ExecResult.md)\>
+`Promise`\<[`ExecResult`](../interfaces/ExecResult.md)>
 
 #### Implementation of
 

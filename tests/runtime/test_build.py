@@ -37,7 +37,7 @@ def _ok_subprocess_run(
 
 
 def _fake_guest_agent_binary(tmp_path: Path) -> Path:
-    binary = tmp_path / "smolvm-guest-agent"
+    binary = tmp_path / "celesto-guest-agent"
     binary.write_bytes(b"rust-agent")
     binary.chmod(0o755)
     return binary
@@ -104,14 +104,14 @@ def test_preset_init_script_uses_cmdline_netmask_and_gateway_dns() -> None:
     ],
 )
 def test_init_script_honors_guest_network_hook_then_dhcp(script: str) -> None:
-    assert "smolvm.network=guest" in script
-    assert "/etc/smolvm/network.sh eth0" in script
+    assert "celesto.network=guest" in script
+    assert "/etc/celesto/network.sh eth0" in script
     assert "ifup eth0" in script
     assert "udhcpc -q -n -t 5 -i eth0" in script
     assert "dhclient -1 eth0" in script
     assert 'log_ts "net-config-failed"' in script
     assert "if configure_guest_managed_network; then" in script
-    assert script.index("/etc/smolvm/network.sh eth0") < script.index("udhcpc -q -n")
+    assert script.index("/etc/celesto/network.sh eth0") < script.index("udhcpc -q -n")
 
 
 @pytest.mark.parametrize(
@@ -222,8 +222,8 @@ class TestImageBuilderLoopFs:
     """Tests for image builder loopfs helper integration."""
 
     def test_loopfs_helper_prefers_new_root_controlled_path(self, tmp_path: Path) -> None:
-        preferred = tmp_path / "var" / "smolvm-loopfs-helper"
-        legacy = tmp_path / "usr-local" / "smolvm-loopfs-helper"
+        preferred = tmp_path / "var" / "celesto-loopfs-helper"
+        legacy = tmp_path / "usr-local" / "celesto-loopfs-helper"
         for helper in (preferred, legacy):
             helper.parent.mkdir(parents=True)
             helper.touch(mode=0o755)
@@ -236,7 +236,7 @@ class TestImageBuilderLoopFs:
 
     def test_loopfs_helper_uses_legacy_path_during_migration(self, tmp_path: Path) -> None:
         preferred = tmp_path / "missing"
-        legacy = tmp_path / "legacy" / "smolvm-loopfs-helper"
+        legacy = tmp_path / "legacy" / "celesto-loopfs-helper"
         legacy.parent.mkdir()
         legacy.touch(mode=0o755)
 
@@ -266,7 +266,7 @@ class TestImageBuilderLoopFs:
             patch.object(
                 ImageBuilder,
                 "_loopfs_helper_path",
-                return_value=Path("/usr/local/libexec/smolvm-loopfs-helper"),
+                return_value=Path("/usr/local/libexec/celesto-loopfs-helper"),
             ),
             pytest.raises(ImageError, match="celesto setup"),
         ):
@@ -280,7 +280,7 @@ class TestImageBuilderLoopFs:
         builder = ImageBuilder(cache_dir=tmp_path / "images")
         mock_subprocess_run.side_effect = _ok_subprocess_run
         mock_run_command.return_value = subprocess.CompletedProcess(
-            args=["sudo", "-n", "/usr/local/libexec/smolvm-loopfs-helper"],
+            args=["sudo", "-n", "/usr/local/libexec/celesto-loopfs-helper"],
             returncode=0,
             stdout="",
             stderr="",
@@ -295,7 +295,7 @@ class TestImageBuilderLoopFs:
             patch.object(
                 ImageBuilder,
                 "_loopfs_helper_path",
-                return_value=Path("/usr/local/libexec/smolvm-loopfs-helper"),
+                return_value=Path("/usr/local/libexec/celesto-loopfs-helper"),
             ),
             patch.object(ImageBuilder, "_download_kernel"),
             patch(
@@ -354,8 +354,8 @@ class TestAgentRuntimeBakedIntoImages:
             **kwargs: object,
         ) -> None:
             init_script = str(args[0])
-            assert "/usr/local/bin/smolvm-guest-agent --listen vsock://1024" in init_script
-            assert "python3 /usr/local/bin/smolvm-guest-agent" not in init_script
+            assert "/usr/local/bin/celesto-guest-agent --listen vsock://1024" in init_script
+            assert "python3 /usr/local/bin/celesto-guest-agent" not in init_script
             args[2].touch()  # kernel_path
             args[3].touch()  # rootfs_path
 
@@ -382,8 +382,8 @@ class TestAgentRuntimeBakedIntoImages:
             **kwargs: object,
         ) -> None:
             init_script = str(args[0])
-            assert "/usr/local/bin/smolvm-guest-agent --listen vsock://1024" in init_script
-            assert "python3 /usr/local/bin/smolvm-guest-agent" not in init_script
+            assert "/usr/local/bin/celesto-guest-agent --listen vsock://1024" in init_script
+            assert "python3 /usr/local/bin/celesto-guest-agent" not in init_script
             args[2].touch()
             args[3].touch()
 
@@ -478,12 +478,12 @@ class TestBrowserImageBuilder:
             assert kwargs["kernel_url"] == BASE_KERNELS["amd64"].elf_url
             assert kwargs["fingerprint_data"]["kernel_profile"] == "microvm_direct"
             assert kwargs["fingerprint_data"]["image_type"] == "browser-chromium-v5"
-            assert "smolvm-browser-runner" in kwargs["extra_files"]
-            assert "playwright-core" in kwargs["extra_files"]["smolvm-browser-runner"]
-            assert "process.exit(1)" in kwargs["extra_files"]["smolvm-browser-runner"]
-            assert "process.exitCode" not in kwargs["extra_files"]["smolvm-browser-runner"]
-            helper_script = kwargs["extra_files"]["smolvm-browser-session"]
-            connections = kwargs["extra_files"]["smolvm-computer-connections.py"]
+            assert "celesto-browser-runner" in kwargs["extra_files"]
+            assert "playwright-core" in kwargs["extra_files"]["celesto-browser-runner"]
+            assert "process.exit(1)" in kwargs["extra_files"]["celesto-browser-runner"]
+            assert "process.exitCode" not in kwargs["extra_files"]["celesto-browser-runner"]
+            helper_script = kwargs["extra_files"]["celesto-browser-session"]
+            connections = kwargs["extra_files"]["celesto-computer-connections.py"]
             compile(connections, "guest_connections.py", "exec")
             assert "_connections_sha256" in kwargs["fingerprint_data"]
             assert "connection-read_only-ws.pid" in helper_script
@@ -525,8 +525,8 @@ class TestBrowserImageBuilder:
         assert kernel.exists()
         assert rootfs.exists()
         extra_files = mock_do_build.call_args.kwargs["extra_files"]
-        assert "smolvm-browser-session" in extra_files
-        assert "smolvm-browser-wait-port" in extra_files
+        assert "celesto-browser-session" in extra_files
+        assert "celesto-browser-wait-port" in extra_files
 
     @patch.object(ImageBuilder, "_host_arch_key", return_value="x86_64")
     @patch.object(ImageBuilder, "check_docker", return_value=True)
@@ -708,7 +708,7 @@ class TestBrowserImageBuilder:
             patch.object(
                 ImageBuilder,
                 "_loopfs_helper_path",
-                return_value=Path("/usr/local/libexec/smolvm-loopfs-helper"),
+                return_value=Path("/usr/local/libexec/celesto-loopfs-helper"),
             ),
             patch(
                 "celesto.images.builder._guest_agent_binary",
@@ -782,7 +782,7 @@ class TestFingerprintWithContent:
 
     def test_same_inputs_and_content_produce_stable_key(self, tmp_path: Path) -> None:
         builder = ImageBuilder(cache_dir=tmp_path)
-        inputs = {"size_mb": 512, "ssh_password": "smolvm"}
+        inputs = {"size_mb": 512, "ssh_password": "celesto"}
         a = builder._fingerprint_with_content(inputs, "FROM alpine:3.19", "#!/bin/sh\nexec /init")
         b = builder._fingerprint_with_content(inputs, "FROM alpine:3.19", "#!/bin/sh\nexec /init")
         assert a == b
@@ -804,7 +804,7 @@ class TestFingerprintWithContent:
     def test_inputs_passthrough(self, tmp_path: Path) -> None:
         """Augmentation must keep the original inputs alongside the content hashes."""
         builder = ImageBuilder(cache_dir=tmp_path)
-        inputs = {"size_mb": 512, "ssh_password": "smolvm", "extra_packages": ["git"]}
+        inputs = {"size_mb": 512, "ssh_password": "celesto", "extra_packages": ["git"]}
         result = builder._fingerprint_with_content(inputs, "df", "init")
         for key, value in inputs.items():
             assert result[key] == value
@@ -820,13 +820,13 @@ class TestFingerprintWithContent:
         image_dir.mkdir()
 
         original = builder._fingerprint_with_content(
-            {"ssh_password": "smolvm"}, "FROM alpine:3.19", "init"
+            {"ssh_password": "celesto"}, "FROM alpine:3.19", "init"
         )
         builder._write_fingerprint(image_dir, original)
         assert builder._check_fingerprint(image_dir, original)
 
         # Dockerfile changes — same inputs, but the cache key shifts.
         edited = builder._fingerprint_with_content(
-            {"ssh_password": "smolvm"}, "FROM alpine:3.20", "init"
+            {"ssh_password": "celesto"}, "FROM alpine:3.20", "init"
         )
         assert not builder._check_fingerprint(image_dir, edited)

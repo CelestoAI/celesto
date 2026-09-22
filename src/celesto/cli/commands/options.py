@@ -58,7 +58,7 @@ def image_dir_option(fn: F) -> F:
         "--image-dir",
         default=None,
         metavar="PATH",
-        help="Image cache directory (default: $SMOLVM_IMAGE_DIR or ~/.smolvm/images).",
+        help="Image cache directory (default: $CELESTO_IMAGE_DIR or ~/.celesto/images).",
     )(fn)
 
 

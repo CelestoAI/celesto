@@ -34,6 +34,7 @@ from urllib.parse import urlparse
 import requests
 from pydantic import BaseModel, field_validator, model_validator
 
+from celesto._compat import existing_legacy_path
 from celesto.exceptions import ImageError
 
 if TYPE_CHECKING:
@@ -45,7 +46,7 @@ logger = logging.getLogger(__name__)
 _DOWNLOAD_CHUNK_SIZE = 8192
 
 # Environment variable overriding where images and kernels are cached.
-IMAGE_DIR_ENV = "SMOLVM_IMAGE_DIR"
+IMAGE_DIR_ENV = "CELESTO_IMAGE_DIR"
 
 
 def _normalize_digest(expected: str | None) -> str | None:
@@ -111,8 +112,8 @@ def _expand_image_dir(path: Path) -> Path:
 def resolve_image_dir(image_dir: Path | str | None = None) -> Path:
     """Resolve the image cache directory.
 
-    Priority: explicit argument, then ``$SMOLVM_IMAGE_DIR``, then
-    ``~/.smolvm/images``. An empty or whitespace-only argument falls
+    Priority: explicit argument, then ``$CELESTO_IMAGE_DIR``, then
+    ``~/.celesto/images``. An empty or whitespace-only argument falls
     through to the environment/default so ``--image-dir "$UNSET_VAR"``
     never targets the current working directory. The directory is not
     created here — read-only consumers (listing, pruning) must tolerate
@@ -125,7 +126,8 @@ def resolve_image_dir(image_dir: Path | str | None = None) -> Path:
     env_dir = os.environ.get(IMAGE_DIR_ENV, "").strip()
     if env_dir:
         return _expand_image_dir(Path(env_dir))
-    return Path.home() / ".smolvm" / "images"
+    home = Path.home()
+    return existing_legacy_path(home / ".celesto" / "images", home / ".smolvm" / "images")
 
 
 class ImageSource(BaseModel):
@@ -208,7 +210,7 @@ class S3ImageRef(BaseModel):
 
 
 class S3ImageManifest(BaseModel):
-    """Schema for the ``smolvm-image.json`` manifest stored alongside
+    """Schema for the ``celesto-image.json`` manifest stored alongside
     image assets in S3.
 
     Attributes:
@@ -300,15 +302,15 @@ def parse_s3_image_uri(uri: str) -> S3ImageRef:
 # roles).  This lets users point Celesto at S3-compatible stores
 # (Cloudflare R2, MinIO, etc.) without touching their AWS config.
 #
-#   SMOLVM_S3_ENDPOINT_URL       — Custom S3 endpoint
-#   SMOLVM_S3_ACCESS_KEY_ID      — Access key (falls back to AWS_ACCESS_KEY_ID)
-#   SMOLVM_S3_SECRET_ACCESS_KEY  — Secret key (falls back to AWS_SECRET_ACCESS_KEY)
+#   CELESTO_S3_ENDPOINT_URL       — Custom S3 endpoint
+#   CELESTO_S3_ACCESS_KEY_ID      — Access key (falls back to AWS_ACCESS_KEY_ID)
+#   CELESTO_S3_SECRET_ACCESS_KEY  — Secret key (falls back to AWS_SECRET_ACCESS_KEY)
 # ---------------------------------------------------------------------------
 
 _S3_ENV_VARS = {
-    "endpoint_url": "SMOLVM_S3_ENDPOINT_URL",
-    "access_key": "SMOLVM_S3_ACCESS_KEY_ID",
-    "secret_key": "SMOLVM_S3_SECRET_ACCESS_KEY",
+    "endpoint_url": "CELESTO_S3_ENDPOINT_URL",
+    "access_key": "CELESTO_S3_ACCESS_KEY_ID",
+    "secret_key": "CELESTO_S3_SECRET_ACCESS_KEY",
 }
 
 
@@ -317,15 +319,15 @@ def _require_boto3() -> S3Client:
 
     Credentials are resolved in order:
 
-    1. ``SMOLVM_S3_*`` environment variables (explicit Celesto config)
+    1. ``CELESTO_S3_*`` environment variables (explicit Celesto config)
     2. ``AWS_*`` environment variables (standard boto3 chain)
     3. ``~/.aws/credentials`` / IAM roles (standard boto3 chain)
 
     For S3-compatible stores set at minimum::
 
-        export SMOLVM_S3_ENDPOINT_URL=https://<id>.r2.cloudflarestorage.com
-        export SMOLVM_S3_ACCESS_KEY_ID=<key>
-        export SMOLVM_S3_SECRET_ACCESS_KEY=<secret>
+        export CELESTO_S3_ENDPOINT_URL=https://<id>.r2.cloudflarestorage.com
+        export CELESTO_S3_ACCESS_KEY_ID=<key>
+        export CELESTO_S3_SECRET_ACCESS_KEY=<secret>
     """
     import os
 
@@ -358,10 +360,10 @@ def _require_boto3() -> S3Client:
     secret_key = os.environ.get(_S3_ENV_VARS["secret_key"])
     if access_key or secret_key:
         if not (access_key and secret_key):
-            missing = "SMOLVM_S3_SECRET_ACCESS_KEY" if access_key else "SMOLVM_S3_ACCESS_KEY_ID"
+            missing = "CELESTO_S3_SECRET_ACCESS_KEY" if access_key else "CELESTO_S3_ACCESS_KEY_ID"
             raise ImageError(
                 f"Incomplete S3 credentials: {missing} is not set. "
-                f"Both SMOLVM_S3_ACCESS_KEY_ID and SMOLVM_S3_SECRET_ACCESS_KEY "
+                f"Both CELESTO_S3_ACCESS_KEY_ID and CELESTO_S3_SECRET_ACCESS_KEY "
                 f"must be set together."
             )
         kwargs["aws_access_key_id"] = access_key
@@ -371,7 +373,7 @@ def _require_boto3() -> S3Client:
         logger.info(
             "Using Celesto S3 config: endpoint=%s, credentials=%s",
             endpoint_url or "(default)",
-            "SMOLVM_S3_*" if access_key else "(boto3 chain)",
+            "CELESTO_S3_*" if access_key else "(boto3 chain)",
         )
 
     return boto3.client("s3", **kwargs)  # type: ignore[no-any-return]
@@ -392,8 +394,8 @@ class ImageManager:
     """Manages VM image downloads, caching, and verification.
 
     Images are cached under the directory returned by
-    :func:`resolve_image_dir` (``~/.smolvm/images`` unless overridden by
-    ``$SMOLVM_IMAGE_DIR``). Downloads are atomic: written to a temporary
+    :func:`resolve_image_dir` (``~/.celesto/images`` unless overridden by
+    ``$CELESTO_IMAGE_DIR``). Downloads are atomic: written to a temporary
     file, SHA-256 verified, then renamed into place so a partial download
     never corrupts the cache.
     """
@@ -557,7 +559,7 @@ class ImageManager:
         via OVMF/SeaBIOS firmware.
 
         Args:
-            name: Cache directory name (under ``~/.smolvm/images/``).
+            name: Cache directory name (under ``~/.celesto/images/``).
             url: URL to download the rootfs from.
             filename: Cache filename for the rootfs (default ``rootfs.qcow2``).
                 Sanitized to a basename; path separators or traversal
@@ -818,7 +820,7 @@ class ImageManager:
     ) -> tuple[LocalImage, S3ImageManifest]:
         """Download and cache an S3-hosted image.
 
-        The S3 prefix must contain a ``smolvm-image.json`` manifest that
+        The S3 prefix must contain a ``celesto-image.json`` manifest that
         declares the kernel, rootfs, and optional initrd filenames along
         with their SHA-256 hashes.
 
@@ -922,15 +924,15 @@ class ImageManager:
         ref: S3ImageRef,
         image_dir: Path,
     ) -> S3ImageManifest:
-        """Download and parse the ``smolvm-image.json`` manifest.
+        """Download and parse the ``celesto-image.json`` manifest.
 
         Uses an atomic temp-file-then-rename write to avoid partial
         reads by concurrent callers.  If S3 is unreachable but a
         previously cached manifest exists locally, falls back to the
         cached copy so that fully-cached images work offline.
         """
-        manifest_key = f"{ref.prefix}/smolvm-image.json"
-        manifest_dest = image_dir / "smolvm-image.json"
+        manifest_key = f"{ref.prefix}/celesto-image.json"
+        manifest_dest = image_dir / "celesto-image.json"
         image_dir.mkdir(parents=True, exist_ok=True)
 
         try:
@@ -966,7 +968,7 @@ class ImageManager:
             return S3ImageManifest(**raw)
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
             raise ImageError(
-                f"Invalid smolvm-image.json in s3://{ref.bucket}/{ref.prefix}/: {exc}"
+                f"Invalid celesto-image.json in s3://{ref.bucket}/{ref.prefix}/: {exc}"
             ) from exc
 
     def _download_s3_file(
@@ -984,7 +986,7 @@ class ImageManager:
         Uses the same temp-file-then-rename pattern as :meth:`_download_file`.
         """
         # Same normalization as the HTTP path and the cache check. Without it
-        # an uppercase digest in a ``smolvm-image.json`` failed every download
+        # an uppercase digest in a ``celesto-image.json`` failed every download
         # with a mismatch whose expected and actual were the same digest in
         # different case, while the cache check accepted it — so the two
         # disagreed and the image could never be fetched. Runs before mkstemp

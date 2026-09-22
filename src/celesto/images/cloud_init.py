@@ -26,7 +26,7 @@ from pycdlib import PyCdlib
 
 def default_user_data(ssh_public_key: str) -> str:
     """Return cloud-init user-data for a root SSH login."""
-    dns_cmd = 'printf "[Resolve]\\nDNS=10.0.2.3\\n" > /etc/systemd/resolved.conf.d/smolvm-dns.conf'
+    dns_cmd = 'printf "[Resolve]\\nDNS=10.0.2.3\\n" > /etc/systemd/resolved.conf.d/celesto-dns.conf'
     return f"""#cloud-config
 disable_root: false
 ssh_pwauth: false
@@ -43,16 +43,16 @@ bootcmd:
   - ['systemctl', 'restart', 'systemd-resolved']
   - ['systemctl', 'restart', 'systemd-timesyncd']
 write_files:
-  - path: /etc/ssh/sshd_config.d/10-smolvm-root.conf
+  - path: /etc/ssh/sshd_config.d/10-celesto-root.conf
     permissions: "0644"
     content: |
       PermitRootLogin yes
       PasswordAuthentication no
-  - path: /etc/update-motd.d/00-smolvm
+  - path: /etc/update-motd.d/00-celesto
     permissions: "0755"
     content: |
       #!/bin/sh
-      printf '\\n  SmolVM Sandbox — powered by Celesto AI\\n  https://celesto.ai\\n\\n'
+      printf '\\n  Celesto Sandbox — powered by Celesto AI\\n  https://celesto.ai\\n\\n'
 runcmd:
   - rm -f /etc/update-motd.d/10-help-text /etc/update-motd.d/60-unminimize
   - >
@@ -61,7 +61,7 @@ runcmd:
 """
 
 
-def default_meta_data(*, instance_id: str = "smolvm-default", hostname: str = "smolvm") -> str:
+def default_meta_data(*, instance_id: str = "celesto-default", hostname: str = "celesto") -> str:
     """Return cloud-init meta-data for a default Celesto guest."""
     return f"""instance-id: {instance_id}
 local-hostname: {hostname}

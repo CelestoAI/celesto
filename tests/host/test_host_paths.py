@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from celesto.host.paths import (
-    SMOLVM_FIRECRACKER_DIR_ENV,
+    CELESTO_FIRECRACKER_DIR_ENV,
     directory_is_on_path,
     find_firecracker,
     resolve_firecracker_dir,
@@ -38,27 +38,27 @@ def test_explicit_directory_beats_environment(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv(SMOLVM_FIRECRACKER_DIR_ENV, str(tmp_path / "environment"))
+    monkeypatch.setenv(CELESTO_FIRECRACKER_DIR_ENV, str(tmp_path / "environment"))
 
     assert resolve_firecracker_dir(tmp_path / "explicit") == (tmp_path / "explicit").resolve()
 
 
 def test_environment_beats_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     configured = tmp_path / "configured"
-    monkeypatch.setenv(SMOLVM_FIRECRACKER_DIR_ENV, str(configured))
+    monkeypatch.setenv(CELESTO_FIRECRACKER_DIR_ENV, str(configured))
 
     assert resolve_firecracker_dir() == configured.resolve()
 
 
 def test_empty_environment_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(SMOLVM_FIRECRACKER_DIR_ENV, "   ")
+    monkeypatch.setenv(CELESTO_FIRECRACKER_DIR_ENV, "   ")
 
     with pytest.raises(ValueError) as exc_info:
         resolve_firecracker_dir()
 
     message = str(exc_info.value)
-    assert "SMOLVM_FIRECRACKER_DIR is empty" in message
-    assert "unset SMOLVM_FIRECRACKER_DIR" in message
+    assert "CELESTO_FIRECRACKER_DIR is empty" in message
+    assert "unset CELESTO_FIRECRACKER_DIR" in message
     assert "celesto setup" in message
 
 
@@ -76,7 +76,7 @@ def test_configured_directory_is_authoritative(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     path_binary = _executable(tmp_path / "path")
-    monkeypatch.setenv(SMOLVM_FIRECRACKER_DIR_ENV, str(tmp_path / "missing"))
+    monkeypatch.setenv(CELESTO_FIRECRACKER_DIR_ENV, str(tmp_path / "missing"))
 
     assert find_firecracker(path_lookup=lambda _name: path_binary) is None
 
@@ -86,7 +86,7 @@ def test_path_is_used_before_user_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     path_binary = _executable(tmp_path / "path")
-    monkeypatch.delenv(SMOLVM_FIRECRACKER_DIR_ENV, raising=False)
+    monkeypatch.delenv(CELESTO_FIRECRACKER_DIR_ENV, raising=False)
 
     assert find_firecracker(path_lookup=lambda _name: path_binary) == path_binary.resolve()
 
@@ -98,10 +98,10 @@ def test_environment_changes_are_observed_after_import(
     first = _executable(tmp_path / "first")
     second = _executable(tmp_path / "second")
 
-    monkeypatch.setenv(SMOLVM_FIRECRACKER_DIR_ENV, str(first.parent))
+    monkeypatch.setenv(CELESTO_FIRECRACKER_DIR_ENV, str(first.parent))
     assert find_firecracker(path_lookup=lambda _name: None) == first
 
-    monkeypatch.setenv(SMOLVM_FIRECRACKER_DIR_ENV, str(second.parent))
+    monkeypatch.setenv(CELESTO_FIRECRACKER_DIR_ENV, str(second.parent))
     assert find_firecracker(path_lookup=lambda _name: None) == second
 
 
@@ -112,7 +112,7 @@ def test_non_executable_file_is_ignored(
     configured = tmp_path / "configured"
     configured.mkdir()
     (configured / "firecracker").write_text("not executable")
-    monkeypatch.setenv(SMOLVM_FIRECRACKER_DIR_ENV, str(configured))
+    monkeypatch.setenv(CELESTO_FIRECRACKER_DIR_ENV, str(configured))
 
     assert find_firecracker(path_lookup=lambda _name: None) is None
 

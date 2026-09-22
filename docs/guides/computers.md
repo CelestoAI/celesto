@@ -70,10 +70,10 @@ computer.browser.launch()
 ## Use it from TypeScript
 
 ```ts
-import { SmolVM } from "@celestoai/smolvm";
+import { Celesto } from "@celestoai/celesto";
 
-const smolvm = new SmolVM({ runtimePath: "celesto" });
-const computer = await smolvm.computers.create();
+const celesto = new Celesto({ runtimePath: "celesto" });
+const computer = await celesto.computers.create();
 
 try {
   console.log(computer.display.viewerUrl);
@@ -82,7 +82,7 @@ try {
   const result = await computer.exec("ls -la /workspace");
   console.log(result.stdout);
 } finally {
-  await smolvm.close();
+  await celesto.close();
 }
 ```
 

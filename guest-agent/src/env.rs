@@ -9,7 +9,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-const ENV_FILE: &str = "/etc/profile.d/smolvm_env.sh";
+const ENV_FILE: &str = "/etc/profile.d/celesto_env.sh";
 static ENV_UPDATE_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
 #[derive(Debug, Serialize)]
@@ -222,11 +222,11 @@ fn atomic_write_env(path: &Path, vars: &BTreeMap<String, String>) -> Result<(), 
 
 fn build_env_script(vars: &BTreeMap<String, String>) -> Result<String, String> {
     if vars.is_empty() {
-        return Ok("# SmolVM environment variables (empty)\n".to_string());
+        return Ok("# Celesto environment variables (empty)\n".to_string());
     }
     let mut lines = vec![
         "#!/bin/sh".to_string(),
-        "# SmolVM managed environment variables".to_string(),
+        "# Celesto managed environment variables".to_string(),
         String::new(),
     ];
     for (key, value) in vars {
@@ -270,7 +270,7 @@ fn sync_parent_dir(parent: &Path) -> Result<(), String> {
 
 fn tmp_path(parent: &Path, attempt: u32) -> PathBuf {
     parent.join(format!(
-        ".smolvm-env-{}-{}-{}",
+        ".celesto-env-{}-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -339,7 +339,7 @@ mod tests {
 
     fn tempfile_dir() -> PathBuf {
         let path = std::env::temp_dir().join(format!(
-            "smolvm-env-test-{}-{}",
+            "celesto-env-test-{}-{}",
             std::process::id(),
             TEMPFILE_COUNTER.fetch_add(1, Ordering::Relaxed)
         ));

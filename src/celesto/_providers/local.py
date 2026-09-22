@@ -58,7 +58,7 @@ class LocalProvider:
         options = self._options.copy()
         data_dir = resolve_data_dir(options.get("data_dir"))
         options["data_dir"] = data_dir
-        options["state_manager"] = create_cli_state_manager(data_dir / "smolvm.db")
+        options["state_manager"] = create_cli_state_manager(data_dir / "celesto.db")
         return options
 
     def start(self) -> None:

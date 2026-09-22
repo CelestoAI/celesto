@@ -42,7 +42,7 @@ class TestDirectKernelBoot:
     def test_firecracker_render_includes_pci_off_and_safe_trims(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.delenv("SMOLVM_VERBOSE_BOOT", raising=False)
+        monkeypatch.delenv("CELESTO_VERBOSE_BOOT", raising=False)
         args = DirectKernelBoot(root="/dev/vda", init="/init").render(
             backend="firecracker",
             arch="amd64",
@@ -79,7 +79,7 @@ class TestDirectKernelBoot:
         assert "root=/dev/vda" in tokens
 
     def test_verbose_boot_env_drops_default_quiet(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("SMOLVM_VERBOSE_BOOT", "1")
+        monkeypatch.setenv("CELESTO_VERBOSE_BOOT", "1")
         args = DirectKernelBoot().render(backend="firecracker", arch="amd64")
         assert "quiet" not in _tokens(args)
         assert "tsc=reliable" in _tokens(args)

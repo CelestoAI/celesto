@@ -1,4 +1,4 @@
-import { SmolVMError } from "@celestoai/smolvm";
+import { CelestoError } from "@celestoai/celesto";
 
 export class PublicError extends Error {
   constructor(
@@ -18,17 +18,17 @@ export function toPublicError(error: unknown): PublicError {
   if (error instanceof Error && error.message.startsWith("OPENAI_MODEL")) {
     return new PublicError("The configured OpenAI model is unavailable.", 503, "Choose a model supported by the pinned Pi release in OPENAI_MODEL.");
   }
-  if (error instanceof SmolVMError) {
+  if (error instanceof CelestoError) {
     if (error.code === "unsupported_node" || error.code === "protocol_incompatible") {
       return new PublicError(
-        "The installed SmolVM runtime cannot start this demo.",
+        "The installed Celesto runtime cannot start this demo.",
         503,
         error.recoveryCommand ?? "curl -sSL https://celesto.ai/install.sh | bash",
       );
     }
     if (error.code === "runtime_missing") {
       return new PublicError(
-        "SmolVM is not installed on this computer.",
+        "Celesto is not installed on this computer.",
         503,
         "curl -sSL https://celesto.ai/install.sh | bash",
       );
@@ -38,7 +38,7 @@ export function toPublicError(error: unknown): PublicError {
     return new PublicError(
       "OpenMuse Research could not start a private computer.",
       503,
-      error.recoveryCommand ?? "smolvm doctor",
+      error.recoveryCommand ?? "celesto doctor",
     );
   }
   if ((error as { name?: string })?.name === "AbortError") return new PublicError("Research was stopped.", 499);

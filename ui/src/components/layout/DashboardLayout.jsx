@@ -53,7 +53,7 @@ export default function DashboardLayout({ nodes, stats }) {
                         </svg>
                     </div>
                     <span className="text-sm font-mono tracking-[0.25em] text-slate-400 dark:text-white/50 font-light">
-                        SmolVM
+                        Celesto
                     </span>
                 </div>
 

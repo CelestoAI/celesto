@@ -24,7 +24,7 @@ def _image(root: Path) -> Path:
     image = root / "macos" / "macos-latest"
     image.mkdir(parents=True)
     (image / "disk.img").write_bytes(b"disk")
-    (image / "smolvm-manifest.json").write_text(
+    (image / "celesto-manifest.json").write_text(
         json.dumps(
             {
                 "schema_version": 1,

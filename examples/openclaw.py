@@ -111,15 +111,15 @@ def _start_gateway(vm: Celesto) -> None:
         "then exit 0; fi; "
         "nohup openclaw gateway run --allow-unconfigured --bind loopback "
         f"--port {GUEST_DASHBOARD_PORT} "
-        "</dev/null >/tmp/smolvm-openclaw-gateway.log 2>&1 & "
-        'gateway_pid=$!; echo "$gateway_pid" >/tmp/smolvm-openclaw-gateway.pid; '
+        "</dev/null >/tmp/celesto-openclaw-gateway.log 2>&1 & "
+        'gateway_pid=$!; echo "$gateway_pid" >/tmp/celesto-openclaw-gateway.pid; '
         "for attempt in $(seq 1 60); do "
         "gateway_ready && exit 0; "
         "sleep 0.5; done; "
         'kill "$gateway_pid" >/dev/null 2>&1 || true; '
         'wait "$gateway_pid" >/dev/null 2>&1 || true; '
-        "rm -f /tmp/smolvm-openclaw-gateway.pid; "
-        "tail -n 80 /tmp/smolvm-openclaw-gateway.log >&2; exit 1",
+        "rm -f /tmp/celesto-openclaw-gateway.pid; "
+        "tail -n 80 /tmp/celesto-openclaw-gateway.log >&2; exit 1",
         timeout=60,
     )
 

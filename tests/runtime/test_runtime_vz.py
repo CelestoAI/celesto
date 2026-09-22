@@ -75,7 +75,7 @@ def test_vz_runtime_launches_display_and_tracks_process(tmp_path: Path) -> None:
     assert launch.status is VMState.RUNNING
     assert launch.display == endpoint
     assert adapter._context.process_handles[4321] is process
-    password_file = tmp_path / "storage" / "mac-test" / ".smolvm-vnc-password"
+    password_file = tmp_path / "storage" / "mac-test" / ".celesto-vnc-password"
     assert password_file.is_file()
     assert password_file.read_text().strip() == "private-secret"
     assert password_file.stat().st_mode & 0o077 == 0

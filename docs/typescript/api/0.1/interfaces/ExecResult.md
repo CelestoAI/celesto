@@ -1,8 +1,8 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
-***
+______________________________________________________________________
 
-[@celestoai/smolvm](../README.md) / ExecResult
+[@celestoai/celesto](../README.md) / ExecResult
 
 # Interface: ExecResult
 
@@ -14,25 +14,25 @@ Captured output and exit information from a completed command.
 
 > **durationMs**: `number`
 
-***
+______________________________________________________________________
 
 ### exitCode
 
 > **exitCode**: `number`
 
-***
+______________________________________________________________________
 
 ### ok
 
 > **ok**: `boolean`
 
-***
+______________________________________________________________________
 
 ### stderr
 
 > **stderr**: `string`
 
-***
+______________________________________________________________________
 
 ### stdout
 

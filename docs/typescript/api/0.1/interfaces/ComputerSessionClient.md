@@ -1,8 +1,8 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
-***
+______________________________________________________________________
 
-[@celestoai/smolvm](../README.md) / ComputerSessionClient
+[@celestoai/celesto](../README.md) / ComputerSessionClient
 
 # Interface: ComputerSessionClient
 
@@ -18,25 +18,25 @@ A complete Linux desktop grouped by display, browser, files, and commands.
 
 > `readonly` **browser**: [`ComputerBrowserClient`](ComputerBrowserClient.md)
 
-***
+______________________________________________________________________
 
 ### capabilities
 
-> `readonly` **capabilities**: readonly `string`[]
+> `readonly` **capabilities**: readonly `string`\[\]
 
-***
+______________________________________________________________________
 
 ### computerId
 
 > `readonly` **computerId**: `string`
 
-***
+______________________________________________________________________
 
 ### display
 
 > `readonly` **display**: [`ComputerDisplayClient`](ComputerDisplayClient.md)
 
-***
+______________________________________________________________________
 
 ### files
 
@@ -46,19 +46,19 @@ A complete Linux desktop grouped by display, browser, files, and commands.
 
 [`CommandFilesClient`](CommandFilesClient.md).[`files`](CommandFilesClient.md#files)
 
-***
+______________________________________________________________________
 
 ### sandboxId
 
 > `readonly` **sandboxId**: `string`
 
-***
+______________________________________________________________________
 
 ### status
 
 > `readonly` **status**: [`ComputerSessionStatus`](../type-aliases/ComputerSessionStatus.md)
 
-***
+______________________________________________________________________
 
 ### template
 
@@ -68,23 +68,23 @@ A complete Linux desktop grouped by display, browser, files, and commands.
 
 ### delete()
 
-> **delete**(): `Promise`\<`void`\>
+> **delete**(): `Promise`\<`void`>
 
 #### Returns
 
-`Promise`\<`void`\>
+`Promise`\<`void`>
 
-***
+______________________________________________________________________
 
 ### exec()
 
-> **exec**(`command`, `options?`): `Promise`\<[`ExecResult`](ExecResult.md)\>
+> **exec**(`command`, `options?`): `Promise`\<[`ExecResult`](ExecResult.md)>
 
 #### Parameters
 
 ##### command
 
-`string` \| readonly `string`[]
+`string` | readonly `string`\[\]
 
 ##### options?
 
@@ -92,7 +92,7 @@ A complete Linux desktop grouped by display, browser, files, and commands.
 
 #### Returns
 
-`Promise`\<[`ExecResult`](ExecResult.md)\>
+`Promise`\<[`ExecResult`](ExecResult.md)>
 
 #### Inherited from
 

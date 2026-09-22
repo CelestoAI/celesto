@@ -143,7 +143,7 @@ class PublicEgressProxy:
         server.owner = self  # type: ignore[attr-defined]
         thread = threading.Thread(
             target=server.serve_forever,
-            name=f"smolvm-egress-{self.session_id}",
+            name=f"celesto-egress-{self.session_id}",
             daemon=True,
         )
         try:

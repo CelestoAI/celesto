@@ -66,7 +66,7 @@ fn resolve_put_target(path: &str, name: Option<&str>) -> Result<PathBuf, String>
 }
 
 fn write_file_atomically(target: &Path, mode: Option<u32>, data: &[u8]) -> FilePutResponse {
-    match durable_atomic_write(target, mode, data, ".smolvm-put") {
+    match durable_atomic_write(target, mode, data, ".celesto-put") {
         Ok(()) => FilePutResponse {
             ok: true,
             error: None,
@@ -349,7 +349,7 @@ fn extract_tar_into(root: &Path, archive: &[u8]) -> Result<(), String> {
                     &target,
                     Some(mode & 0o777),
                     &archive[offset..offset + size_usize],
-                    ".smolvm-tar",
+                    ".celesto-tar",
                 )?;
             }
             _ => return Err(format!("unsupported tar entry type: {}", typeflag as char)),
@@ -607,7 +607,7 @@ mod tests {
 
     fn tempfile_dir() -> PathBuf {
         let path = std::env::temp_dir().join(format!(
-            "smolvm-agent-test-{}-{}",
+            "celesto-agent-test-{}-{}",
             std::process::id(),
             TEMPFILE_COUNTER.fetch_add(1, Ordering::Relaxed)
         ));

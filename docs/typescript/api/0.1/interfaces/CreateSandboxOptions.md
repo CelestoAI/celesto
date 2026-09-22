@@ -1,8 +1,8 @@
-[**@celestoai/smolvm**](../README.md)
+[**@celestoai/celesto**](../README.md)
 
-***
+______________________________________________________________________
 
-[@celestoai/smolvm](../README.md) / CreateSandboxOptions
+[@celestoai/celesto](../README.md) / CreateSandboxOptions
 
 # Interface: CreateSandboxOptions
 
@@ -12,11 +12,11 @@ Configure the operating system, resources, image, and network for a new sandbox.
 
 ### backend?
 
-> `optional` **backend?**: `"firecracker"` \| `"qemu"` \| `"libkrun"` \| `"vz"`
+> `optional` **backend?**: `"firecracker"` | `"qemu"` | `"libkrun"` | `"vz"`
 
 Override automatic backend selection.
 
-***
+______________________________________________________________________
 
 ### diskMiB?
 
@@ -24,7 +24,7 @@ Override automatic backend selection.
 
 Guest root disk size in MiB.
 
-***
+______________________________________________________________________
 
 ### image?
 
@@ -32,7 +32,7 @@ Guest root disk size in MiB.
 
 Custom local path, file URL, or remote image reference.
 
-***
+______________________________________________________________________
 
 ### memoryMiB?
 
@@ -40,7 +40,7 @@ Custom local path, file URL, or remote image reference.
 
 Guest memory in MiB.
 
-***
+______________________________________________________________________
 
 ### network?
 
@@ -48,10 +48,10 @@ Guest memory in MiB.
 
 Outbound network access. Defaults to open.
 
-***
+______________________________________________________________________
 
 ### os?
 
-> `optional` **os?**: `"ubuntu"` \| `"alpine"`
+> `optional` **os?**: `"ubuntu"` | `"alpine"`
 
 Guest operating system. Defaults to Ubuntu.

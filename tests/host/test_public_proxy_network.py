@@ -60,8 +60,8 @@ def test_apply_public_proxy_policy_is_one_transaction() -> None:
     network._ensure_nftables_base.assert_called_once_with()
     network._run_nft_script.assert_called_once()
     script = network._run_nft_script.call_args.args[0]
-    assert script.startswith("add table inet smolvm_policy_tap9\nflush table")
-    assert script.endswith('delete element inet smolvm_filter allowed_taps { "tap9" }\n')
+    assert script.startswith("add table inet celesto_policy_tap9\nflush table")
+    assert script.endswith('delete element inet celesto_filter allowed_taps { "tap9" }\n')
 
 
 @pytest.mark.parametrize(

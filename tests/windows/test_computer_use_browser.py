@@ -38,7 +38,7 @@ def _load_module():
 def test_build_config_uses_env_overrides(monkeypatch) -> None:
     module = _load_module()
     monkeypatch.setenv("COMPUTER_USE_MODEL", "gpt-5.4-mini")
-    monkeypatch.setenv("SMOLVM_BROWSER_MODE", "headless")
+    monkeypatch.setenv("CELESTO_BROWSER_MODE", "headless")
 
     args = argparse.Namespace(
         task="Summarize the homepage.",

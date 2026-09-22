@@ -26,7 +26,7 @@ from typing import Literal
 import pytest
 
 try:
-    from smolvm_core import network as _core_network
+    from celesto_core import network as _core_network
 except (ImportError, OSError):  # pragma: no cover - native extension missing entirely
     _core_network = None
 
@@ -106,8 +106,8 @@ def backend_unavailable_reasons(backend: E2EBackend, *, sandbox_name: str) -> li
             )
         if HostManager().find_firecracker() is None:
             reasons.append(
-                "Download Firecracker to ~/.smolvm/bin, make it executable "
-                "(chmod +x ~/.smolvm/bin/firecracker), and re-run tests in "
+                "Download Firecracker to ~/.celesto/bin, make it executable "
+                "(chmod +x ~/.celesto/bin/firecracker), and re-run tests in "
                 f"sandbox '{sandbox_name}'"
             )
 

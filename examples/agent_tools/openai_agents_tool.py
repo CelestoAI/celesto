@@ -64,7 +64,7 @@ def _format_command_result(exit_code: int, stdout: str, stderr: str) -> str:
     )
 
 
-def run_in_smolvm(command: str, timeout: int = 30) -> str:
+def run_in_celesto(command: str, timeout: int = 30) -> str:
     """Run a shell command inside an ephemeral Celesto sandbox.
 
     Args:
@@ -89,13 +89,13 @@ async def main() -> None:
         model=os.environ.get("OPENAI_AGENTS_MODEL", DEFAULT_MODEL),
         instructions=(
             "You are a coding assistant with access to a secure Celesto sandbox. "
-            "For shell or Python inspection requests, call run_in_smolvm exactly "
+            "For shell or Python inspection requests, call run_in_celesto exactly "
             "once and then summarize the result."
         ),
-        tools=[function_tool(run_in_smolvm)],
+        tools=[function_tool(run_in_celesto)],
     )
     prompt = (
-        "Use run_in_smolvm to run this exact command inside the sandbox: "
+        "Use run_in_celesto to run this exact command inside the sandbox: "
         "`uname -a && python3 --version`. Then summarize what you found."
     )
     result = await runner_cls.run(agent, prompt)

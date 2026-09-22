@@ -90,7 +90,7 @@ def bridge_lab() -> _BridgeLab:
         bridge=f"svbr{token}",
         uplink=f"svup{token}",
         peer=f"svpr{token}",
-        namespace=f"smolvm-e2e-{token}",
+        namespace=f"celesto-e2e-{token}",
         guest_ip=f"198.18.{octet}.2",
         peer_ip=f"198.18.{octet}.1",
     )
@@ -131,7 +131,7 @@ def _wait_for_guest_network_init(sandbox: Celesto, *, timeout: float = 30.0) -> 
     """Wait until PID 1 finishes its initial DHCP/static-network attempt."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        result = sandbox.run("grep -q 'stage=net-config-done' /var/log/smolvm-boot.log")
+        result = sandbox.run("grep -q 'stage=net-config-done' /var/log/celesto-boot.log")
         if result.exit_code == 0:
             return
         time.sleep(0.25)
@@ -209,16 +209,16 @@ def test_bridge_connectivity_restart_restore_and_delete(
         _wait_for_guest_network_init(sandbox)
 
         configure = sandbox.run(
-            "mkdir -p /etc/smolvm\n"
-            "cat > /etc/smolvm/network.sh <<'EOF'\n"
+            "mkdir -p /etc/celesto\n"
+            "cat > /etc/celesto/network.sh <<'EOF'\n"
             "#!/bin/sh\n"
             "set -e\n"
             'ip addr flush dev "$1"\n'
             f'ip addr add {bridge_lab.guest_ip}/24 dev "$1"\n'
             'ip link set "$1" up\n'
             "EOF\n"
-            "chmod +x /etc/smolvm/network.sh\n"
-            "/etc/smolvm/network.sh eth0 && sync"
+            "chmod +x /etc/celesto/network.sh\n"
+            "/etc/celesto/network.sh eth0 && sync"
         )
         assert configure.exit_code == 0, configure.stderr
         assert sandbox.run(f"ping -c 1 -W 3 {bridge_lab.peer_ip}").exit_code == 0

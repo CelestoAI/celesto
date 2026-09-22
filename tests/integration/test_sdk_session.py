@@ -80,7 +80,7 @@ def test_sdk_session_authenticates_and_exits_when_control_pipe_closes() -> None:
             )
             ready = _read_json_line(process)
             assert ready == {
-                "type": "smolvm.sdk.ready",
+                "type": "celesto.sdk.ready",
                 "protocol_version": 1,
                 "host": "127.0.0.1",
                 "port": ready["port"],
