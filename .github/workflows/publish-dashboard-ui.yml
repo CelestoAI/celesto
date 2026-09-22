@@ -3,11 +3,11 @@ name: Publish Dashboard UI Dist
 on:
   push:
     tags:
-      - "celesto-v*.*.*"
+      - "v*.*.*"
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Package release tag to publish a dashboard for (for example, celesto-v0.0.15a0)."
+        description: "Package release tag to publish a dashboard for (for example, v0.1.0)."
         required: true
         type: string
 

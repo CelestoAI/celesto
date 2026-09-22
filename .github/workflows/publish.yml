@@ -3,7 +3,7 @@ name: Publish celesto
 on:
   push:
     tags:
-      - "celesto-v*.*.*"
+      - "v*.*.*"
 
 permissions:
   contents: read
@@ -35,7 +35,7 @@ jobs:
           data = tomllib.loads(Path("pyproject.toml").read_text())
           version = data["project"]["version"]
           tag = os.environ["GITHUB_REF_NAME"]
-          expected_tag = f"celesto-v{version}"
+          expected_tag = f"v{version}"
           if tag != expected_tag:
               raise SystemExit(
                   f"Release tag {tag!r} does not match pyproject version {version!r}. "
