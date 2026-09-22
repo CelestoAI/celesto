@@ -1,112 +1,101 @@
-# Celesto Context
+# Celesto
 
-Celesto gives AI agents their own disposable computer. Each sandbox is a lightweight virtual machine that boots in seconds, runs any code or command you throw at it, and disappears when you're done — nothing touches the host.
+Celesto gives AI agents disposable computers. Each sandbox is a lightweight
+virtual machine that starts in seconds, can run code, browse the web, and
+perform system-level tasks, then disappears without affecting the host.
 
-## 🚀 Project Overview
+## Development
 
-Celesto is specifically designed to provide a secure "sandbox" for AI agents to execute code, browse the web, or perform system-level tasks safely.
+### Commands
 
+- Run tests: `pytest`
+- Lint: `uv run ruff check .`
+- Format: `uv run ruff format .`
 
-## 🧪 Development
-
-### Key Commands
-- **Testing:** `pytest` (runs the suite in `tests/`)
-- **Linting & Formatting:** `uv run ruff check .` or `uv run ruff format .`
+Tests live in `tests/`.
 
 ### Release checklist
 
-- For guest-agent or published-image changes, build and smoke the new image
-  release before tagging the Celesto package release.
-- Update `src/celesto/images/published.py` with the new `IMAGES_RELEASE_TAG`
-  and rootfs SHA pins before the PyPI tag is pushed.
-- Also update `src/celesto/images/builder.py::_GUEST_AGENT_RELEASE_SHA256`
-  from the `smolvm-guest-agent-linux-<arch>.sha256` release assets. This is a
-  separate pin from the rootfs manifest.
-- Verify both paths: `uv run celesto ...` from a source checkout may build or use
-  the local guest-agent binary, while `celesto ...` from `uv tool` uses the
-  installed wheel and downloads the standalone guest-agent release binary.
-- Only tag the Celesto package release after the image manifest, guest-agent
-  binary SHA pins, image smoke, and focused tests are complete.
+For guest-agent or published-image changes:
+
+1. Build and smoke-test the new image release.
+2. Update `IMAGES_RELEASE_TAG` and the rootfs SHA pins in
+   `src/celesto/images/published.py`.
+3. Update `_GUEST_AGENT_RELEASE_SHA256` in
+   `src/celesto/images/builder.py` using the
+   `smolvm-guest-agent-linux-<arch>.sha256` release assets. This pin is
+   separate from the rootfs manifest.
+4. Verify both installation paths:
+   - `uv run celesto ...` from a source checkout may build or use the local
+     guest-agent binary.
+   - `celesto ...` installed with `uv tool` downloads the standalone
+     guest-agent release binary.
+5. Run the focused tests.
+6. Only then tag the Celesto package release.
 
 ### CLI design
 
-- New CLI commands follow a **NOUN-VERB** structure: `celesto <noun> <verb>`,
-  e.g. `celesto codex start`, not `smolvm start codex`.
-- The noun names the resource (a sandbox, a harness, a browser session); the
-  verb names the action on it (`start`, `stop`, `ssh`).
-- This scales naturally as actions grow: `celesto codex start`, then later
-  `celesto codex logs`, `celesto codex status`, etc.
-- When adding a new harness or resource, register it as a top-level
-  subcommand and put its actions underneath, instead of overloading a
-  global verb.
-- Documented exceptions: the top-level `celesto prune` and `celesto images`
-  aliases exist for muscle memory (`images` mirrors `docker images`); both
-  delegate to their NOUN-VERB homes (`image prune`, `image list`). Do not
-  add further top-level aliases without discussion.
-- `celesto completion <shell>` is an accepted top-level meta-command (like
-  `git`/`gh` completion): it acts on the CLI itself rather than a sandbox
-  resource, so it sits outside the NOUN-VERB rule by design.
+- New commands use `celesto <noun> <verb>`, such as `celesto codex start`.
+- The noun identifies a resource, such as a sandbox, harness, or browser
+  session. The verb identifies an action, such as `start`, `stop`, or `ssh`.
+- Register each new resource as a top-level subcommand and place its actions
+  beneath it. Do not overload a global verb.
+- Do not add new top-level aliases without discussion. The existing aliases
+  are:
+  - `celesto prune`, which delegates to `celesto image prune`.
+  - `celesto images`, which delegates to `celesto image list` and mirrors
+    `docker images` for familiarity.
+- `celesto completion <shell>` is an intentional top-level meta-command. It
+  acts on the CLI itself, so the noun-verb rule does not apply.
 
+## Writing
 
-### Core writing principles
-- Follow progressive disclosure of complexity.
-- Lead with outcomes, not implementation details.
-- The first paragraph of every page must be plain English with no jargon.
-- Assume the reader may be a beginner engineer or even a non-developer.
-- Do not assume prior knowledge.
-- Explain what the user can do and why it matters before explaining how it works.
-- Do not introduce a new concept unless the page truly needs it.
-- If you must use a technical term, explain it immediately in simple language.
+- Use progressive disclosure: begin with the essential information and add
+  complexity only when the reader needs it.
+- Lead with what the user can do and why it matters, not implementation
+  details.
+- Write the first paragraph of every page in plain English without jargon.
+- Assume no prior knowledge. The reader may be a beginner engineer or a
+  non-developer.
+- Introduce only concepts the page needs. Explain technical terms immediately
+  in simple language.
 - Prefer short, concrete sentences over dense explanations.
 
-### User-facing errors and warnings
+### Errors and warnings
 
-Error and warning messages are UX, not stack traces. The reader may
-be a first-time user with no idea how Celesto works internally — they
-must still be able to act on the message. Every user-facing message
-(CLI output, panels, JSON `error` payloads, JSON `warnings` entries)
-should:
+Treat every user-facing error or warning as product copy, including CLI output,
+panels, JSON `error` payloads, and JSON `warnings` entries.
 
-- **State the fact in plain English.** Avoid internal vocabulary
-  ("mount", "host", "tap device", "validator") even when those words
-  appear in flag names — the user did not necessarily set the flag.
-- **Name the recovery.** Include the exact recovery command, with the
-  actual sandbox name interpolated, not a placeholder.
-- **Stay short.** One sentence is the goal; two if you must. If you
-  reach for a third sentence, you are probably explaining a
-  consequence that is either false in some state or not actionable —
-  cut it.
-- **Skip consequences you cannot guarantee.** A warning that says
-  "the sandbox cannot start" is wrong if the sandbox is currently
-  running. Saying "won't be able to restart once stopped" is true but
-  irrelevant when the user may not plan to restart anyway. Prefer
-  phrasing that is true regardless of state and let the user judge
-  the impact.
+Each message must:
 
-The same rule applies to JSON consumers — agents benefit from the
-same self-contained context. Don't split the message across the human
-output and a separate hint that JSON callers will not see.
+- State the fact in plain English. Avoid internal terms such as "mount",
+  "host", "tap device", and "validator", even when they appear in flag names.
+- Give the exact recovery command with the actual sandbox name, not a
+  placeholder.
+- Stay short. Prefer one sentence; use two only when necessary.
+- Avoid state-dependent consequences you cannot guarantee. State the problem
+  and recovery, then let the user judge the impact.
+- Be self-contained. Do not put recovery guidance only in human output or a
+  separate hint that JSON consumers will not receive.
 
-**Bad** — internal vocabulary, no recovery path:
+Bad—uses internal vocabulary and gives no recovery path:
 
-```
+```text
 workspace mount missing on host: /Users/aniket/conductor/workspaces/SmolVM/lome
 ```
 
-**Bad** — plain language, but too long and makes a state-dependent
-claim ("cannot start") that is false for a sandbox the user can SSH
-into right now:
+Bad—too long and incorrectly claims that a running sandbox cannot start:
 
-```
+```text
 This sandbox was set up to share the folder '...' with you, but that
 folder no longer exists on your machine. The sandbox cannot start
 until you put the folder back, or delete the sandbox with
 'celesto sandbox delete sbx-einstein'.
 ```
 
-**Good** — one sentence, true in every state, names the recovery:
+Good—short, always true, and actionable:
 
-```
+```text
 Shared folder is missing on your machine:
 '/Users/aniket/conductor/workspaces/SmolVM/lome'. Restore it, or run
 'celesto sandbox delete sbx-einstein' to remove the sandbox.
@@ -114,19 +103,21 @@ Shared folder is missing on your machine:
 
 ## Skill routing
 
-When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
+Use the matching skill whenever a request fits one of these categories. When
+in doubt, use the skill.
 
-Key routing rules:
-- Product ideas/brainstorming → invoke /office-hours
-- Strategy/scope → invoke /plan-ceo-review
-- Architecture → invoke /plan-eng-review
-- Design system/plan review → invoke /design-consultation or /plan-design-review
-- Full review pipeline → invoke /autoplan
-- Bugs/errors → invoke /investigate
-- QA/testing site behavior → invoke /qa or /qa-only
-- Code review/diff check → invoke /review
-- Visual polish → invoke /design-review
-- Ship/deploy/PR → invoke /ship or /land-and-deploy
-- Save progress → invoke /context-save
-- Resume context → invoke /context-restore
-- Author a backlog-ready spec/issue → invoke /spec
+| Request | Skill |
+| --- | --- |
+| Product ideas or brainstorming | `/office-hours` |
+| Strategy or scope | `/plan-ceo-review` |
+| Architecture | `/plan-eng-review` |
+| Design system or plan review | `/design-consultation` or `/plan-design-review` |
+| Full review pipeline | `/autoplan` |
+| Bugs or errors | `/investigate` |
+| Site behavior QA or testing | `/qa` or `/qa-only` |
+| Code or diff review | `/review` |
+| Visual polish | `/design-review` |
+| Ship, deploy, or pull request | `/ship` or `/land-and-deploy` |
+| Save progress | `/context-save` |
+| Resume context | `/context-restore` |
+| Backlog-ready specification or issue | `/spec` |
