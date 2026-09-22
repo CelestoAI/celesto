@@ -34,8 +34,11 @@ export function App() {
   const [viewerReconnectRequired, setViewerReconnectRequired] = useState(false);
   const [conversationStreamGeneration, setConversationStreamGeneration] = useState(0);
   const [controlEpoch, setControlEpoch] = useState("");
+  const controlEpochRef = useRef("");
   const [approvalPending, setApprovalPending] = useState(false);
   const [conversationPending, setConversationPending] = useState(false);
+  const [modelActionPending, setModelActionPending] = useState(false);
+  const modelActionPendingRef = useRef(false);
   const [traces, setTraces] = useState<TraceSnapshot>();
   const [traceStatus, setTraceStatus] = useState<"ready" | "reconnecting" | "unavailable">("ready");
   const endRef = useRef<HTMLDivElement>(null);
@@ -125,7 +128,7 @@ export function App() {
   }, [modelAccess]);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [conversation?.messages.length]);
   useEffect(() => {
-    setViewerPath(""); setControlEpoch(""); viewerRetryAttemptRef.current = 0; setViewerRetryAt(0); setViewerReconnectRequired(false);
+    setViewerPath(""); controlEpochRef.current = ""; setControlEpoch(""); viewerRetryAttemptRef.current = 0; setViewerRetryAt(0); setViewerReconnectRequired(false);
   }, [conversation?.id]);
   useEffect(() => {
     setViewerPath(""); viewerRetryAttemptRef.current = 0; setViewerRetryAt(0); setViewerReconnectRequired(false);
@@ -199,12 +202,19 @@ export function App() {
   };
   const takeControl = async () => {
     if (!conversation) return;
-    try { const result = await api.takeOver(conversation.id); setControlEpoch(result.controlEpoch); await refresh(); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : "Could not take control."); }
+    const takeoverId = conversation.id;
+    try {
+      const result = await api.takeOver(takeoverId);
+      if (conversationIdRef.current !== takeoverId) return;
+      controlEpochRef.current = result.controlEpoch;
+      setControlEpoch(result.controlEpoch);
+      await refresh(takeoverId);
+    }
+    catch (caught) { if (conversationIdRef.current === takeoverId) setError(caught instanceof Error ? caught.message : "Could not take control."); }
   };
   const returnControl = async () => {
-    if (!conversation || !controlEpoch) return;
-    try { showConversation(await api.resume(conversation.id, controlEpoch)); setControlEpoch(""); }
+    if (!conversation || !controlEpochRef.current) return;
+    try { showConversation(await api.resume(conversation.id, controlEpochRef.current)); controlEpochRef.current = ""; setControlEpoch(""); }
     catch (caught) { setError(caught instanceof Error ? caught.message : "Could not return control."); }
   };
   const resolve = async (approved: boolean) => {
@@ -371,14 +381,94 @@ export function App() {
           {authAttempt.deviceCode && <div className="device-code"><span>Enter this code</span><strong>{authAttempt.deviceCode.userCode}</strong><div><button onClick={() => void navigator.clipboard.writeText(authAttempt.deviceCode!.userCode).catch(() => setError("Could not copy the code. Select it and copy it manually."))}>Copy code</button><button className="secondary" onClick={() => window.open(authAttempt.deviceCode!.verificationUri, "_blank", "noopener,noreferrer")}>Open verification page ↗</button></div></div>}
           {authAttempt.prompt && <div className="auth-prompt"><label htmlFor="auth-response">{authAttempt.prompt.message}</label>{authAttempt.prompt.type === "select" ? <select id="auth-response" value={authValue} onChange={(event) => setAuthValue(event.target.value)}><option value="">Choose an option</option>{authAttempt.prompt.options?.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select> : <input id="auth-response" autoFocus type={["secret", "manual_code"].includes(authAttempt.prompt.type) ? "password" : "text"} autoComplete="off" placeholder={authAttempt.prompt.placeholder} value={authValue} onChange={(event) => setAuthValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void submitAuth(); }}/>}<button disabled={!authValue} onClick={() => void submitAuth()}>Continue</button></div>}
           {attemptActive ? <button className="text-button" onClick={() => void cancelAuth()}>Cancel</button> : <button className="secondary" onClick={() => { setAuthAttempt(undefined); setAuthValue(""); }}>Try again</button>}
-        </section> : <section className="provider-grid">
-          {providers.map((provider) => <article className={`provider-card ${provider.id === selectedProvider?.id ? "selected" : ""}`} key={provider.id}>
-            <div className="provider-heading"><div><div className="eyebrow">Provider</div><h2>{provider.name}</h2></div>{provider.configured && <span className="connected">Connected · {provider.source === "account" ? "account" : provider.source === "environment" ? "environment" : "API key"}</span>}</div>
-            {provider.configured ? <>
-              <label className="model-label" htmlFor={`model-${provider.id}`}>Model</label><select id={`model-${provider.id}`} value={provider.id === selectedProviderId ? selectedModelId : provider.models[0]?.id ?? ""} onChange={(event) => { setSelectedProviderId(provider.id); setSelectedModelId(event.target.value); }}>{provider.models.map((model) => <option key={model.id} value={model.id}>{model.name}{model.recommended ? " · Recommended" : ""}</option>)}</select>
-              <div className="provider-actions"><button onClick={() => { setSelectedProviderId(provider.id); const modelId = provider.id === selectedProviderId ? selectedModelId : provider.models[0]?.id ?? ""; setSelectedModelId(modelId); const sameBinding = conversation?.providerId === provider.id && conversation.modelId === modelId; if (conversation?.modelAccessState === "ready" && sameBinding) { setShowModelSetup(false); return; } void (!conversation ? startConversation({ providerId: provider.id, modelId }) : sameBinding ? api.reconnectConversation(conversation.id).then((next) => { showConversation(next); setShowModelSetup(false); }).catch((caught) => setError(caught instanceof Error ? caught.message : "Could not reconnect.")) : api.switchConversationModel(conversation.id, { providerId: provider.id, modelId }).then((next) => { showConversation(next); setShowModelSetup(false); void refreshConversationList(); }).catch((caught) => setError(caught instanceof Error ? caught.message : "Could not switch models."))); }}>{!conversation ? "Start using OpenMuse" : conversation.providerId === provider.id && conversation.modelId === (provider.id === selectedProviderId ? selectedModelId : provider.models[0]?.id) ? "Return to conversation" : conversation.providerId === provider.id ? "Switch model" : "Switch provider"}</button>{provider.source === "environment" ? <small>To disconnect, remove {provider.environmentVariable ?? "the provider credential"} from your environment and restart OpenMuse.</small> : <button className="text-button" onClick={() => void disconnect(provider.id)}>Disconnect</button>}</div>
-            </> : <div className="auth-methods">{provider.methods.map((method) => method.type === "api_key" ? <details key={method.type}><summary>{method.label}</summary><p>The key is stored only on this computer and is never sent to the browser again.</p><button disabled={!method.enabled} onClick={() => void beginAuth(provider.id, method.type)}>Enter API key</button>{method.unavailableReason && <small>{method.unavailableReason}</small>}</details> : <div className="auth-method" key={method.type}><button disabled={!method.enabled} onClick={() => void beginAuth(provider.id, method.type)}>{method.label}</button>{method.unavailableReason && <small>{method.unavailableReason}</small>}</div>)}</div>}
-          </article>)}
+        </section> : <section className="provider-picker">
+          <div className="picker-row">
+            <div className="picker-field">
+              <label htmlFor="provider-select">Provider</label>
+              <select
+                id="provider-select"
+                value={selectedProviderId}
+                onChange={(event) => {
+                  const id = event.target.value;
+                  setSelectedProviderId(id);
+                  const p = providers.find((x) => x.id === id);
+                  setSelectedModelId(p?.models.find((m) => m.recommended)?.id ?? p?.models[0]?.id ?? "");
+                }}
+              >
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="picker-field">
+              <label htmlFor="model-select">Model</label>
+              <select
+                id="model-select"
+                value={selectedModelId}
+                onChange={(event) => setSelectedModelId(event.target.value)}
+                disabled={!selectedProvider?.models.length}
+              >
+                {(selectedProvider?.models ?? []).map((m) => (
+                  <option key={m.id} value={m.id}>{m.name}{m.recommended ? " · Recommended" : ""}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {selectedProvider && (
+            <div className="picker-status-row">
+              {selectedProvider.configured ? (
+                <span className="connected">
+                  Connected · {selectedProvider.source === "account" ? "account" : selectedProvider.source === "environment" ? "environment" : "API key"}
+                </span>
+              ) : (
+                <span className="not-connected">Not connected</span>
+              )}
+            </div>
+          )}
+
+          {selectedProvider && (!selectedProvider.configured || selectedProvider.id === "openai-codex") && (
+            <div className="auth-methods">
+              {selectedProvider.methods.map((method) =>
+                method.type === "api_key" ? (
+                  <details key={method.type}>
+                    <summary>{method.label}</summary>
+                    <p>The key is stored only on this computer and is never sent to the browser again.</p>
+                    <button disabled={!method.enabled} onClick={() => void beginAuth(selectedProvider.id, method.type)}>Enter API key</button>
+                    {method.unavailableReason && <small>{method.unavailableReason}</small>}
+                  </details>
+                ) : method.enabled ? (
+                  <div className="auth-method" key={method.type}>
+                    <button onClick={() => void beginAuth(selectedProvider.id, method.type)}>{method.label}</button>
+                  </div>
+                ) : null
+              )}
+            </div>
+          )}
+
+          {selectedProvider?.configured && (
+            <div className="provider-actions">
+              <button disabled={modelActionPending} onClick={() => {
+                if (modelActionPendingRef.current) return;
+                const modelId = selectedModelId;
+                const sameBinding = conversation?.providerId === selectedProviderId && conversation.modelId === modelId;
+                if (conversation?.modelAccessState === "ready" && sameBinding) { setShowModelSetup(false); return; }
+                modelActionPendingRef.current = true;
+                setModelActionPending(true);
+                void (!conversation
+                  ? startConversation({ providerId: selectedProviderId, modelId })
+                  : sameBinding
+                    ? api.reconnectConversation(conversation.id).then((next) => { showConversation(next); setShowModelSetup(false); }).catch((caught) => setError(caught instanceof Error ? caught.message : "Could not reconnect."))
+                    : api.switchConversationModel(conversation.id, { providerId: selectedProviderId, modelId }).then((next) => { showConversation(next); setShowModelSetup(false); void refreshConversationList(); }).catch((caught) => setError(caught instanceof Error ? caught.message : "Could not switch models."))
+                ).finally(() => { modelActionPendingRef.current = false; setModelActionPending(false); });
+              }}>
+                {modelActionPending ? "Starting…" : !conversation ? "Start using OpenMuse" : conversation.providerId === selectedProviderId && conversation.modelId === selectedModelId ? "Return to conversation" : conversation.providerId === selectedProviderId ? "Switch model" : "Switch provider"}
+              </button>
+              {selectedProvider.source === "environment"
+                ? <p className="env-disconnect-note">To disconnect, remove <code>{selectedProvider.environmentVariable ?? "the provider credential"}</code> from your environment and restart OpenMuse.</p>
+                : <button className="text-button" onClick={() => void disconnect(selectedProvider.id)}>Disconnect</button>}
+            </div>
+          )}
         </section>}
       </section>
     </main>;

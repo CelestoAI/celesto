@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
 import {
   createModels,
+  createProvider,
+  envApiKeyAuth,
   ModelsError,
   type Api,
   type AuthEvent,
@@ -12,6 +14,12 @@ import {
 } from "@earendil-works/pi-ai";
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
+import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
+import { groqProvider } from "@earendil-works/pi-ai/providers/groq";
+import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
+import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
+import { xaiProvider } from "@earendil-works/pi-ai/providers/xai";
+import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { FileCredentialStore } from "./credential-store.js";
 
 const ATTEMPT_EVENT_LIMIT = 100;
@@ -116,6 +124,27 @@ export class ModelAccessService {
     const models = createModels({ credentials });
     models.setProvider(openaiCodexProvider());
     models.setProvider(openaiProvider());
+
+    // --- NEW PROVIDERS ---
+    models.setProvider(anthropicProvider());
+    models.setProvider(groqProvider());
+    models.setProvider(deepseekProvider());
+    models.setProvider(openrouterProvider());
+    models.setProvider(xaiProvider());
+
+    // Cohere (OpenAI-compatible API)
+    models.setProvider(createProvider({
+      id: "cohere",
+      name: "Cohere",
+      baseUrl: "https://api.cohere.com/compatibility/v1",
+      auth: { apiKey: envApiKeyAuth("Cohere API key", ["COHERE_API_KEY"]) },
+      models: [
+        { id: "command-a-03-2025", name: "Command A", api: "openai-completions" as const, provider: "cohere", baseUrl: "https://api.cohere.com/compatibility/v1", reasoning: false, input: ["text"] as const, cost: { input: 2.5, output: 10, cacheRead: 0, cacheWrite: 0,}, contextWindow: 256000, maxTokens: 8000 },
+        { id: "command-r-plus-08-2024", name: "Command R+", api: "openai-completions" as const, provider: "cohere", baseUrl: "https://api.cohere.com/compatibility/v1", reasoning: false, input: ["text"] as const, cost: { input: 2.5, output: 10, cacheRead: 0, cacheWrite: 0, }, contextWindow: 128000, maxTokens: 4000 },
+        { id: "command-r-08-2024", name: "Command R", api: "openai-completions" as const, provider: "cohere", baseUrl: "https://api.cohere.com/compatibility/v1", reasoning: false, input: ["text"] as const, cost: { input: 0.15, output: 0.6, cacheRead: 0, cacheWrite: 0,}, contextWindow: 128000, maxTokens: 4000 },
+      ],
+      api: openAICompletionsApi(),
+    }));
     return new ModelAccessService(models, process.env.OPEN_MUSE_ENABLE_SUBSCRIPTION_AUTH === "1", credentials instanceof FileCredentialStore ? credentials.path : undefined);
   }
 
@@ -139,7 +168,17 @@ export class ModelAccessService {
         name: displayName,
         configured,
         source,
-        ...(source === "environment" && provider.id === "openai" ? { environmentVariable: "OPENAI_API_KEY" } : {}),
+        ...(source === "environment" ? {
+        environmentVariable: {
+          "openai": "OPENAI_API_KEY",
+          "anthropic": "ANTHROPIC_API_KEY",
+          "groq": "GROQ_API_KEY",
+          "deepseek": "DEEPSEEK_API_KEY",
+          "openrouter": "OPENROUTER_API_KEY",
+          "xai": "XAI_API_KEY",
+          "cohere": "COHERE_API_KEY",
+        }[provider.id],
+      } : {}),
         methods,
         models: provider.getModels().map((model, index) => ({ id: model.id, name: model.name, recommended: index === 0 })),
       };
