@@ -3,12 +3,12 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="./banner-dark.png">
   <source media="(prefers-color-scheme: light)" srcset="./banner-light.png">
-  <img alt="OpenMuse chatting with a user while operating a website in an isolated desktop" src="./banner-light.png">
+  <img alt="OpenMuse chatting with a user while operating a website in an isolated Celesto desktop" src="./banner-light.png">
 </picture>
 
 OpenMuse is an open-source computer coworker that browses public websites in its own disposable Linux desktop. Tell it what you want in chat, watch the computer work, approve actions that change a page, and take control whenever you need to enter something yourself.
 
-> [!IMPORTANT]
+> \[!IMPORTANT\]
 > OpenMuse is a source-checkout preview for local development. Its current open-network mode is not yet a hardened boundary for browsing untrusted websites.
 
 ## What you can do
@@ -21,22 +21,22 @@ OpenMuse is an open-source computer coworker that browses public websites in its
 
 ## Quick start
 
-OpenMuse runs from this SmolVM repository. The supported hosts are Linux x64 and Apple Silicon macOS.
+OpenMuse runs from this Celesto repository. The supported hosts are Linux x64 and Apple Silicon macOS.
 
 Before you start, install:
 
 - Node.js 22.19 or newer
 - An OpenAI API key
 
-### 1. Prepare SmolVM
+### 1. Prepare Celesto
 
-Install SmolVM, prepare your computer, and verify the setup with one command:
+Install Celesto, prepare your computer, and verify the setup with one command:
 
 ```bash
 curl -sSL https://celesto.ai/install.sh | bash
 ```
 
-The installer adds the Python tooling SmolVM needs, installs SmolVM, prepares the host, and runs its readiness check. See the [manual installation guide](../docs/installation.md) if the installer reports a problem.
+The installer adds the Python tooling Celesto needs, installs Celesto, prepares the machine, and runs its readiness check. See the [manual installation guide](../docs/installation.md) if the installer reports a problem.
 
 Download and verify the desktop image now so the first task does not pause without terminal progress:
 
@@ -221,8 +221,8 @@ Structured navigation rejects local and private literal addresses, but the initi
 ## Contributing and help
 
 - Read the repository [contribution guide](../CONTRIBUTING.md) before opening a pull request.
-- [Report an OpenMuse bug](https://github.com/CelestoAI/SmolVM/issues/new?template=bug_report.yml) with reproduction steps and host details.
-- [Propose a feature](https://github.com/CelestoAI/SmolVM/issues/new?template=feature_request.yml) before starting a large change.
-- Report security problems privately through [GitHub Security Advisories](https://github.com/CelestoAI/SmolVM/security/advisories/new), not a public issue. See the [security policy](../SECURITY.md) for details.
+- [Report an OpenMuse bug](https://github.com/CelestoAI/celesto/issues/new?template=bug_report.yml) with reproduction steps and machine details.
+- [Propose a feature](https://github.com/CelestoAI/celesto/issues/new?template=feature_request.yml) before starting a large change.
+- Report security problems privately through [GitHub Security Advisories](https://github.com/CelestoAI/celesto/security/advisories/new), not a public issue. See the [security policy](../SECURITY.md) for details.
 
 Implementation maps and design documents are indexed in the [OpenMuse development guide](./DEVELOPMENT.md).
