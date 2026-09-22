@@ -33,6 +33,7 @@ from celesto.exceptions import (
 )
 from celesto.types import (
     InternetSettings,
+    NetworkConfig,
     PortForwardConfig,
     VMConfig,
     VMInfo,
@@ -1940,6 +1941,7 @@ class TestResolveBootArgs:
         *,
         ssh_public_key: str | None = None,
         boot_args: str | None = None,
+        network: NetworkConfig | None = None,
     ) -> VMInfo:
         config_updates: dict[str, object] = {}
         if ssh_public_key is not None:
@@ -1950,7 +1952,12 @@ class TestResolveBootArgs:
             config = sample_config.model_copy(update=config_updates)
         else:
             config = sample_config
-        return VMInfo(vm_id=config.vm_id, status=VMState.STOPPED, config=config)
+        return VMInfo(
+            vm_id=config.vm_id,
+            status=VMState.STOPPED,
+            config=config,
+            network=network,
+        )
 
     def test_no_key_means_no_cmdline_injection(
         self, smol_vm: CelestoManager, sample_config: VMConfig
@@ -2010,6 +2017,32 @@ class TestResolveBootArgs:
         token = next(p for p in args.split() if p.startswith("celesto.authorized_key_b64="))
         decoded = base64.b64decode(token.split("=", 1)[1]).decode("utf-8")
         assert decoded == self._ED25519_KEY
+
+    def test_compatibility_params_do_not_repeat_existing_boot_args(
+        self, smol_vm: CelestoManager, sample_config: VMConfig
+    ) -> None:
+        network = NetworkConfig(
+            tap_device="tap0",
+            guest_mac="AA:FC:00:00:00:01",
+            mode="bridge",
+            bridge="br0",
+        )
+        info = self._vm_info(
+            smol_vm,
+            sample_config,
+            ssh_public_key=self._ED25519_KEY,
+            boot_args="console=ttyS0 quiet",
+            network=network,
+        )
+
+        tokens = smol_vm._resolve_boot_args(info).split()
+
+        assert tokens.count("console=ttyS0") == 1
+        assert tokens.count("quiet") == 1
+        assert sum(token.startswith("celesto.authorized_key_b64=") for token in tokens) == 1
+        assert sum(token.startswith("smolvm.authorized_key_b64=") for token in tokens) == 1
+        assert tokens.count("celesto.network=guest") == 1
+        assert tokens.count("smolvm.network=guest") == 1
 
     def test_init_script_parses_authorized_key_cmdline(self) -> None:
         """The /init script must contain the parser block — keep host + guest in sync."""

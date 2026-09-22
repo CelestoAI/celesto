@@ -104,7 +104,7 @@ def test_preset_init_script_uses_cmdline_netmask_and_gateway_dns() -> None:
     ],
 )
 def test_init_script_honors_guest_network_hook_then_dhcp(script: str) -> None:
-    assert "celesto.network=guest" in script
+    assert "^(celesto|smolvm)\\.network=guest" in script
     assert "/etc/celesto/network.sh eth0" in script
     assert "ifup eth0" in script
     assert "udhcpc -q -n -t 5 -i eth0" in script
