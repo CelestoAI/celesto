@@ -1818,6 +1818,60 @@ def computer_templates(json_output: bool, provider: str) -> Any:
     )
 
 
+@computer.group("port", context_settings=CONTEXT_SETTINGS)
+def computer_port() -> None:
+    """Publish, list, and unpublish public ports on a cloud computer."""
+
+
+@computer_port.command("publish")
+@click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
+@click.option("--port", "port_number", type=int, required=True, help="Port to publish.")
+@json_option
+def computer_port_publish(computer_id: str, port_number: int, json_output: bool) -> Any:
+    """Publish a computer port to the internet and print its URL."""
+    _before_command(json_output=json_output)
+    return _handlers()._run_computer(
+        _ns(
+            computer_action="port_publish",
+            computer_id=computer_id,
+            port_number=port_number,
+            provider="cloud",
+            json=json_output,
+        )
+    )
+
+
+@computer_port.command("list")
+@click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
+@json_option
+def computer_port_list(computer_id: str, json_output: bool) -> Any:
+    """List published ports for a computer."""
+    _before_command(json_output=json_output)
+    return _handlers()._run_computer(
+        _ns(
+            computer_action="port_list", computer_id=computer_id, provider="cloud", json=json_output
+        )
+    )
+
+
+@computer_port.command("unpublish")
+@click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
+@click.option("--port", "port_number", type=int, required=True, help="Port to unpublish.")
+@json_option
+def computer_port_unpublish(computer_id: str, port_number: int, json_output: bool) -> Any:
+    """Stop publishing a computer port."""
+    _before_command(json_output=json_output)
+    return _handlers()._run_computer(
+        _ns(
+            computer_action="port_unpublish",
+            computer_id=computer_id,
+            port_number=port_number,
+            provider="cloud",
+            json=json_output,
+        )
+    )
+
+
 def _register_preset_commands() -> None:
     from celesto.presets import list_presets
 

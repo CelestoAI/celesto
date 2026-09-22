@@ -75,6 +75,30 @@ def run_cloud_computer(args: SimpleNamespace) -> int:
                 emit_json(command, 0, data=data)
             else:
                 print(f"Started cloud computer '{args.computer_id}'.")
+        elif action == "port_publish":
+            handle = CloudComputer.get(args.computer_id)
+            result = handle.publish_port(args.port_number)
+            if json_output:
+                emit_json(command, 0, data=result.model_dump())
+            else:
+                print(result.url or f"Published port {args.port_number}.")
+        elif action == "port_list":
+            handle = CloudComputer.get(args.computer_id)
+            results = handle.published_ports()
+            if json_output:
+                emit_json(command, 0, data={"ports": [r.model_dump() for r in results]})
+            else:
+                for r in results:
+                    print(f"{r.port}\t{r.status}\t{r.url or ''}")
+                if not results:
+                    print("No published ports.")
+        elif action == "port_unpublish":
+            handle = CloudComputer.get(args.computer_id)
+            result = handle.unpublish_port(args.port_number)
+            if json_output:
+                emit_json(command, 0, data=result.model_dump())
+            else:
+                print(f"Unpublished port {args.port_number}.")
         elif action in {"delete", "terminal"}:
             handle = CloudComputer.get(args.computer_id)
             if action == "delete":

@@ -273,6 +273,84 @@ def test_cloud_start_resumes_by_id(monkeypatch, capsys):
     }
 
 
+def test_port_publish_dispatches_to_cloud(monkeypatch):
+    handler = Mock(return_value=0)
+    monkeypatch.setattr("celesto.cli.main._run_computer", handler)
+    assert main(["computer", "port", "publish", "hypatia", "--port", "8000"]) == 0
+    args = handler.call_args.args[0]
+    assert (args.computer_action, args.computer_id, args.port_number, args.provider) == (
+        "port_publish",
+        "hypatia",
+        8000,
+        "cloud",
+    )
+
+
+def test_cloud_port_publish_prints_url(monkeypatch, capsys):
+    from celesto.types import PublishedPort
+
+    handle = Mock()
+    handle.publish_port.return_value = PublishedPort(
+        computer_id="hypatia", port=8000, status="active", url="https://hypatia.celesto.dev:8000"
+    )
+    factory = Mock()
+    factory.get.return_value = handle
+    monkeypatch.setattr("celesto.cli.cloud_computers.CloudComputer", factory)
+
+    assert main(["computer", "port", "publish", "hypatia", "--port", "8000"]) == 0
+
+    handle.publish_port.assert_called_once_with(8000)
+    assert capsys.readouterr().out.strip() == "https://hypatia.celesto.dev:8000"
+    handle.close.assert_called_once()
+
+
+def test_cloud_port_list_prints_rows(monkeypatch, capsys):
+    from celesto.types import PublishedPort
+
+    handle = Mock()
+    handle.published_ports.return_value = [
+        PublishedPort(
+            computer_id="hypatia",
+            port=8000,
+            status="active",
+            url="https://hypatia.celesto.dev:8000",
+        )
+    ]
+    factory = Mock()
+    factory.get.return_value = handle
+    monkeypatch.setattr("celesto.cli.cloud_computers.CloudComputer", factory)
+
+    assert main(["computer", "port", "list", "hypatia"]) == 0
+    assert "8000" in capsys.readouterr().out
+
+
+def test_cloud_port_list_empty(monkeypatch, capsys):
+    handle = Mock()
+    handle.published_ports.return_value = []
+    factory = Mock()
+    factory.get.return_value = handle
+    monkeypatch.setattr("celesto.cli.cloud_computers.CloudComputer", factory)
+
+    assert main(["computer", "port", "list", "hypatia"]) == 0
+    assert "No published ports." in capsys.readouterr().out
+
+
+def test_cloud_port_unpublish(monkeypatch, capsys):
+    from celesto.types import PublishedPort
+
+    handle = Mock()
+    handle.unpublish_port.return_value = PublishedPort(
+        computer_id="hypatia", port=8000, status="removed"
+    )
+    factory = Mock()
+    factory.get.return_value = handle
+    monkeypatch.setattr("celesto.cli.cloud_computers.CloudComputer", factory)
+
+    assert main(["computer", "port", "unpublish", "hypatia", "--port", "8000"]) == 0
+    handle.unpublish_port.assert_called_once_with(8000)
+    assert "Unpublished port 8000" in capsys.readouterr().out
+
+
 def test_get_always_dispatches_to_cloud(monkeypatch):
     handler = Mock(return_value=0)
     monkeypatch.setattr("celesto.cli.main._run_computer", handler)
