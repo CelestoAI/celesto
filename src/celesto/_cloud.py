@@ -108,7 +108,14 @@ class _CloudComputer:
     ) -> None:
         key = api_key if api_key is not None else os.environ.get("CELESTO_API_KEY")
         if not isinstance(key, str) or not key.strip():
-            raise ValueError("Set CELESTO_API_KEY or pass api_key= to use a cloud computer.")
+            from celesto.cli._credentials import read_api_key
+
+            key = read_api_key()
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError(
+                "Set CELESTO_API_KEY, pass api_key=, or run "
+                "'celesto auth login' to use a cloud computer."
+            )
         url = urlsplit(base_url)
         local_http = url.scheme == "http" and url.hostname in {"localhost", "127.0.0.1", "::1"}
         if (

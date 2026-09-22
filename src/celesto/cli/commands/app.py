@@ -112,6 +112,47 @@ def cli(ctx: click.Context) -> int | None:
 
 
 @cli.group(context_settings=CONTEXT_SETTINGS)
+def auth() -> None:
+    """Authenticate the CLI with Celesto Cloud."""
+
+
+@auth.command("login")
+@click.option(
+    "--api-key",
+    default=None,
+    help="Celesto API key. Omit to be prompted (recommended, keeps it out of shell history).",
+)
+@click.option(
+    "--base-url",
+    default="https://api.celesto.ai",
+    show_default=True,
+    hidden=True,
+    help="Celesto Cloud API base URL.",
+)
+@json_option
+def auth_login(api_key: str | None, base_url: str, json_output: bool) -> Any:
+    """Log in with a Celesto API key, same as CELESTO_API_KEY in the SDKs."""
+    _before_command(json_output=json_output)
+    return _handlers()._run_auth_login(_ns(api_key=api_key, base_url=base_url, json=json_output))
+
+
+@auth.command("status")
+@json_option
+def auth_status(json_output: bool) -> Any:
+    """Show who the stored credentials belong to, if any."""
+    _before_command(json_output=json_output)
+    return _handlers()._run_auth_status(_ns(json=json_output))
+
+
+@auth.command("logout")
+@json_option
+def auth_logout(json_output: bool) -> Any:
+    """Remove the locally stored API key."""
+    _before_command(json_output=json_output)
+    return _handlers()._run_auth_logout(_ns(json=json_output))
+
+
+@cli.group(context_settings=CONTEXT_SETTINGS)
 def sandbox() -> None:
     """Create, inspect, connect to, and delete sandboxes."""
 
