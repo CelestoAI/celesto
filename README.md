@@ -1,342 +1,252 @@
 <div align="center">
 
-# Celesto AI
+<img src="https://ik.imagekit.io/gradsflow/celestoai/oss/celesto-oss-banner_tHGcFZh4Ea.png" alt="Celesto AI" />
 
-## Give AI agents secure, persistent computers
+# Celesto
 
-![](./open-muse/banner-dark.png)
+### Secure, persistent computers for AI agents
 
-### [Try OpenMuse](./open-muse/README.md)
-
-<p align="left">OpenMuse is an open-source computer coworker that can browse the web, use apps, and keep working in the background — even when your laptop is off. <b>OpenMuse is powered by Celesto</b></p>
-
-
-</div>
-
----
-
-<div align="center">
-
-
-<img src="https://ik.imagekit.io/gradsflow/celestoai/logo/celesto%20cover%20low_vFigbRaJI.png">
-
-[![CodeQL](https://github.com/CelestoAI/SmolVM/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/CelestoAI/SmolVM/actions/workflows/github-code-scanning/codeql)
-[![Run Tests](https://github.com/CelestoAI/SmolVM/actions/workflows/pytest.yml/badge.svg)](https://github.com/CelestoAI/SmolVM/actions/workflows/pytest.yml)
+[![CodeQL](https://github.com/CelestoAI/celesto/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/CelestoAI/celesto/actions/workflows/github-code-scanning/codeql)
+[![Run Tests](https://github.com/CelestoAI/celesto/actions/workflows/pytest.yml/badge.svg)](https://github.com/CelestoAI/celesto/actions/workflows/pytest.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-orange.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-orange.svg)](https://www.python.org/downloads/)
 
-[Quick start](#quickstart) • [Examples](#examples) • [Features](https://docs.celesto.ai/smolvm/features) • [Performance](#performance) • [Docs](https://docs.celesto.ai) • [Discord](https://discord.gg/KNb5UkrAmm)
+[OpenMuse](#built-with-celesto-openmuse) · [Quickstart](#quickstart) · [Python API](#use-the-python-api) · [Agents and automation](#agents-and-automation) · [Runtimes](#choose-a-runtime) · [Examples](#examples) · [Docs](https://docs.celesto.ai) · [Discord](https://discord.gg/KNb5UkrAmm)
 
 </div>
 
 ---
 
-Celesto gives AI agents their own secure and persistent computer.
-Each microVM boots in milliseconds, runs any code or software you throw at it, persists files and state across sessions, and disappears when you're done — ready to handle thousands of sandboxes in production.
+Celesto gives an AI agent its own computer for running code, browsing the web, and using desktop apps. You can run that computer on your machine during development or in Celesto Cloud for remote and production work.
 
-<br>
+Each sandbox is a lightweight virtual machine, starts in about 500 ms, and can keep files and state between sessions. Because the agent runs in a separate virtual machine instead of a process on your computer, Celesto provides a stronger boundary for untrusted code.
 
-<table>
-<tr>
-<td width="50%" valign="top">
-<p><img src="https://api.iconify.design/lucide/zap.svg?color=%236e7681" width="24" height="24" align="absmiddle" alt=""> <strong>Sub-second boot</strong></p>
-<p>Your agent has a running VM before the API call returns (~500&nbsp;ms). No waiting for provisioning or image pulls.</p>
-<p><a href="#performance">Read more →</a></p>
-</td>
-<td width="50%" valign="top">
-<p><img src="https://api.iconify.design/lucide/shield.svg?color=%236e7681" width="24" height="24" align="absmiddle" alt=""> <strong>Hardware isolation</strong></p>
-<p>Each sandbox runs in its own virtual machine with hardware-level separation. Untrusted code can't escape or access your host.</p>
-<p><a href="#security">Read more →</a></p>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<p><img src="https://api.iconify.design/lucide/network.svg?color=%236e7681" width="24" height="24" align="absmiddle" alt=""> <strong>Network controls</strong></p>
-<p>Turn outbound access off or limit it to specific IP addresses on Linux Firecracker.</p>
-<p><a href="#network-controls">Read more →</a></p>
-</td>
-<td width="50%" valign="top">
-<p><img src="https://api.iconify.design/lucide/monitor.svg?color=%236e7681" width="24" height="24" align="absmiddle" alt=""> <strong>Browser sandbox</strong></p>
-<p>Give agents a full browser inside the sandbox. Navigate, click, fill forms, and watch it live in your own browser.</p>
-<p><a href="#browser-sandbox">Read more →</a></p>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<p><img src="https://api.iconify.design/lucide/folder.svg?color=%236e7681" width="24" height="24" align="absmiddle" alt=""> <strong>File sharing</strong></p>
-<p>Share local directories with the sandbox, read-only or writable. Agents work on your real codebase without copying files around.</p>
-<p><a href="#mount-host-directories">Read more →</a></p>
-</td>
-<td width="50%" valign="top">
-<p><img src="https://api.iconify.design/lucide/camera.svg?color=%236e7681" width="24" height="24" align="absmiddle" alt=""> <strong>Snapshots</strong></p>
-<p>Pause a sandbox and resume it later with everything intact — memory, disk, and running processes.</p>
-<p><a href="https://docs.celesto.ai/smolvm/features/snapshots">Read more →</a></p>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<p><img src="https://api.iconify.design/lucide/bot.svg?color=%236e7681" width="24" height="24" align="absmiddle" alt=""> <strong>Coding agents</strong></p>
-<p>One command to launch a sandbox with Claude Code, Codex, or Pi pre-installed and git credentials forwarded.</p>
-<p><a href="#coding-agents">Read more →</a></p>
-</td>
-<td width="50%" valign="top">
-<p><img src="docs/assets/icons/windows.svg" width="24" height="24" align="absmiddle" alt=""> <strong>Windows sandbox</strong></p>
-<p>Boot a Windows 11 guest and drive it from Python — PowerShell, file upload, env vars. Linux host only for now.</p>
-<p><a href="#windows-sandbox">Read more →</a></p>
-</td>
-</tr>
-</table>
+## Built with Celesto: OpenMuse
 
----
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./open-muse/banner-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="./open-muse/banner-light.png">
+  <img alt="OpenMuse chatting with a user while operating a website in an isolated Celesto desktop" src="./open-muse/banner-light.png">
+</picture>
+
+**OpenMuse is our open-source computer coworker, built end to end on Celesto.** It browses public websites in its own disposable Linux desktop while you watch, approve clicks and form changes, or take control.
+
+[Explore OpenMuse →](./open-muse/README.md)
+
+> OpenMuse is a preview. Clone this repository to run it locally.
 
 ## Quickstart
 
-Install Celesto and prepare your machine with one command:
+### 1. Install Celesto
+
+On Linux or macOS, this command installs the Celesto CLI and Python SDK, prepares the machine, and checks that it is ready:
 
 ```bash
 curl -fsSL https://celesto.ai/install.sh | bash
 ```
 
 <details>
-<summary>Manual installation</summary>
+<summary>Manual local setup</summary>
 
-With Python 3.11 or newer, install Celesto in your Python environment:
-
-```bash
-pip install 'celesto==0.0.15a0'
-```
-
-Pip installs the Python package; prepare your machine and check it separately:
+Install Celesto with Python 3.11 or newer, prepare the machine, then check the setup:
 
 ```bash
+pip install celesto
 celesto setup
 celesto doctor
 ```
 
-On macOS, setup needs Homebrew to install [QEMU](https://www.qemu.org/docs/master/system/i386/microvm.html). On Linux, it may ask for `sudo`.
+On macOS, setup uses Homebrew to install [QEMU](https://www.qemu.org/docs/master/system/i386/microvm.html). On Linux, setup may ask for `sudo`.
 
 </details>
 
+### 2. Create a sandbox
 
-### Start a sandbox in Python
-
-Run a local sandbox:
-
-```python
-from celesto import Computer
-
-computer = Computer()
-result = computer.run("echo 'Hello from local sandbox!'")
-print(result.stdout)
-computer.stop()
-```
-
-
-By default, Computer runs locally. To run in the cloud, set `CELESTO_API_KEY` in your environment and use `provider="cloud"`.
-
-```python
-from celesto import Computer
-
-computer = Computer(provider="cloud")
-result = computer.run("echo 'Hello from cloud sandbox!'")
-print(result.stdout)
-computer.stop()
-```
-
-
-### Start a sandbox from the CLI
-
-Create a sandbox, check that it's running, then stop it:
+Give the sandbox a name so later commands can find it:
 
 ```bash
 celesto sandbox create --name my-sandbox
-# my-sandbox  running  172.16.0.2
-
-celesto sandbox list
-# NAME         PRESET  STATUS   PID
-# my-sandbox   -       running  12345
-
-celesto sandbox stop my-sandbox
 ```
 
-Open a shell inside a running sandbox:
+### 3. Run a command
 
-```bash
-celesto sandbox shell my-sandbox
-```
-
-Use `celesto sandbox ssh my-sandbox` when you specifically need an SSH session.
-
-Run a single command in a running sandbox without opening a shell — useful in scripts. Put the command after `--`, and add `--start` if you want a stopped sandbox started first:
+Everything after `--` runs inside the sandbox:
 
 ```bash
 celesto sandbox exec my-sandbox -- python --version
 ```
 
-If something goes wrong, read the sandbox's logs (add `--follow` to watch them live):
+### 4. Delete the sandbox
+
+Delete it when you no longer need its files or state:
 
 ```bash
-celesto sandbox logs my-sandbox
+celesto sandbox delete my-sandbox
 ```
 
-Tip: turn on tab completion so your shell can finish commands and sandbox names for you — run `celesto completion bash --install` (or `zsh`, `fish`) once. See the [CLI reference](docs/reference/cli.md#shell-completion) for details.
+Use `celesto sandbox stop my-sandbox` instead when you want to keep it for later. Restart it with `celesto sandbox start my-sandbox`.
 
-## Browser sandbox
+## Use the Python API
 
-Celesto can also start a full browser inside a sandbox. This is useful when agents need to navigate websites, fill out forms, take screenshots, or connect through VNC.
+The installer includes the Python SDK. The `with` block creates a local sandbox when the block starts and deletes it when the block ends:
 
-Start a visible browser sandbox from Python:
+```python
+from celesto import Computer
+
+with Computer() as computer:
+    result = computer.run("echo 'Hello from Celesto!'")
+    print(result.stdout)
+```
+
+### Run in Celesto Cloud
+
+Cloud sandboxes do not require virtualization software on your machine. First, set your API key:
+
+```bash
+export CELESTO_API_KEY="your-api-key"
+```
+
+Then run the same Python code with the cloud provider:
+
+```python
+from celesto import Computer
+
+with Computer(provider="cloud") as computer:
+    result = computer.run("echo 'Hello from Celesto Cloud!'")
+    print(result.stdout)
+```
+
+| Provider | Best for | Host requirements |
+| --- | --- | --- |
+| Local | Development, tests, and private workloads on your machine | Local virtualization setup |
+| Cloud | Remote tasks, persistent workspaces, and production workloads | Python package and `CELESTO_API_KEY` |
+
+## Agents and automation
+
+Celesto commands print readable output by default. Add `--json` when a script or agent needs stable, machine-readable output. Every JSON response contains `ok`, `command`, `exit_code`, `data`, and `error` fields.
+
+Check the machine before accepting work. `--strict` makes warnings fail the check:
+
+```bash
+celesto doctor --strict --json
+```
+
+Create a named sandbox and capture the JSON response:
+
+```bash
+celesto sandbox create --name agent-job --json
+```
+
+Run a command without opening an interactive shell:
+
+```bash
+celesto sandbox exec agent-job --json -- python -m pytest
+```
+
+Always clean up the sandbox by its exact name when the job ends:
+
+```bash
+celesto sandbox delete agent-job --json
+```
+
+Use unique names for concurrent jobs. Prefer `exec` for automation; reserve `shell`, `ssh`, and `desktop` for interactive work. Commands return a nonzero exit code on failure, and JSON errors include a recovery command when Celesto can provide one.
+
+For a coding agent with its CLI already installed, start a preset directly:
+
+```bash
+celesto codex start
+```
+
+Celesto also provides presets for Claude Code, Pi, Hermes, OpenCode, and OpenClaw. See the [agent presets guide](docs/guides/agent-presets.md) for credentials, naming, and unattended usage.
+
+## Inspect and connect
+
+Use `celesto sandbox list` to see sandboxes, `celesto sandbox logs my-sandbox` to inspect startup output, or `celesto sandbox shell my-sandbox` to open a fast interactive shell.
+
+Add `--follow` to stream logs. Use `celesto sandbox ssh my-sandbox` when you need an SSH session. See the [CLI reference](docs/reference/cli.md) for every command and shell completion.
+
+## Choose a runtime
+
+Celesto exposes one default API and focused APIs for browser and desktop work:
+
+| Runtime | Use it when an agent needs | Python API | CLI |
+| --- | --- | --- | --- |
+| Shell sandbox | Commands, code, and files | `Computer()` | `celesto sandbox` |
+| Browser | Chromium, CDP, screenshots, or a live viewer | `Celesto.browser()` | `celesto browser` |
+| Linux computer | A full desktop and multiple GUI apps | `Celesto.computer()` | `celesto computer` |
+| Windows sandbox | PowerShell or Windows software | `Celesto(os="windows", ...)` | — |
+| macOS desktop | App or installer tests on Apple Silicon | — | `celesto sandbox create --os macos` |
+
+Use `Computer` for the common command sandbox path. Use the `Celesto` factories for focused browser and desktop runtimes. Use `Celesto(...)` directly when you need low-level VM options such as the backend, communication channel, guest OS, mounts, or network policy.
+
+## Core capabilities
+
+| Capability | What it provides |
+| --- | --- |
+| Fast start | A ready microVM in about 500 ms, without an image pull on each start |
+| VM isolation | A separate virtual machine for each sandbox |
+| Local or cloud | The same `Computer` API across development and production |
+| Persistent state | Files and state that survive across sessions |
+| Host mounts | Read-only or writable access to selected local directories |
+| Snapshots | Pause and restore memory, disk, and active processes |
+| Network policy | Disable outbound access or allow specific IPv4 ranges on Linux with Firecracker |
+| Multiple operating systems | Linux, Windows 11, and macOS preview support |
+
+## Browser
+
+Use a browser sandbox when an agent only needs Chromium. Celesto exposes a CDP endpoint for automation and, in visible mode, URLs for live view and screen control.
 
 ```python
 from celesto import Celesto
 
 with Celesto.browser(headless=False) as browser:
-    print(browser.cdp_url)  # Automation endpoint for Playwright or CDP tools
-    print(browser.viewer_url)  # Web URL you can open to watch live
-    print(browser.display_url)  # VNC URL for clients or computer-use agents
+    print(browser.cdp_url)
+    print(browser.viewer_url)
+    print(browser.display_url)
 ```
 
-Use `browser.cdp_url` when a browser automation tool needs a Chromium DevTools
-connection address. Use `browser.viewer_url` when you want to watch the session
-in your own browser. Use `browser.display_url` when a VNC client or
-computer-use agent needs to control the screen.
+- `cdp_url`: connect Playwright or another CDP client.
+- `viewer_url`: watch the browser from another browser.
+- `display_url`: connect a VNC client or computer-use agent.
 
-Start the same browser sandbox from the CLI:
+Use `headless=True` when the agent only needs CDP. Start a visible browser from the CLI with:
 
 ```bash
 celesto browser start --live
-# Sandbox: browser-a1b2c3d4
-# Viewer URL: http://127.0.0.1:36080/vnc.html?autoconnect=1&resize=scale  # open in a browser
-# Display URL: vnc://127.0.0.1:35900                                      # give to a VNC client or agent
 ```
 
-Use `Celesto.browser(headless=True)` for browser automation only; it gives you
-`cdp_url` and no visible viewer. Use `Celesto.browser(headless=False)` for a
-visible browser; it gives you `cdp_url`, `viewer_url`, and `display_url`. A
-browser sandbox is still a focused Chromium environment, not a general desktop.
+See [examples/browser_sandbox.py](examples/browser_sandbox.py) for a complete example.
 
-Open the viewer URL to watch the browser in real time, or give the display URL to a computer-use agent or VNC client. When you're done, list and stop sandboxes:
+## Linux computer
 
-```bash
-celesto browser list
-celesto browser stop sess_a1b2c3
-```
-
-See [examples/browser_sandbox.py](examples/browser_sandbox.py) for a complete Python example.
-
-
-## Network controls
-
-Sandboxes have internet access by default. On Linux with Firecracker, turn outbound access off while keeping commands and file transfers available through a direct connection (`vsock`):
+Use a Linux computer when an agent needs a visible desktop with more than a browser. The default image includes Chromium, a terminal, a file manager, and a text editor.
 
 ```python
 from celesto import Celesto
 
-with Celesto(
-    backend="firecracker",
-    comm_channel="vsock",
-    internet_settings={"mode": "off"},
-) as vm:
-    print(vm.run("echo hello").stdout)
+with Celesto.computer() as computer:
+    print(computer.display.viewer_url)
+    print(computer.browser.cdp_url)
+
+    computer.files.write("/workspace/task.txt", "Review this file")
+    print(computer.run("ls -la /workspace").stdout)
 ```
 
-Use `mode="restricted"` with `allowed_cidrs` to allow specific IPv4 addresses or ranges. These modes require private networking and do not support shared folders or exposed ports. Command output and explicit file downloads still work when outbound access is off.
+The API groups screen access under `computer.display` and Chromium access under `computer.browser`. If Chromium closes while the desktop stays active, call `computer.browser.launch()`.
 
-Existing `allowed_domains` lists allow the IP addresses found during setup; they do not verify the hostname on each connection. DNS servers are not automatically allowed.
-
-See the [networking guide](docs/guides/networking.md) for a restricted-access example and supported configurations.
-
-
-## Mount host directories
-
-You can give a sandbox access to a folder on your machine. This is useful when an agent needs to work with an existing project without copying files back and forth.
+The first start downloads and verifies the Linux desktop image. Later starts reuse the cached image, so Docker is not required.
 
 ```bash
-celesto sandbox create --name my-sandbox --mount ~/Projects/my-app
-celesto sandbox shell my-sandbox
-ls /workspace   # your host files appear here
+celesto computer start --name assistant
+celesto computer open assistant
+celesto computer delete assistant
 ```
 
-By default the host folder is read-only — the sandbox can read every file, but changes stay inside the sandbox and never touch the originals. If the agent creates or edits files under `/workspace`, those changes live only in the VM's overlay layer.
-
-Mount at a custom path, or mount multiple directories:
-
-```bash
-celesto sandbox create --mount ~/Projects/my-app:/code --mount ~/data:/mnt/data
-```
-
-When you do want the sandbox to edit your host files, add `--writable-mounts`:
-
-```bash
-celesto sandbox create --mount ~/Projects/my-app --writable-mounts
-```
-
-Every directory passed with `--mount` becomes writable; writes from the guest are visible on the host immediately. The flag applies to all mounts on that command, so don't pair a folder you want the sandbox to modify with one you want kept untouched.
-
-The same works from Python:
-
-```python
-from celesto import Celesto
-
-with Celesto(mounts=["~/Projects/my-app"], writable_mounts=True) as vm:
-    vm.run("echo hello > /workspace/from-sandbox.txt")
-```
-
-## Upload a file
-
-You can copy one file into a running sandbox without mounting a whole folder.
-This is useful when an agent needs a config file, script, or small input file.
-
-```bash
-# Copy a file from your machine into the sandbox.
-celesto sandbox file upload my-sandbox ./prompt.txt /tmp/prompt.txt
-
-# Open a shell in the sandbox to confirm the file is there.
-celesto sandbox shell my-sandbox
-# Then, inside the sandbox shell:
-cat /tmp/prompt.txt
-```
-
-For a temporary, one-shot sandbox, the same works from Python. The sandbox
-and uploaded file are deleted when the context exits:
-
-```python
-from celesto import Celesto
-
-with Celesto() as vm:
-    vm.upload_file("./prompt.txt", "/tmp/prompt.txt")
-```
-
-The destination must be an absolute path inside the sandbox (starting
-with `/`), and any existing file at that path is overwritten.
-
-
-## macOS desktop sandbox (preview)
-
-On an Apple Silicon Mac, Celesto can open a temporary macOS desktop for testing apps and installers without changing your everyday system. The first run downloads macOS from Apple and prepares a reusable local image.
-
-```bash
-celesto setup --macos
-```
-
-Create the desktop sandbox:
-
-```bash
-celesto sandbox create --os macos --name test-mac
-# Next: celesto sandbox desktop test-mac
-```
-
-Open it in the built-in Screen Sharing app:
-
-```bash
-celesto sandbox desktop test-mac
-```
-
-Image preparation needs about 50 GB and 20–40 minutes. macOS images stay on the Mac that created them, and at most two macOS guests can run at once. See the [macOS desktop guide](docs/guides/macos.md) for shared folders, limits, and cleanup.
+See the [Linux computer guide](docs/guides/computers.md) for Python and TypeScript examples.
 
 ## Windows sandbox
 
-Celesto can boot a Windows 11 guest as well as Linux. Hand it a Windows image and you get the same Python and CLI you use for Linux — run PowerShell, upload files, set environment variables, and run many sandboxes in parallel from one baseline image.
+Use a Windows sandbox when an agent must run PowerShell or Windows software. Celesto can boot Windows 11 from a baseline image, upload files, set environment variables, and start multiple guests from the same image.
 
 ```python
 from celesto import Celesto
@@ -350,26 +260,118 @@ with Celesto(
     print(vm.run("Write-Output 'hello from windows'").stdout)
 ```
 
-Build your own image from a Windows ISO:
+Create an image from a Windows ISO:
 
 ```bash
-celesto windows build-image --iso ./Win11.iso \
+celesto windows build-image \
+    --iso ./Win11.iso \
     --virtio-win-iso ./virtio-win.iso \
     --output ~/.smolvm/images/win11.qcow2
 ```
 
-Windows guests need a Linux host with KVM. Host mounts, network controls, and snapshots are Linux-only today. See the full [Windows guide](https://docs.celesto.ai/smolvm/guides/windows-guests) for details.
+Windows guests require a Linux host with KVM. Host mounts, network controls, and snapshots remain Linux-only. See the [Windows guide](docs/guides/windows.md) for image setup and guest requirements.
 
+## macOS desktop preview
 
-## Coding agents
+On an Apple Silicon Mac, Celesto can create a temporary macOS desktop for app and installer tests without changes to your main system.
 
-It sucks to “press enter and accept changes” every few seconds while using coding agents. Celesto makes it easy to isolate the agent coding environment from the host (laptops).
+Prepare the reusable local image:
 
-Start any supported coding agent in its own sandbox:
+```bash
+celesto setup --macos
+```
 
-Video tutorial:
+Create and open a desktop:
 
-<a href="https://youtu.be/j1qyrTsI0Jw"><img src="https://img.youtube.com/vi/j1qyrTsI0Jw/maxresdefault.jpg" alt="Coding agents in a sandbox" width="480"></a>
+```bash
+celesto sandbox create --os macos --name test-mac
+celesto sandbox desktop test-mac
+```
+
+The first setup downloads macOS from Apple, requires about 50 GB, and takes 20–40 minutes. The image stays on the Mac that created it. Celesto supports at most two macOS guests at once. See the [macOS desktop guide](docs/guides/macos.md) for limits, shared folders, and cleanup.
+
+## Common workflows
+
+### Mount a host directory
+
+Give a local sandbox access to an existing project without a copy step:
+
+```bash
+celesto sandbox create --name my-sandbox --mount ~/Projects/my-app
+celesto sandbox shell my-sandbox
+ls /workspace
+```
+
+Host mounts are read-only by default. The sandbox can read the source files, but writes under `/workspace` stay in the VM overlay and do not change the host copy.
+
+Choose a guest path or mount multiple directories:
+
+```bash
+celesto sandbox create \
+    --mount ~/Projects/my-app:/code \
+    --mount ~/data:/mnt/data
+```
+
+Add `--writable-mounts` only when the sandbox must change the host files:
+
+```bash
+celesto sandbox create \
+    --mount ~/Projects/my-app \
+    --writable-mounts
+```
+
+The flag applies to every mount in that command. Do not combine a writable project directory with a directory that must remain unchanged.
+
+The same option exists in Python:
+
+```python
+from celesto import Celesto
+
+with Celesto(mounts=["~/Projects/my-app"], writable_mounts=True) as vm:
+    vm.run("echo hello > /workspace/from-sandbox.txt")
+```
+
+### Upload one file
+
+Copy a config, script, or small input into a live sandbox:
+
+```bash
+celesto sandbox file upload my-sandbox ./prompt.txt /tmp/prompt.txt
+```
+
+Or upload a file to a temporary sandbox from Python:
+
+```python
+from celesto import Celesto
+
+with Celesto() as vm:
+    vm.upload_file("./prompt.txt", "/tmp/prompt.txt")
+```
+
+The destination must be an absolute guest path. Celesto replaces any file that already exists at that path.
+
+### Restrict network access
+
+Sandboxes have internet access by default. On Linux with Firecracker, use `vsock` to keep command and file-transfer access while you disable outbound network access:
+
+```python
+from celesto import Celesto
+
+with Celesto(
+    backend="firecracker",
+    comm_channel="vsock",
+    internet_settings={"mode": "off"},
+) as vm:
+    print(vm.run("echo hello").stdout)
+```
+
+Use `mode="restricted"` with `allowed_cidrs` to allow specific IPv4 addresses or ranges. The restricted modes require private network mode and do not support host mounts or exposed ports. Explicit command output and file downloads still work when outbound access is off.
+
+An `allowed_domains` list resolves domains during setup and permits the resulting IP addresses. It does not check the hostname on each connection. DNS servers do not receive automatic access. See the [network guide](docs/guides/networking.md) for supported combinations.
+
+### Start a code agent
+
+Run a supported code agent in its own sandbox so it can edit and execute code without direct access to your host environment:
 
 ```bash
 celesto codex start
@@ -380,110 +382,69 @@ celesto opencode start
 celesto openclaw start --name openclaw-work --no-attach
 ```
 
-OpenClaw also has a private browser dashboard. Open it after the named sandbox starts:
+Open the private OpenClaw dashboard after the sandbox starts:
 
 ```bash
-celesto openclaw list
-# NAME              STATUS   PID
-# openclaw-work     running  12345
-
 celesto openclaw open-ui openclaw-work
 ```
 
-Creating an OpenClaw sandbox currently takes several minutes while Celesto installs its supported Node.js runtime and pinned OpenClaw release. See the [OpenClaw guide](docs/guides/agent-presets.md#open-openclaws-dashboard) for credentials, the dashboard flow, and safe steps for replacing an older sandbox.
+The first OpenClaw start can take several minutes while Celesto installs its supported Node.js runtime and pinned OpenClaw release. See the [agent presets guide](docs/guides/agent-presets.md) for credentials and dashboard access.
 
-
-## Linux computer
-
-Use a Linux computer when an agent needs a visible desktop with more than a browser. The built-in template includes Chromium, a terminal, a file manager, and a text editor.
-
-During this preview, the first computer start builds its image locally and requires Docker. Later starts reuse the cached image.
-
-```python
-from celesto import Celesto
-
-with Celesto.computer() as computer:
-    print(computer.display.viewer_url)
-    print(computer.browser.cdp_url)
-    computer.files.write("/workspace/task.txt", "Review this file")
-    print(computer.run("ls -la /workspace").stdout)
-```
-
-The API groups the screen under `computer.display` and Chromium under `computer.browser`. If Chromium is closed while the desktop remains open, call `computer.browser.launch()`.
-
-From the CLI:
-
-```bash
-celesto computer start --name assistant
-celesto computer open assistant
-celesto computer delete assistant
-```
-
-Choose a normal sandbox for command-only work, a browser sandbox for web-only automation, and a Linux computer for work across desktop applications. See the [Linux computer guide](docs/guides/computers.md) for Python and TypeScript examples.
-
-
+<a href="https://youtu.be/j1qyrTsI0Jw"><img src="https://img.youtube.com/vi/j1qyrTsI0Jw/maxresdefault.jpg" alt="Code agents in a Celesto sandbox" width="480" /></a>
 
 ## Examples
 
-### Getting started
+### Start here
 
-| What you'll learn | Example |
+| Goal | Example |
 | --- | --- |
 | Run code in a sandbox | [quickstart_sandbox.py](examples/quickstart_sandbox.py) |
 | Start a browser sandbox | [browser_sandbox.py](examples/browser_sandbox.py) |
-| Pass environment variables into a sandbox | [env_injection.py](examples/env_injection.py) |
+| Pass environment variables | [env_injection.py](examples/env_injection.py) |
 
 ### Agent framework integrations
 
-These examples show how to wrap Celesto as a tool for popular agent frameworks, so an AI model can run shell commands or drive a browser through your sandbox.
-
-| Framework | Example |
+| Framework or task | Example |
 | --- | --- |
 | OpenAI Agents | [openai_agents_tool.py](examples/agent_tools/openai_agents_tool.py) |
 | LangChain | [langchain_tool.py](examples/agent_tools/langchain_tool.py) |
-| PydanticAI — shell tool | [pydanticai_tool.py](examples/agent_tools/pydanticai_tool.py) |
-| PydanticAI — reusable sandbox across turns | [pydanticai_reusable_tool.py](examples/agent_tools/pydanticai_reusable_tool.py) |
-| PydanticAI — browser automation | [pydanticai_agent_browser.py](examples/agent_tools/pydanticai_agent_browser.py) |
-| Computer use (click and type) | [computer_use_browser.py](examples/agent_tools/computer_use_browser.py) |
+| PydanticAI shell tool | [pydanticai_tool.py](examples/agent_tools/pydanticai_tool.py) |
+| PydanticAI sandbox across turns | [pydanticai_reusable_tool.py](examples/agent_tools/pydanticai_reusable_tool.py) |
+| PydanticAI browser automation | [pydanticai_agent_browser.py](examples/agent_tools/pydanticai_agent_browser.py) |
+| Computer use | [computer_use_browser.py](examples/agent_tools/computer_use_browser.py) |
 
-### Advanced
-
-| What it does | Example |
-| --- | --- |
-| Install and run OpenClaw 2026.9.1 inside a Debian sandbox with a 4 GB root filesystem | [openclaw.py](examples/openclaw.py) |
-
-Each script shows its own `pip install ...` line when it needs extra packages.
-
+Each example includes any extra package command it requires.
 
 ## Security
 
-Celesto automatically trusts new sandboxes on first connection to keep setup simple. This is safe for local development, but you should not expose sandbox network ports publicly without extra controls. See [SECURITY.md](SECURITY.md) for the full policy and scope.
+Each sandbox runs in its own virtual machine, which provides a stronger isolation boundary than process-level containers. Isolation still depends on secure host, hypervisor, image, credential, mount, and network configuration.
 
+Celesto trusts a new local sandbox on its first connection to simplify development. Do not expose sandbox ports to the public internet without authentication and network controls. Treat writable mounts, forwarded credentials, and host-accessible services as explicit trust decisions.
+
+See [SECURITY.md](SECURITY.md) for the security policy, threat model, and disclosure process.
 
 ## Performance
 
-Celesto ships a benchmark suite that measures the timings AI agents actually feel: cold start, time-to-interactive, pause/resume, and snapshot create/restore. It drives the public Python SDK on whichever backend is native to your host — Firecracker on Linux, QEMU on macOS.
-
-Run it locally:
+The benchmark suite measures cold start, time to interactive, pause and resume, and snapshot create and restore. It uses the public Python SDK with the native host backend: Firecracker on Linux and QEMU on macOS.
 
 ```bash
 uv run python scripts/benchmarks/bench.py
 ```
 
-See [scripts/benchmarks/README.md](scripts/benchmarks/README.md) for flags, output format, and what each metric means.
-
-
+See the [benchmark guide](scripts/benchmarks/README.md) for flags, output, and metric definitions.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
-
+See [CONTRIBUTING.md](CONTRIBUTING.md) to set up a development environment and submit a change. Coding agents should also read [AGENTS.md](AGENTS.md) for repository-specific commands, CLI conventions, release checks, and writing guidelines before editing the project.
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE) for details.
+Apache 2.0. See [LICENSE](LICENSE) for details.
 
 ---
+
 <div align="center">
-Built with 🧡 in London by <a href="https://celesto.ai">Celesto AI</a>
+
+Built with 🧡 by [Celesto AI](https://celesto.ai)
+
 </div>
