@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://ik.imagekit.io/gradsflow/celestoai/logo/celesto%20cover%20low_vFigbRaJI.png" alt="Celesto AI" />
+<img src="https://ik.imagekit.io/gradsflow/celestoai/oss/celesto-oss-banner_tHGcFZh4Ea.png" alt="Celesto AI" />
 
 # Celesto
 
