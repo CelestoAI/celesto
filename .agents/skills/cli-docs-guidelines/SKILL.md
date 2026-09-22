@@ -20,15 +20,15 @@ Commands must appear in the order a user would run them. A command should never 
 
 **Wrong** — `stop` appears before the user knows how to `list`:
 ```bash
-smolvm stop <vm_id>
-smolvm list
+celesto sandbox stop <sandbox-name>
+celesto sandbox list
 ```
 
 **Right** — create, inspect, then destroy:
 ```bash
-smolvm create --name my-sandbox
-smolvm list
-smolvm stop my-sandbox
+celesto sandbox create --name my-sandbox
+celesto sandbox list
+celesto sandbox stop my-sandbox
 ```
 
 ### 2. Introduce a concept before its flags
@@ -36,23 +36,23 @@ Show the base command before showing any flags or subcommands. Each flag is a ne
 
 **Wrong** — `--os` and `--name` are both new:
 ```bash
-smolvm create --os debian --name my-debian-sandbox
+celesto sandbox create --os debian --name my-debian-sandbox
 ```
 
 **Right** — `--name` first, then a separate example for `--os`:
 ```bash
 # Create a sandbox with a name
-smolvm create --name my-sandbox
+celesto sandbox create --name my-sandbox
 
 # Use a different OS image
-smolvm create --os debian --name my-debian-sandbox
+celesto sandbox create --os debian --name my-debian-sandbox
 ```
 
 ### 3. Show expected output after commands that produce it
 When a command prints a value the user needs (an ID, a URL, a status), show it. The reader should never have to run the command to find out what it returns.
 
 ```bash
-smolvm browser start --live
+celesto browser start --live
 # Session: sess_a1b2c3
 # Live view: http://localhost:6080
 ```
@@ -66,7 +66,7 @@ Never lead with a flags table. Explain what the command does in plain language f
 ## Review Checklist
 
 - [ ] Commands appear in the order a user would run them
-- [ ] Every placeholder (`<vm_id>`, `<session_id>`) is introduced by a prior command or clearly labelled as "output from the previous step"
+- [ ] Every placeholder (`<sandbox-name>`, `<session-id>`) is introduced by a prior command or clearly labelled as "output from the previous step"
 - [ ] Each code block introduces at most one new flag or subcommand
 - [ ] Commands that print useful output show that output as a comment
 - [ ] Conceptually distinct workflows (e.g. sandbox vs. browser) are in separate sections
