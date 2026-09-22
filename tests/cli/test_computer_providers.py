@@ -195,6 +195,30 @@ def test_cloud_terminal_rejects_local_timeout(monkeypatch):
     handler.assert_not_called()
 
 
+def test_ssh_always_dispatches_to_cloud_terminal(monkeypatch):
+    handler = Mock(return_value=0)
+    monkeypatch.setattr("celesto.cli.main._run_computer", handler)
+    assert main(["computer", "ssh", "hypatia"]) == 0
+    args = handler.call_args.args[0]
+    assert (args.computer_action, args.computer_id, args.provider) == (
+        "terminal",
+        "hypatia",
+        "cloud",
+    )
+
+
+def test_ssh_attaches_and_closes_without_deleting(monkeypatch):
+    handle = Mock()
+    handle.terminal.return_value.attach.return_value = None
+    factory = Mock()
+    factory.get.return_value = handle
+    monkeypatch.setattr("celesto.cli.cloud_computers.CloudComputer", factory)
+    assert main(["computer", "ssh", "hypatia"]) == 0
+    factory.get.assert_called_once_with("hypatia")
+    handle.close.assert_called_once()
+    handle.delete.assert_not_called()
+
+
 def test_get_always_dispatches_to_cloud(monkeypatch):
     handler = Mock(return_value=0)
     monkeypatch.setattr("celesto.cli.main._run_computer", handler)

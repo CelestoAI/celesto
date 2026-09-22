@@ -1615,6 +1615,16 @@ def computer_terminal(computer_id: str, provider: str, boot_timeout: float) -> A
     )
 
 
+@computer.command("ssh")
+@click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
+def computer_ssh(computer_id: str) -> Any:
+    """Open an interactive shell on a cloud computer; exit keeps the computer."""
+    _before_command()
+    return _handlers()._run_computer(
+        _ns(computer_action="terminal", computer_id=computer_id, provider="cloud", json=False)
+    )
+
+
 @computer.command("get")
 @click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
 @json_option
