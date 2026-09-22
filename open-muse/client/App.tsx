@@ -396,7 +396,7 @@ export function App() {
                 }}
               >
                 {providers.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}{p.configured ? " ✓" : ""}</option>
+                  <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
             </div>
@@ -427,7 +427,7 @@ export function App() {
             </div>
           )}
 
-          {selectedProvider && !selectedProvider.configured && (
+          {selectedProvider && (!selectedProvider.configured || selectedProvider.id === "openai-codex") && (
             <div className="auth-methods">
               {selectedProvider.methods.map((method) =>
                 method.type === "api_key" ? (
@@ -437,12 +437,11 @@ export function App() {
                     <button disabled={!method.enabled} onClick={() => void beginAuth(selectedProvider.id, method.type)}>Enter API key</button>
                     {method.unavailableReason && <small>{method.unavailableReason}</small>}
                   </details>
-                ) : (
+                ) : method.enabled ? (
                   <div className="auth-method" key={method.type}>
-                    <button disabled={!method.enabled} onClick={() => void beginAuth(selectedProvider.id, method.type)}>{method.label}</button>
-                    {method.unavailableReason && <small>{method.unavailableReason}</small>}
+                    <button onClick={() => void beginAuth(selectedProvider.id, method.type)}>{method.label}</button>
                   </div>
-                )
+                ) : null
               )}
             </div>
           )}
