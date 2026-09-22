@@ -32,6 +32,73 @@ def run_cloud_computer(args: SimpleNamespace) -> int:
                     print(f"{row['computer_id']}\t{row['status']}")
                 if not rows:
                     print("No cloud computers found.")
+        elif action == "get":
+            from celesto._providers.cloud import get_cloud_computer
+
+            data = get_cloud_computer(args.computer_id)
+            if json_output:
+                emit_json(command, 0, data=data)
+            else:
+                for key, value in data.items():
+                    print(f"{key}: {value}")
+        elif action == "run":
+            import sys
+
+            handle = CloudComputer.get(args.computer_id)
+            result = handle.run(args.run_command, timeout=args.timeout)
+            if json_output:
+                emit_json(command, result.exit_code, data=result.model_dump())
+            else:
+                if result.stdout:
+                    sys.stdout.write(result.stdout)
+                if result.stderr:
+                    sys.stderr.write(result.stderr)
+            return result.exit_code
+        elif action == "stop":
+            from celesto._providers.cloud import stop_cloud_computer
+
+            data = stop_cloud_computer(args.computer_id)
+            if json_output:
+                emit_json(command, 0, data=data)
+            else:
+                print(f"Stopped cloud computer '{args.computer_id}'.")
+        elif action == "start":
+            if not getattr(args, "computer_id", None):
+                raise ValueError(
+                    "A computer id is required to resume a cloud computer; "
+                    "run 'celesto computer create --cloud' to create a new one."
+                )
+            from celesto._providers.cloud import start_cloud_computer
+
+            data = start_cloud_computer(args.computer_id)
+            if json_output:
+                emit_json(command, 0, data=data)
+            else:
+                print(f"Started cloud computer '{args.computer_id}'.")
+        elif action == "port_publish":
+            handle = CloudComputer.get(args.computer_id)
+            result = handle.publish_port(args.port_number)
+            if json_output:
+                emit_json(command, 0, data=result.model_dump())
+            else:
+                print(result.url or f"Published port {args.port_number}.")
+        elif action == "port_list":
+            handle = CloudComputer.get(args.computer_id)
+            results = handle.published_ports()
+            if json_output:
+                emit_json(command, 0, data={"ports": [r.model_dump() for r in results]})
+            else:
+                for r in results:
+                    print(f"{r.port}\t{r.status}\t{r.url or ''}")
+                if not results:
+                    print("No published ports.")
+        elif action == "port_unpublish":
+            handle = CloudComputer.get(args.computer_id)
+            result = handle.unpublish_port(args.port_number)
+            if json_output:
+                emit_json(command, 0, data=result.model_dump())
+            else:
+                print(f"Unpublished port {args.port_number}.")
         elif action in {"delete", "terminal"}:
             handle = CloudComputer.get(args.computer_id)
             if action == "delete":

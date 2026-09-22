@@ -5975,6 +5975,24 @@ class TestCliImage:
         assert payload["command"] == "image.pull"
         assert "celesto image pull --help" in payload["error"]["recovery"]
 
+    @pytest.mark.parametrize(
+        ("verb", "expected"),
+        [
+            ("publish", "computer.port_publish"),
+            ("list", "computer.port_list"),
+            ("unpublish", "computer.port_unpublish"),
+        ],
+    )
+    def test_computer_port_parse_error_command_name(
+        self, verb: str, expected: str, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Parse-time errors match the dotted name successful runs report."""
+        ret = main(["computer", "port", verb, "--not-a-flag", "--json"])
+
+        assert ret == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["command"] == expected
+
 
 class TestCliExec:
     """Tests for `celesto sandbox exec`."""
