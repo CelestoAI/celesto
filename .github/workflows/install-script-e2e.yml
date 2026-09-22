@@ -77,10 +77,13 @@ jobs:
 
       - name: Create and exercise a sandbox
         run: |
-          "$CELESTO_BIN" sandbox create \
+          if ! "$CELESTO_BIN" sandbox create \
             --name "$SANDBOX_NAME" \
             --backend "${{ matrix.backend }}" \
-            --json > "$RUNNER_TEMP/create.json"
+            --json > "$RUNNER_TEMP/create.json"; then
+            cat "$RUNNER_TEMP/create.json"
+            exit 1
+          fi
 
           "$CELESTO_BIN" sandbox list --json > "$RUNNER_TEMP/list-running.json"
           "$CELESTO_BIN" sandbox exec "$SANDBOX_NAME" --json -- \
