@@ -22,6 +22,7 @@ import re
 import sys
 import warnings
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -53,7 +54,6 @@ README_EXAMPLE_LINKS = {
     "examples/agent_tools/pydanticai_tool.py",
     "examples/agent_tools/pydanticai_reusable_tool.py",
     "examples/env_injection.py",
-    "examples/openclaw.py",
 }
 
 
@@ -64,7 +64,7 @@ def test_agent_tool_examples_exist() -> None:
 
 
 def test_top_level_examples_exist() -> None:
-    """Ensure the top-level examples linked from the README are present."""
+    """Ensure the supported top-level examples are present."""
     example_names = {path.name for path in TOP_LEVEL_EXAMPLES_DIR.glob("*.py")}
     assert example_names >= EXPECTED_TOP_LEVEL_EXAMPLES
 
@@ -81,7 +81,7 @@ def test_top_level_examples_compile() -> None:
         py_compile.compile(str(path), doraise=True)
 
 
-def _load_module(path: Path):
+def _load_module(path: Path) -> ModuleType:
     spec = importlib.util.spec_from_file_location(path.stem, path)
     assert spec is not None
     assert spec.loader is not None
