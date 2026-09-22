@@ -6,8 +6,8 @@
 
 ### Secure, persistent computers for AI agents
 
-[![CodeQL](https://github.com/CelestoAI/SmolVM/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/CelestoAI/SmolVM/actions/workflows/github-code-scanning/codeql)
-[![Run Tests](https://github.com/CelestoAI/SmolVM/actions/workflows/pytest.yml/badge.svg)](https://github.com/CelestoAI/SmolVM/actions/workflows/pytest.yml)
+[![CodeQL](https://github.com/CelestoAI/celesto/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/CelestoAI/celesto/actions/workflows/github-code-scanning/codeql)
+[![Run Tests](https://github.com/CelestoAI/celesto/actions/workflows/pytest.yml/badge.svg)](https://github.com/CelestoAI/celesto/actions/workflows/pytest.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-orange.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-orange.svg)](https://www.python.org/downloads/)
 
@@ -88,7 +88,7 @@ Use `celesto sandbox stop my-sandbox` instead when you want to keep it for later
 
 ## Use the Python API
 
-The installer includes the Python SDK. The `with` block creates a local sandbox when the first command runs and deletes it when the block ends:
+The installer includes the Python SDK. The `with` block creates a local sandbox when the block starts and deletes it when the block ends:
 
 ```python
 from celesto import Computer
@@ -174,7 +174,7 @@ Celesto exposes one default API and focused APIs for browser and desktop work:
 | Shell sandbox | Commands, code, and files | `Computer()` | `celesto sandbox` |
 | Browser | Chromium, CDP, screenshots, or a live viewer | `Celesto.browser()` | `celesto browser` |
 | Linux computer | A full desktop and multiple GUI apps | `Celesto.computer()` | `celesto computer` |
-| Windows sandbox | PowerShell or Windows software | `Celesto(os="windows", ...)` | `celesto sandbox create --os windows` |
+| Windows sandbox | PowerShell or Windows software | `Celesto(os="windows", ...)` | — |
 | macOS desktop | App or installer tests on Apple Silicon | — | `celesto sandbox create --os macos` |
 
 Use `Computer` for the common command sandbox path. Use the `Celesto` factories for focused browser and desktop runtimes. Use `Celesto(...)` directly when you need low-level VM options such as the backend, communication channel, guest OS, mounts, or network policy.
@@ -234,7 +234,7 @@ with Celesto.computer() as computer:
 
 The API groups screen access under `computer.display` and Chromium access under `computer.browser`. If Chromium closes while the desktop stays active, call `computer.browser.launch()`.
 
-The first start builds the image locally and requires Docker. Later starts reuse the cached image.
+The first start downloads and verifies the Linux desktop image. Later starts reuse the cached image, so Docker is not required.
 
 ```bash
 celesto computer start --name assistant
@@ -269,7 +269,7 @@ celesto windows build-image \
     --output ~/.smolvm/images/win11.qcow2
 ```
 
-Windows guests require a Linux host with KVM. Host mounts, network controls, and snapshots remain Linux-only. See the [Windows guide](https://docs.celesto.ai/smolvm/guides/windows-guests) for image setup and guest requirements.
+Windows guests require a Linux host with KVM. Host mounts, network controls, and snapshots remain Linux-only. See the [Windows guide](docs/guides/windows.md) for image setup and guest requirements.
 
 ## macOS desktop preview
 
