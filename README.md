@@ -1,61 +1,57 @@
 <div align="center">
 
-# Celesto AI
-
-## Give AI agents secure, persistent computers
-
-![Celesto AI banner](./open-muse/banner-dark.png)
-
-### [Try OpenMuse](./open-muse/README.md)
-
-<p align="left">OpenMuse is an open-source computer coworker that can browse the web, use apps, and continue tasks after your laptop turns off. <strong>Celesto powers OpenMuse.</strong></p>
-
-</div>
-
----
-
-<div align="center">
-
 <img src="https://ik.imagekit.io/gradsflow/celestoai/logo/celesto%20cover%20low_vFigbRaJI.png" alt="Celesto AI" />
+
+# Celesto
+
+### Run AI agents in isolated, disposable computers
 
 [![CodeQL](https://github.com/CelestoAI/SmolVM/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/CelestoAI/SmolVM/actions/workflows/github-code-scanning/codeql)
 [![Run Tests](https://github.com/CelestoAI/SmolVM/actions/workflows/pytest.yml/badge.svg)](https://github.com/CelestoAI/SmolVM/actions/workflows/pytest.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-orange.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-orange.svg)](https://www.python.org/downloads/)
 
-[Quickstart](#quickstart) · [Runtime options](#choose-a-runtime) · [Examples](#examples) · [Security](#security) · [Performance](#performance) · [Docs](https://docs.celesto.ai) · [Discord](https://discord.gg/KNb5UkrAmm)
+[OpenMuse](#built-with-celesto-openmuse) · [Quickstart](#quickstart) · [Python API](#use-the-python-api) · [Agents and automation](#agents-and-automation) · [Runtimes](#choose-a-runtime) · [Examples](#examples) · [Docs](https://docs.celesto.ai) · [Discord](https://discord.gg/KNb5UkrAmm)
 
 </div>
 
 ---
 
-Celesto gives AI agents isolated computers for code, browsers, and desktop apps. Start a sandbox on your machine for development, then run the same workload in Celesto Cloud for remote or production use.
+Celesto gives an AI agent its own computer for running code, browsing the web, and using desktop apps. You can run that computer on your machine during development or in Celesto Cloud for remote and production work.
 
-Each sandbox runs in its own virtual machine, starts in about 500 ms, and can preserve files and state across sessions. The VM boundary provides stronger isolation than a process-level container when an agent must run untrusted code.
+Each sandbox is a lightweight virtual machine, starts in about 500 ms, and can keep files and state between sessions. Because the agent runs in a separate virtual machine instead of a process on your computer, Celesto provides a stronger boundary for untrusted code.
+
+## Built with Celesto: OpenMuse
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./open-muse/banner-dark-v2.jpg">
+  <source media="(prefers-color-scheme: light)" srcset="./open-muse/banner-light-v2.jpg">
+  <img alt="OpenMuse chatting with a user while operating a website in an isolated Celesto desktop" src="./open-muse/banner-light-v2.jpg">
+</picture>
+
+**OpenMuse is our open-source computer coworker, built end to end on Celesto.** It browses public websites in its own disposable Linux desktop while you watch, approve clicks and form changes, or take control.
+
+[Explore OpenMuse →](./open-muse/README.md)
+
+> OpenMuse is a preview. Clone this repository to run it locally.
 
 ## Quickstart
 
-### 1. Install Celesto
+### 1. Install the CLI
 
-For a local sandbox, install Celesto and prepare your machine:
+On Linux or macOS, this command installs Celesto, prepares the machine, and checks that it is ready:
 
 ```bash
 curl -fsSL https://celesto.ai/install.sh | bash
 ```
 
-For Celesto Cloud, install the Python package. Cloud sandboxes do not require local virtualization software:
-
-```bash
-pip install 'celesto==0.0.15a0'
-```
-
 <details>
 <summary>Manual local setup</summary>
 
-Install Celesto with Python 3.11 or newer, prepare the host, then check the setup:
+Install Celesto with Python 3.11 or newer, prepare the machine, then check the setup:
 
 ```bash
-pip install 'celesto==0.0.15a0'
+pip install celesto
 celesto setup
 celesto doctor
 ```
@@ -64,32 +60,60 @@ On macOS, setup uses Homebrew to install [QEMU](https://www.qemu.org/docs/master
 
 </details>
 
-### 2. Run a local sandbox
+### 2. Create a sandbox
 
-`Computer` starts a local sandbox by default:
+Give the sandbox a name so later commands can find it:
+
+```bash
+celesto sandbox create --name my-sandbox
+```
+
+### 3. Run a command
+
+Everything after `--` runs inside the sandbox:
+
+```bash
+celesto sandbox exec my-sandbox -- python --version
+```
+
+### 4. Delete the sandbox
+
+Delete it when you no longer need its files or state:
+
+```bash
+celesto sandbox delete my-sandbox
+```
+
+Use `celesto sandbox stop my-sandbox` instead when you want to keep it for later. Restart it with `celesto sandbox start my-sandbox`.
+
+## Use the Python API
+
+The installer includes the Python SDK. The `with` block creates a local sandbox when the first command runs and deletes it when the block ends:
 
 ```python
 from celesto import Computer
 
-computer = Computer()
-result = computer.run("echo 'Hello from Celesto!'")
-
-print(result.stdout)
-computer.stop()
+with Computer() as computer:
+    result = computer.run("echo 'Hello from Celesto!'")
+    print(result.stdout)
 ```
 
-### 3. Move the same code to Celesto Cloud
+### Run in Celesto Cloud
 
-Set your API key:
+Cloud sandboxes do not require virtualization software on your machine. First, set your API key:
 
 ```bash
 export CELESTO_API_KEY="your-api-key"
 ```
 
-Then change the provider:
+Then run the same Python code with the cloud provider:
 
 ```python
-computer = Computer(provider="cloud")
+from celesto import Computer
+
+with Computer(provider="cloud") as computer:
+    result = computer.run("echo 'Hello from Celesto Cloud!'")
+    print(result.stdout)
 ```
 
 | Provider | Best for | Host requirements |
@@ -97,23 +121,47 @@ computer = Computer(provider="cloud")
 | Local | Development, tests, and private workloads on your machine | Local virtualization setup |
 | Cloud | Remote tasks, persistent workspaces, and production workloads | Python package and `CELESTO_API_KEY` |
 
-### Use the CLI
+## Agents and automation
 
-Create a local sandbox and run a command:
+Celesto commands print readable output by default. Add `--json` when a script or agent needs stable, machine-readable output. Every JSON response contains `ok`, `command`, `exit_code`, `data`, and `error` fields.
 
-```bash
-celesto sandbox create --name my-sandbox
-celesto sandbox exec my-sandbox -- python --version
-celesto sandbox stop my-sandbox
-```
-
-Use these commands for inspection or interactive access:
+Check the machine before accepting work. `--strict` makes warnings fail the check:
 
 ```bash
-celesto sandbox list
-celesto sandbox shell my-sandbox
-celesto sandbox logs my-sandbox
+celesto doctor --strict --json
 ```
+
+Create a named sandbox and capture the JSON response:
+
+```bash
+celesto sandbox create --name agent-job --json
+```
+
+Run a command without opening an interactive shell:
+
+```bash
+celesto sandbox exec agent-job --json -- python -m pytest
+```
+
+Always clean up the sandbox by its exact name when the job ends:
+
+```bash
+celesto sandbox delete agent-job --json
+```
+
+Use unique names for concurrent jobs. Prefer `exec` for automation; reserve `shell`, `ssh`, and `desktop` for interactive work. Commands return a nonzero exit code on failure, and JSON errors include a recovery command when Celesto can provide one.
+
+For a coding agent with its CLI already installed, start a preset directly:
+
+```bash
+celesto codex start
+```
+
+Celesto also provides presets for Claude Code, Pi, Hermes, OpenCode, and OpenClaw. See the [agent presets guide](docs/guides/agent-presets.md) for credentials, naming, and unattended usage.
+
+## Inspect and connect
+
+Use `celesto sandbox list` to see sandboxes, `celesto sandbox logs my-sandbox` to inspect startup output, or `celesto sandbox shell my-sandbox` to open a fast interactive shell.
 
 Add `--follow` to stream logs. Use `celesto sandbox ssh my-sandbox` when you need an SSH session. See the [CLI reference](docs/reference/cli.md) for every command and shell completion.
 
@@ -127,7 +175,7 @@ Celesto exposes one default API and focused APIs for browser and desktop work:
 | Browser | Chromium, CDP, screenshots, or a live viewer | `Celesto.browser()` | `celesto browser` |
 | Linux computer | A full desktop and multiple GUI apps | `Celesto.computer()` | `celesto computer` |
 | Windows sandbox | PowerShell or Windows software | `Celesto(os="windows", ...)` | `celesto sandbox create --os windows` |
-| macOS desktop | App or installer tests on Apple Silicon | — | `celesto sandbox --os macos` |
+| macOS desktop | App or installer tests on Apple Silicon | — | `celesto sandbox create --os macos` |
 
 Use `Computer` for the common command sandbox path. Use the `Celesto` factories for focused browser and desktop runtimes. Use `Celesto(...)` directly when you need low-level VM options such as the backend, communication channel, guest OS, mounts, or network policy.
 
@@ -387,7 +435,7 @@ See the [benchmark guide](scripts/benchmarks/README.md) for flags, output, and m
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) to set up a development environment and submit a change.
+See [CONTRIBUTING.md](CONTRIBUTING.md) to set up a development environment and submit a change. Coding agents should also read [AGENTS.md](AGENTS.md) for repository-specific commands, CLI conventions, release checks, and writing guidelines before editing the project.
 
 ## License
 
