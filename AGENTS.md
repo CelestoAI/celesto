@@ -31,7 +31,8 @@ For guest-agent or published-image changes:
    - `celesto ...` installed with `uv tool` downloads the standalone
      guest-agent release binary.
 5. Run the focused tests.
-6. Only then tag the Celesto package release.
+6. Only then tag the Celesto package release. Use either `v<version>` or
+   `celesto-v<version>`; both formats publish the Python package and dashboard.
 
 ### CLI design
 
