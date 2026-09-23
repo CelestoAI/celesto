@@ -82,7 +82,7 @@ Out-of-scope (unless caused by Celesto code):
 
 Celesto is optimized for non-interactive local sandbox workflows. To reduce user
 friction in ephemeral VM lifecycles, the current SSH path accepts unknown host
-keys on first connection (Paramiko `AutoAddPolicy`).
+keys on first connection (Paramiko `WarningPolicy`).
 
 ### Impact
 
