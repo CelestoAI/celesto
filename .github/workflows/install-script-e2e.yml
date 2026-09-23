@@ -1,8 +1,11 @@
 name: Install Script E2E
 
 on:
-  push:
-    branches: [main]
+  # The public installer reads PyPI. A push to main can race the separate tag
+  # workflow that publishes the package, leaving this job on the old version.
+  workflow_run:
+    workflows: ["Publish celesto"]
+    types: [completed]
   schedule:
     # Exercise the public install path daily so hosting, package, image, and
     # runner drift is caught even when main has not changed.
@@ -19,6 +22,7 @@ permissions:
 jobs:
   install-and-run:
     name: Public installer and CLI lifecycle (${{ matrix.os }})
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -33,6 +37,7 @@ jobs:
             backend: qemu
     env:
       SANDBOX_NAME: install-script-smoke
+      RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
 
     steps:
       # Deliberately do not check out the repository or set up a project
@@ -47,33 +52,58 @@ jobs:
 
       - name: Install Celesto from the public installer
         run: |
-          curl -fsSL https://celesto.ai/install.sh | bash
+          set -o pipefail
 
-          if command -v uv >/dev/null 2>&1; then
-            uv_bin=$(command -v uv)
-          elif [ -x "$HOME/.local/bin/uv" ]; then
-            uv_bin="$HOME/.local/bin/uv"
-          elif [ -x "$HOME/.cargo/bin/uv" ]; then
-            uv_bin="$HOME/.cargo/bin/uv"
-          else
-            echo "The installer finished without making uv available." >&2
-            exit 1
-          fi
-
-          celesto_bin="$("$uv_bin" tool dir --bin)/celesto"
-          if [ ! -x "$celesto_bin" ]; then
-            echo "The installer finished without creating the Celesto CLI." >&2
-            exit 1
-          fi
-          case "$celesto_bin" in
-            "$GITHUB_WORKSPACE"/*)
-              echo "Celesto resolved inside the repository workspace." >&2
-              exit 1
-              ;;
+          case "$RELEASE_TAG" in
+            celesto-v*) expected_version="${RELEASE_TAG#celesto-v}" ;;
+            v*) expected_version="${RELEASE_TAG#v}" ;;
+            "") expected_version="" ;;
+            *) echo "Unexpected release tag: $RELEASE_TAG" >&2; exit 1 ;;
           esac
 
-          echo "CELESTO_BIN=$celesto_bin" >> "$GITHUB_ENV"
-          "$celesto_bin" --version
+          # PyPI and uv's package index can briefly disagree after upload.
+          # Exercise the real public installer again until it resolves the
+          # version from the completed publish run.
+          for attempt in $(seq 1 20); do
+            curl -fsSL https://celesto.ai/install.sh | UV_NO_CACHE=1 bash
+
+            if command -v uv >/dev/null 2>&1; then
+              uv_bin=$(command -v uv)
+            elif [ -x "$HOME/.local/bin/uv" ]; then
+              uv_bin="$HOME/.local/bin/uv"
+            elif [ -x "$HOME/.cargo/bin/uv" ]; then
+              uv_bin="$HOME/.cargo/bin/uv"
+            else
+              echo "The installer finished without making uv available." >&2
+              exit 1
+            fi
+
+            celesto_bin="$("$uv_bin" tool dir --bin)/celesto"
+            if [ ! -x "$celesto_bin" ]; then
+              echo "The installer finished without creating the Celesto CLI." >&2
+              exit 1
+            fi
+            case "$celesto_bin" in
+              "$GITHUB_WORKSPACE"/*)
+                echo "Celesto resolved inside the repository workspace." >&2
+                exit 1
+                ;;
+            esac
+
+            installed_version="$("$celesto_bin" --version)"
+            if [ -z "$expected_version" ] || [ "$installed_version" = "celesto $expected_version" ]; then
+              echo "CELESTO_BIN=$celesto_bin" >> "$GITHUB_ENV"
+              echo "$installed_version"
+              break
+            fi
+
+            if [ "$attempt" -eq 20 ]; then
+              echo "The installer selected $installed_version, but release $RELEASE_TAG was published." >&2
+              exit 1
+            fi
+            echo "The installer selected $installed_version; retrying release $RELEASE_TAG in 30 seconds."
+            sleep 30
+          done
 
       - name: Create and exercise a sandbox
         run: |
