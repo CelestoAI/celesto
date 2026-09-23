@@ -14,6 +14,7 @@
 
 ### Fixed
 
+- Keep sandbox creation output clear when several SSH ports are busy; record one summary after choosing a free port.
 - Find Homebrew's disk preparation tools automatically when growing sandbox disks on macOS.
 
 ## 0.0.15a0 — 2026-09-19

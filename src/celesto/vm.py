@@ -2013,15 +2013,17 @@ class CelestoManager:
                 excluded_host_ports=excluded_ports,
             )
             if self._local_ssh_port_is_available(port):
+                if excluded_ports:
+                    logger.info(
+                        "Skipped %d busy SSH ports while creating sandbox '%s'; using port %d",
+                        len(excluded_ports),
+                        vm_id,
+                        port,
+                    )
                 return port
 
             self.state.release_ssh_port(vm_id)
             excluded_ports.add(port)
-            logger.warning(
-                "Skipping SSH host port %d for VM %s because it is already in use",
-                port,
-                vm_id,
-            )
 
         raise NetworkError(
             f"No local SSH port is available for sandbox '{vm_id}'. "

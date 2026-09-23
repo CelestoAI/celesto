@@ -90,8 +90,10 @@ def test_start_qemu_missing_binary_uses_linux_install_hint(tmp_path: Path) -> No
     assert "brew install qemu" not in message
 
 
-def test_create_qemu_skips_local_ssh_port_that_is_already_in_use(tmp_path: Path) -> None:
-    """QEMU slirp VMs should not reserve a localhost port QEMU cannot bind."""
+def test_create_qemu_summarizes_busy_ssh_ports(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """QEMU slirp VMs skip busy ports with one informational summary."""
     kernel = tmp_path / "vmlinux"
     rootfs = tmp_path / "rootfs.ext4"
     kernel.touch()
@@ -108,18 +110,29 @@ def test_create_qemu_skips_local_ssh_port_that_is_already_in_use(tmp_path: Path)
     )
 
     with (
+        caplog.at_level("INFO", logger="celesto.vm"),
         patch.object(CelestoManager, "_create_qemu_overlay_disk") as mock_overlay,
         patch.object(
             CelestoManager,
             "_local_ssh_port_is_available",
-            side_effect=lambda port: port != 2200,
+            side_effect=lambda port: port >= 2203,
         ),
     ):
         mock_overlay.side_effect = lambda _source, target, **_kwargs: target.touch()
         vm_info = sdk.create(config)
 
     assert vm_info.network is not None
-    assert vm_info.network.ssh_host_port == 2201
+    assert vm_info.network.ssh_host_port == 2203
+    assert [
+        (record.levelname, record.message)
+        for record in caplog.records
+        if "busy SSH ports" in record.message
+    ] == [
+        (
+            "INFO",
+            "Skipped 3 busy SSH ports while creating sandbox 'vm-qemu-busy-port'; using port 2203",
+        )
+    ]
 
 
 def test_local_tcp_port_probe_handles_invalid_ports() -> None:
