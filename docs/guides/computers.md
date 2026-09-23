@@ -22,7 +22,7 @@ the cached image, so applications do not need Docker to create a computer.
 Start the built-in Linux desktop template:
 
 ```bash
-celesto computer start --name assistant
+celesto computer create --desktop --name assistant
 ```
 
 The command prints the computer's viewer URL. Open it later by name:
@@ -35,13 +35,13 @@ List available templates and active computers:
 
 ```bash
 celesto computer templates
-celesto computer list
+celesto computer list --desktop
 ```
 
 Delete the computer when the work is finished:
 
 ```bash
-celesto computer delete assistant
+celesto computer delete assistant --desktop
 ```
 
 Deletion removes the computer and its temporary files.

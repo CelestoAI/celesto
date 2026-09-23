@@ -107,10 +107,19 @@ def run_cloud_computer(args: SimpleNamespace) -> int:
             else:
                 print(f"Unpublished port {args.port_number}.")
         elif action in {"delete", "terminal", "exec"}:
+            if action == "exec" and getattr(args, "start", False):
+                from celesto._providers.cloud import start_cloud_computer
+
+                start_cloud_computer(args.computer_id)
             handle = CloudComputer.get(args.computer_id)
             if action == "delete":
                 handle.delete()
-                print(f"Deleted cloud computer '{args.computer_id}'.")
+                if json_output:
+                    emit_json(
+                        command, 0, data={"computer_id": args.computer_id, "provider": "cloud"}
+                    )
+                else:
+                    print(f"Deleted cloud computer '{args.computer_id}'.")
             elif action == "terminal":
                 handle.terminal().attach()
                 return 0

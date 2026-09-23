@@ -4277,7 +4277,10 @@ def _run_computer(args: SimpleNamespace) -> int:
             return _emit_command_result(command_name, result, json_output=json_output)
         elif action == "delete":
             computer.delete()
-            print(f"Deleted computer '{args.computer_id}'.")
+            if json_output:
+                emit_json(command_name, 0, data={"computer_id": args.computer_id})
+            else:
+                print(f"Deleted computer '{args.computer_id}'.")
         elif action == "open":
             if not computer.open_viewer():
                 print(f"Open this URL manually: {computer.display.viewer_url}")
@@ -4303,17 +4306,26 @@ def _command_name_from_argv(args: Sequence[str]) -> str:
     tokens = [arg for arg in args if not arg.startswith("-")]
     if not tokens:
         return "celesto"
-    if (
-        len(tokens) >= 3
-        and tokens[0] == "sandbox"
-        and tokens[1] in {"env", "file", "snapshot", "port"}
-    ):
-        return f"sandbox.{tokens[1]}.{tokens[2]}"
+    if len(tokens) >= 2 and tokens[0] in {"sandbox", "computer"}:
+        action = tokens[1]
+        if action in {"env", "file", "snapshot"} and len(tokens) >= 3:
+            return f"sandbox.{action}.{tokens[2]}"
+        if action == "port" and len(tokens) >= 3:
+            port_action = tokens[2]
+            if port_action in {"publish", "unpublish"} or (
+                port_action == "list" and "--cloud" in args
+            ):
+                return f"computer.port_{port_action}"
+            return f"sandbox.port.{port_action}"
+        if action in {"get", "run", "open", "templates", "terminal"}:
+            return f"computer.{action}"
+        if "--cloud" in args or "--desktop" in args:
+            mapped_action = {"info": "get", "ssh": "terminal"}.get(action, action)
+            return f"computer.{mapped_action}"
+        return f"sandbox.{action}"
     if len(tokens) >= 2 and tokens[0] in {
-        "sandbox",
         "windows",
         "browser",
-        "computer",
         "server",
         "image",
         "codex",
@@ -4328,24 +4340,19 @@ def _command_name_from_argv(args: Sequence[str]) -> str:
             # "ls" is an alias of "list"; successful runs report
             # "image.list", so parse errors must too.
             return "image.list"
-        if (
-            tokens[0] == "computer"
-            and tokens[1] == "port"
-            and len(tokens) >= 3
-            and tokens[2] in {"publish", "list", "unpublish"}
-        ):
-            # Successful runs report "computer.port_{verb}"; parse errors
-            # must match so JSON clients see one identifier per command.
-            return f"computer.port_{tokens[2]}"
         return f"{tokens[0]}.{tokens[1]}"
     return tokens[0]
 
 
 def _recovery_from_argv(args: Sequence[str]) -> str:
     tokens = [arg for arg in args if not arg.startswith("-")]
+    if tokens and tokens[0] == "computer":
+        # Both spellings are one command tree. Keep the established recovery
+        # contract identical for scripts using either spelling.
+        tokens[0] = "sandbox"
     if (
         len(tokens) >= 3
-        and tokens[0] == "sandbox"
+        and tokens[0] in {"sandbox", "computer"}
         and tokens[1] in {"env", "file", "snapshot", "port"}
     ):
         return f"Run 'celesto {' '.join(tokens[:3])} --help' for usage."

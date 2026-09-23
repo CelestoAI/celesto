@@ -81,7 +81,7 @@ def _computer_range(minimum: int, maximum: int, example: int) -> Any:
             )
             raise click.BadParameter(
                 f"choose a value from {minimum} to {maximum}; run "
-                f"'celesto computer start {option} {example}'.",
+                f"'celesto computer create --desktop {option} {example}'.",
                 ctx=ctx,
                 param=param,
             )
@@ -94,6 +94,64 @@ def _mounts(values: tuple[str, ...]) -> list[str] | None:
     return list(values) or None
 
 
+def _reject_provided_options(names: tuple[str, ...], *, recovery: str) -> None:
+    """Avoid silently dropping options while routing to another provider."""
+    context = click.get_current_context()
+    for name in names:
+        if context.get_parameter_source(name) != click.core.ParameterSource.DEFAULT:
+            option = next((param for param in context.command.params if param.name == name), None)
+            flag = (
+                option.opts[0]
+                if isinstance(option, click.Option)
+                else f"--{name.replace('_', '-')}"
+            )
+            raise click.UsageError(
+                f"{flag} is unavailable for this computer; run '{recovery}' instead."
+            )
+
+
+def computer_provider_options(function: Any, *, cloud_supported: bool = True) -> Any:
+    """Resolve mutually exclusive location flags before dispatch."""
+
+    @click.option("--local", is_flag=True, help="Run on this machine (the default).")
+    @click.option("--cloud", is_flag=True, hidden=not cloud_supported, help="Run in Celesto Cloud.")
+    @wraps(function)
+    def wrapped(*args: Any, local: bool, cloud: bool, **kwargs: Any) -> Any:
+        if local and cloud:
+            raise click.UsageError("Choose either --local or --cloud, not both.")
+        if cloud and not cloud_supported:
+            action = click.get_current_context().info_name
+            guidance = {
+                "open": "Open the computer",
+                "logs": "View the computer's logs",
+                "templates": "View templates",
+            }.get(action)
+            if guidance is None:
+                raise click.UsageError("This command is available only for local computers.")
+            verb = "are" if action in {"logs", "templates"} else "is"
+            raise click.UsageError(
+                f"Cloud {action} {verb} unavailable in this CLI. "
+                f"{guidance} in the Celesto Cloud dashboard."
+            )
+        context = click.get_current_context()
+        if (
+            cloud
+            and context.info_name in {"terminal", "exec"}
+            and context.get_parameter_source("boot_timeout") != click.core.ParameterSource.DEFAULT
+        ):
+            raise click.UsageError(
+                "--boot-timeout applies to local computers; omit it with --cloud."
+            )
+        return function(*args, provider="cloud" if cloud else "local", **kwargs)
+
+    return wrapped
+
+
+def computer_local_options(function: Any) -> Any:
+    """Accept --local and explain that --cloud is unavailable."""
+    return computer_provider_options(function, cloud_supported=False)
+
+
 @click.group(context_settings=CONTEXT_SETTINGS, invoke_without_command=True)
 @click.version_option(
     importlib.metadata.version("celesto"),
@@ -104,7 +162,11 @@ def _mounts(values: tuple[str, ...]) -> list[str] | None:
 )
 @click.pass_context
 def cli(ctx: click.Context) -> int | None:
-    """Create, manage, and connect to disposable sandboxes for AI agents."""
+    """Create, manage, and connect to disposable computers for AI agents.
+
+    Use `celesto computer` for computer commands. `celesto sandbox` is an
+    equivalent spelling for every subcommand.
+    """
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
         return 0
@@ -154,11 +216,15 @@ def auth_logout(json_output: bool) -> Any:
 
 @cli.group(context_settings=CONTEXT_SETTINGS)
 def sandbox() -> None:
-    """Create, inspect, connect to, and delete sandboxes."""
+    """Create, inspect, connect to, and delete computers."""
 
 
 @sandbox.command("create")
-@click.option("-n", "--name", default=None, help="Name for the sandbox.")
+@click.option(
+    "--desktop", is_flag=True, help="Start a Linux desktop instead of a minimal computer."
+)
+@computer_provider_options
+@click.option("-n", "--name", default=None, help="Name for the computer.")
 @click.option(
     "--os",
     "os_name",
@@ -169,6 +235,8 @@ def sandbox() -> None:
 @click.option("--image", default=None, help="S3 URI or local qcow2 image path.")
 @click.option("--memory", "memory_mib", type=int, default=None, metavar="MIB")
 @click.option("--disk-size", "disk_size_mib", type=int, default=None, metavar="MIB")
+@click.option("--width", type=int, default=None, callback=_computer_range(640, 7680, 1440))
+@click.option("--height", type=int, default=None, callback=_computer_range(480, 4320, 900))
 @backend_option(default=None)
 @qemu_machine_option
 @comm_channel_option
@@ -200,11 +268,15 @@ def sandbox() -> None:
 @boot_timeout_option
 @json_option
 def sandbox_create(
+    desktop: bool,
+    provider: str,
     name: str | None,
     os_name: str | None,
     image: str | None,
     memory_mib: int | None,
     disk_size_mib: int | None,
+    width: int | None,
+    height: int | None,
     backend: str | None,
     qemu_machine: str,
     comm_channel: str | None,
@@ -217,8 +289,85 @@ def sandbox_create(
     boot_timeout: float,
     json_output: bool,
 ) -> Any:
-    """Create a new sandbox."""
+    """Create a minimal computer; add --desktop for a Linux desktop."""
     _before_command(json_output=json_output)
+    if provider == "cloud":
+        _reject_provided_options(
+            (
+                "desktop",
+                "name",
+                "os_name",
+                "image",
+                "memory_mib",
+                "disk_size_mib",
+                "width",
+                "height",
+                "backend",
+                "qemu_machine",
+                "comm_channel",
+                "mounts",
+                "writable_mounts",
+                "clipboard",
+                "yes",
+                "network_mode",
+                "bridge_name",
+            ),
+            recovery="celesto computer create --cloud",
+        )
+        return _handlers()._run_computer(
+            _ns(
+                computer_action="create",
+                provider="cloud",
+                boot_timeout=boot_timeout,
+                json=json_output,
+            )
+        )
+    if desktop:
+        if backend not in (None, "auto", "qemu", "firecracker"):
+            raise click.UsageError(
+                "Linux desktops support auto, QEMU, or Firecracker; run "
+                "'celesto computer create --desktop --backend auto'."
+            )
+        if memory_mib is not None and not 512 <= memory_mib <= 16384:
+            raise click.UsageError(
+                "Desktop memory must be 512–16384 MiB; run "
+                "'celesto computer create --desktop --memory 2048'."
+            )
+        if disk_size_mib is not None and not 2048 <= disk_size_mib <= 16384:
+            raise click.UsageError(
+                "Desktop disk size must be 2048–16384 MiB; run "
+                "'celesto computer create --desktop --disk-size 8192'."
+            )
+        _reject_provided_options(
+            (
+                "os_name",
+                "image",
+                "qemu_machine",
+                "comm_channel",
+                "mounts",
+                "writable_mounts",
+                "clipboard",
+                "yes",
+                "network_mode",
+                "bridge_name",
+            ),
+            recovery="celesto computer create --desktop",
+        )
+        return _handlers()._run_computer(
+            _ns(
+                computer_action="create",
+                provider="local",
+                boot_timeout=boot_timeout,
+                json=json_output,
+                name=name,
+                backend=backend or "auto",
+                width=width or 1440,
+                height=height or 900,
+                memory_mib=memory_mib or 2048,
+                disk_size_mib=disk_size_mib or 8192,
+            )
+        )
+    _reject_provided_options(("width", "height"), recovery="celesto computer create --desktop")
     return _handlers()._run_create(
         _ns(
             command_name="sandbox.create",
@@ -243,6 +392,8 @@ def sandbox_create(
 
 
 @sandbox.command("list")
+@computer_provider_options
+@click.option("--desktop", is_flag=True, help="List managed Linux desktops.")
 @click.option("--all", "include_all", is_flag=True, help="Show all sandboxes.")
 @click.option(
     "--status",
@@ -257,11 +408,21 @@ def sandbox_create(
     default=None,
     help="Show sandboxes created by this preset.",
 )
+@click.option(
+    "--limit",
+    type=positive_int_type(),
+    default=50,
+    show_default=True,
+    help="Maximum cloud computers to request.",
+)
 @json_option
 def sandbox_list(
+    provider: str,
+    desktop: bool,
     include_all: bool,
     status_filter: str | None,
     preset_filter: str | None,
+    limit: int,
     json_output: bool,
 ) -> Any:
     """List your sandboxes."""
@@ -271,6 +432,23 @@ def sandbox_list(
             "'celesto sandbox list --status running'."
         )
     _before_command(json_output=json_output)
+    if provider == "cloud":
+        _reject_provided_options(
+            ("desktop", "include_all", "status_filter", "preset_filter"),
+            recovery="celesto computer list --cloud",
+        )
+        return _handlers()._run_computer(
+            _ns(computer_action="list", provider="cloud", limit=limit, json=json_output)
+        )
+    _reject_provided_options(("limit",), recovery="celesto computer list")
+    if desktop:
+        _reject_provided_options(
+            ("include_all", "status_filter", "preset_filter"),
+            recovery="celesto computer list --desktop",
+        )
+        return _handlers()._run_computer(
+            _ns(computer_action="list", provider="local", json=json_output)
+        )
     return _handlers()._run_list(
         include_all=include_all,
         status_filter=status_filter,
@@ -282,10 +460,15 @@ def sandbox_list(
 
 @sandbox.command("info")
 @click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
+@computer_provider_options
 @json_option
-def sandbox_info(vm_id: str, json_output: bool) -> Any:
+def sandbox_info(vm_id: str, provider: str, json_output: bool) -> Any:
     """Show details about a sandbox."""
     _before_command(json_output=json_output)
+    if provider == "cloud":
+        return _handlers()._run_computer(
+            _ns(computer_action="get", computer_id=vm_id, provider="cloud", json=json_output)
+        )
     return _handlers()._run_info(
         vm_id=vm_id,
         json_output=json_output,
@@ -295,11 +478,19 @@ def sandbox_info(vm_id: str, json_output: bool) -> Any:
 
 @sandbox.command("start")
 @click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
+@computer_provider_options
 @boot_timeout_option
 @json_option
-def sandbox_start(vm_id: str, boot_timeout: float, json_output: bool) -> Any:
+def sandbox_start(vm_id: str, provider: str, boot_timeout: float, json_output: bool) -> Any:
     """Start a stopped sandbox."""
     _before_command(json_output=json_output)
+    if provider == "cloud":
+        _reject_provided_options(
+            ("boot_timeout",), recovery=f"celesto computer start {vm_id} --cloud"
+        )
+        return _handlers()._run_computer(
+            _ns(computer_action="start", computer_id=vm_id, provider="cloud", json=json_output)
+        )
     return _handlers()._run_vm_start(
         _ns(command_name="sandbox.start", vm_id=vm_id, boot_timeout=boot_timeout, json=json_output)
     )
@@ -331,6 +522,7 @@ def sandbox_desktop(
 
 @sandbox.command("stop")
 @click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
+@computer_provider_options
 @click.option(
     "--timeout",
     type=positive_float_type(),
@@ -339,9 +531,14 @@ def sandbox_desktop(
     help="Seconds to wait before forcing shutdown.",
 )
 @json_option
-def sandbox_stop(vm_id: str, timeout: float, json_output: bool) -> Any:
+def sandbox_stop(vm_id: str, provider: str, timeout: float, json_output: bool) -> Any:
     """Stop a running sandbox."""
     _before_command(json_output=json_output)
+    if provider == "cloud":
+        _reject_provided_options(("timeout",), recovery=f"celesto computer stop {vm_id} --cloud")
+        return _handlers()._run_computer(
+            _ns(computer_action="stop", computer_id=vm_id, provider="cloud", json=json_output)
+        )
     return _handlers()._run_stop(
         _ns(command_name="sandbox.stop", vm_id=vm_id, timeout=timeout, json=json_output)
     )
@@ -384,11 +581,22 @@ def sandbox_shell(vm_id: str, boot_timeout: float) -> Any:
 
 @sandbox.command("ssh")
 @click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
+@computer_provider_options
 @ssh_auth_options
 @boot_timeout_option
-def sandbox_ssh(vm_id: str, ssh_key: str | None, ssh_user: str, boot_timeout: float) -> Any:
+def sandbox_ssh(
+    vm_id: str, provider: str, ssh_key: str | None, ssh_user: str, boot_timeout: float
+) -> Any:
     """Open an SSH shell in a sandbox."""
     _before_command()
+    if provider == "cloud":
+        _reject_provided_options(
+            ("ssh_key", "ssh_user", "boot_timeout"),
+            recovery=f"celesto computer ssh {vm_id} --cloud",
+        )
+        return _handlers()._run_computer(
+            _ns(computer_action="terminal", computer_id=vm_id, provider="cloud", json=False)
+        )
     return _handlers()._run_ssh(
         _ns(
             command_name="sandbox.ssh",
@@ -407,6 +615,8 @@ def sandbox_ssh(vm_id: str, ssh_key: str | None, ssh_user: str, boot_timeout: fl
 )
 @click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
 @click.argument("command", nargs=-1, required=True, metavar="-- COMMAND ...")
+@computer_provider_options
+@click.option("--desktop", is_flag=True, help="Use a managed Linux desktop ID.")
 @click.option(
     "--timeout",
     type=positive_int_type(),
@@ -424,6 +634,8 @@ def sandbox_ssh(vm_id: str, ssh_key: str | None, ssh_user: str, boot_timeout: fl
 def sandbox_exec(
     vm_id: str,
     command: tuple[str, ...],
+    provider: str,
+    desktop: bool,
     timeout: int,
     start: bool,
     boot_timeout: float,
@@ -439,6 +651,31 @@ def sandbox_exec(
       celesto sandbox exec my-sandbox -- ls -la /root
     """
     _before_command(json_output=json_output)
+    if provider == "cloud":
+        _reject_provided_options(("desktop",), recovery=f"celesto computer exec {vm_id} --cloud")
+        return _handlers()._run_computer(
+            _ns(
+                computer_action="exec",
+                computer_id=vm_id,
+                command=command,
+                provider="cloud",
+                timeout=timeout,
+                start=start,
+                json=json_output,
+            )
+        )
+    if desktop:
+        return _handlers()._run_computer(
+            _ns(
+                computer_action="exec",
+                computer_id=vm_id,
+                command=command,
+                provider="local",
+                timeout=timeout,
+                boot_timeout=boot_timeout,
+                json=json_output,
+            )
+        )
     return _handlers()._run_exec(
         _ns(
             command_name="sandbox.exec",
@@ -454,6 +691,7 @@ def sandbox_exec(
 
 @sandbox.command("logs")
 @click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
+@computer_local_options
 @click.option(
     "--tail",
     type=positive_int_type(),
@@ -463,7 +701,7 @@ def sandbox_exec(
 )
 @click.option("-f", "--follow", is_flag=True, help="Keep printing new log lines as they arrive.")
 @json_option
-def sandbox_logs(vm_id: str, tail: int, follow: bool, json_output: bool) -> Any:
+def sandbox_logs(vm_id: str, provider: str, tail: int, follow: bool, json_output: bool) -> Any:
     """Show a sandbox's boot and console logs."""
     _before_command(json_output=json_output)
     return _handlers()._run_logs(
@@ -478,12 +716,16 @@ def sandbox_logs(vm_id: str, tail: int, follow: bool, json_output: bool) -> Any:
 
 
 @sandbox.command("delete")
+@computer_provider_options
+@click.option("--desktop", is_flag=True, help="Delete a managed Linux desktop by its ID.")
 @click.argument("vm_ids", nargs=-1, metavar="sandbox...", shell_complete=complete_sandbox_names)
 @click.option("--all", "all_sandboxes", is_flag=True, help="Delete every sandbox.")
-@click.option("--force", is_flag=True, help="Skip the confirmation prompt for --all.")
+@click.option("--force", "--yes", is_flag=True, help="Skip the confirmation prompt for --all.")
 @click.option("--dry-run", is_flag=True, help="Show what would be deleted.")
 @json_option
 def sandbox_delete(
+    provider: str,
+    desktop: bool,
     vm_ids: tuple[str, ...],
     all_sandboxes: bool,
     force: bool,
@@ -513,6 +755,29 @@ def sandbox_delete(
         )
 
     _before_command(json_output=json_output)
+    if provider == "cloud":
+        _reject_provided_options(("desktop",), recovery="celesto computer delete --cloud")
+        if all_sandboxes or dry_run or len(vm_ids) != 1:
+            raise click.UsageError(
+                "Cloud delete accepts one computer ID; run "
+                "'celesto computer list --cloud' to choose one."
+            )
+        if not force and not json_output:
+            click.confirm(f"Delete cloud computer '{vm_ids[0]}' and its files?", abort=True)
+        return _handlers()._run_computer(
+            _ns(computer_action="delete", computer_id=vm_ids[0], provider="cloud", json=json_output)
+        )
+    if desktop:
+        if all_sandboxes or dry_run or len(vm_ids) != 1:
+            raise click.UsageError(
+                "Desktop delete accepts one computer ID; run "
+                "'celesto computer list --desktop' to choose one."
+            )
+        if not force and not json_output:
+            click.confirm(f"Delete desktop computer '{vm_ids[0]}' and its files?", abort=True)
+        return _handlers()._run_computer(
+            _ns(computer_action="delete", computer_id=vm_ids[0], provider="local", json=json_output)
+        )
     from celesto.cli.cleanup import run_cleanup, run_delete
 
     if all_sandboxes:
@@ -1349,11 +1614,13 @@ def port_close(
 
 @port.command("list")
 @click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
+@computer_provider_options
 @ssh_auth_options
 @comm_channel_option
 @json_option
 def port_list(
     vm_id: str,
+    provider: str,
     ssh_key: str | None,
     ssh_user: str,
     comm_channel: str | None,
@@ -1361,6 +1628,14 @@ def port_list(
 ) -> Any:
     """List shared sandbox ports."""
     _before_command(json_output=json_output)
+    if provider == "cloud":
+        _reject_provided_options(
+            ("ssh_key", "ssh_user", "comm_channel"),
+            recovery=f"celesto computer port list {vm_id} --cloud",
+        )
+        return _handlers()._run_computer(
+            _ns(computer_action="port_list", computer_id=vm_id, provider="cloud", json=json_output)
+        )
     return _handlers()._run_port_list(
         _ns(
             vm_id=vm_id,
@@ -1546,75 +1821,7 @@ def browser_logs(session_id: str, tail: int) -> Any:
     return _handlers()._run_browser(_ns(browser_action="logs", session_id=session_id, tail=tail))
 
 
-@cli.group(context_settings=CONTEXT_SETTINGS)
-def computer() -> None:
-    """Manage complete desktop computers."""
-
-
-def computer_provider_options(function: Any, *, cloud_supported: bool = True) -> Any:
-    """Resolve mutually exclusive location flags before dispatch."""
-
-    @click.option("--local", is_flag=True, help="Run on this machine (the default).")
-    @click.option("--cloud", is_flag=True, hidden=not cloud_supported, help="Run in Celesto Cloud.")
-    @wraps(function)
-    def wrapped(*args: Any, local: bool, cloud: bool, **kwargs: Any) -> Any:
-        if local and cloud:
-            raise click.UsageError("Choose either --local or --cloud, not both.")
-        if cloud and not cloud_supported:
-            action = click.get_current_context().info_name
-            guidance = {
-                "open": "Open the computer",
-                "logs": "View the computer's logs",
-                "templates": "View templates",
-            }[action]
-            verb = "are" if action in {"logs", "templates"} else "is"
-            raise click.UsageError(
-                f"Cloud {action} {verb} unavailable in this CLI. "
-                f"{guidance} in the Celesto Cloud dashboard."
-            )
-        context = click.get_current_context()
-        if (
-            cloud
-            and context.info_name in {"terminal", "exec"}
-            and context.get_parameter_source("boot_timeout") != click.core.ParameterSource.DEFAULT
-        ):
-            raise click.UsageError(
-                "--boot-timeout applies to local computers; omit it with --cloud."
-            )
-        return function(*args, provider="cloud" if cloud else "local", **kwargs)
-
-    return wrapped
-
-
-def computer_local_options(function: Any) -> Any:
-    """Keep an explicit local selector without advertising unsupported cloud actions."""
-    return computer_provider_options(function, cloud_supported=False)
-
-
-@computer.command("create")
-@computer_provider_options
-@boot_timeout_option
-@json_option
-def computer_create(provider: str, boot_timeout: float, json_output: bool) -> Any:
-    """Create and start a computer; runs locally unless --cloud is selected."""
-    _before_command(json_output=json_output)
-    return _handlers()._run_computer(
-        _ns(
-            computer_action="create",
-            provider=provider,
-            boot_timeout=boot_timeout,
-            json=json_output,
-            name=None,
-            backend="auto",
-            width=1440,
-            height=900,
-            memory_mib=2048,
-            disk_size_mib=8192,
-        )
-    )
-
-
-@computer.command("terminal")
+@sandbox.command("terminal")
 @click.argument("computer_id")
 @computer_provider_options
 @boot_timeout_option
@@ -1632,17 +1839,7 @@ def computer_terminal(computer_id: str, provider: str, boot_timeout: float) -> A
     )
 
 
-@computer.command("ssh")
-@click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
-def computer_ssh(computer_id: str) -> Any:
-    """Open an interactive shell on a cloud computer; exit keeps the computer."""
-    _before_command()
-    return _handlers()._run_computer(
-        _ns(computer_action="terminal", computer_id=computer_id, provider="cloud", json=False)
-    )
-
-
-@computer.command("get")
+@sandbox.command("get")
 @click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
 @json_option
 def computer_get(computer_id: str, json_output: bool) -> Any:
@@ -1653,7 +1850,7 @@ def computer_get(computer_id: str, json_output: bool) -> Any:
     )
 
 
-@computer.command("run")
+@sandbox.command("run")
 @click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
 @click.argument("run_command", metavar="command")
 @click.option(
@@ -1675,180 +1872,7 @@ def computer_run(computer_id: str, run_command: str, timeout: int, json_output: 
     )
 
 
-@computer.command("stop")
-@click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
-@json_option
-def computer_stop(computer_id: str, json_output: bool) -> Any:
-    """Pause a cloud computer; use 'computer start COMPUTER' to resume it."""
-    _before_command(json_output=json_output)
-    return _handlers()._run_computer(
-        _ns(computer_action="stop", computer_id=computer_id, provider="cloud", json=json_output)
-    )
-
-
-@computer.command(
-    "exec",
-    short_help="Run a command on a local or cloud computer.",
-    context_settings={"ignore_unknown_options": True},
-)
-@click.argument("computer_id", metavar="computer")
-@click.argument("command", nargs=-1, required=True, metavar="-- COMMAND ...")
-@computer_provider_options
-@click.option(
-    "--timeout",
-    type=positive_int_type(),
-    default=30,
-    show_default=True,
-    help="Seconds to wait for the command to finish.",
-)
-@boot_timeout_option
-@json_option
-def computer_exec(
-    computer_id: str,
-    command: tuple[str, ...],
-    provider: str,
-    timeout: int,
-    boot_timeout: float,
-    json_output: bool,
-) -> Any:
-    """Run one command and print its output; local computers start if needed.
-
-    Put the command after --, for example:
-
-    \b
-      celesto computer exec my-computer -- python --version
-    """
-    _before_command(json_output=json_output)
-    return _handlers()._run_computer(
-        _ns(
-            computer_action="exec",
-            computer_id=computer_id,
-            command=command,
-            provider=provider,
-            timeout=timeout,
-            boot_timeout=boot_timeout,
-            json=json_output,
-        )
-    )
-
-
-@computer.command("start")
-@click.argument(
-    "computer_id",
-    metavar="[computer]",
-    required=False,
-    default=None,
-    shell_complete=complete_browser_session_names,
-)
-@computer_provider_options
-@click.option(
-    "--template",
-    type=click.Choice(["linux-desktop"]),
-    default="linux-desktop",
-    show_default=True,
-)
-@click.option("--name", default=None, help="Name for the computer.")
-@click.option(
-    "--backend",
-    type=click.Choice(["auto", "qemu", "firecracker"]),
-    default="auto",
-    show_default=True,
-    help="Virtualization backend.",
-)
-@click.option(
-    "--width", type=int, default=1440, show_default=True, callback=_computer_range(640, 7680, 1440)
-)
-@click.option(
-    "--height", type=int, default=900, show_default=True, callback=_computer_range(480, 4320, 900)
-)
-@click.option(
-    "--memory",
-    "memory_mib",
-    type=int,
-    default=2048,
-    show_default=True,
-    callback=_computer_range(512, 16384, 2048),
-)
-@click.option(
-    "--disk-size",
-    "disk_size_mib",
-    type=int,
-    default=8192,
-    show_default=True,
-    callback=_computer_range(2048, 16384, 8192),
-)
-@boot_timeout_option
-@json_option
-def computer_start(
-    computer_id: str | None,
-    provider: str,
-    template: str,
-    name: str | None,
-    backend: str,
-    width: int,
-    height: int,
-    memory_mib: int,
-    disk_size_mib: int,
-    boot_timeout: float,
-    json_output: bool,
-) -> Any:
-    """Start a new local desktop, or resume an existing cloud computer by name."""
-    _before_command(json_output=json_output)
-    if computer_id is not None:
-        # A name/id unambiguously means "resume that cloud computer"; local
-        # start/create never took a positional argument, so this is additive.
-        provider = "cloud"
-    return _handlers()._run_computer(
-        _ns(
-            computer_action="start",
-            computer_id=computer_id,
-            provider=provider,
-            template=template,
-            name=name,
-            backend=backend,
-            width=width,
-            height=height,
-            memory_mib=memory_mib,
-            disk_size_mib=disk_size_mib,
-            boot_timeout=boot_timeout,
-            json=json_output,
-        )
-    )
-
-
-@computer.command("delete")
-@computer_provider_options
-@click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
-@click.option("--yes", is_flag=True, help="Delete without asking for confirmation.")
-def computer_delete(computer_id: str, provider: str, yes: bool) -> Any:
-    """Delete a computer and its files."""
-    _before_command()
-    if not yes:
-        click.confirm(f"Delete {provider} computer '{computer_id}' and its files?", abort=True)
-    return _handlers()._run_computer(
-        _ns(computer_action="delete", computer_id=computer_id, provider=provider, json=False)
-    )
-
-
-@computer.command("list")
-@computer_provider_options
-@click.option(
-    "--limit",
-    type=positive_int_type(),
-    default=50,
-    show_default=True,
-    help="Maximum cloud computers to request; local listing is not limited.",
-)
-@json_option
-def computer_list(json_output: bool, provider: str, limit: int) -> Any:
-    """List desktop computers."""
-    _before_command(json_output=json_output)
-    return _handlers()._run_computer(
-        _ns(computer_action="list", provider=provider, limit=limit, json=json_output)
-    )
-
-
-@computer.command("open")
+@sandbox.command("open")
 @computer_local_options
 @click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
 def computer_open(computer_id: str, provider: str) -> Any:
@@ -1859,25 +1883,7 @@ def computer_open(computer_id: str, provider: str) -> Any:
     )
 
 
-@computer.command("logs")
-@computer_local_options
-@click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
-@click.option("--tail", type=int, default=100, show_default=True)
-def computer_logs(computer_id: str, tail: int, provider: str) -> Any:
-    """Show recent computer output."""
-    _before_command()
-    return _handlers()._run_computer(
-        _ns(
-            computer_action="logs",
-            computer_id=computer_id,
-            provider=provider,
-            tail=tail,
-            json=False,
-        )
-    )
-
-
-@computer.command("templates")
+@sandbox.command("templates")
 @computer_local_options
 @json_option
 def computer_templates(json_output: bool, provider: str) -> Any:
@@ -1888,12 +1894,7 @@ def computer_templates(json_output: bool, provider: str) -> Any:
     )
 
 
-@computer.group("port", context_settings=CONTEXT_SETTINGS)
-def computer_port() -> None:
-    """Publish, list, and unpublish public ports on a cloud computer."""
-
-
-@computer_port.command("publish")
+@port.command("publish")
 @click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
 @click.option("--port", "port_number", type=int, required=True, help="Port to publish.")
 @json_option
@@ -1911,20 +1912,7 @@ def computer_port_publish(computer_id: str, port_number: int, json_output: bool)
     )
 
 
-@computer_port.command("list")
-@click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
-@json_option
-def computer_port_list(computer_id: str, json_output: bool) -> Any:
-    """List published ports for a computer."""
-    _before_command(json_output=json_output)
-    return _handlers()._run_computer(
-        _ns(
-            computer_action="port_list", computer_id=computer_id, provider="cloud", json=json_output
-        )
-    )
-
-
-@computer_port.command("unpublish")
+@port.command("unpublish")
 @click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
 @click.option("--port", "port_number", type=int, required=True, help="Port to unpublish.")
 @json_option
@@ -1940,6 +1928,10 @@ def computer_port_unpublish(computer_id: str, port_number: int, json_output: boo
             json=json_output,
         )
     )
+
+
+# Both public nouns use exactly the same Click command tree.
+cli.add_command(sandbox, name="computer")
 
 
 def _register_preset_commands() -> None:

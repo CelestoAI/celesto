@@ -3,6 +3,7 @@
 import json
 from unittest.mock import Mock
 
+import click
 import pytest
 from click.testing import CliRunner
 
@@ -18,67 +19,128 @@ def isolated_state(monkeypatch, tmp_path):
     monkeypatch.setattr("celesto.cli.commands.app._before_command", lambda **kwargs: None)
 
 
+def test_computer_and_sandbox_share_one_command_tree():
+    root = build_cli()
+    assert root.commands["computer"] is root.commands["sandbox"]
+    assert (
+        root.commands["computer"].commands["snapshot"]
+        is root.commands["sandbox"].commands["snapshot"]
+    )
+    assert root.commands["computer"].commands["port"] is root.commands["sandbox"].commands["port"]
+
+
+def test_every_subcommand_is_available_under_both_nouns():
+    def paths(group: click.Group, prefix: tuple[str, ...] = ()):
+        for name, command in group.commands.items():
+            path = (*prefix, name)
+            yield path
+            if isinstance(command, click.Group):
+                yield from paths(command, path)
+
+    runner = CliRunner()
+    group = build_cli().commands["sandbox"]
+    assert isinstance(group, click.Group)
+    for path in paths(group):
+        sandbox_help = runner.invoke(build_cli(), ["sandbox", *path, "--help"])
+        computer_help = runner.invoke(build_cli(), ["computer", *path, "--help"])
+        assert sandbox_help.exit_code == computer_help.exit_code == 0, path
+        assert sandbox_help.output.splitlines()[1:] == computer_help.output.splitlines()[1:], path
+
+
+def test_parse_error_json_is_identical_for_both_nouns(capsys):
+    payloads = []
+    for noun in ("sandbox", "computer"):
+        assert main([noun, "start", "--json"]) == 2
+        payloads.append(json.loads(capsys.readouterr().out))
+    assert payloads[0] == payloads[1]
+
+
+@pytest.mark.parametrize("noun", ["computer", "sandbox"])
 @pytest.mark.parametrize("flags", [[], ["--local"]])
+def test_local_create_uses_established_sandbox_handler(noun, flags, monkeypatch):
+    handler = Mock(return_value=0)
+    monkeypatch.setattr("celesto.cli.main._run_create", handler)
+    assert main([noun, "create", *flags]) == 0
+    assert handler.call_args.args[0].command_name == "sandbox.create"
+
+
+@pytest.mark.parametrize("noun", ["computer", "sandbox"])
+def test_desktop_create_rejects_unsupported_backend(noun, monkeypatch):
+    handler = Mock()
+    monkeypatch.setattr("celesto.cli.main._run_computer", handler)
+    result = CliRunner().invoke(build_cli(), [noun, "create", "--desktop", "--backend", "vz"])
+    assert result.exit_code == 2
+    assert "celesto computer create --desktop --backend auto" in result.output
+    handler.assert_not_called()
+
+
+@pytest.mark.parametrize("noun", ["computer", "sandbox"])
+def test_local_list_uses_established_sandbox_handler(noun, monkeypatch):
+    handler = Mock(return_value=0)
+    monkeypatch.setattr("celesto.cli.main._run_list", handler)
+    assert main([noun, "list"]) == 0
+    assert handler.call_args.kwargs["command_name"] == "sandbox.list"
+
+
+@pytest.mark.parametrize("noun", ["computer", "sandbox"])
+def test_local_exec_uses_established_sandbox_handler(noun, monkeypatch):
+    handler = Mock(return_value=0)
+    monkeypatch.setattr("celesto.cli.main._run_exec", handler)
+    assert main([noun, "exec", "demo", "--", "true"]) == 0
+    assert handler.call_args.args[0].start is False
+
+
+@pytest.mark.parametrize("noun", ["computer", "sandbox"])
+def test_local_delete_uses_established_sandbox_handler(noun, monkeypatch):
+    handler = Mock(return_value=0)
+    monkeypatch.setattr("celesto.cli.cleanup.run_delete", handler)
+    assert main([noun, "delete", "demo"]) == 0
+    assert handler.call_args.kwargs["vm_ids"] == ["demo"]
+
+
+@pytest.mark.parametrize("noun", ["computer", "sandbox"])
 @pytest.mark.parametrize("action", ["create", "list", "terminal", "exec", "delete"])
-def test_local_selection(action, flags, monkeypatch):
+def test_cloud_selection_is_identical_for_both_nouns(noun, action, monkeypatch):
     handler = Mock(return_value=0)
     monkeypatch.setattr("celesto.cli.main._run_computer", handler)
-    positional = ["computer-demo"] if action in {"terminal", "exec", "delete"} else []
-    suffix = ["--", "true"] if action == "exec" else []
-    if action == "delete":
-        positional.append("--yes")
-    assert main(["computer", action, *positional, *flags, *suffix]) == 0
-    assert handler.call_args.args[0].provider == "local"
-
-
-@pytest.mark.parametrize("action", ["create", "list", "terminal", "exec", "delete"])
-def test_cloud_selection(action, monkeypatch):
-    handler = Mock(return_value=0)
-    monkeypatch.setattr("celesto.cli.cloud_computers.run_cloud_computer", handler)
     positional = ["cloud-demo"] if action in {"terminal", "exec", "delete"} else []
     suffix = ["--", "true"] if action == "exec" else []
-    if action == "delete":
-        positional.append("--yes")
-    assert main(["computer", action, *positional, "--cloud", *suffix]) == 0
+    confirmation = ["--yes"] if action == "delete" else []
+    assert main([noun, action, *positional, "--cloud", *confirmation, *suffix]) == 0
     assert handler.call_args.args[0].provider == "cloud"
 
 
 def test_conflicting_flags_fail_without_dispatch(monkeypatch):
     handler = Mock()
-    monkeypatch.setattr("celesto.cli.main._run_computer", handler)
+    monkeypatch.setattr("celesto.cli.main._run_create", handler)
     assert main(["computer", "create", "--cloud", "--local"]) == 2
     handler.assert_not_called()
 
 
-@pytest.mark.parametrize("flags", [[], ["--local"], ["--cloud"]])
-@pytest.mark.parametrize("reply", ["n\n", "", "y\n"])
-def test_delete_requires_confirmation(flags, reply, monkeypatch):
+@pytest.mark.parametrize("noun", ["computer", "sandbox"])
+@pytest.mark.parametrize("reply", ["n\n", "y\n"])
+def test_cloud_delete_requires_confirmation(noun, reply, monkeypatch):
     handler = Mock(return_value=0)
     monkeypatch.setattr("celesto.cli.main._run_computer", handler)
-    result = CliRunner().invoke(build_cli(), ["computer", "delete", "demo", *flags], input=reply)
-    assert "Delete" in result.output
-    assert "demo" in result.output
+    result = CliRunner().invoke(build_cli(), [noun, "delete", "demo", "--cloud"], input=reply)
+    assert "Delete cloud computer 'demo'" in result.output
     if reply == "y\n":
         assert result.exit_code == 0
-        args = handler.call_args.args[0]
-        assert (args.computer_action, args.computer_id) == ("delete", "demo")
-        assert args.provider == ("cloud" if "--cloud" in flags else "local")
+        assert handler.call_args.args[0].computer_action == "delete"
     else:
         assert result.exit_code != 0
         handler.assert_not_called()
 
 
-@pytest.mark.parametrize("flags", [[], ["--local"], ["--cloud"]])
-def test_delete_yes_skips_confirmation(flags, monkeypatch):
+@pytest.mark.parametrize("noun", ["computer", "sandbox"])
+def test_cloud_delete_yes_skips_confirmation(noun, monkeypatch):
     handler = Mock(return_value=0)
     monkeypatch.setattr("celesto.cli.main._run_computer", handler)
     confirm = Mock(side_effect=AssertionError("must not prompt"))
     monkeypatch.setattr("celesto.cli.commands.app.click.confirm", confirm)
-    result = CliRunner().invoke(build_cli(), ["computer", "delete", "demo", *flags, "--yes"])
+    result = CliRunner().invoke(build_cli(), [noun, "delete", "demo", "--cloud", "--yes"])
     assert result.exit_code == 0
-    args = handler.call_args.args[0]
-    assert (args.computer_action, args.computer_id) == ("delete", "demo")
-    assert args.provider == ("cloud" if "--cloud" in flags else "local")
+    assert handler.call_args.args[0].computer_action == "delete"
     confirm.assert_not_called()
 
 
@@ -153,14 +215,14 @@ def test_cloud_exec_preserves_output_exit_and_close(monkeypatch, capsys):
     assert payload["error"]["code"] == "command_failed"
 
 
-def test_local_exec_starts_computer_and_preserves_exit(monkeypatch, capsys):
+def test_local_desktop_exec_starts_computer_and_preserves_exit(monkeypatch, capsys):
     desktop = Mock()
     desktop.vm.status = VMState.STOPPED
     desktop.run.return_value = CommandResult(stdout="ok\n", stderr="", exit_code=3)
     monkeypatch.setattr("celesto.cli.main._require_display_session_mode", Mock())
     monkeypatch.setattr("celesto.computer._ComputerSandbox.from_id", Mock(return_value=desktop))
 
-    assert main(["computer", "exec", "computer-demo", "--json", "--", "false"]) == 3
+    assert main(["computer", "exec", "computer-demo", "--desktop", "--json", "--", "false"]) == 3
 
     desktop.vm.start.assert_called_once()
     desktop.run.assert_called_once_with("false", timeout=30)
@@ -282,7 +344,7 @@ def test_cloud_terminal_rejects_local_timeout(monkeypatch):
 def test_ssh_always_dispatches_to_cloud_terminal(monkeypatch):
     handler = Mock(return_value=0)
     monkeypatch.setattr("celesto.cli.main._run_computer", handler)
-    assert main(["computer", "ssh", "hypatia"]) == 0
+    assert main(["computer", "ssh", "hypatia", "--cloud"]) == 0
     args = handler.call_args.args[0]
     assert (args.computer_action, args.computer_id, args.provider) == (
         "terminal",
@@ -297,16 +359,16 @@ def test_ssh_attaches_and_closes_without_deleting(monkeypatch):
     factory = Mock()
     factory.get.return_value = handle
     monkeypatch.setattr("celesto.cli.cloud_computers.CloudComputer", factory)
-    assert main(["computer", "ssh", "hypatia"]) == 0
+    assert main(["computer", "ssh", "hypatia", "--cloud"]) == 0
     factory.get.assert_called_once_with("hypatia")
     handle.close.assert_called_once()
     handle.delete.assert_not_called()
 
 
-def test_stop_always_dispatches_to_cloud(monkeypatch):
+def test_stop_cloud_dispatch_is_explicit(monkeypatch):
     handler = Mock(return_value=0)
     monkeypatch.setattr("celesto.cli.main._run_computer", handler)
-    assert main(["computer", "stop", "hypatia"]) == 0
+    assert main(["computer", "stop", "hypatia", "--cloud"]) == 0
     args = handler.call_args.args[0]
     assert (args.computer_action, args.computer_id, args.provider) == ("stop", "hypatia", "cloud")
 
@@ -316,33 +378,24 @@ def test_cloud_stop_reports_status(monkeypatch, capsys):
         "celesto._providers.cloud.stop_cloud_computer",
         lambda computer_id: {"computer_id": computer_id, "status": "stopped"},
     )
-    assert main(["computer", "stop", "hypatia", "--json"]) == 0
+    assert main(["computer", "stop", "hypatia", "--cloud", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["data"] == {
         "computer_id": "hypatia",
         "status": "stopped",
     }
 
 
-def test_start_with_id_forces_cloud_and_ignores_local_flag(monkeypatch):
+def test_start_with_id_defaults_to_local(monkeypatch):
     handler = Mock(return_value=0)
-    monkeypatch.setattr("celesto.cli.main._run_computer", handler)
-    assert main(["computer", "start", "hypatia", "--local"]) == 0
-    args = handler.call_args.args[0]
-    assert (args.computer_action, args.computer_id, args.provider) == ("start", "hypatia", "cloud")
+    monkeypatch.setattr("celesto.cli.main._run_vm_start", handler)
+    assert main(["computer", "start", "demo"]) == 0
+    assert handler.call_args.args[0].vm_id == "demo"
 
 
-def test_start_without_id_keeps_local_create_default(monkeypatch):
-    handler = Mock(return_value=0)
-    monkeypatch.setattr("celesto.cli.main._run_computer", handler)
-    assert main(["computer", "start"]) == 0
-    args = handler.call_args.args[0]
-    assert (args.computer_action, args.computer_id, args.provider) == ("start", None, "local")
-
-
-def test_cloud_start_without_id_fails_with_recovery(monkeypatch, capsys):
-    assert main(["computer", "start", "--cloud", "--json"]) == 1
+def test_start_requires_id(capsys):
+    assert main(["computer", "start", "--cloud", "--json"]) == 2
     payload = json.loads(capsys.readouterr().out)
-    assert "computer create --cloud" in payload["error"]["message"]
+    assert "Missing argument" in payload["error"]["message"]
 
 
 def test_cloud_start_resumes_by_id(monkeypatch, capsys):
@@ -350,7 +403,7 @@ def test_cloud_start_resumes_by_id(monkeypatch, capsys):
         "celesto._providers.cloud.start_cloud_computer",
         lambda computer_id: {"computer_id": computer_id, "status": "running"},
     )
-    assert main(["computer", "start", "hypatia", "--json"]) == 0
+    assert main(["computer", "start", "hypatia", "--cloud", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["data"] == {
         "computer_id": "hypatia",
         "status": "running",
@@ -404,7 +457,7 @@ def test_cloud_port_list_prints_rows(monkeypatch, capsys):
     factory.get.return_value = handle
     monkeypatch.setattr("celesto.cli.cloud_computers.CloudComputer", factory)
 
-    assert main(["computer", "port", "list", "hypatia"]) == 0
+    assert main(["computer", "port", "list", "hypatia", "--cloud"]) == 0
     assert "8000" in capsys.readouterr().out
 
 
@@ -415,7 +468,7 @@ def test_cloud_port_list_empty(monkeypatch, capsys):
     factory.get.return_value = handle
     monkeypatch.setattr("celesto.cli.cloud_computers.CloudComputer", factory)
 
-    assert main(["computer", "port", "list", "hypatia"]) == 0
+    assert main(["computer", "port", "list", "hypatia", "--cloud"]) == 0
     assert "No published ports." in capsys.readouterr().out
 
 
