@@ -166,7 +166,7 @@ def test_published_image_workflow_uploads_guest_agent_binaries() -> None:
     """The image release workflow should publish standalone guest-agent binaries."""
     workflow = (_REPO_ROOT / ".github" / "workflows" / "build-published-images.yml").read_text()
     assert "guest-agent-binaries:" in workflow
-    assert "if: ${{ inputs.presets == 'all' }}" in workflow
+    assert "if: ${{ inputs.presets == 'all' || inputs.presets == 'guest-agent' }}" in workflow
     assert 'cargo build --release --target "$target" -p celesto-guest-agent' in workflow
     assert "celesto-guest-agent-linux-amd64" in workflow
     assert "celesto-guest-agent-linux-arm64" in workflow
@@ -242,9 +242,25 @@ def test_guest_agent_source_digest_tracks_release_binary_without_source(
 def test_guest_agent_release_sha_pins_match_published_assets() -> None:
     """Installed wheels must verify the standalone guest-agent release binaries."""
     assert builder_mod._GUEST_AGENT_RELEASE_SHA256 == {
-        "amd64": "a5baa22b6b9fd44328ea750b18495bff31018a1ed98c3e9b68437b86eac9f146",
-        "arm64": "8ab005fb7b5c2eb715a3fa42bd795aeecabf56405578bf33b25448ccf8c823ca",
+        "amd64": "61a0a8903566d25b72ddf52ab91edd847a2a48e4ffe57002aefca6e9b0f5ae05",
+        "arm64": "f7b1b2ced458b8faba5c4ceea5b853702cd379fdb75a9ae8440a6bbe27ff950c",
     }
+
+
+@pytest.mark.parametrize("arch", ["x86_64", "aarch64"])
+@pytest.mark.parametrize("tag", ["images-2026.09.07.0", "images-2026.09.24.0"])
+def test_guest_agent_release_asset_matches_tag_naming(
+    monkeypatch: pytest.MonkeyPatch, arch: str, tag: str
+) -> None:
+    monkeypatch.setenv("CELESTO_IMAGES_RELEASE_TAG", tag)
+    monkeypatch.setattr(builder_mod.platform, "machine", lambda: arch)
+
+    url, name, sha = builder_mod._guest_agent_release_asset()
+
+    published_arch = builder_mod.to_published_arch(arch)
+    assert name == f"celesto-guest-agent-linux-{published_arch}"
+    assert url == f"https://github.com/CelestoAI/Celesto/releases/download/{tag}/{name}"
+    assert sha == builder_mod._GUEST_AGENT_RELEASE_SHA256[published_arch]
 
 
 def test_guest_agent_source_digest_tracks_env_binary(
@@ -504,7 +520,7 @@ def test_do_build_bakes_agent_into_context(
 
     assert (
         f"COPY {builder_mod._GUEST_AGENT_BUILD_FILE} {builder_mod._GUEST_AGENT_GUEST_PATH}"
-        in (captured["dockerfile"])
+        in str(captured["dockerfile"])
     )
     assert captured["agent_present"] is True
     assert captured["agent_bytes"] == b"rust-agent"

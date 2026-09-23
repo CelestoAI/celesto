@@ -27,7 +27,8 @@ on:
       presets:
         description: >-
           Comma-separated presets to build (e.g. "linux-desktop,openclaw,codex,opencode").
-          Use "all" to build every preset.
+          Use "all" to build every preset, or "guest-agent" to publish only
+          the standalone Rust guest-agent binaries.
         type: string
         default: "all"
       release_tag:
@@ -103,7 +104,7 @@ jobs:
   # per architecture gives users and production builders a provenance/debug
   # artifact without making the private Celesto repo the source of truth.
   guest-agent-binaries:
-    if: ${{ inputs.presets == 'all' }}
+    if: ${{ inputs.presets == 'all' || inputs.presets == 'guest-agent' }}
     strategy:
       fail-fast: false
       matrix:
