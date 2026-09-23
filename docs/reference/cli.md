@@ -81,6 +81,7 @@ Images are stored in `~/.celesto/images`. To keep them somewhere else, set the `
 | `celesto browser start` / `open` / `list` / `logs` / `stop` | Manage browser sandboxes. |
 | `celesto computer create` | Create and start a local desktop computer; add `--cloud` to run in Celesto Cloud. |
 | `celesto computer terminal COMPUTER_ID` | Open an interactive terminal using the ID printed by `create` or `list`; add `--cloud` for a cloud computer. Exiting keeps the computer. |
+| `celesto computer exec COMPUTER_ID -- COMMAND ...` | Run one command on a local or cloud computer and return its exit code. Add `--cloud` for a cloud computer and `--json` for structured output. A stopped local computer starts automatically. |
 | `celesto computer start` / `open` / `list` / `logs` / `delete` | Manage complete Linux desktop computers. |
 | `celesto computer templates` | List the available desktop templates. |
 | `celesto ui` | Start the local dashboard. |
@@ -88,7 +89,8 @@ Images are stored in `~/.celesto/images`. To keep them somewhere else, set the `
 | `celesto windows build-image` | Build a Windows qcow2 image. |
 
 Computer commands select local execution by default; `--local` makes that choice explicit.
-Use `--cloud` for cloud `create`, `list`, `terminal`, and `delete` commands; it cannot be combined with `--local`.
+Use `--cloud` for cloud `create`, `list`, `terminal`, `exec`, and `delete` commands; it cannot be combined with `--local`.
+Cloud `list` requests at most 50 computers by default; add `--limit NUMBER` to request more. If the response fills the limit, Celesto warns that more computers may exist, and JSON output sets `possibly_truncated` to `true`.
 The existing `start`, `open`, `logs`, and `templates` commands remain local-only.
 See [Run locally or in the cloud](../local-first.md) for setup, examples, and current cloud limits.
 

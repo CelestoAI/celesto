@@ -37,6 +37,7 @@ def test_cloud_options_rejected_locally_before_state_setup(monkeypatch):
 @pytest.fixture
 def cloud_cli(monkeypatch, tmp_path):
     monkeypatch.setenv("CELESTO_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CELESTO_API_KEY", "test-key")
     monkeypatch.setattr("celesto.cli.commands.app._before_command", lambda **kwargs: None)
     handle = Mock(id="cloud-existing")
     factory = Mock(return_value=handle)

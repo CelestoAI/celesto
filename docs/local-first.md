@@ -49,6 +49,13 @@ Copy the computer ID printed by that command, then open its terminal:
 celesto computer terminal COMPUTER_ID
 ```
 
+For a single command, use `exec` instead. It starts a stopped local computer
+and returns the command's exit code:
+
+```console
+celesto computer exec COMPUTER_ID -- python --version
+```
+
 Exiting the terminal keeps the computer and its files. Remove it when finished:
 
 ```console
@@ -62,15 +69,19 @@ celesto computer create --cloud
 # Created cloud computer '…'.
 ```
 
-Use `--cloud` on subsequent `list`, `terminal`, and `delete` commands too.
-Cloud listing currently returns up to 50 computers, following the service default.
+Use `--cloud` on subsequent `list`, `terminal`, `exec`, and `delete` commands too.
+For example, run `celesto computer exec COMPUTER_ID --cloud -- python --version`.
+Cloud listing requests up to 50 computers by default. Use `--limit NUMBER` to
+request more. A full response may omit additional computers because the service
+does not provide pagination; Celesto warns when that is possible. JSON output
+includes `possibly_truncated` so scripts can detect it.
 Cloud terminal attachment reports connection success or failure; the current
 gateway adapter does not expose a remote shell exit code. `--boot-timeout` on
 `terminal` applies only to local computers.
 Unflagged commands always select local execution; `--local` is an explicit
 equivalent. The two flags cannot be combined. Existing `computer start` remains
 the configurable local desktop workflow. Cloud `start`, `open`, `logs`, and
-`templates` are not exposed by this CLI yet and fail explicitly.
+`templates` are not exposed by this CLI yet.
 
 ## Migrating from cloud-first versions
 

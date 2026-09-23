@@ -1510,27 +1510,45 @@ def computer() -> None:
     """Manage complete desktop computers."""
 
 
-def computer_provider_options(function: Any) -> Any:
+def computer_provider_options(function: Any, *, cloud_supported: bool = True) -> Any:
     """Resolve mutually exclusive location flags before dispatch."""
 
     @click.option("--local", is_flag=True, help="Run on this machine (the default).")
-    @click.option("--cloud", is_flag=True, help="Run in Celesto Cloud.")
+    @click.option("--cloud", is_flag=True, hidden=not cloud_supported, help="Run in Celesto Cloud.")
     @wraps(function)
     def wrapped(*args: Any, local: bool, cloud: bool, **kwargs: Any) -> Any:
         if local and cloud:
             raise click.UsageError("Choose either --local or --cloud, not both.")
+        if cloud and not cloud_supported:
+            action = click.get_current_context().info_name
+            guidance = {
+                "start": "Start the computer",
+                "open": "Open the computer",
+                "logs": "View the computer's logs",
+                "templates": "View templates",
+            }[action]
+            verb = "are" if action in {"logs", "templates"} else "is"
+            raise click.UsageError(
+                f"Cloud {action} {verb} unavailable in this CLI. "
+                f"{guidance} in the Celesto Cloud dashboard."
+            )
         context = click.get_current_context()
         if (
             cloud
-            and context.info_name == "terminal"
+            and context.info_name in {"terminal", "exec"}
             and context.get_parameter_source("boot_timeout") != click.core.ParameterSource.DEFAULT
         ):
             raise click.UsageError(
-                "--boot-timeout applies to local terminals; omit it with --cloud."
+                "--boot-timeout applies to local computers; omit it with --cloud."
             )
         return function(*args, provider="cloud" if cloud else "local", **kwargs)
 
     return wrapped
+
+
+def computer_local_options(function: Any) -> Any:
+    """Keep an explicit local selector without advertising unsupported cloud actions."""
+    return computer_provider_options(function, cloud_supported=False)
 
 
 @computer.command("create")
@@ -1574,8 +1592,54 @@ def computer_terminal(computer_id: str, provider: str, boot_timeout: float) -> A
     )
 
 
-@computer.command("start")
+@computer.command(
+    "exec",
+    short_help="Run a command on a local or cloud computer.",
+    context_settings={"ignore_unknown_options": True},
+)
+@click.argument("computer_id", metavar="computer")
+@click.argument("command", nargs=-1, required=True, metavar="-- COMMAND ...")
 @computer_provider_options
+@click.option(
+    "--timeout",
+    type=positive_int_type(),
+    default=30,
+    show_default=True,
+    help="Seconds to wait for the command to finish.",
+)
+@boot_timeout_option
+@json_option
+def computer_exec(
+    computer_id: str,
+    command: tuple[str, ...],
+    provider: str,
+    timeout: int,
+    boot_timeout: float,
+    json_output: bool,
+) -> Any:
+    """Run one command and print its output; local computers start if needed.
+
+    Put the command after --, for example:
+
+    \b
+      celesto computer exec my-computer -- python --version
+    """
+    _before_command(json_output=json_output)
+    return _handlers()._run_computer(
+        _ns(
+            computer_action="exec",
+            computer_id=computer_id,
+            command=command,
+            provider=provider,
+            timeout=timeout,
+            boot_timeout=boot_timeout,
+            json=json_output,
+        )
+    )
+
+
+@computer.command("start")
+@computer_local_options
 @click.option(
     "--template",
     type=click.Choice(["linux-desktop"]),
@@ -1661,17 +1725,24 @@ def computer_delete(computer_id: str, provider: str, yes: bool) -> Any:
 
 @computer.command("list")
 @computer_provider_options
+@click.option(
+    "--limit",
+    type=positive_int_type(),
+    default=50,
+    show_default=True,
+    help="Maximum cloud computers to request; local listing is not limited.",
+)
 @json_option
-def computer_list(json_output: bool, provider: str) -> Any:
+def computer_list(json_output: bool, provider: str, limit: int) -> Any:
     """List desktop computers."""
     _before_command(json_output=json_output)
     return _handlers()._run_computer(
-        _ns(computer_action="list", provider=provider, json=json_output)
+        _ns(computer_action="list", provider=provider, limit=limit, json=json_output)
     )
 
 
 @computer.command("open")
-@computer_provider_options
+@computer_local_options
 @click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
 def computer_open(computer_id: str, provider: str) -> Any:
     """Open a computer's desktop view."""
@@ -1682,7 +1753,7 @@ def computer_open(computer_id: str, provider: str) -> Any:
 
 
 @computer.command("logs")
-@computer_provider_options
+@computer_local_options
 @click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
 @click.option("--tail", type=int, default=100, show_default=True)
 def computer_logs(computer_id: str, tail: int, provider: str) -> Any:
@@ -1700,7 +1771,7 @@ def computer_logs(computer_id: str, tail: int, provider: str) -> Any:
 
 
 @computer.command("templates")
-@computer_provider_options
+@computer_local_options
 @json_option
 def computer_templates(json_output: bool, provider: str) -> Any:
     """List available computer templates."""
