@@ -17,6 +17,20 @@ permissions:
   contents: read
 
 jobs:
+  guest-agent-release:
+    name: Verify published guest-agent binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Verify pinned release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/ci/check_guest_agent_release.py
+
   install-and-run:
     name: Public installer and CLI lifecycle (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
