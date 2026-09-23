@@ -80,19 +80,22 @@ def start_cloud_computer(computer_id: str) -> dict[str, str]:
         provider.close()
 
 
-def list_cloud_computers() -> list[dict[str, str]]:
-    """Return public CLI fields without leaking generated models."""
+def list_cloud_computers(limit: int = 50) -> tuple[list[dict[str, str]], bool]:
+    """Return public CLI fields and flag a potentially incomplete list."""
     from _celesto_cloud_api.api.computers import list_computers_v1_computers_get
     from _celesto_cloud_api.models.computer_list_response import ComputerListResponse
 
     provider = CloudProvider()
     try:
         response = provider._call(
-            list_computers_v1_computers_get.sync_detailed, ComputerListResponse
+            list_computers_v1_computers_get.sync_detailed, ComputerListResponse, limit=limit
         )
-        return [
+        rows = [
             {"computer_id": computer.id, "status": computer.status}
             for computer in response.computers
         ]
+        # The API exposes a limit but no offset or cursor. A full page may
+        # hide more computers even when count describes only this response.
+        return rows, len(rows) >= limit or response.count >= len(rows)
     finally:
         provider.close()

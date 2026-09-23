@@ -104,10 +104,14 @@ def test_cloud_inventory_uses_generated_transport_without_creation(cloud):
 
     requests, replies = cloud
     replies.append((200, {"computers": [computer()], "count": 1}))
-    assert list_cloud_computers() == [{"computer_id": "cloud-test", "status": "running"}]
+    assert list_cloud_computers(limit=1) == (
+        [{"computer_id": "cloud-test", "status": "running"}],
+        True,
+    )
     assert len(requests) == 1
     assert requests[0].method == "GET"
     assert requests[0].url.path == "/v1/computers"
+    assert requests[0].url.params["limit"] == "1"
 
 
 def published_port(**overrides):

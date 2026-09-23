@@ -36,41 +36,65 @@ remove it, or use an ephemeral computer in a `with` block for automatic deletion
 
 ## Command line
 
-Create a local desktop computer without a cloud account:
+Create a minimal local computer without a cloud account:
 
 ```console
-celesto computer create
-# Started computer 'computer-…'.
+celesto computer create --name demo
+# Created VM 'demo'.
 ```
 
-Copy the computer ID printed by that command, then open its terminal:
+Use its name to open a shell or run a single command:
 
 ```console
-celesto computer terminal COMPUTER_ID
+celesto computer shell demo
+celesto computer exec demo -- python --version
 ```
 
-Exiting the terminal keeps the computer and its files. Remove it when finished:
+`exec` returns the command's exit code. If the computer is stopped, add `--start`:
 
 ```console
-celesto computer delete COMPUTER_ID
+celesto computer exec demo --start -- python --version
 ```
 
-To create a cloud computer, set `CELESTO_API_KEY`, then run:
+Exiting the shell keeps the computer and its files. Remove it when finished:
+
+```console
+celesto computer delete demo
+```
+
+For a visible Linux desktop, request it explicitly. The create output includes
+the desktop ID used by the next commands:
+
+```console
+celesto computer create --desktop --name assistant
+celesto computer list --desktop
+celesto computer open assistant
+celesto computer delete assistant --desktop
+```
+
+To create a cloud computer, run `celesto auth login` or set `CELESTO_API_KEY`, then run:
 
 ```console
 celesto computer create --cloud
 # Created cloud computer '…'.
 ```
 
-Use `--cloud` on subsequent `list`, `terminal`, and `delete` commands too.
-Cloud listing currently returns up to 50 computers, following the service default.
+Use `--cloud` on subsequent `list`, `start`, `stop`, `info`, `ssh`, `exec`, and `delete` commands too.
+For example, run `celesto computer exec COMPUTER_ID --cloud -- python --version`.
+The cloud-only `computer run` command also accepts a single shell string.
+Cloud listing requests up to 50 computers by default. Use `--limit NUMBER` to
+request more. A full response may omit additional computers because the service
+does not provide pagination; Celesto warns when that is possible. JSON output
+includes `possibly_truncated` so scripts can detect it.
 Cloud terminal attachment reports connection success or failure; the current
 gateway adapter does not expose a remote shell exit code. `--boot-timeout` on
 `terminal` applies only to local computers.
 Unflagged commands always select local execution; `--local` is an explicit
-equivalent. The two flags cannot be combined. Existing `computer start` remains
-the configurable local desktop workflow. Cloud `start`, `open`, `logs`, and
-`templates` are not exposed by this CLI yet and fail explicitly.
+equivalent. The two flags cannot be combined. `computer start COMPUTER_ID` starts
+an existing local computer; add `--cloud` to start a cloud computer. Cloud `open`,
+`logs`, and `templates` are not exposed by this CLI yet. `celesto sandbox` is an
+equivalent spelling for every `celesto computer` subcommand, including cloud
+operations.
 
 ## Migrating from cloud-first versions
 

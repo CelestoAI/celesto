@@ -1,12 +1,13 @@
 """Explicit cloud dispatch for computer commands."""
 
+import shlex
 from types import SimpleNamespace
 
 from celesto import CloudComputer
 
 
 def run_cloud_computer(args: SimpleNamespace) -> int:
-    from celesto.cli.main import _emit_cli_error
+    from celesto.cli.main import _emit_cli_error, _emit_command_result
     from celesto.cli.output import emit_json
 
     action = args.computer_action
@@ -24,14 +25,29 @@ def run_cloud_computer(args: SimpleNamespace) -> int:
         elif action == "list":
             from celesto._providers.cloud import list_cloud_computers
 
-            rows = list_cloud_computers()
+            rows, possibly_truncated = list_cloud_computers(limit=args.limit)
             if json_output:
-                emit_json(command, 0, data={"computers": rows, "provider": "cloud"})
+                emit_json(
+                    command,
+                    0,
+                    data={
+                        "computers": rows,
+                        "provider": "cloud",
+                        "limit": args.limit,
+                        "possibly_truncated": possibly_truncated,
+                    },
+                )
             else:
                 for row in rows:
                     print(f"{row['computer_id']}\t{row['status']}")
                 if not rows:
                     print("No cloud computers found.")
+                if possibly_truncated:
+                    print(
+                        f"More cloud computers may exist. Run "
+                        f"'celesto computer list --cloud --limit {args.limit * 2}' "
+                        "to request more."
+                    )
         elif action == "get":
             from celesto._providers.cloud import get_cloud_computer
 
@@ -42,18 +58,9 @@ def run_cloud_computer(args: SimpleNamespace) -> int:
                 for key, value in data.items():
                     print(f"{key}: {value}")
         elif action == "run":
-            import sys
-
             handle = CloudComputer.get(args.computer_id)
             result = handle.run(args.run_command, timeout=args.timeout)
-            if json_output:
-                emit_json(command, result.exit_code, data=result.model_dump())
-            else:
-                if result.stdout:
-                    sys.stdout.write(result.stdout)
-                if result.stderr:
-                    sys.stderr.write(result.stderr)
-            return result.exit_code
+            return _emit_command_result(command, result, json_output=json_output)
         elif action == "stop":
             from celesto._providers.cloud import stop_cloud_computer
 
@@ -99,22 +106,37 @@ def run_cloud_computer(args: SimpleNamespace) -> int:
                 emit_json(command, 0, data=result.model_dump())
             else:
                 print(f"Unpublished port {args.port_number}.")
-        elif action in {"delete", "terminal"}:
+        elif action in {"delete", "terminal", "exec"}:
+            if action == "exec" and getattr(args, "start", False):
+                from celesto._providers.cloud import start_cloud_computer
+
+                start_cloud_computer(args.computer_id)
             handle = CloudComputer.get(args.computer_id)
             if action == "delete":
                 handle.delete()
-                print(f"Deleted cloud computer '{args.computer_id}'.")
-            else:
+                if json_output:
+                    emit_json(
+                        command, 0, data={"computer_id": args.computer_id, "provider": "cloud"}
+                    )
+                else:
+                    print(f"Deleted cloud computer '{args.computer_id}'.")
+            elif action == "terminal":
                 handle.terminal().attach()
                 return 0
+            else:
+                result = handle.run(shlex.join(args.command), timeout=args.timeout)
+                return _emit_command_result(command, result, json_output=json_output)
         else:
             raise ValueError(
                 f"Cloud '{action}' is not available in this CLI; "
-                "run 'celesto computer create --cloud' to create a cloud computer "
-                "or use the cloud dashboard to manage it."
+                "run 'celesto computer list --cloud' to find cloud computers."
             )
         return 0
     except Exception as exc:
+        if isinstance(exc, ValueError) and str(exc).startswith("Set CELESTO_API_KEY"):
+            exc = ValueError(
+                "Cloud API key is missing. Run 'celesto auth login' to connect to Celesto Cloud."
+            )
         return _emit_cli_error(command, 1, exc, json_output=json_output)
     finally:
         if handle is not None:

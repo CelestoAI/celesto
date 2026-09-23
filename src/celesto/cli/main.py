@@ -2881,6 +2881,43 @@ def _bring_sandbox_up(
             wait()
 
 
+def _emit_command_result(command_name: str, result: Any, *, json_output: bool) -> int:
+    """Preserve command output and exit status across sandbox and computer commands."""
+    if json_output:
+        error = None
+        if result.exit_code != 0:
+            error = {
+                "code": "command_failed",
+                "message": f"Command exited with status {result.exit_code}.",
+            }
+        try:
+            emit_json(
+                command_name,
+                result.exit_code,
+                data={
+                    "exit_code": result.exit_code,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                },
+                error=error,
+            )
+        except BrokenPipeError:
+            _suppress_broken_pipe()
+        return result.exit_code
+
+    if result.stdout:
+        try:
+            sys.stdout.write(result.stdout)
+            sys.stdout.flush()
+        except BrokenPipeError:
+            _suppress_broken_pipe()
+    if result.stderr:
+        with suppress(BrokenPipeError):
+            sys.stderr.write(result.stderr)
+            sys.stderr.flush()
+    return result.exit_code
+
+
 def _run_exec(args: SimpleNamespace) -> int:
     """Handle ``celesto sandbox exec``."""
     import shlex
@@ -2913,44 +2950,16 @@ def _run_exec(args: SimpleNamespace) -> int:
         cmd_str = shlex.join(args.command)
         result = vm.run(cmd_str, timeout=args.timeout)
 
-        if json_output:
-            error = None
-            if result.exit_code != 0:
-                # Keep the envelope's ok<->error invariant: a non-zero guest
-                # exit is a failure, so populate error while still returning
-                # the command's stdout/stderr in data.
-                error = {
-                    "code": "command_failed",
-                    "message": f"Command exited with status {result.exit_code}.",
-                }
-            try:
-                emit_json(
-                    command_name,
-                    result.exit_code,
-                    data={
-                        "exit_code": result.exit_code,
-                        "stdout": result.stdout,
-                        "stderr": result.stderr,
-                    },
-                    error=error,
-                )
-            except BrokenPipeError:
-                _suppress_broken_pipe()
-            return result.exit_code
-
-        # Write each stream under its own guard so a closed stdout pipe does
-        # not swallow the command's stderr (which may still reach a terminal).
-        if result.stdout:
-            try:
-                sys.stdout.write(result.stdout)
-                sys.stdout.flush()
-            except BrokenPipeError:
-                _suppress_broken_pipe()
-        if result.stderr:
-            with suppress(BrokenPipeError):
-                sys.stderr.write(result.stderr)
-                sys.stderr.flush()
-        return result.exit_code
+        return _emit_command_result(command_name, result, json_output=json_output)
+    except VMNotFoundError:
+        return _emit_cli_error(
+            command_name,
+            1,
+            ValueError(
+                f"Sandbox '{args.vm_id}' was not found; run 'celesto sandbox list' to choose one."
+            ),
+            json_output=json_output,
+        )
     except Exception as exc:
         return _emit_cli_error(command_name, 1, exc, json_output=json_output)
     finally:
@@ -4252,20 +4261,26 @@ def _run_computer(args: SimpleNamespace) -> int:
                 "run 'celesto computer list' to choose one."
             ) from None
         computer = _ComputerSandbox.from_id(args.computer_id, state_manager=state)
-        if action == "terminal":
+        if action in {"terminal", "exec"}:
             vm = computer.vm
             vm.ensure_shell_supported()
             _bring_sandbox_up(
                 vm,
                 args.boot_timeout,
-                status_console=console_stdout(),
-                ready_message="Opening shell...",
+                status_console=console_stdout() if action == "terminal" else console_stderr(),
+                ready_message="Opening shell..." if action == "terminal" else "Running command...",
                 wait=lambda: vm.wait_for_shell(timeout=args.boot_timeout),
             )
-            return vm.attach_shell(timeout=args.boot_timeout)
+            if action == "terminal":
+                return vm.attach_shell(timeout=args.boot_timeout)
+            result = computer.run(shlex.join(args.command), timeout=args.timeout)
+            return _emit_command_result(command_name, result, json_output=json_output)
         elif action == "delete":
             computer.delete()
-            print(f"Deleted computer '{args.computer_id}'.")
+            if json_output:
+                emit_json(command_name, 0, data={"computer_id": args.computer_id})
+            else:
+                print(f"Deleted computer '{args.computer_id}'.")
         elif action == "open":
             if not computer.open_viewer():
                 print(f"Open this URL manually: {computer.display.viewer_url}")
@@ -4291,17 +4306,26 @@ def _command_name_from_argv(args: Sequence[str]) -> str:
     tokens = [arg for arg in args if not arg.startswith("-")]
     if not tokens:
         return "celesto"
-    if (
-        len(tokens) >= 3
-        and tokens[0] == "sandbox"
-        and tokens[1] in {"env", "file", "snapshot", "port"}
-    ):
-        return f"sandbox.{tokens[1]}.{tokens[2]}"
+    if len(tokens) >= 2 and tokens[0] in {"sandbox", "computer"}:
+        action = tokens[1]
+        if action in {"env", "file", "snapshot"} and len(tokens) >= 3:
+            return f"sandbox.{action}.{tokens[2]}"
+        if action == "port" and len(tokens) >= 3:
+            port_action = tokens[2]
+            if port_action in {"publish", "unpublish"} or (
+                port_action == "list" and "--cloud" in args
+            ):
+                return f"computer.port_{port_action}"
+            return f"sandbox.port.{port_action}"
+        if action in {"get", "run", "open", "templates", "terminal"}:
+            return f"computer.{action}"
+        if "--cloud" in args or "--desktop" in args:
+            mapped_action = {"info": "get", "ssh": "terminal"}.get(action, action)
+            return f"computer.{mapped_action}"
+        return f"sandbox.{action}"
     if len(tokens) >= 2 and tokens[0] in {
-        "sandbox",
         "windows",
         "browser",
-        "computer",
         "server",
         "image",
         "codex",
@@ -4316,24 +4340,19 @@ def _command_name_from_argv(args: Sequence[str]) -> str:
             # "ls" is an alias of "list"; successful runs report
             # "image.list", so parse errors must too.
             return "image.list"
-        if (
-            tokens[0] == "computer"
-            and tokens[1] == "port"
-            and len(tokens) >= 3
-            and tokens[2] in {"publish", "list", "unpublish"}
-        ):
-            # Successful runs report "computer.port_{verb}"; parse errors
-            # must match so JSON clients see one identifier per command.
-            return f"computer.port_{tokens[2]}"
         return f"{tokens[0]}.{tokens[1]}"
     return tokens[0]
 
 
 def _recovery_from_argv(args: Sequence[str]) -> str:
     tokens = [arg for arg in args if not arg.startswith("-")]
+    if tokens and tokens[0] == "computer":
+        # Both spellings are one command tree. Keep the established recovery
+        # contract identical for scripts using either spelling.
+        tokens[0] = "sandbox"
     if (
         len(tokens) >= 3
-        and tokens[0] == "sandbox"
+        and tokens[0] in {"sandbox", "computer"}
         and tokens[1] in {"env", "file", "snapshot", "port"}
     ):
         return f"Run 'celesto {' '.join(tokens[:3])} --help' for usage."

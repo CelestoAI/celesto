@@ -65,15 +65,17 @@ On macOS, setup uses Homebrew to install [QEMU](https://www.qemu.org/docs/master
 Give the sandbox a name so later commands can find it:
 
 ```bash
-celesto sandbox create --name my-sandbox
+celesto computer create --name my-sandbox
 ```
+
+`celesto sandbox` remains an equivalent spelling for every `celesto computer` subcommand.
 
 ### 3. Run a command
 
 Everything after `--` runs inside the sandbox:
 
 ```bash
-celesto sandbox exec my-sandbox -- python --version
+celesto computer exec my-sandbox -- python --version
 ```
 
 ### 4. Delete the sandbox
@@ -81,10 +83,10 @@ celesto sandbox exec my-sandbox -- python --version
 Delete it when you no longer need its files or state:
 
 ```bash
-celesto sandbox delete my-sandbox
+celesto computer delete my-sandbox
 ```
 
-Use `celesto sandbox stop my-sandbox` instead when you want to keep it for later. Restart it with `celesto sandbox start my-sandbox`.
+Use `celesto computer stop my-sandbox` instead when you want to keep it for later. Restart it with `celesto computer start my-sandbox`.
 
 ## Use the Python API
 
@@ -134,19 +136,19 @@ celesto doctor --strict --json
 Create a named sandbox and capture the JSON response:
 
 ```bash
-celesto sandbox create --name agent-job --json
+celesto computer create --name agent-job --json
 ```
 
 Run a command without opening an interactive shell:
 
 ```bash
-celesto sandbox exec agent-job --json -- python -m pytest
+celesto computer exec agent-job --json -- python -m pytest
 ```
 
 Always clean up the sandbox by its exact name when the job ends:
 
 ```bash
-celesto sandbox delete agent-job --json
+celesto computer delete agent-job --json
 ```
 
 Use unique names for concurrent jobs. Prefer `exec` for automation; reserve `shell`, `ssh`, and `desktop` for interactive work. Commands return a nonzero exit code on failure, and JSON errors include a recovery command when Celesto can provide one.
@@ -161,9 +163,9 @@ Celesto also provides presets for Claude Code, Pi, Hermes, OpenCode, and OpenCla
 
 ## Inspect and connect
 
-Use `celesto sandbox list` to see sandboxes, `celesto sandbox logs my-sandbox` to inspect startup output, or `celesto sandbox shell my-sandbox` to open a fast interactive shell.
+Use `celesto computer list` to see sandboxes, `celesto computer logs my-sandbox` to inspect startup output, or `celesto computer shell my-sandbox` to open a fast interactive shell.
 
-Add `--follow` to stream logs. Use `celesto sandbox ssh my-sandbox` when you need an SSH session. See the [CLI reference](docs/reference/cli.md) for every command and shell completion.
+Add `--follow` to stream logs. Use `celesto computer ssh my-sandbox` when you need an SSH session. See the [CLI reference](docs/reference/cli.md) for every command and shell completion.
 
 ## Choose a runtime
 
@@ -171,11 +173,11 @@ Celesto exposes one default API and focused APIs for browser and desktop work:
 
 | Runtime | Use it when an agent needs | Python API | CLI |
 | --- | --- | --- | --- |
-| Shell sandbox | Commands, code, and files | `Computer()` | `celesto sandbox` |
+| Minimal computer | Commands, code, and files | `Computer()` | `celesto computer` |
 | Browser | Chromium, CDP, screenshots, or a live viewer | `Celesto.browser()` | `celesto browser` |
-| Linux computer | A full desktop and multiple GUI apps | `Celesto.computer()` | `celesto computer` |
-| Windows sandbox | PowerShell or Windows software | `Celesto(os="windows", ...)` | — |
-| macOS desktop | App or installer tests on Apple Silicon | — | `celesto sandbox create --os macos` |
+| Linux desktop | A full desktop and multiple GUI apps | `Celesto.computer()` | `celesto computer create --desktop` |
+| Windows computer | PowerShell or Windows software | `Celesto(os="windows", ...)` | `celesto computer create --os windows --image PATH` |
+| macOS desktop | App or installer tests on Apple Silicon | — | `celesto computer create --os macos` |
 
 Use `Computer` for the common command sandbox path. Use the `Celesto` factories for focused browser and desktop runtimes. Use `Celesto(...)` directly when you need low-level VM options such as the backend, communication channel, guest OS, mounts, or network policy.
 
@@ -237,9 +239,9 @@ The API groups screen access under `computer.display` and Chromium access under 
 The first start downloads and verifies the Linux desktop image. Later starts reuse the cached image, so Docker is not required.
 
 ```bash
-celesto computer start --name assistant
+celesto computer create --desktop --name assistant
 celesto computer open assistant
-celesto computer delete assistant
+celesto computer delete assistant --desktop
 ```
 
 See the [Linux computer guide](docs/guides/computers.md) for Python and TypeScript examples.
@@ -284,8 +286,8 @@ celesto setup --macos
 Create and open a desktop:
 
 ```bash
-celesto sandbox create --os macos --name test-mac
-celesto sandbox desktop test-mac
+celesto computer create --os macos --name test-mac
+celesto computer desktop test-mac
 ```
 
 The first setup downloads macOS from Apple, requires about 50 GB, and takes 20–40 minutes. The image stays on the Mac that created it. Celesto supports at most two macOS guests at once. See the [macOS desktop guide](docs/guides/macos.md) for limits, shared folders, and cleanup.
@@ -297,8 +299,8 @@ The first setup downloads macOS from Apple, requires about 50 GB, and takes 20�
 Give a local sandbox access to an existing project without a copy step:
 
 ```bash
-celesto sandbox create --name my-sandbox --mount ~/Projects/my-app
-celesto sandbox shell my-sandbox
+celesto computer create --name my-sandbox --mount ~/Projects/my-app
+celesto computer shell my-sandbox
 ls /workspace
 ```
 
@@ -307,7 +309,7 @@ Host mounts are read-only by default. The sandbox can read the source files, but
 Choose a guest path or mount multiple directories:
 
 ```bash
-celesto sandbox create \
+celesto computer create \
     --mount ~/Projects/my-app:/code \
     --mount ~/data:/mnt/data
 ```
@@ -315,7 +317,7 @@ celesto sandbox create \
 Add `--writable-mounts` only when the sandbox must change the host files:
 
 ```bash
-celesto sandbox create \
+celesto computer create \
     --mount ~/Projects/my-app \
     --writable-mounts
 ```
@@ -336,7 +338,7 @@ with Celesto(mounts=["~/Projects/my-app"], writable_mounts=True) as vm:
 Copy a config, script, or small input into a live sandbox:
 
 ```bash
-celesto sandbox file upload my-sandbox ./prompt.txt /tmp/prompt.txt
+celesto computer file upload my-sandbox ./prompt.txt /tmp/prompt.txt
 ```
 
 Or upload a file to a temporary sandbox from Python:

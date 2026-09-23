@@ -1,6 +1,6 @@
 # CLI reference
 
-The CLI creates and manages disposable sandboxes. Run `celesto COMMAND --help` for the current options on your installed version; this page helps you choose the right command.
+The CLI creates and manages disposable computers. Run `celesto COMMAND --help` for the current options on your installed version; this page helps you choose the right command. `celesto sandbox` is an equivalent spelling for every `celesto computer` subcommand.
 
 ## Prepare the host
 
@@ -20,40 +20,40 @@ celesto setup --firecracker-dir "$HOME/.local/bin"
 
 Set `CELESTO_FIRECRACKER_DIR` when future commands also need to find a folder that is not on `PATH`. See [Install Celesto](../installation.md) for Fedora Atomic and build-machine setup.
 
-## Work with sandboxes
+## Work with computers
 
 Run these in the order you need them:
 
 | Command | Use it to |
 | --- | --- |
-| `celesto sandbox create` | Create a sandbox. Add `--network bridge --bridge BRIDGE` only when the sandbox should appear as a separate computer on that network. |
-| `celesto sandbox list` / `info` | Find or inspect sandboxes. Add `--preset PRESET` to list sandboxes created by one agent preset. |
-| `celesto sandbox shell` / `ssh` | Open a shell. `shell` uses Celesto's fast control channel when available; `ssh` explicitly uses SSH. |
-| `celesto sandbox desktop` | Open a running macOS sandbox in Screen Sharing. Add `--start` to start it first. |
-| `celesto sandbox exec` | Run one command inside a running sandbox and print its output — handy for scripts and agents. Put the command after `--`, e.g. `celesto sandbox exec my-sandbox -- ls -la`. Add `--start` to start the sandbox first if it isn't running. |
-| `celesto sandbox logs` | Show a sandbox's boot and console logs. Add `--follow` to keep printing new lines. |
-| `celesto sandbox start` / `stop` | Start or stop a sandbox. |
-| `celesto sandbox pause` / `resume` | Temporarily freeze and continue a running sandbox. |
-| `celesto sandbox delete` | Remove one or more sandboxes. |
-| `celesto sandbox prune` | Delete disks and logs left behind by sandboxes that no longer exist. Add `--dry-run` to list those files without deleting them. Disks you asked Celesto to save are kept unless you add `--include-saved`. |
+| `celesto computer create` | Create a minimal local computer. Add `--desktop` for a Linux desktop, `--os macos` or `--os windows` for another guest system, or `--cloud` for Celesto Cloud. Add `--network bridge --bridge BRIDGE` when a local computer should appear on an existing network bridge. |
+| `celesto computer list` / `info` | Find or inspect local computers. Add `--desktop` to list managed Linux desktops, `--cloud` for cloud computers, or `--preset PRESET` for computers created by one agent preset. |
+| `celesto computer shell` / `ssh` | Open a shell. `shell` uses Celesto's fast control channel when available; `ssh` explicitly uses SSH. |
+| `celesto computer desktop` | Open a running macOS sandbox in Screen Sharing. Add `--start` to start it first. |
+| `celesto computer exec` | Run one command and return its exit code. Put the command after `--`, e.g. `celesto computer exec demo -- ls -la`. Add `--start` to start a stopped local computer first, `--desktop` for a managed Linux desktop ID, or `--cloud` for a cloud computer. |
+| `celesto computer logs` | Show a sandbox's boot and console logs. Add `--follow` to keep printing new lines. |
+| `celesto computer start` / `stop` | Start or stop a sandbox. |
+| `celesto computer pause` / `resume` | Temporarily freeze and continue a running sandbox. |
+| `celesto computer delete` | Remove one or more local computers. Add `--desktop` for a managed Linux desktop ID, or `--cloud` for a cloud computer. |
+| `celesto computer prune` | Delete disks and logs left behind by sandboxes that no longer exist. Add `--dry-run` to list those files without deleting them. Disks you asked Celesto to save are kept unless you add `--include-saved`. |
 
-### Sandbox data and connections
+### Computer data and connections
 
 | Command | Use it to |
 | --- | --- |
-| `celesto sandbox file upload` / `download` | Copy a file in or out. |
-| `celesto sandbox env set` / `unset` / `list` | Manage persistent environment variables. |
-| `celesto sandbox port expose` / `close` / `list` | Manage local port forwarding. |
-| `celesto sandbox snapshot create` / `restore` / `list` / `delete` | Save and restore supported sandbox state. |
+| `celesto computer file upload` / `download` | Copy a file in or out. |
+| `celesto computer env set` / `unset` / `list` | Manage persistent environment variables. |
+| `celesto computer port expose` / `close` / `list` | Manage local port forwarding. |
+| `celesto computer snapshot create` / `restore` / `list` / `delete` | Save and restore supported sandbox state. |
 
 ## Start a prepared agent
 
 `celesto codex start`, `celesto claude start`, `celesto pi start`, `celesto hermes start`, `celesto openclaw start`, and `celesto opencode start` each create a sandbox and install that agent.
 
 - Create and install OpenClaw with `celesto openclaw start`.
-- Find an OpenClaw sandbox with `celesto openclaw list`, or use the generic `celesto sandbox list --preset openclaw`. Add `--all` to include every state or `--status STATUS` to choose one state.
+- Find an OpenClaw sandbox with `celesto openclaw list`, or use the generic `celesto computer list --preset openclaw`. Add `--all` to include every state or `--status STATUS` to choose one state.
 - Open the dashboard with `celesto openclaw open-ui SANDBOX`. It starts or reuses the gateway and connects it over localhost only. Add `--host-port PORT` to choose the dashboard's local port, `--no-browser` to print the one-time link, or `--json` for structured output.
-- Sandboxes created by older Celesto releases and manually prepared sandboxes remain visible through `celesto sandbox list --all`, but they do not appear in filtered results.
+- Sandboxes created by older Celesto releases and manually prepared sandboxes remain visible through `celesto computer list --all`, but they do not appear in filtered results.
 - The current OpenClaw fallback installation can take several minutes. See [Agent presets](../guides/agent-presets.md#open-openclaws-dashboard) for the complete workflow and safe upgrade steps.
 
 ## Manage downloaded images
@@ -74,22 +74,26 @@ The first time you start a sandbox or agent, Celesto downloads the files it boot
 
 Images are stored in `~/.celesto/images`. To keep them somewhere else, set the `CELESTO_IMAGE_DIR` environment variable — sandboxes read it too, so images you pull are found when a sandbox starts. The `--image-dir` option points a single `celesto image` command at a different folder; sandboxes do not read that folder.
 
-## Browsers, computers, local services, and Windows
+## Desktops, cloud computers, browsers, and services
 
 | Command | Use it to |
 | --- | --- |
 | `celesto browser start` / `open` / `list` / `logs` / `stop` | Manage browser sandboxes. |
-| `celesto computer create` | Create and start a local desktop computer; add `--cloud` to run in Celesto Cloud. |
-| `celesto computer terminal COMPUTER_ID` | Open an interactive terminal using the ID printed by `create` or `list`; add `--cloud` for a cloud computer. Exiting keeps the computer. |
-| `celesto computer start` / `open` / `list` / `logs` / `delete` | Manage complete Linux desktop computers. |
+| `celesto auth login` | Save a cloud API key for later `--cloud` commands. |
+| `celesto computer create --desktop --name NAME` | Start a local Linux desktop with a viewer and Chromium. |
+| `celesto computer list --desktop` / `open NAME` / `delete NAME --desktop` | Find, open, or delete that desktop by its desktop ID. |
+| `celesto computer create --cloud` / `list --cloud` / `info ID --cloud` | Create, find, or inspect cloud computers. |
+| `celesto computer start ID --cloud` / `stop ID --cloud` | Resume or stop a cloud computer. Without `--cloud`, `start` and `stop` act on local computers. |
+| `celesto computer port publish` / `unpublish` | Publish or unpublish a cloud computer's port on a public URL. Local `port expose` only forwards to your machine. |
 | `celesto computer templates` | List the available desktop templates. |
 | `celesto ui` | Start the local dashboard. |
 | `celesto server start` | Start the local HTTP API. |
 | `celesto windows build-image` | Build a Windows qcow2 image. |
 
 Computer commands select local execution by default; `--local` makes that choice explicit.
-Use `--cloud` for cloud `create`, `list`, `terminal`, and `delete` commands; it cannot be combined with `--local`.
-The existing `start`, `open`, `logs`, and `templates` commands remain local-only.
+Use `--cloud` for cloud `create`, `list`, `info`, `start`, `stop`, `ssh`, `exec`, and `delete` commands; it cannot be combined with `--local`.
+Cloud `list` requests at most 50 computers by default; add `--limit NUMBER` to request more. If the response fills the limit, Celesto warns that more computers may exist, and JSON output sets `possibly_truncated` to `true`.
+The existing `open`, `logs`, and `templates` commands remain local-only.
 See [Run locally or in the cloud](../local-first.md) for setup, examples, and current cloud limits.
 
 ## Shell completion
@@ -100,7 +104,7 @@ Turn on tab completion so your shell can finish `celesto` commands, options, and
 celesto completion bash --install   # also works with: zsh, fish
 ```
 
-Open a new shell afterward, then type `celesto sandbox ssh` followed by a space and press Tab to complete a sandbox name.
+Open a new shell afterward, then type `celesto computer ssh` followed by a space and press Tab to complete a sandbox name.
 
 Prefer to wire it up yourself? Run the same command without `--install` to print the script, then load it your own way:
 

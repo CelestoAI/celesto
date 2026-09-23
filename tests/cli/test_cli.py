@@ -154,7 +154,7 @@ def test_sandbox_help_describes_all_commands(capsys: pytest.CaptureFixture) -> N
     assert ret == 0
     help_text = capsys.readouterr().out
     for description in [
-        "Create a new sandbox.",
+        "Create a minimal computer; add --desktop for a Linux desktop.",
         "Delete one or more sandboxes.",
         "Manage sandbox environment variables.",
         "Copy files into or out of a sandbox.",
@@ -3026,7 +3026,7 @@ class TestCliComputer:
         computer.browser.cdp_url = "http://127.0.0.1:9222"
         mock_computer_cls.return_value = computer
 
-        ret = main(["computer", "start", "--name", "computer-demo", "--json"])
+        ret = main(["computer", "create", "--desktop", "--name", "computer-demo", "--json"])
 
         assert ret == 0
         config = mock_computer_cls.call_args.args[0]
@@ -3034,7 +3034,7 @@ class TestCliComputer:
         assert config.disk_size_mib == 8192
         computer.start.assert_called_once_with(boot_timeout=30.0)
         payload = json.loads(capsys.readouterr().out)
-        assert payload["command"] == "computer.start"
+        assert payload["command"] == "computer.create"
         assert payload["data"]["display"]["viewer_url"].startswith("http://127.0.0.1")
         assert payload["data"]["browser"]["cdp_url"] == "http://127.0.0.1:9222"
 
@@ -3054,10 +3054,10 @@ class TestCliComputer:
         example: str,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        ret = main(["computer", "start", option, value])
+        ret = main(["computer", "create", "--desktop", option, value])
 
         assert ret == 2
-        assert f"celesto computer start {example}" in capsys.readouterr().err
+        assert f"celesto computer create --desktop {example}" in capsys.readouterr().err
 
     @patch("celesto.vm.resolve_data_dir", return_value=Path("/tmp"))
     @patch("celesto.cli.state.create_cli_state_manager")
@@ -3080,7 +3080,7 @@ class TestCliComputer:
         state_manager.get_browser_session_config.return_value.mode = "computer"
         mock_state_manager_cls.return_value = state_manager
 
-        ret = main(["computer", "list", "--json"])
+        ret = main(["computer", "list", "--desktop", "--json"])
 
         assert ret == 0
         payload = json.loads(capsys.readouterr().out)
@@ -5979,7 +5979,7 @@ class TestCliImage:
         ("verb", "expected"),
         [
             ("publish", "computer.port_publish"),
-            ("list", "computer.port_list"),
+            ("list", "sandbox.port.list"),
             ("unpublish", "computer.port_unpublish"),
         ],
     )
