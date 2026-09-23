@@ -216,15 +216,11 @@ jobs:
 
           os.environ.pop("CELESTO_GUEST_AGENT_BINARY", None)
           assert not image_builder._has_guest_agent_source_checkout()
-          release_downloads = []
-          expected_agent = Path("/tmp/fake-celesto-guest-agent")
-
-          def fake_download_guest_agent_binary(image_cache_dir=None):
-              release_downloads.append("download")
-              return expected_agent
-
-          image_builder._download_guest_agent_binary = fake_download_guest_agent_binary
-          assert image_builder._guest_agent_binary() == expected_agent
-          assert release_downloads == ["download"]
+          image_cache = Path(os.environ["RUNNER_TEMP"]) / "celesto-wheel-smoke-images"
+          agent = image_builder._guest_agent_binary(image_cache)
+          assert agent.is_file(), f"published guest agent missing: {agent}"
+          assert agent.read_bytes().startswith(b"\x7fELF"), f"invalid guest agent binary: {agent}"
+          assert os.access(agent, os.X_OK), f"guest agent is not executable: {agent}"
+          assert image_builder._guest_agent_binary(image_cache) == agent
           print("artifact install: OK")
           PY
