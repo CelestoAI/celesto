@@ -8,12 +8,22 @@ _WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ins
 def test_install_script_workflow_uses_only_the_public_installer() -> None:
     workflow = _WORKFLOW.read_text()
 
-    assert "curl -fsSL https://celesto.ai/install.sh | bash" in workflow
+    assert "curl -fsSL https://celesto.ai/install.sh | UV_NO_CACHE=1 bash" in workflow
     assert "actions/checkout" not in workflow
     assert "pip install" not in workflow
     assert "uv pip install" not in workflow
     assert "uv sync" not in workflow
     assert "install -e" not in workflow
+
+
+def test_release_smoke_waits_for_the_published_version() -> None:
+    workflow = _WORKFLOW.read_text()
+
+    assert "  push:" not in workflow
+    assert 'workflows: ["Publish celesto"]' in workflow
+    assert "github.event.workflow_run.conclusion == 'success'" in workflow
+    assert "UV_NO_CACHE=1 bash" in workflow
+    assert '"$installed_version" = "celesto $expected_version"' in workflow
 
 
 def test_install_script_workflow_exercises_cli_lifecycle() -> None:
