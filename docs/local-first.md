@@ -62,7 +62,7 @@ Exiting the terminal keeps the computer and its files. Remove it when finished:
 celesto computer delete COMPUTER_ID
 ```
 
-To create a cloud computer, set `CELESTO_API_KEY`, then run:
+To create a cloud computer, run `celesto auth login` or set `CELESTO_API_KEY`, then run:
 
 ```console
 celesto computer create --cloud
@@ -71,6 +71,7 @@ celesto computer create --cloud
 
 Use `--cloud` on subsequent `list`, `terminal`, `exec`, and `delete` commands too.
 For example, run `celesto computer exec COMPUTER_ID --cloud -- python --version`.
+The cloud-only `computer run` command also accepts a single shell string.
 Cloud listing requests up to 50 computers by default. Use `--limit NUMBER` to
 request more. A full response may omit additional computers because the service
 does not provide pagination; Celesto warns when that is possible. JSON output
@@ -80,7 +81,8 @@ gateway adapter does not expose a remote shell exit code. `--boot-timeout` on
 `terminal` applies only to local computers.
 Unflagged commands always select local execution; `--local` is an explicit
 equivalent. The two flags cannot be combined. Existing `computer start` remains
-the configurable local desktop workflow. Cloud `start`, `open`, `logs`, and
+the configurable local desktop workflow when no ID is given. Pass a computer ID
+to `celesto computer start` to resume a cloud computer. Cloud `open`, `logs`, and
 `templates` are not exposed by this CLI yet.
 
 ## Migrating from cloud-first versions

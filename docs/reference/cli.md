@@ -79,10 +79,13 @@ Images are stored in `~/.celesto/images`. To keep them somewhere else, set the `
 | Command | Use it to |
 | --- | --- |
 | `celesto browser start` / `open` / `list` / `logs` / `stop` | Manage browser sandboxes. |
+| `celesto auth login` | Save a cloud API key for later `--cloud` commands. |
 | `celesto computer create` | Create and start a local desktop computer; add `--cloud` to run in Celesto Cloud. |
+| `celesto computer list` | Find local computers; add `--cloud` to list cloud computers. |
 | `celesto computer terminal COMPUTER_ID` | Open an interactive terminal using the ID printed by `create` or `list`; add `--cloud` for a cloud computer. Exiting keeps the computer. |
 | `celesto computer exec COMPUTER_ID -- COMMAND ...` | Run one command on a local or cloud computer and return its exit code. Add `--cloud` for a cloud computer and `--json` for structured output. A stopped local computer starts automatically. |
-| `celesto computer start` / `open` / `list` / `logs` / `delete` | Manage complete Linux desktop computers. |
+| `celesto computer start` / `open` / `logs` / `delete` | Manage local desktop computers. Pass an ID to `start` to resume a cloud computer. |
+| `celesto computer get` / `run` / `ssh` / `stop` / `port` | Inspect, use, and manage cloud computers. `exec` is the command to use when a script needs the same syntax locally and in the cloud. |
 | `celesto computer templates` | List the available desktop templates. |
 | `celesto ui` | Start the local dashboard. |
 | `celesto server start` | Start the local HTTP API. |
@@ -91,7 +94,7 @@ Images are stored in `~/.celesto/images`. To keep them somewhere else, set the `
 Computer commands select local execution by default; `--local` makes that choice explicit.
 Use `--cloud` for cloud `create`, `list`, `terminal`, `exec`, and `delete` commands; it cannot be combined with `--local`.
 Cloud `list` requests at most 50 computers by default; add `--limit NUMBER` to request more. If the response fills the limit, Celesto warns that more computers may exist, and JSON output sets `possibly_truncated` to `true`.
-The existing `start`, `open`, `logs`, and `templates` commands remain local-only.
+The existing `open`, `logs`, and `templates` commands remain local-only.
 See [Run locally or in the cloud](../local-first.md) for setup, examples, and current cloud limits.
 
 ## Shell completion

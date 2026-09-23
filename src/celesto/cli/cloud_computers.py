@@ -1,6 +1,5 @@
 """Explicit cloud dispatch for computer commands."""
 
-import os
 import shlex
 from types import SimpleNamespace
 
@@ -16,11 +15,6 @@ def run_cloud_computer(args: SimpleNamespace) -> int:
     json_output = getattr(args, "json", False)
     handle = None
     try:
-        if not os.environ.get("CELESTO_API_KEY", "").strip():
-            raise ValueError(
-                "Cloud API key is missing. Set CELESTO_API_KEY, then run "
-                "'celesto computer list --cloud' to check access."
-            )
         if action == "create":
             handle = CloudComputer(lifetime="persistent", startup_timeout=args.boot_timeout)
             handle.start()
@@ -54,6 +48,64 @@ def run_cloud_computer(args: SimpleNamespace) -> int:
                         f"'celesto computer list --cloud --limit {args.limit * 2}' "
                         "to request more."
                     )
+        elif action == "get":
+            from celesto._providers.cloud import get_cloud_computer
+
+            data = get_cloud_computer(args.computer_id)
+            if json_output:
+                emit_json(command, 0, data=data)
+            else:
+                for key, value in data.items():
+                    print(f"{key}: {value}")
+        elif action == "run":
+            handle = CloudComputer.get(args.computer_id)
+            result = handle.run(args.run_command, timeout=args.timeout)
+            return _emit_command_result(command, result, json_output=json_output)
+        elif action == "stop":
+            from celesto._providers.cloud import stop_cloud_computer
+
+            data = stop_cloud_computer(args.computer_id)
+            if json_output:
+                emit_json(command, 0, data=data)
+            else:
+                print(f"Stopped cloud computer '{args.computer_id}'.")
+        elif action == "start":
+            if not getattr(args, "computer_id", None):
+                raise ValueError(
+                    "A computer id is required to resume a cloud computer; "
+                    "run 'celesto computer create --cloud' to create a new one."
+                )
+            from celesto._providers.cloud import start_cloud_computer
+
+            data = start_cloud_computer(args.computer_id)
+            if json_output:
+                emit_json(command, 0, data=data)
+            else:
+                print(f"Started cloud computer '{args.computer_id}'.")
+        elif action == "port_publish":
+            handle = CloudComputer.get(args.computer_id)
+            result = handle.publish_port(args.port_number)
+            if json_output:
+                emit_json(command, 0, data=result.model_dump())
+            else:
+                print(result.url or f"Published port {args.port_number}.")
+        elif action == "port_list":
+            handle = CloudComputer.get(args.computer_id)
+            results = handle.published_ports()
+            if json_output:
+                emit_json(command, 0, data={"ports": [r.model_dump() for r in results]})
+            else:
+                for r in results:
+                    print(f"{r.port}\t{r.status}\t{r.url or ''}")
+                if not results:
+                    print("No published ports.")
+        elif action == "port_unpublish":
+            handle = CloudComputer.get(args.computer_id)
+            result = handle.unpublish_port(args.port_number)
+            if json_output:
+                emit_json(command, 0, data=result.model_dump())
+            else:
+                print(f"Unpublished port {args.port_number}.")
         elif action in {"delete", "terminal", "exec"}:
             handle = CloudComputer.get(args.computer_id)
             if action == "delete":
@@ -72,6 +124,10 @@ def run_cloud_computer(args: SimpleNamespace) -> int:
             )
         return 0
     except Exception as exc:
+        if isinstance(exc, ValueError) and str(exc).startswith("Set CELESTO_API_KEY"):
+            exc = ValueError(
+                "Cloud API key is missing. Run 'celesto auth login' to connect to Celesto Cloud."
+            )
         return _emit_cli_error(command, 1, exc, json_output=json_output)
     finally:
         if handle is not None:

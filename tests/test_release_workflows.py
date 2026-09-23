@@ -33,3 +33,36 @@ def test_celesto_dependency_tracks_the_core_release_version() -> None:
         if dependency.startswith("celesto-core")
     )
     assert core_dependency == f"celesto-core~={core_project['package']['version']}"
+
+
+def test_installer_smoke_reports_create_error(tmp_path: Path) -> None:
+    import os
+    import subprocess
+    import textwrap
+
+    workflow = (_WORKFLOWS / "install-script-e2e.yml").read_text()
+    step_start = "      - name: Create and exercise a sandbox\n        run: |\n"
+    step_end = "\n      - name: Show sandbox logs after failure"
+    script = textwrap.dedent(workflow.split(step_start, 1)[1].split(step_end, 1)[0])
+    script = script.replace("${{ matrix.backend }}", "firecracker")
+    cli = tmp_path / "celesto"
+    cli.write_text(
+        '#!/bin/sh\nprintf \'{"ok":false,"error":{"message":"image unavailable"}}\\n\'\nexit 1\n'
+    )
+    cli.chmod(0o755)
+
+    result = subprocess.run(
+        ["bash", "-e", "-c", script],
+        env={
+            **os.environ,
+            "CELESTO_BIN": str(cli),
+            "RUNNER_TEMP": str(tmp_path),
+            "SANDBOX_NAME": "install-script-smoke",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "image unavailable" in result.stdout

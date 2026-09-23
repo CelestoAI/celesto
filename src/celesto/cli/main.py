@@ -4322,11 +4322,21 @@ def _command_name_from_argv(args: Sequence[str]) -> str:
         "opencode",
         "hermes",
         "pi",
+        "auth",
     }:
         if tokens[0] == "image" and tokens[1] == "ls":
             # "ls" is an alias of "list"; successful runs report
             # "image.list", so parse errors must too.
             return "image.list"
+        if (
+            tokens[0] == "computer"
+            and tokens[1] == "port"
+            and len(tokens) >= 3
+            and tokens[2] in {"publish", "list", "unpublish"}
+        ):
+            # Successful runs report "computer.port_{verb}"; parse errors
+            # must match so JSON clients see one identifier per command.
+            return f"computer.port_{tokens[2]}"
         return f"{tokens[0]}.{tokens[1]}"
     return tokens[0]
 
@@ -4342,6 +4352,136 @@ def _recovery_from_argv(args: Sequence[str]) -> str:
     if tokens:
         return f"Run 'celesto {' '.join(tokens[:2])} --help' for usage."
     return "Run 'celesto --help' for usage."
+
+
+DEFAULT_CLOUD_BASE_URL = "https://api.celesto.ai"
+
+
+def _fetch_authenticated_email(base_url: str, api_key: str) -> str:
+    """Validate an API key against the cloud API and return its owner's email.
+
+    Raises ValueError if the server does not accept the key, or if base_url
+    would send that key over plaintext HTTP to a non-loopback host.
+    """
+    from urllib.parse import urlsplit
+
+    import httpx
+
+    from _celesto_cloud_api.api.users.get_info_v1_users_info_get import sync_detailed
+    from _celesto_cloud_api.client import AuthenticatedClient
+
+    parsed = urlsplit(base_url)
+    local_http = parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+    if parsed.scheme != "https" and not local_http:
+        raise ValueError("base_url must be an HTTPS origin; HTTP is only allowed for localhost.")
+
+    client = AuthenticatedClient(
+        base_url=base_url,
+        token=api_key,
+        timeout=httpx.Timeout(15),
+        raise_on_unexpected_status=False,
+    )
+    response = sync_detailed(client=client)
+    if response.status_code != 200 or response.parsed is None:
+        raise ValueError("That API key was not accepted by the server.")
+    return response.parsed.email
+
+
+def _run_auth_login(args: SimpleNamespace) -> int:
+    """Handle ``celesto auth login``."""
+    from celesto.cli import _credentials
+
+    command_name = "auth.login"
+    json_output = getattr(args, "json", False)
+    base_url = args.base_url.rstrip("/")
+
+    api_key = args.api_key
+    if not api_key:
+        if json_output:
+            return _emit_cli_error(
+                command_name,
+                1,
+                ValueError("--api-key is required with --json (no interactive prompt)."),
+                json_output=json_output,
+            )
+        api_key = click.prompt(
+            "Paste your Celesto API key (copy it from the API keys page in the dashboard)",
+            hide_input=True,
+        ).strip()
+    if not api_key:
+        return _emit_cli_error(
+            command_name, 1, ValueError("An API key is required."), json_output=json_output
+        )
+
+    try:
+        email = _fetch_authenticated_email(base_url, api_key)
+    except Exception as exc:
+        return _emit_cli_error(
+            command_name,
+            1,
+            exc,
+            json_output=json_output,
+            hint="Check that the key was copied in full and hasn't been revoked.",
+        )
+
+    _credentials.write_credentials(api_key=api_key, email=email, base_url=base_url)
+
+    if json_output:
+        emit_json(command_name, 0, data={"email": email, "base_url": base_url})
+    else:
+        print(f"Logged in as {email}.")
+    return 0
+
+
+def _run_auth_status(args: SimpleNamespace) -> int:
+    """Handle ``celesto auth status``."""
+    from celesto.cli import _credentials
+
+    command_name = "auth.status"
+    json_output = getattr(args, "json", False)
+
+    stored = _credentials.read_credentials()
+    if not stored:
+        message = "Not logged in. Run 'celesto auth login'."
+        if json_output:
+            emit_json(command_name, 0, data={"authenticated": False, "message": message})
+        else:
+            print(message)
+        return 0
+
+    try:
+        email = _fetch_authenticated_email(stored["base_url"], stored["api_key"])
+    except Exception as exc:
+        return _emit_cli_error(
+            command_name,
+            1,
+            exc,
+            json_output=json_output,
+            hint="Run 'celesto auth login' again.",
+        )
+
+    data = {"authenticated": True, "email": email, "base_url": stored["base_url"]}
+    if json_output:
+        emit_json(command_name, 0, data=data)
+    else:
+        print(f"Logged in as {email} ({stored['base_url']}).")
+    return 0
+
+
+def _run_auth_logout(args: SimpleNamespace) -> int:
+    """Handle ``celesto auth logout``."""
+    from celesto.cli import _credentials
+
+    command_name = "auth.logout"
+    json_output = getattr(args, "json", False)
+
+    removed = _credentials.delete_credentials()
+    message = "Logged out." if removed else "Already logged out."
+    if json_output:
+        emit_json(command_name, 0, data={"removed": removed, "message": message})
+    else:
+        print(message)
+    return 0
 
 
 def build_cli() -> click.Group:

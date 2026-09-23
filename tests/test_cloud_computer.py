@@ -645,6 +645,57 @@ def test_unsafe_endpoint_rejected(cloud, url):
         Computer(base_url=url)
 
 
+def test_stored_base_url_used_with_stored_credentials(monkeypatch):
+    monkeypatch.delenv("CELESTO_API_KEY", raising=False)
+    monkeypatch.setattr(
+        "celesto.cli._credentials.read_credentials",
+        lambda: {
+            "api_key": "stored-key",
+            "email": "a@b.com",
+            "base_url": "https://staging.celesto.ai",
+        },
+    )
+    captured = {}
+    real_client = AuthenticatedClient
+
+    def spy_client(**kwargs):
+        captured.update(kwargs)
+        return real_client(**kwargs)
+
+    monkeypatch.setattr("celesto._cloud.AuthenticatedClient", spy_client)
+
+    comp = _CloudComputer()
+
+    assert captured["token"] == "stored-key"
+    assert captured["base_url"] == "https://staging.celesto.ai"
+    comp.close()
+
+
+def test_explicit_base_url_overrides_stored_credentials(monkeypatch):
+    monkeypatch.delenv("CELESTO_API_KEY", raising=False)
+    monkeypatch.setattr(
+        "celesto.cli._credentials.read_credentials",
+        lambda: {
+            "api_key": "stored-key",
+            "email": "a@b.com",
+            "base_url": "https://staging.celesto.ai",
+        },
+    )
+    captured = {}
+    real_client = AuthenticatedClient
+
+    def spy_client(**kwargs):
+        captured.update(kwargs)
+        return real_client(**kwargs)
+
+    monkeypatch.setattr("celesto._cloud.AuthenticatedClient", spy_client)
+
+    comp = _CloudComputer(base_url="https://custom-prod.celesto.ai")
+
+    assert captured["base_url"] == "https://custom-prod.celesto.ai"
+    comp.close()
+
+
 def test_local_only_options_rejected_for_cloud(cloud):
     with pytest.raises(TypeError, match="mounts"):
         Computer(mounts=["."])

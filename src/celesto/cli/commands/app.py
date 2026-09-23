@@ -112,6 +112,47 @@ def cli(ctx: click.Context) -> int | None:
 
 
 @cli.group(context_settings=CONTEXT_SETTINGS)
+def auth() -> None:
+    """Authenticate the CLI with Celesto Cloud."""
+
+
+@auth.command("login")
+@click.option(
+    "--api-key",
+    default=None,
+    help="Celesto API key. Omit to be prompted (recommended, keeps it out of shell history).",
+)
+@click.option(
+    "--base-url",
+    default="https://api.celesto.ai",
+    show_default=True,
+    hidden=True,
+    help="Celesto Cloud API base URL.",
+)
+@json_option
+def auth_login(api_key: str | None, base_url: str, json_output: bool) -> Any:
+    """Log in with a Celesto API key, same as CELESTO_API_KEY in the SDKs."""
+    _before_command(json_output=json_output)
+    return _handlers()._run_auth_login(_ns(api_key=api_key, base_url=base_url, json=json_output))
+
+
+@auth.command("status")
+@json_option
+def auth_status(json_output: bool) -> Any:
+    """Show who the stored credentials belong to, if any."""
+    _before_command(json_output=json_output)
+    return _handlers()._run_auth_status(_ns(json=json_output))
+
+
+@auth.command("logout")
+@json_option
+def auth_logout(json_output: bool) -> Any:
+    """Remove the locally stored API key."""
+    _before_command(json_output=json_output)
+    return _handlers()._run_auth_logout(_ns(json=json_output))
+
+
+@cli.group(context_settings=CONTEXT_SETTINGS)
 def sandbox() -> None:
     """Create, inspect, connect to, and delete sandboxes."""
 
@@ -1522,7 +1563,6 @@ def computer_provider_options(function: Any, *, cloud_supported: bool = True) ->
         if cloud and not cloud_supported:
             action = click.get_current_context().info_name
             guidance = {
-                "start": "Start the computer",
                 "open": "Open the computer",
                 "logs": "View the computer's logs",
                 "templates": "View templates",
@@ -1592,6 +1632,60 @@ def computer_terminal(computer_id: str, provider: str, boot_timeout: float) -> A
     )
 
 
+@computer.command("ssh")
+@click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
+def computer_ssh(computer_id: str) -> Any:
+    """Open an interactive shell on a cloud computer; exit keeps the computer."""
+    _before_command()
+    return _handlers()._run_computer(
+        _ns(computer_action="terminal", computer_id=computer_id, provider="cloud", json=False)
+    )
+
+
+@computer.command("get")
+@click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
+@json_option
+def computer_get(computer_id: str, json_output: bool) -> Any:
+    """Inspect a cloud computer's status and connection info."""
+    _before_command(json_output=json_output)
+    return _handlers()._run_computer(
+        _ns(computer_action="get", computer_id=computer_id, provider="cloud", json=json_output)
+    )
+
+
+@computer.command("run")
+@click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
+@click.argument("run_command", metavar="command")
+@click.option(
+    "--timeout", type=int, default=30, show_default=True, help="Seconds to wait for the command."
+)
+@json_option
+def computer_run(computer_id: str, run_command: str, timeout: int, json_output: bool) -> Any:
+    """Run one command on a cloud computer and print its output."""
+    _before_command(json_output=json_output)
+    return _handlers()._run_computer(
+        _ns(
+            computer_action="run",
+            computer_id=computer_id,
+            run_command=run_command,
+            timeout=timeout,
+            provider="cloud",
+            json=json_output,
+        )
+    )
+
+
+@computer.command("stop")
+@click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
+@json_option
+def computer_stop(computer_id: str, json_output: bool) -> Any:
+    """Pause a cloud computer; use 'computer start COMPUTER' to resume it."""
+    _before_command(json_output=json_output)
+    return _handlers()._run_computer(
+        _ns(computer_action="stop", computer_id=computer_id, provider="cloud", json=json_output)
+    )
+
+
 @computer.command(
     "exec",
     short_help="Run a command on a local or cloud computer.",
@@ -1639,7 +1733,14 @@ def computer_exec(
 
 
 @computer.command("start")
-@computer_local_options
+@click.argument(
+    "computer_id",
+    metavar="[computer]",
+    required=False,
+    default=None,
+    shell_complete=complete_browser_session_names,
+)
+@computer_provider_options
 @click.option(
     "--template",
     type=click.Choice(["linux-desktop"]),
@@ -1679,6 +1780,7 @@ def computer_exec(
 @boot_timeout_option
 @json_option
 def computer_start(
+    computer_id: str | None,
     provider: str,
     template: str,
     name: str | None,
@@ -1690,11 +1792,16 @@ def computer_start(
     boot_timeout: float,
     json_output: bool,
 ) -> Any:
-    """Start a Linux desktop with Chromium, a terminal, and files."""
+    """Start a new local desktop, or resume an existing cloud computer by name."""
     _before_command(json_output=json_output)
+    if computer_id is not None:
+        # A name/id unambiguously means "resume that cloud computer"; local
+        # start/create never took a positional argument, so this is additive.
+        provider = "cloud"
     return _handlers()._run_computer(
         _ns(
             computer_action="start",
+            computer_id=computer_id,
             provider=provider,
             template=template,
             name=name,
@@ -1778,6 +1885,60 @@ def computer_templates(json_output: bool, provider: str) -> Any:
     _before_command(json_output=json_output)
     return _handlers()._run_computer(
         _ns(computer_action="templates", provider=provider, json=json_output)
+    )
+
+
+@computer.group("port", context_settings=CONTEXT_SETTINGS)
+def computer_port() -> None:
+    """Publish, list, and unpublish public ports on a cloud computer."""
+
+
+@computer_port.command("publish")
+@click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
+@click.option("--port", "port_number", type=int, required=True, help="Port to publish.")
+@json_option
+def computer_port_publish(computer_id: str, port_number: int, json_output: bool) -> Any:
+    """Publish a computer port to the internet and print its URL."""
+    _before_command(json_output=json_output)
+    return _handlers()._run_computer(
+        _ns(
+            computer_action="port_publish",
+            computer_id=computer_id,
+            port_number=port_number,
+            provider="cloud",
+            json=json_output,
+        )
+    )
+
+
+@computer_port.command("list")
+@click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
+@json_option
+def computer_port_list(computer_id: str, json_output: bool) -> Any:
+    """List published ports for a computer."""
+    _before_command(json_output=json_output)
+    return _handlers()._run_computer(
+        _ns(
+            computer_action="port_list", computer_id=computer_id, provider="cloud", json=json_output
+        )
+    )
+
+
+@computer_port.command("unpublish")
+@click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
+@click.option("--port", "port_number", type=int, required=True, help="Port to unpublish.")
+@json_option
+def computer_port_unpublish(computer_id: str, port_number: int, json_output: bool) -> Any:
+    """Stop publishing a computer port."""
+    _before_command(json_output=json_output)
+    return _handlers()._run_computer(
+        _ns(
+            computer_action="port_unpublish",
+            computer_id=computer_id,
+            port_number=port_number,
+            provider="cloud",
+            json=json_output,
+        )
     )
 
 
