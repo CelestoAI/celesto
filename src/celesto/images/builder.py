@@ -69,8 +69,8 @@ _GUEST_AGENT_CRATE_DIR = _REPO_ROOT / "guest-agent"
 _GUEST_AGENT_BUILD_FILE = "celesto-guest-agent"
 _GUEST_AGENT_GUEST_PATH = "/usr/local/bin/celesto-guest-agent"
 _GUEST_AGENT_RELEASE_SHA256: dict[str, str] = {
-    "amd64": "a5baa22b6b9fd44328ea750b18495bff31018a1ed98c3e9b68437b86eac9f146",
-    "arm64": "8ab005fb7b5c2eb715a3fa42bd795aeecabf56405578bf33b25448ccf8c823ca",
+    "amd64": "61a0a8903566d25b72ddf52ab91edd847a2a48e4ffe57002aefca6e9b0f5ae05",
+    "arm64": "f7b1b2ced458b8faba5c4ceea5b853702cd379fdb75a9ae8440a6bbe27ff950c",
 }
 
 

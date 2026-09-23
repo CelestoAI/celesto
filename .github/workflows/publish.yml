@@ -87,6 +87,11 @@ jobs:
           )
           PY
 
+      - name: Verify published guest-agent binaries
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/ci/check_guest_agent_release.py
+
       - name: Build package
         run: uv build
 
