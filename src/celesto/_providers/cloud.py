@@ -96,6 +96,6 @@ def list_cloud_computers(limit: int = 50) -> tuple[list[dict[str, str]], bool]:
         ]
         # The API exposes a limit but no offset or cursor. A full page may
         # hide more computers even when count describes only this response.
-        return rows, len(rows) >= limit or response.count > len(rows)
+        return rows, len(rows) >= limit or response.count >= len(rows)
     finally:
         provider.close()

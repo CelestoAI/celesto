@@ -269,6 +269,20 @@ def test_cloud_list_provider_marks_full_page_as_uncertain(monkeypatch):
     provider.close.assert_called_once()
 
 
+def test_cloud_list_provider_marks_matching_count_as_uncertain(monkeypatch):
+    from celesto._providers.cloud import list_cloud_computers
+
+    provider = Mock()
+    provider._call.return_value = Mock(computers=[Mock(id="cloud-demo", status="running")], count=1)
+    monkeypatch.setattr("celesto._providers.cloud.CloudProvider", Mock(return_value=provider))
+
+    rows, possibly_truncated = list_cloud_computers(limit=50)
+
+    assert rows == [{"computer_id": "cloud-demo", "status": "running"}]
+    assert possibly_truncated is True
+    provider.close.assert_called_once()
+
+
 @pytest.mark.parametrize("action", ["open", "logs", "templates"])
 def test_unsupported_cloud_actions_never_run_local(action, monkeypatch, capsys):
     monkeypatch.setattr("celesto.cli.main._cli_state_manager", Mock(side_effect=AssertionError))
