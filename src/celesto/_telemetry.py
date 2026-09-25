@@ -25,6 +25,7 @@ Surface = Literal["cli", "python_sdk"]
 Feature = Literal[
     "setup", "computer", "command_execution", "browser", "desktop", "image", "snapshot"
 ]
+Marker = tuple[Literal["active", "features"], str, str]
 
 # Set only after PostHog configuration and privacy review are complete. This is a
 # public capture key, never a personal API key. An empty key disables collection.
@@ -187,10 +188,24 @@ def begin_local_use(surface: Surface) -> bool:
     return True
 
 
-def _send(event: dict[str, Any]) -> None:
+def _send(event: dict[str, Any], marker: Marker) -> None:
     try:
-        if status()[0]:
-            httpx.post(_CAPTURE_URL, json=event, timeout=0.2)
+        if not status()[0]:
+            return
+        with _state_lock():
+            if _environment_override() is not None:
+                return
+            state = _read_state()
+            if state.get("enabled") is False or not state.get("notice_shown"):
+                return
+            bucket, key, value = marker
+            markers = state.get(bucket)
+            if not isinstance(markers, dict) or markers.get(key) == value:
+                return
+            response = httpx.post(_CAPTURE_URL, json=event, timeout=0.2)
+            if 200 <= response.status_code < 300:
+                markers[key] = value
+                _write_state(state)
     except Exception:
         pass
     finally:
@@ -198,8 +213,8 @@ def _send(event: dict[str, Any]) -> None:
             _pending.discard(current_thread())
 
 
-def _queue(event: dict[str, Any]) -> None:
-    thread = Thread(target=_send, args=(event,), daemon=True)
+def _queue(event: dict[str, Any], marker: Marker) -> None:
+    thread = Thread(target=_send, args=(event, marker), daemon=True)
     with _pending_lock:
         _pending.add(thread)
     try:
@@ -251,10 +266,6 @@ def record_success(surface: Surface, feature: Feature) -> None:
             send_feature = features.get(feature_key) != week_key
             if not send_active and not send_feature:
                 return
-            if send_active:
-                active[surface] = day
-            if send_feature:
-                features[feature_key] = week_key
             _write_state(state)
     except (OSError, ValueError, json.JSONDecodeError):
         return
@@ -273,14 +284,18 @@ def record_success(surface: Surface, feature: Feature) -> None:
     }
     base = {"api_key": _PROJECT_KEY, "distinct_id": installation_id, "timestamp": now.isoformat()}
     if send_active:
-        _queue({**base, "event": "celesto_oss_active", "properties": properties})
+        _queue(
+            {**base, "event": "celesto_oss_active", "properties": properties},
+            ("active", surface, day),
+        )
     if send_feature:
         _queue(
             {
                 **base,
                 "event": "celesto_oss_feature_used",
                 "properties": {**properties, "feature": feature},
-            }
+            },
+            ("features", feature_key, week_key),
         )
 
 

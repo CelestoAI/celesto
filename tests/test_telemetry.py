@@ -27,7 +27,13 @@ def capture_events(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[dict
     monkeypatch.setattr(telemetry, "_STATE_PATH", tmp_path / ".celesto" / "telemetry.json")
     monkeypatch.setattr(telemetry, "_PROJECT_KEY", "test-public-capture-key")
     monkeypatch.setattr(telemetry, "_notice_this_process", False)
-    monkeypatch.setattr(telemetry, "_queue", events.append)
+
+    def post(_url: str, *, json: dict[str, Any], timeout: float) -> SimpleNamespace:
+        events.append(json)
+        return SimpleNamespace(status_code=200)
+
+    monkeypatch.setattr(httpx, "post", post)
+    monkeypatch.setattr(telemetry, "_queue", telemetry._send)
     monkeypatch.delenv("CI", raising=False)
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
     monkeypatch.delenv("CELESTO_NO_TELEMETRY", raising=False)
@@ -236,18 +242,37 @@ def test_sdk_local_operation_and_cloud_exclusion(
     assert len(capture_events) == 2
 
 
-def test_failed_delivery_does_not_raise(
+def test_failed_capture_retries_until_success(
     capture_events: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("PYTEST_CURRENT_TEST", "0")
-    telemetry.set_enabled(True)
+    telemetry.begin_local_use("python_sdk")
+    monkeypatch.setattr(telemetry, "_notice_this_process", False)
+    responses = iter([OSError("offline"), 503, 200, 200])
+    delivered: list[dict[str, Any]] = []
 
-    def fail(*_args: object, **_kwargs: object) -> None:
-        raise OSError("offline")
+    def post(_url: str, *, json: dict[str, Any], timeout: float) -> SimpleNamespace:
+        delivered.append(json)
+        response = next(responses)
+        if isinstance(response, OSError):
+            raise response
+        return SimpleNamespace(status_code=response)
 
-    monkeypatch.setattr(httpx, "post", fail)
-    telemetry._send({"event": "test"})
-    assert capture_events == []
+    monkeypatch.setattr(httpx, "post", post)
+
+    telemetry.record_success("python_sdk", "browser")
+    state = json.loads(telemetry._STATE_PATH.read_text())
+    assert state.get("active", {}).get("python_sdk") is None
+    assert state.get("features", {}).get("python_sdk:browser") is None
+
+    telemetry.record_success("python_sdk", "browser")
+    assert len(delivered) == 4
+    state = json.loads(telemetry._STATE_PATH.read_text())
+    assert state["active"]["python_sdk"]
+    assert state["features"]["python_sdk:browser"]
+
+    telemetry.record_success("python_sdk", "browser")
+    assert len(delivered) == 4
 
 
 def test_opt_out_suppresses_a_queued_send(
@@ -255,11 +280,17 @@ def test_opt_out_suppresses_a_queued_send(
 ) -> None:
     monkeypatch.setenv("PYTEST_CURRENT_TEST", "0")
     delivered: list[dict[str, Any]] = []
+    queued: list[tuple[dict[str, Any], telemetry.Marker]] = []
     monkeypatch.setattr(httpx, "post", lambda _url, *, json, timeout: delivered.append(json))
-    telemetry.set_enabled(True)
+    monkeypatch.setattr(telemetry, "_queue", lambda event, marker: queued.append((event, marker)))
+    telemetry.begin_local_use("cli")
+    monkeypatch.setattr(telemetry, "_notice_this_process", False)
+    telemetry.record_success("cli", "computer")
+    assert len(queued) == 2
     telemetry.set_enabled(False)
 
-    telemetry._send({"event": "celesto_oss_active"})
+    for event, marker in queued:
+        telemetry._send(event, marker)
 
     assert delivered == []
     assert capture_events == []
