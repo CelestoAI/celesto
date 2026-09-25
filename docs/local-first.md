@@ -34,6 +34,13 @@ and existing VM IDs. Browser-only session IDs are rejected.
 `close()` releases connections without deleting the computer. Use `delete()` to
 remove it, or use an ephemeral computer in a `with` block for automatic deletion.
 
+The first local SDK operation displays a usage-telemetry notice on stderr; importing
+`celesto` does not send anything. The first process that displays the notice sends
+no usage event. To opt out without installing the CLI, set `CELESTO_NO_TELEMETRY=1`
+or `DO_NOT_TRACK=1` in the Python process. The CLI command
+`celesto config telemetry off` saves the same preference for both surfaces.
+See the [privacy policy](https://celesto.ai/legal/privacy-policy) for the data collected.
+
 ## Command line
 
 Create a minimal local computer without a cloud account:

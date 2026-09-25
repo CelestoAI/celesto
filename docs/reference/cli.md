@@ -20,6 +20,18 @@ celesto setup --firecracker-dir "$HOME/.local/bin"
 
 Set `CELESTO_FIRECRACKER_DIR` when future commands also need to find a folder that is not on `PATH`. See [Install Celesto](../installation.md) for Fedora Atomic and build-machine setup.
 
+## Local usage telemetry
+
+Celesto gives you a first-use notice before local CLI usage telemetry starts. It counts active installations and broad features used. It does not send commands, file paths, URLs, or sandbox names as event properties. PostHog may retain the IP address used to deliver an event. See the [privacy policy](https://celesto.ai/legal/privacy-policy) for details.
+
+```bash
+celesto config telemetry       # Show the effective setting
+celesto config telemetry off   # Stop sending usage events
+celesto config telemetry on    # Allow usage events again
+```
+
+The Python SDK reads the same saved setting. Set `CELESTO_NO_TELEMETRY=1` or `DO_NOT_TRACK=1` in the CLI or SDK environment to turn telemetry off without using the command. Those environment settings take precedence over `celesto config telemetry on`. CI and pytest runs do not send usage events.
+
 ## Work with computers
 
 Run these in the order you need them:

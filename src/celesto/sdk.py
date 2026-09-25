@@ -13,6 +13,7 @@ from celesto._connection_info import DisplayMode, validate_display_mode
 from celesto._providers import ProviderName, make_provider, resolve_provider
 from celesto._providers.base import ComputerProvider
 from celesto._providers.options import CloudOptions, LocalOptions
+from celesto._telemetry import observe_sdk_operation
 from celesto._terminal import TerminalConnection, validate_terminal_id
 from celesto.exceptions import CelestoError, VMNotFoundError
 from celesto.types import (
@@ -132,6 +133,7 @@ class Computer:
         instance._started = True
         return instance
 
+    @observe_sdk_operation("command_execution")
     def run(self, command: str, timeout: int = 30) -> CommandResult:
         """Run a shell command; nonzero exit codes are returned, not raised."""
         self._validate_run(command, timeout)
@@ -164,11 +166,13 @@ class Computer:
         if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout <= 0:
             raise ValueError("timeout must be a positive number of seconds.")
 
+    @observe_sdk_operation("browser")
     def browser(self) -> BrowserConnection:
         """Return a CDP WebSocket URL for Playwright; request again to refresh it."""
         with self._connection_lock:
             return self._ensure_started().browser()
 
+    @observe_sdk_operation("desktop")
     def display(self, *, mode: DisplayMode = "read_only") -> DisplayConnection:
         """Return a VNC-over-WebSocket URL for noVNC, not an HTML viewer page."""
         validate_display_mode(mode)
@@ -225,6 +229,7 @@ class Computer:
         self._provider.close()
         self._deleted = True
 
+    @observe_sdk_operation("computer")
     def start(self) -> Self:
         """Create and start this computer if it has not been created yet."""
         self._ensure_started()

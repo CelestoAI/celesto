@@ -11,6 +11,7 @@ from typing import Any, cast
 
 import click
 
+from celesto import _telemetry
 from celesto.cli.commands.options import (
     LinuxOnlyOption,
     backend_option,
@@ -61,6 +62,37 @@ def _handlers() -> Any:
 
 def _before_command(*, json_output: bool = False, skip_update_notice: bool = False) -> None:
     maybe_print_update_notice(json_output=json_output or skip_update_notice)
+    context = click.get_current_context(silent=True)
+    if context is None or context.params.get("cloud"):
+        return
+    parts = context.command_path.split()[1:]
+    if not parts:
+        return
+    noun = parts[0]
+    if noun in {"computer", "sandbox"}:
+        if "snapshot" in parts:
+            feature: _telemetry.Feature = "snapshot"
+        elif parts[-1] in {"run", "exec", "shell", "ssh", "terminal"}:
+            feature = "command_execution"
+        elif parts[-1] in {"desktop", "open"}:
+            feature = "desktop"
+        else:
+            feature = "computer"
+    elif noun == "browser":
+        feature = "browser"
+    elif noun == "snapshot":
+        feature = "snapshot"
+    elif noun in {"image", "images", "windows", "prune"}:
+        feature = "image"
+    elif noun in {"setup", "doctor", "bridge"}:
+        feature = "setup"
+    elif noun in {"auth", "update", "completion", "config", "server", "ui"}:
+        return
+    else:
+        feature = "setup"
+    root = context.find_root()
+    root.ensure_object(dict)["_telemetry_feature"] = feature
+    _telemetry.begin_local_use("cli")
 
 
 def _ns(**values: Any) -> SimpleNamespace:
@@ -170,7 +202,66 @@ def cli(ctx: click.Context) -> int | None:
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
         return 0
+    token = _telemetry.cli_enter()
+    ctx.call_on_close(lambda: _telemetry.cli_exit(token))
     return None
+
+
+@cli.result_callback()  # type: ignore[misc]
+@click.pass_context  # type: ignore[misc]
+def _record_cli_result(ctx: click.Context, result: Any, **_kwargs: Any) -> Any:
+    feature = (ctx.obj or {}).get("_telemetry_feature")
+    if feature is not None and (result is None or result == 0):
+        _telemetry.record_success("cli", feature)
+    return result
+
+
+@cli.group(context_settings=CONTEXT_SETTINGS, invoke_without_command=True)  # type: ignore[misc]
+@click.pass_context  # type: ignore[misc]
+def config(ctx: click.Context) -> None:
+    """View and change Celesto settings."""
+    if ctx.invoked_subcommand is None:
+        enabled, source = _telemetry.status()
+        click.echo(f"telemetry: {'on' if enabled else 'off'} ({source})")
+
+
+@config.group("telemetry", context_settings=CONTEXT_SETTINGS, invoke_without_command=True)  # type: ignore[misc]
+@click.pass_context  # type: ignore[misc]
+def telemetry_config(ctx: click.Context) -> None:
+    """View or change local usage telemetry."""
+    if ctx.invoked_subcommand is None:
+        enabled, source = _telemetry.status()
+        click.echo(f"Telemetry is {'on' if enabled else 'off'} ({source}).")
+
+
+@telemetry_config.command("on")  # type: ignore[misc]
+def telemetry_on() -> None:
+    """Allow local usage telemetry after its first-use notice."""
+    try:
+        _telemetry.set_enabled(True)
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(
+            "Couldn't save the telemetry setting. Check your home-folder permissions and "
+            "run 'celesto config telemetry on' again."
+        ) from exc
+    enabled, source = _telemetry.status()
+    if enabled:
+        click.echo("Telemetry is on.")
+    else:
+        click.echo(f"Telemetry preference is on, but {source} keeps it off.")
+
+
+@telemetry_config.command("off")  # type: ignore[misc]
+def telemetry_off() -> None:
+    """Stop sending local usage telemetry."""
+    try:
+        _telemetry.set_enabled(False)
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(
+            "Couldn't save the telemetry setting. Check your home-folder permissions and "
+            "run 'celesto config telemetry off' again."
+        ) from exc
+    click.echo("Telemetry is off.")
 
 
 @cli.group(context_settings=CONTEXT_SETTINGS)

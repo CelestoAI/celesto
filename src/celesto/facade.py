@@ -49,6 +49,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from celesto._naming import generate_sandbox_name
 from celesto._network_policy import parse_network_policy, validate_network_policy_options
+from celesto._telemetry import begin_local_use, observe_sdk_operation, record_success
 from celesto.callbacks import Callback, CallbackDispatcher, RunContext
 from celesto.comm import RustHttpVsockChannel
 from celesto.comm.base import CommChannel, CommChannelKind
@@ -1325,6 +1326,7 @@ class Celesto:
         return sandbox
 
     @classmethod
+    @observe_sdk_operation("browser")
     def browser(
         cls,
         *,
@@ -1384,6 +1386,7 @@ class Celesto:
         )
 
     @classmethod
+    @observe_sdk_operation("desktop")
     def desktop(
         cls,
         *,
@@ -1437,6 +1440,7 @@ class Celesto:
         )
 
     @classmethod
+    @observe_sdk_operation("computer")
     def computer(
         cls,
         *,
@@ -1550,6 +1554,7 @@ class Celesto:
         )
 
     @classmethod
+    @observe_sdk_operation("image")
     def from_image(
         cls,
         image: BootImage,
@@ -1659,6 +1664,7 @@ class Celesto:
         )
 
     @classmethod
+    @observe_sdk_operation("snapshot")
     def from_snapshot(
         cls,
         snapshot_id: str,
@@ -1735,6 +1741,7 @@ class Celesto:
     # Lifecycle
     # ------------------------------------------------------------------
 
+    @observe_sdk_operation("computer")
     def start(
         self,
         boot_timeout: float = 30.0,
@@ -1856,6 +1863,7 @@ class Celesto:
         """Remove one named persistent bitmap from this running QEMU disk."""
         return self._sdk.remove_qemu_dirty_bitmap(self._vm_id, bitmap_name)
 
+    @observe_sdk_operation("snapshot")
     def snapshot(
         self,
         snapshot_id: str | None = None,
@@ -2052,6 +2060,7 @@ class Celesto:
         self._callbacks.fire("on_pre_run", context, propagate=True)
         return self._control_channel, context
 
+    @observe_sdk_operation("command_execution")
     def run(
         self,
         command: str,
@@ -2098,6 +2107,7 @@ class Celesto:
         shell: Literal["login", "raw"] = "login",
     ) -> Iterator[CommandEvent]:
         """Yield started, stdout, stderr, and exit events as a command runs."""
+        eligible = begin_local_use("python_sdk")
         channel, ctx = self._prepare_run(command, timeout, shell)
         collect_result = len(self._callbacks) > 0
 
@@ -2119,6 +2129,8 @@ class Celesto:
                             )
                             self._callbacks.fire("on_post_run", ctx, propagate=False)
                         completed = True
+                        if eligible:
+                            record_success("python_sdk", "command_execution")
                     yield event
             except Exception as exc:
                 ctx.error = exc
@@ -2920,6 +2932,7 @@ class Celesto:
         """Current desktop endpoint, when this running sandbox has one."""
         return self._info.display
 
+    @observe_sdk_operation("desktop")
     def open_desktop(self) -> DesktopEndpoint:
         """Open this sandbox's desktop with the host VNC viewer."""
         self._refresh_info()
