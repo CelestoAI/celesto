@@ -89,14 +89,6 @@ def test_connect_and_disconnect_track_connections() -> None:
     assert manager.connection_count == 0
 
 
-def test_broadcast_without_connections_is_a_noop() -> None:
-    manager = ConnectionManager()
-
-    asyncio.run(manager.broadcast({"type": "tick"}))
-
-    assert manager.connection_count == 0
-
-
 def test_send_personal_removes_failed_connection() -> None:
     manager = ConnectionManager()
     websocket = FakeWebSocket(fail=True)

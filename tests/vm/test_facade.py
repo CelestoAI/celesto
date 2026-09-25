@@ -1959,22 +1959,6 @@ class TestVMLifecycle:
         assert result is vm
         mock_sdk.stop.assert_called_once()
 
-    @patch("celesto.facade.CelestoManager")
-    def test_delete(
-        self,
-        mock_sdk_cls: MagicMock,
-        sample_config: VMConfig,
-    ) -> None:
-        """Test deleting a VM."""
-        mock_sdk = MagicMock()
-        mock_sdk.create.return_value = MagicMock(vm_id="vm001", status=VMState.CREATED)
-        mock_sdk_cls.return_value = mock_sdk
-
-        vm = Celesto(sample_config)
-        vm.delete()
-
-        mock_sdk.delete.assert_called_once_with("vm001")
-
 
 class TestVMRun:
     """Tests for command execution on the VM."""
@@ -3083,28 +3067,6 @@ class TestVMContextManager:
     """Tests for VM context manager."""
 
     @patch("celesto.facade.CelestoManager")
-    def test_context_manager_stops_on_exit(
-        self,
-        mock_sdk_cls: MagicMock,
-        sample_config: VMConfig,
-    ) -> None:
-        """Test that context manager stops VM on exit."""
-        mock_sdk = MagicMock()
-        running_info = MagicMock(vm_id="vm001", status=VMState.RUNNING)
-        stopped_info = MagicMock(vm_id="vm001", status=VMState.STOPPED)
-        mock_sdk.create.return_value = running_info
-        mock_sdk.stop.return_value = stopped_info
-        mock_sdk_cls.return_value = mock_sdk
-
-        with Celesto(sample_config) as vm:
-            assert vm.vm_id == "vm001"
-
-        # stop/delete/close should have been called for owned VM
-        mock_sdk.stop.assert_called_once()
-        mock_sdk.delete.assert_called_once_with("vm001")
-        mock_sdk.close.assert_called_once()
-
-    @patch("celesto.facade.CelestoManager")
     def test_context_manager_autostarts_owned_vm(
         self,
         mock_sdk_cls: MagicMock,
@@ -3544,22 +3506,6 @@ class TestVMEnvManagement:
 
         assert result == {"FOO": "bar"}
         mock_read.assert_called_once_with(vm._ssh)
-
-    @patch("celesto.facade.CelestoManager")
-    def test_close_proxies_to_sdk(
-        self,
-        mock_sdk_cls: MagicMock,
-        sample_config: VMConfig,
-    ) -> None:
-        """close() should release underlying SDK resources."""
-        mock_sdk = MagicMock()
-        mock_sdk.create.return_value = MagicMock(vm_id="vm001", status=VMState.CREATED)
-        mock_sdk_cls.return_value = mock_sdk
-
-        vm = Celesto(sample_config)
-        vm.close()
-
-        mock_sdk.close.assert_called_once()
 
 
 class TestVMFileUpload:

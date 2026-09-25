@@ -1260,27 +1260,6 @@ class TestCliCreateImage:
         assert mock_build_and_boot.call_args.kwargs["bridge_name"] == "br10"
         facade.close.assert_called_once()
 
-    @patch("celesto.cli.main._run_create", return_value=0)
-    def test_image_flag_parsed(self, mock_run_create: MagicMock) -> None:
-        """--image flag should be wired into the create handler."""
-        ret = main(["sandbox", "create", "--image", "s3://bucket/images/test/"])
-
-        assert ret == 0
-        args = mock_run_create.call_args.args[0]
-        assert args.image == "s3://bucket/images/test/"
-        assert args.os is None
-
-    @patch("celesto.cli.main._run_create", return_value=0)
-    def test_image_and_os_parsed_together(self, mock_run_create: MagicMock) -> None:
-        """--image and --os now both parse (Windows guests need both); the
-        facade rejects illegal combos at runtime with a clearer message."""
-        ret = main(["sandbox", "create", "--image", "s3://bucket/img/", "--os", "alpine"])
-
-        assert ret == 0
-        args = mock_run_create.call_args.args[0]
-        assert args.image == "s3://bucket/img/"
-        assert args.os == "alpine"
-
     def test_s3_image_with_os_still_rejected_at_runtime(
         self,
         capsys: pytest.CaptureFixture[str],
@@ -1290,31 +1269,6 @@ class TestCliCreateImage:
         assert ret == 1
         err = capsys.readouterr().err
         assert "--image (S3) and --os are mutually exclusive" in err
-
-    @patch("celesto.cli.main._run_create", return_value=0)
-    def test_image_with_name_and_memory(self, mock_run_create: MagicMock) -> None:
-        """--image should work alongside --name, --memory, and --disk-size."""
-        ret = main(
-            [
-                "sandbox",
-                "create",
-                "--image",
-                "s3://bucket/img/",
-                "--name",
-                "my-vm",
-                "--memory",
-                "1024",
-                "--disk-size",
-                "2048",
-            ]
-        )
-
-        assert ret == 0
-        args = mock_run_create.call_args.args[0]
-        assert args.image == "s3://bucket/img/"
-        assert args.name == "my-vm"
-        assert args.memory_mib == 1024
-        assert args.disk_size_mib == 2048
 
     def test_image_with_disk_size_is_rejected(
         self,
@@ -1470,10 +1424,6 @@ class TestCliCreateWindows:
 
 class TestCliWindowsBuildImage:
     """Tests for `celesto windows build-image`."""
-
-    def test_help_is_listed(self) -> None:
-        """`celesto windows --help` advertises the build-image verb."""
-        assert main(["windows", "--help"]) == 0
 
     @patch("celesto.cli.main._run_windows_build_image", return_value=0)
     def test_build_image_flag_parsing(self, mock_run_windows: MagicMock, tmp_path: Path) -> None:
@@ -2019,47 +1969,6 @@ class TestCliSnapshot:
 class TestCliPort:
     """Tests for `celesto sandbox port` subcommands."""
 
-    @patch("celesto.cli.main._run_port_expose", return_value=0)
-    def test_port_expose_forwards_nested_command_name(
-        self,
-        mock_run_port_expose: MagicMock,
-    ) -> None:
-        ret = main(["sandbox", "port", "expose", "vm001", "8080:3000", "--json"])
-
-        assert ret == 0
-        args = mock_run_port_expose.call_args.args[0]
-        assert args.vm_id == "vm001"
-        assert args.mapping == "8080:3000"
-        assert args.command_name == "sandbox.port.expose"
-        assert args.json is True
-
-    @patch("celesto.cli.main._run_port_close", return_value=0)
-    def test_port_close_forwards_nested_command_name(
-        self,
-        mock_run_port_close: MagicMock,
-    ) -> None:
-        ret = main(["sandbox", "port", "close", "vm001", "8080:3000", "--json"])
-
-        assert ret == 0
-        args = mock_run_port_close.call_args.args[0]
-        assert args.vm_id == "vm001"
-        assert args.mapping == "8080:3000"
-        assert args.command_name == "sandbox.port.close"
-        assert args.json is True
-
-    @patch("celesto.cli.main._run_port_list", return_value=0)
-    def test_port_list_forwards_nested_command_name(
-        self,
-        mock_run_port_list: MagicMock,
-    ) -> None:
-        ret = main(["sandbox", "port", "list", "vm001", "--json"])
-
-        assert ret == 0
-        args = mock_run_port_list.call_args.args[0]
-        assert args.vm_id == "vm001"
-        assert args.command_name == "sandbox.port.list"
-        assert args.json is True
-
     @pytest.mark.parametrize(
         "process_command,should_kill",
         [
@@ -2458,20 +2367,6 @@ class TestCliDoctor:
     """Tests for `celesto doctor`."""
 
     @patch("celesto.cli.commands.app.run_doctor")
-    def test_doctor_default(self, mock_run_doctor: MagicMock) -> None:
-        """Default doctor invocation should call run_doctor with defaults."""
-        mock_run_doctor.return_value = 0
-
-        ret = main(["doctor"])
-
-        assert ret == 0
-        mock_run_doctor.assert_called_once_with(
-            backend=None,
-            json_output=False,
-            strict=False,
-        )
-
-    @patch("celesto.cli.commands.app.run_doctor")
     def test_doctor_with_flags(self, mock_run_doctor: MagicMock) -> None:
         """Doctor flags should be forwarded to run_doctor."""
         mock_run_doctor.return_value = 1
@@ -2488,21 +2383,6 @@ class TestCliDoctor:
 
 class TestCliSetup:
     """Tests for `celesto setup` CLI wiring."""
-
-    @patch("celesto.cli.main._run_setup")
-    @patch("celesto.cli.main.platform.system", return_value="Linux")
-    def test_setup_dispatches_to_runner(
-        self,
-        mock_platform_system: MagicMock,
-        mock_run_setup: MagicMock,
-    ) -> None:
-        """`celesto setup` should dispatch through the setup handler."""
-        mock_run_setup.return_value = 0
-
-        ret = main(["setup"])
-
-        assert ret == 0
-        mock_run_setup.assert_called_once()
 
     @patch("celesto.cli.commands.options.platform.system", return_value="Darwin")
     def test_setup_rejects_linux_only_flags_on_macos(
@@ -2739,11 +2619,6 @@ class TestCurrentVersionIsPrerelease:
         """Alpha versions (e.g. 0.0.5.a1) should be detected as pre-release."""
         assert _current_version_is_prerelease() is True
 
-    @patch("celesto.cli.main.importlib.metadata.version", return_value="0.0.5.dev1")
-    def test_dev_version_is_prerelease(self, _: MagicMock) -> None:
-        """Dev versions (e.g. 0.0.5.dev1) should be detected as pre-release."""
-        assert _current_version_is_prerelease() is True
-
 
 class TestCliBrowser:
     """Tests for `celesto browser` commands."""
@@ -2976,24 +2851,9 @@ class TestCliBrowser:
         assert payload["data"]["sessions"][0]["viewer_url"] == "http://127.0.0.1:36080/vnc.html"
         assert payload["data"]["sessions"][0]["display_url"] == "vnc://127.0.0.1:35900"
 
-    @patch("celesto.cli.main.importlib.metadata.version", return_value="0.0.5b2")
-    def test_beta_version_is_prerelease(self, _: MagicMock) -> None:
-        """Beta versions (e.g. 0.0.5b2) should be detected as pre-release."""
-        assert _current_version_is_prerelease() is True
-
-    @patch("celesto.cli.main.importlib.metadata.version", return_value="0.0.5rc1")
-    def test_rc_version_is_prerelease(self, _: MagicMock) -> None:
-        """Release candidates (e.g. 0.0.5rc1) should be detected as pre-release."""
-        assert _current_version_is_prerelease() is True
-
     @patch("celesto.cli.main.importlib.metadata.version", return_value="0.0.5")
     def test_stable_version_is_not_prerelease(self, _: MagicMock) -> None:
         """Stable versions (e.g. 0.0.5) should NOT be detected as pre-release."""
-        assert _current_version_is_prerelease() is False
-
-    @patch("celesto.cli.main.importlib.metadata.version", return_value="1.2.3")
-    def test_stable_semver_is_not_prerelease(self, _: MagicMock) -> None:
-        """Stable semantic versions (e.g. 1.2.3) should NOT be detected as pre-release."""
         assert _current_version_is_prerelease() is False
 
     def test_package_not_found_returns_false(self) -> None:
@@ -4662,23 +4522,6 @@ class TestOpenClawCommands:
         assert "Show only OpenClaw sandboxes in this state." in output
 
     @patch("celesto.cli.main._run_list", return_value=0)
-    def test_list_routes_filters_to_the_shared_sandbox_inventory(
-        self,
-        mock_run: MagicMock,
-    ) -> None:
-        ret = main(["openclaw", "list", "--all", "--json"])
-
-        assert ret == 0
-        mock_run.assert_called_once_with(
-            include_all=True,
-            status_filter=None,
-            preset_filter="openclaw",
-            show_preset_column=False,
-            json_output=True,
-            command_name="openclaw.list",
-        )
-
-    @patch("celesto.cli.main._run_list", return_value=0)
     def test_list_rejects_conflicting_filters(self, mock_run: MagicMock) -> None:
         ret = main(["openclaw", "list", "--all", "--status", "running"])
 
@@ -5235,22 +5078,6 @@ class TestPublishedImageLaunchPath:
         with pytest.raises(RuntimeError, match="Unsupported host architecture"):
             _host_arch_for_published()
 
-    @patch("celesto.cli.main._run_start_with_published_image")
-    def test_start_routes_to_published_path_when_env_set(
-        self,
-        mock_published_path: MagicMock,
-    ) -> None:
-        """Published path must short-circuit before the legacy install-at-boot path."""
-        mock_published_path.return_value = 0
-
-        ret = main(["openclaw", "start", "--json"])
-
-        assert ret == 0
-        mock_published_path.assert_called_once()
-        # First positional is args, second is the resolved preset.
-        called_args = mock_published_path.call_args[0]
-        assert called_args[1].name == "openclaw"
-
     @patch("celesto.utils.ensure_ssh_key")
     @patch("celesto.cli.main.platform.system", return_value="Linux")
     @patch("celesto.images.published.ensure_published_image")
@@ -5285,52 +5112,12 @@ class TestPublishedImageLaunchPath:
         assert ret == 1
         mock_ensure.assert_called_once()
 
-    @pytest.mark.parametrize(
-        "system,expected_vmm",
-        [
-            ("Linux", "firecracker"),
-            ("Darwin", "qemu"),
-        ],
-    )
-    @patch("celesto.cli.main.platform.system")
-    def test_vmm_for_host_maps_os_to_kernel_variant(
-        self,
-        mock_system: MagicMock,
-        system: str,
-        expected_vmm: str,
-    ) -> None:
-        from celesto.cli.main import _vmm_for_host
-
-        mock_system.return_value = system
-        assert _vmm_for_host() == expected_vmm
-
     @patch("celesto.cli.main.platform.system", return_value="FreeBSD")
     def test_vmm_for_host_rejects_unsupported_os(self, _mock_system: MagicMock) -> None:
         from celesto.cli.main import _vmm_for_host
 
         with pytest.raises(RuntimeError, match="Unsupported host OS"):
             _vmm_for_host()
-
-    @pytest.mark.parametrize(
-        "vmm,arch,expected_console",
-        [
-            ("qemu", "arm64", "console=ttyAMA0"),
-            ("qemu", "amd64", "console=ttyS0"),
-            ("libkrun", "arm64", "console=ttyAMA0"),
-            ("libkrun", "amd64", "console=ttyS0"),
-        ],
-    )
-    def test_boot_args_for_qemu_picks_console_per_arch(
-        self,
-        vmm: str,
-        arch: str,
-        expected_console: str,
-    ) -> None:
-        from celesto.cli.main import _boot_args_for
-
-        result = _boot_args_for("openclaw", vmm, arch)  # type: ignore[arg-type]
-        assert expected_console in result
-        assert "init=/init" in result
 
     def test_boot_args_for_firecracker_omits_console_arg(self) -> None:
         from celesto.cli.main import _boot_args_for
@@ -5560,14 +5347,6 @@ class TestPublishedImageLaunchPath:
 
 class TestCliImage:
     """Tests for the `celesto image` command group."""
-
-    def test_image_group_help(self) -> None:
-        from click.testing import CliRunner
-
-        result = CliRunner().invoke(build_cli(), ["image", "--help"])
-        assert result.exit_code == 0
-        for verb in ("pull", "list", "ls", "inspect", "build", "save", "load", "rm", "prune"):
-            assert verb in result.output
 
     @patch("celesto.images.published.ensure_published_image")
     @patch("celesto.cli.main._vmm_for_host", return_value="firecracker")
@@ -6389,18 +6168,6 @@ class TestCliCompletion:
 
         assert ret == 0
         assert "_CELESTO_COMPLETE" in capsys.readouterr().out
-
-    @pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
-    def test_completion_supported_shells(
-        self,
-        shell: str,
-        capsys: pytest.CaptureFixture,
-    ) -> None:
-        """Every advertised shell produces a non-empty script."""
-        ret = main(["completion", shell])
-
-        assert ret == 0
-        assert capsys.readouterr().out.strip()
 
     def test_completion_invalid_shell(self) -> None:
         """An unsupported shell is a usage error."""

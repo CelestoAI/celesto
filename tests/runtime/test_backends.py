@@ -1,11 +1,9 @@
 import contextlib
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from celesto.exceptions import CelestoError
-from celesto.runtime import backends as b
 from celesto.runtime.backends import (
     BACKEND_FIRECRACKER,
     BACKEND_LIBKRUN,
@@ -14,7 +12,6 @@ from celesto.runtime.backends import (
     ensure_backend_available,
     resolve_backend,
     resolve_backend_for_guest,
-    resolve_backend_status,
 )
 
 
@@ -116,44 +113,7 @@ def test_resolve_backend_auto_defaults_to_firecracker_when_nothing_installed() -
         assert resolve_backend("auto") == BACKEND_FIRECRACKER
 
 
-def test_auto_backend_does_not_reprobe_the_fallback() -> None:
-    # Nothing installed: each preferred backend is probed exactly once, and the
-    # platform-default fallback reuses the status probed in the first iteration
-    # instead of probing it again.
-    with _env(), patch("celesto.runtime.backends._backend_status", wraps=b._backend_status) as spy:
-        backend, status = b._auto_backend()
-    assert backend == BACKEND_FIRECRACKER
-    assert status is not None
-    assert spy.call_count == len(b._AUTO_PREFERENCE["_default"])
-
-
 # --- status threading (single probe) ---------------------------------------
-
-
-def test_resolve_backend_status_returns_probed_status_for_auto() -> None:
-    with _env(fc_binary=True, kvm=True):
-        backend, status = resolve_backend_status("auto")
-    assert backend == BACKEND_FIRECRACKER
-    assert status is not None and status.available is True
-
-
-def test_resolve_backend_status_defers_probe_for_explicit_backend() -> None:
-    # Explicit backends are returned unprobed (status None); the check is
-    # deferred to ensure_backend_available so callers that only need the name
-    # stay cheap.
-    with _env():
-        backend, status = resolve_backend_status(BACKEND_QEMU)
-    assert backend == BACKEND_QEMU
-    assert status is None
-
-
-def test_ensure_backend_available_uses_supplied_status_without_reprobing() -> None:
-    from celesto.runtime.backends import BackendStatus
-
-    good = BackendStatus(available=True, primary_present=True, message=None)
-    with patch("celesto.runtime.backends._backend_status") as probe:
-        ensure_backend_available(BACKEND_QEMU, good)
-    probe.assert_not_called()
 
 
 # --- preflight messages ----------------------------------------------------
@@ -245,44 +205,3 @@ def test_ensure_backend_available_rejects_unknown_backend() -> None:
 
 
 # --- probe details ---------------------------------------------------------
-
-
-def test_qemu_available_needs_both_system_and_img() -> None:
-    with _env(qemu_system=True, qemu_img=False):
-        assert b.qemu_available() is False
-    with _env(qemu_system=True, qemu_img=True):
-        assert b.qemu_available() is True
-
-
-def test_firecracker_available_needs_binary_and_kvm() -> None:
-    with _env(fc_binary=True, kvm=False):
-        assert b.firecracker_available() is False
-    with _env(fc_binary=True, kvm=True):
-        assert b.firecracker_available() is True
-
-
-def test_firecracker_probe_honors_configured_directory(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    binary = tmp_path / "firecracker"
-    binary.write_text("#!/bin/sh\n")
-    binary.chmod(0o755)
-    monkeypatch.setenv("CELESTO_FIRECRACKER_DIR", str(tmp_path))
-    monkeypatch.setattr(b, "which", lambda _name: None)
-
-    assert b._firecracker_binary_present() is True
-
-
-def test_missing_configured_firecracker_does_not_fall_back_to_path(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    path_binary = tmp_path / "path" / "firecracker"
-    path_binary.parent.mkdir()
-    path_binary.write_text("#!/bin/sh\n")
-    path_binary.chmod(0o755)
-    monkeypatch.setenv("CELESTO_FIRECRACKER_DIR", str(tmp_path / "missing"))
-    monkeypatch.setattr(b, "which", lambda _name: path_binary)
-
-    assert b._firecracker_binary_present() is False

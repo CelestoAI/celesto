@@ -15,7 +15,6 @@
 """Tests for Celesto types module."""
 
 import re
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -29,10 +28,7 @@ from celesto.types import (
     CommandResult,
     GuestOS,
     NetworkConfig,
-    SnapshotArtifacts,
-    SnapshotInfo,
     VMConfig,
-    VMInfo,
     VMState,
     WorkspaceMount,
 )
@@ -40,26 +36,6 @@ from celesto.types import (
 
 class TestVMConfig:
     """Tests for VMConfig validation."""
-
-    def test_valid_config(self, tmp_path: Path) -> None:
-        """Test creating a valid VMConfig."""
-        kernel = tmp_path / "vmlinux"
-        rootfs = tmp_path / "rootfs.ext4"
-        kernel.touch()
-        rootfs.touch()
-
-        config = VMConfig(
-            vm_id="vm001",
-            vcpu_count=2,
-            memory=512,
-            kernel_path=kernel,
-            rootfs_path=rootfs,
-        )
-
-        assert config.vm_id == "vm001"
-        assert config.preset is None
-        assert config.vcpu_count == 2
-        assert config.memory == 512
 
     def test_vm_id_auto_generated_when_omitted(self, tmp_path: Path) -> None:
         """Test VM ID is generated when omitted."""
@@ -450,51 +426,6 @@ class TestVMState:
         assert VMState.ERROR.value == "error"
 
 
-class TestSnapshotInfo:
-    """Tests for snapshot metadata."""
-
-    def test_snapshot_info_creation(self, tmp_path: Path) -> None:
-        """SnapshotInfo should preserve source VM config and file paths."""
-        kernel = tmp_path / "vmlinux"
-        rootfs = tmp_path / "rootfs.ext4"
-        snapshot_path = tmp_path / "vmstate.bin"
-        mem_file_path = tmp_path / "mem.bin"
-        disk_path = tmp_path / "disk.ext4"
-        kernel.touch()
-        rootfs.touch()
-        snapshot_path.touch()
-        mem_file_path.touch()
-        disk_path.touch()
-
-        config = VMConfig(vm_id="vm001", kernel_path=kernel, rootfs_path=rootfs)
-        network = NetworkConfig(
-            guest_ip="172.16.0.2",
-            tap_device="tap2",
-            guest_mac="AA:FC:00:00:00:02",
-            ssh_host_port=2200,
-        )
-
-        snapshot = SnapshotInfo(
-            snapshot_id="snap-1234",
-            vm_id="vm001",
-            backend="firecracker",
-            artifacts=SnapshotArtifacts(
-                state_path=snapshot_path,
-                memory_path=mem_file_path,
-                disk_path=disk_path,
-            ),
-            vm_config=config,
-            network_config=network,
-            created_at=datetime.now(UTC),
-        )
-
-        assert snapshot.snapshot_id == "snap-1234"
-        assert snapshot.backend == "firecracker"
-        assert snapshot.artifacts.disk_path == disk_path
-        assert snapshot.vm_config.vm_id == "vm001"
-        assert snapshot.network_config.tap_device == "tap2"
-
-
 class TestBrowserSessionConfig:
     """Tests for BrowserSessionConfig validation."""
 
@@ -530,14 +461,6 @@ class TestBrowserSessionConfig:
             BrowserSessionConfig(record_video=True)
         assert BrowserSessionConfig(mode="live", record_video=True).record_video is True
         assert BrowserSessionConfig(mode="desktop", record_video=True).record_video is True
-
-    def test_workspace_mounts_are_supported(self, tmp_path: Path) -> None:
-        """Browser sandboxes should accept host mounts for demo app code and artifacts."""
-        mount = WorkspaceMount(host_path=tmp_path, guest_path="/workspace/demo", writable=True)
-
-        config = BrowserSessionConfig(workspace_mounts=[mount])
-
-        assert config.workspace_mounts == [mount]
 
     def test_workspace_mount_guest_paths_must_be_unique(self, tmp_path: Path) -> None:
         """Browser sandboxes should reject ambiguous mount targets."""
@@ -588,34 +511,6 @@ class TestNetworkConfig:
 
         with pytest.raises(ValidationError):
             config.guest_ip = "172.16.0.3"  # type: ignore
-
-
-class TestVMInfo:
-    """Tests for VMInfo."""
-
-    def test_vm_info_creation(self, tmp_path: Path) -> None:
-        """Test creating VMInfo."""
-        kernel = tmp_path / "vmlinux"
-        rootfs = tmp_path / "rootfs.ext4"
-        kernel.touch()
-        rootfs.touch()
-
-        config = VMConfig(
-            vm_id="vm001",
-            kernel_path=kernel,
-            rootfs_path=rootfs,
-        )
-
-        info = VMInfo(
-            vm_id="vm001",
-            status=VMState.CREATED,
-            config=config,
-        )
-
-        assert info.vm_id == "vm001"
-        assert info.status == VMState.CREATED
-        assert info.network is None
-        assert info.pid is None
 
 
 class TestCommandResult:

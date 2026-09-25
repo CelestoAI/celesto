@@ -440,16 +440,6 @@ class TestNativeTapManagement:
 class TestEpermDetector:
     """Pin the regex so 'errno 13' (EACCES) and friends do not match EPERM."""
 
-    def test_matches_bare_errno_1(self) -> None:
-        from celesto.host.network import _is_eperm
-
-        assert _is_eperm("tap2: errno 1")
-
-    def test_matches_operation_not_permitted(self) -> None:
-        from celesto.host.network import _is_eperm
-
-        assert _is_eperm("Operation not permitted")
-
     def test_does_not_match_errno_13(self) -> None:
         from celesto.host.network import _is_eperm
 

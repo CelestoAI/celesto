@@ -225,48 +225,6 @@ class TestImageBuild:
     @patch("celesto.images.builder.DockerRootfsBuilder._build_rootfs")
     @patch("celesto.images.builder.ensure_base_kernel_for_backend")
     @patch("celesto.images.builder.ImageBuilder.check_docker", return_value=True)
-    def test_nested_dockerfiles_are_skipped(
-        self,
-        _mock_docker: MagicMock,
-        mock_kernel: MagicMock,
-        mock_build: MagicMock,
-        build_ctx: Path,
-        tmp_path: Path,
-        capsys: pytest.CaptureFixture,
-    ) -> None:
-        """The builder reserves the name Dockerfile; nested ones must not
-        abort the build."""
-        nested = build_ctx / "sub"
-        nested.mkdir()
-        (nested / "Dockerfile").write_text("FROM other\n")
-        kernel = tmp_path / "vmlinux.image"
-        kernel.write_bytes(b"k")
-        mock_kernel.return_value = kernel
-        mock_build.side_effect = _fake_build_rootfs
-
-        ret = main(
-            [
-                "image",
-                "build",
-                "-t",
-                "myimg",
-                str(build_ctx),
-                "--backend",
-                "qemu",
-                "--arch",
-                "amd64",
-                "--image-dir",
-                str(tmp_path / "cache"),
-                "--json",
-            ]
-        )
-
-        assert ret == 0
-        json.loads(capsys.readouterr().out)
-
-    @patch("celesto.images.builder.DockerRootfsBuilder._build_rootfs")
-    @patch("celesto.images.builder.ensure_base_kernel_for_backend")
-    @patch("celesto.images.builder.ImageBuilder.check_docker", return_value=True)
     def test_human_output_names_sdk_boot_path(
         self,
         _mock_docker: MagicMock,

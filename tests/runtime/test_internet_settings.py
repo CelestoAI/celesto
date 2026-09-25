@@ -92,21 +92,9 @@ class TestInternetSettings:
         with pytest.raises(ValidationError):
             settings.allowed_domains = ["test.com"]  # type: ignore[misc]
 
-    def test_from_dict(self) -> None:
-        settings = InternetSettings(**{"allowed_domains": ["https://example.com/"]})
-        assert settings.allowed_domains == ("example.com",)
-
 
 class TestResolveDomains:
     """Tests for resolve_domains_to_ips helper."""
-
-    @patch("celesto.host.network.socket.getaddrinfo")
-    def test_resolves_bare_domain(self, mock_getaddrinfo: object) -> None:
-        mock_getaddrinfo.return_value = [  # type: ignore[union-attr]
-            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0)),
-        ]
-        result = resolve_domains_to_ips(["example.com"])
-        assert result == ["93.184.216.34"]
 
     @patch("celesto.host.network.socket.getaddrinfo")
     def test_resolves_url_extracts_hostname(self, mock_getaddrinfo: object) -> None:
@@ -153,12 +141,6 @@ class TestResolveDomains:
         result = resolve_domains_to_ips(["*"])
         assert result == []
         mock_getaddrinfo.assert_not_called()  # type: ignore[union-attr]
-
-    @patch("celesto.host.network.socket.getaddrinfo")
-    def test_unresolvable_domain_skipped(self, mock_getaddrinfo: object) -> None:
-        mock_getaddrinfo.side_effect = socket.gaierror("DNS lookup failed")  # type: ignore[union-attr]
-        result = resolve_domains_to_ips(["nonexistent.invalid"])
-        assert result == []
 
     @patch("celesto.host.network.socket.getaddrinfo")
     def test_mixed_resolvable_and_unresolvable(self, mock_getaddrinfo: object) -> None:

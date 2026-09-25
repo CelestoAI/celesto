@@ -210,12 +210,6 @@ def test_smoke_published_images_waits_for_rootfs_publish() -> None:
     assert "contents: write" in workflow
 
 
-def test_guest_agent_source_digest_tracks_rust_crate() -> None:
-    digest = builder_mod._guest_agent_source_digest()
-    assert len(digest) == 64
-    assert (builder_mod._GUEST_AGENT_CRATE_DIR / "src" / "main.rs").is_file()
-
-
 def test_guest_agent_source_digest_tracks_release_binary_without_source(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

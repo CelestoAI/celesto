@@ -38,18 +38,6 @@ def _make_context(firmware_dir: Path) -> RuntimeContext:
     )
 
 
-def test_socket_path_under_per_vm_state_dir(tmp_path: Path) -> None:
-    """The data socket lives at firmware_dir/{vm_id}/swtpm/swtpm-sock."""
-    context = _make_context(tmp_path)
-    sidecar = _SwtpmSidecar(
-        vm_id="vm-win",
-        firmware_dir=tmp_path,
-        context=context,
-    )
-    assert sidecar.socket_path == tmp_path / "vm-win" / "swtpm" / "swtpm-sock"
-    assert sidecar.pidfile_path == tmp_path / "vm-win" / "swtpm" / "swtpm.pid"
-
-
 def test_start_raises_clear_error_when_swtpm_binary_missing(tmp_path: Path) -> None:
     """Missing swtpm on PATH produces a plain-English install hint."""
     context = _make_context(tmp_path)

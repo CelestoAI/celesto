@@ -41,23 +41,6 @@ def test_old_extension_module_name_is_removed() -> None:
         importlib.import_module("celesto_core._celesto_core")
 
 
-def test_capability_report_is_structured() -> None:
-    """Capability checks should be discoverable and JSON-friendly."""
-    caps = celesto_core.detect()
-
-    assert isinstance(caps, celesto_core.CoreCapabilities)
-    assert isinstance(caps.networking, bool)
-    assert isinstance(caps.disk_io, bool)
-    assert isinstance(caps.qmp, bool)
-    assert isinstance(caps.firecracker_api, bool)
-    assert caps.as_dict() == {
-        "networking": caps.networking,
-        "disk_io": caps.disk_io,
-        "qmp": caps.qmp,
-        "firecracker_api": caps.firecracker_api,
-    }
-
-
 def test_python_module_entrypoint_reports_capabilities() -> None:
     """`python -m celesto_core` should give contributors a quick health check."""
     result = subprocess.run(

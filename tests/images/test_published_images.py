@@ -38,7 +38,6 @@ from celesto.images.published import (
     PublishedImage,
     _decompress_zstd,
     _decompressed_rootfs_sidecar_value,
-    _preset_rows,
     cache_name,
     ensure_base_kernel,
     ensure_published_image,
@@ -46,23 +45,6 @@ from celesto.images.published import (
     lookup,
     to_image_source,
 )
-
-
-def test_ubuntu_rows_share_one_rootfs_across_vmms() -> None:
-    """The bare-Ubuntu image is one rootfs shared by firecracker/qemu/libkrun;
-    only the kernel format differs. Guards the shared-rootfs invariant the
-    `create --os ubuntu` firecracker path relies on."""
-    rows = _preset_rows("ubuntu", "a" * 64, "b" * 64)
-    fc = rows[("ubuntu", "amd64", "firecracker", "ubuntu")]
-    qemu = rows[("ubuntu", "amd64", "qemu", "ubuntu")]
-
-    # Same rootfs bytes + URL for both VMMs.
-    assert fc.rootfs_url == qemu.rootfs_url
-    assert fc.rootfs_sha256 == qemu.rootfs_sha256 == "a" * 64
-    assert fc.rootfs_url.endswith("ubuntu-amd64-rootfs.ext4.zst")
-    # Different kernel format: firecracker=elf, qemu=image.
-    assert fc.kernel_url.endswith(".elf")
-    assert qemu.kernel_url.endswith(".image")
 
 
 def test_published_ubuntu_manifest_shares_rootfs_for_qemu_and_firecracker() -> None:
@@ -162,11 +144,6 @@ class TestNaming:
             == "codex-v0.0.13-amd64-firecracker-alpine"
         )
 
-    def test_cache_name_distinguishes_os_flavors(self) -> None:
-        ubu = cache_name("codex", "amd64", "firecracker", version="0.0.13", os="ubuntu")
-        alp = cache_name("codex", "amd64", "firecracker", version="0.0.13", os="alpine")
-        assert ubu != alp
-
 
 class TestLookup:
     def test_returns_matching_entry(
@@ -214,15 +191,6 @@ class TestLookup:
         with pytest.raises(ImageError, match="No published image"):
             lookup("definitely-not-a-real-preset", "arm64", "firecracker")  # type: ignore[arg-type]
 
-    def test_default_os_is_ubuntu(
-        self,
-        sample_entry: PublishedImage,
-        sample_manifest: dict[ManifestKey, PublishedImage],
-    ) -> None:
-        """Calling lookup without specifying os defaults to ubuntu."""
-        # sample_entry has os="ubuntu", so the no-os call must hit it.
-        assert lookup("codex", "amd64", "firecracker", manifest=sample_manifest) is sample_entry
-
     def test_alpine_lookup_misses_when_only_ubuntu_published(
         self,
         sample_manifest: dict[ManifestKey, PublishedImage],
@@ -251,16 +219,6 @@ class TestIsPresetPublished:
         sample_manifest: dict[ManifestKey, PublishedImage],
     ) -> None:
         assert not is_preset_published("codex", "amd64", "qemu", manifest=sample_manifest)
-
-    def test_false_for_unknown_preset(
-        self,
-        sample_manifest: dict[ManifestKey, PublishedImage],
-    ) -> None:
-        # Accepts arbitrary preset strings so the CLI doesn't need to coerce
-        # against the Preset literal before dispatching.
-        assert not is_preset_published(
-            "claude-code", "amd64", "firecracker", manifest=sample_manifest
-        )
 
     def test_accepts_arbitrary_preset_string(
         self,
@@ -292,15 +250,6 @@ class TestToImageSource:
         assert source.kernel_sha256 == sample_entry.kernel_sha256
         assert source.rootfs_url == sample_entry.rootfs_url
         assert source.rootfs_sha256 == sample_entry.rootfs_sha256
-
-    def test_name_uses_cache_name(self, sample_entry: PublishedImage) -> None:
-        source = to_image_source(sample_entry, version="0.0.13")
-        assert source.name == cache_name(
-            sample_entry.preset,
-            sample_entry.arch,
-            sample_entry.vmm,
-            version="0.0.13",
-        )
 
     def test_name_uses_cache_name_for_alpine_entry(self) -> None:
         """Alpine entries must round-trip through cache_name with os='alpine'

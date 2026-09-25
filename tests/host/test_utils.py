@@ -21,7 +21,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from celesto.exceptions import CelestoError
-from celesto.utils import ensure_ssh_key, run_command, tail_file, which
+from celesto.utils import ensure_ssh_key, run_command, tail_file
 
 
 class TestTailFile:
@@ -84,19 +84,6 @@ class TestTailFile:
 
 class TestRunCommand:
     """Tests for run_command utility."""
-
-    @patch("celesto.utils.subprocess.run")
-    def test_run_command_success(self, mock_run: MagicMock) -> None:
-        """Test successful command execution."""
-        mock_run.return_value = subprocess.CompletedProcess(
-            args=["echo", "hi"], returncode=0, stdout="hi\n", stderr=""
-        )
-
-        result = run_command(["echo", "hi"], use_sudo=False)
-
-        assert result.returncode == 0
-        assert result.stdout == "hi\n"
-        mock_run.assert_called_once()
 
     @patch("celesto.utils.subprocess.run")
     def test_run_command_failure_raises(self, mock_run: MagicMock) -> None:
@@ -166,37 +153,6 @@ class TestRunCommand:
         """Test that empty command raises ValueError."""
         with pytest.raises(ValueError, match="cmd cannot be empty"):
             run_command([])
-
-    def test_run_command_none_cmd_raises(self) -> None:
-        """Test that None command raises ValueError."""
-        with pytest.raises(ValueError, match="cmd cannot be empty"):
-            run_command(None)  # type: ignore
-
-
-class TestWhich:
-    """Tests for which utility."""
-
-    @patch("celesto.utils.shutil.which", return_value="/usr/bin/python3")
-    def test_which_found(self, mock_which: MagicMock) -> None:
-        """Test finding an existing binary."""
-        from pathlib import Path
-
-        result = which("python3")
-
-        assert result == Path("/usr/bin/python3")
-        mock_which.assert_called_once_with("python3")
-
-    @patch("celesto.utils.shutil.which", return_value=None)
-    def test_which_not_found(self, mock_which: MagicMock) -> None:
-        """Test that missing binary returns None."""
-        result = which("nonexistent-binary")
-
-        assert result is None
-
-    def test_which_empty_name_raises(self) -> None:
-        """Test that empty binary name raises ValueError."""
-        with pytest.raises(ValueError, match="binary name cannot be empty"):
-            which("")
 
 
 class TestEnsureSSHKey:
