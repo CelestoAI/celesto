@@ -14,6 +14,7 @@ use crate::boot::{self, BootMilestonesResponse};
 use crate::env::{self, EnvDeleteRequest, EnvPutRequest, EnvResponse};
 use crate::exec::{self, ExecRequest, ExecResponse};
 use crate::files::{self, DirectoryTarQuery, FileGetQuery, FilePutResponse, FileRawPutQuery};
+use crate::port_proxy;
 use crate::ports::{self, PortsWaitRequest, PortsWaitResponse};
 use crate::terminal;
 
@@ -161,6 +162,8 @@ pub struct CapabilitiesResponse {
     pub tcp_enabled: bool,
     pub terminal_enabled: bool,
     pub terminal_port: u32,
+    pub port_proxy_enabled: bool,
+    pub port_proxy_port: u32,
     pub prod_metrics_enabled: bool,
 }
 
@@ -187,6 +190,7 @@ pub struct CapabilityFeatures {
     pub browser_status: bool,
     pub tcp_listener: bool,
     pub terminal: bool,
+    pub port_proxy: bool,
     pub prod_metrics: bool,
 }
 
@@ -228,6 +232,7 @@ pub async fn handle_capabilities() -> Json<CapabilitiesResponse> {
             "GET /boot/milestones",
             "POST /ports/wait",
             "VSOCK 1025 terminal",
+            "VSOCK 1026 port proxy",
         ],
         features: CapabilityFeatures {
             exec: true,
@@ -245,6 +250,7 @@ pub async fn handle_capabilities() -> Json<CapabilitiesResponse> {
             browser_status: false,
             tcp_listener: cfg!(feature = "tcp"),
             terminal: true,
+            port_proxy: cfg!(all(feature = "vsock", target_os = "linux")),
             prod_metrics: false,
         },
         limits: CapabilityLimits {
@@ -260,6 +266,8 @@ pub async fn handle_capabilities() -> Json<CapabilitiesResponse> {
         tcp_enabled: cfg!(feature = "tcp"),
         terminal_enabled: true,
         terminal_port: terminal::DEFAULT_TERMINAL_PORT,
+        port_proxy_enabled: cfg!(all(feature = "vsock", target_os = "linux")),
+        port_proxy_port: port_proxy::DEFAULT_PORT,
         prod_metrics_enabled: false,
     })
 }
@@ -408,6 +416,18 @@ mod tests {
         assert_eq!(capabilities.body["protocol_version"], PROTOCOL_VERSION);
         assert_eq!(capabilities.body["tcp_enabled"], cfg!(feature = "tcp"));
         assert_eq!(capabilities.body["terminal_enabled"], true);
+        assert_eq!(
+            capabilities.body["port_proxy_enabled"],
+            cfg!(all(feature = "vsock", target_os = "linux"))
+        );
+        assert_eq!(
+            capabilities.body["port_proxy_port"],
+            port_proxy::DEFAULT_PORT
+        );
+        assert_eq!(
+            capabilities.body["features"]["port_proxy"],
+            cfg!(all(feature = "vsock", target_os = "linux"))
+        );
         assert_eq!(
             capabilities.body["terminal_port"],
             terminal::DEFAULT_TERMINAL_PORT

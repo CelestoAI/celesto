@@ -1,5 +1,5 @@
+use celesto_guest_agent::{handler, port_proxy, server, terminal};
 use clap::Parser;
-use celesto_guest_agent::{handler, server, terminal};
 
 #[derive(Parser)]
 #[command(name = "celesto-guest-agent", about = "Celesto guest control agent")]
@@ -24,6 +24,7 @@ async fn main() {
         tokio::select! {
             _ = server::serve_listen_addr(app, &args.listen) => {},
             _ = terminal::serve_vsock_terminal(terminal::DEFAULT_TERMINAL_PORT) => {},
+            _ = port_proxy::serve_vsock_port_proxy(port_proxy::DEFAULT_PORT) => {},
         }
     } else {
         server::serve_listen_addr(app, &args.listen).await;

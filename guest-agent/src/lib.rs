@@ -3,6 +3,7 @@ pub mod env;
 pub mod exec;
 pub mod files;
 pub mod handler;
+pub mod port_proxy;
 pub mod ports;
 pub mod server;
 pub mod terminal;
