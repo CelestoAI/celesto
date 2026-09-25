@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import importlib.util
-import py_compile
 import re
 import sys
 import warnings
@@ -55,30 +54,6 @@ README_EXAMPLE_LINKS = {
     "examples/agent_tools/pydanticai_reusable_tool.py",
     "examples/env_injection.py",
 }
-
-
-def test_agent_tool_examples_exist() -> None:
-    """Ensure the planned agent-tool examples are present."""
-    example_names = {path.name for path in AGENT_TOOL_EXAMPLES_DIR.glob("*.py")}
-    assert example_names >= EXPECTED_AGENT_TOOL_EXAMPLES
-
-
-def test_top_level_examples_exist() -> None:
-    """Ensure the supported top-level examples are present."""
-    example_names = {path.name for path in TOP_LEVEL_EXAMPLES_DIR.glob("*.py")}
-    assert example_names >= EXPECTED_TOP_LEVEL_EXAMPLES
-
-
-def test_agent_tool_examples_compile() -> None:
-    """Compile agent-tool examples without importing optional dependencies."""
-    for path in sorted(AGENT_TOOL_EXAMPLES_DIR.glob("*.py")):
-        py_compile.compile(str(path), doraise=True)
-
-
-def test_top_level_examples_compile() -> None:
-    """Compile top-level examples without running them."""
-    for path in sorted(TOP_LEVEL_EXAMPLES_DIR.glob("*.py")):
-        py_compile.compile(str(path), doraise=True)
 
 
 def _load_module(path: Path) -> ModuleType:

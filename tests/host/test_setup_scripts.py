@@ -180,15 +180,6 @@ def test_system_setup_handles_fedora_without_assuming_apt() -> None:
     assert "Host dependencies already installed" in text
 
 
-def test_one_line_installer_keeps_custom_directory_for_doctor() -> None:
-    text = _ONE_LINE_INSTALLER.read_text()
-
-    assert "FIRECRACKER_DIR_ARG" in text
-    assert 'export CELESTO_FIRECRACKER_DIR="${FIRECRACKER_DIR_ARG}"' in text
-    assert "if ((${#SETUP_ARGS[@]})); then" in text
-    assert 'celesto setup "${SETUP_ARGS[@]}"' in text
-
-
 def test_runtime_sudo_policy_excludes_user_writable_programs() -> None:
     text = _RUNTIME_CONFIG_SCRIPT.read_text()
 

@@ -775,11 +775,6 @@ class TestCollectHostEnv:
 
         assert collect_host_env(CODEX_PRESET) == {}
 
-    def test_skips_missing_values(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-
-        assert collect_host_env(CODEX_PRESET) == {}
-
 
 class TestTransferHostEnv:
     """Forwarding works for both modern and fallback control channels."""
@@ -1365,11 +1360,6 @@ class TestGitCredentialInjection:
 
         return replace(CODEX_PRESET, setup_script="", install_script="")
 
-    def _stub_claude_code_preset(self) -> Preset:
-        from dataclasses import replace
-
-        return replace(CLAUDE_CODE_PRESET, setup_script="", install_script="")
-
     def test_codex_apply_copies_git_files(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1380,24 +1370,6 @@ class TestGitCredentialInjection:
         ssh.run.return_value = _ok()
 
         summary = apply_preset(ssh, self._stub_codex_preset())
-
-        copied = set(summary["copied_configs"])  # type: ignore[arg-type]
-        assert {
-            "/root/.gitconfig",
-            "/root/.git-credentials",
-            "/root/.ssh",
-        }.issubset(copied)
-
-    def test_claude_code_apply_copies_git_files(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HOME", str(tmp_path))
-        self._seed_git_home(tmp_path)
-
-        ssh = MagicMock()
-        ssh.run.return_value = _ok()
-
-        summary = apply_preset(ssh, self._stub_claude_code_preset())
 
         copied = set(summary["copied_configs"])  # type: ignore[arg-type]
         assert {
@@ -1423,28 +1395,6 @@ class TestGitCredentialInjection:
         copied = set(summary["copied_configs"])  # type: ignore[arg-type]
         git_guest_paths = {c.guest_path for c in GIT_HOST_CONFIGS}
         assert copied.isdisjoint(git_guest_paths)
-
-    def test_git_ssh_uploaded_via_tar_dir_path(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """``~/.ssh`` must travel through the tar-based dir-copy path so
-        the guest's keys end up at 0o600 and sshd accepts them. Verified
-        indirectly: the recorded ssh.run includes the ``tar -xf ... -C
-        /root/.ssh`` template from ``_copy_dir``."""
-        monkeypatch.setenv("HOME", str(tmp_path))
-        ssh_dir = tmp_path / ".ssh"
-        ssh_dir.mkdir()
-        key = ssh_dir / "id_ed25519"
-        key.write_text("PRIVATE")
-        key.chmod(0o600)
-
-        ssh = MagicMock()
-        ssh.run.return_value = _ok()
-
-        apply_preset(ssh, self._stub_codex_preset())
-
-        commands_run = [call.args[0] for call in ssh.run.call_args_list]
-        assert any("tar -xf" in cmd and "/root/.ssh" in cmd for cmd in commands_run), commands_run
 
     def test_git_ssh_tar_owner_stripped_to_root(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -85,25 +85,6 @@ class TestBuildEnvScript:
         assert export_lines[0].startswith("export A_VAR=a")
         assert export_lines[1].startswith("export Z_VAR=z")
 
-    def test_value_with_single_quote(self) -> None:
-        result = build_env_script({"KEY": "it's a test"})
-        # shlex.quote handles ' by closing, escaping, and reopening
-        # "it's a test" -> "'it'"'"'s a test'" is one way,
-        # but shlex usually does "'it'"'"'s a test'"
-        # actually shlex.quote("it's a test") -> "'it'"'"'s a test'"
-        assert "KEY=" in result
-        assert "it" in result and "test" in result
-
-    def test_value_with_double_quote(self) -> None:
-        result = build_env_script({"KEY": 'say "hello"'})
-        assert "KEY=" in result
-
-    def test_value_with_dollar_sign(self) -> None:
-        result = build_env_script({"KEY": "price is $5"})
-        assert "KEY=" in result
-        # Single-quoted so $ should be literal
-        assert "$5" in result
-
     def test_value_with_spaces(self) -> None:
         result = build_env_script({"KEY": "hello world"})
         assert "export KEY='hello world'" in result
@@ -130,11 +111,6 @@ class TestShellQuote:
     def test_simple_value(self) -> None:
         # shlex.quote doesn't quote safe strings
         assert _shell_quote("hello") == "hello"
-
-    def test_value_with_single_quote(self) -> None:
-        quoted = _shell_quote("it's")
-        # Must not contain unescaped single quote
-        assert "'" in quoted
 
     def test_empty_value(self) -> None:
         assert _shell_quote("") == "''"
@@ -237,7 +213,8 @@ class TestInjectEnvVars:
         assert f"mktemp {env_dir}/" in call_cmd
         assert "mktemp /tmp/" not in call_cmd
 
-    def test_generated_script_writes_the_env_file(self, tmp_path, monkeypatch) -> None:
+    @pytest.mark.parametrize("value", ["bar baz", "it's a test", 'say "hello"', "price is $5"])
+    def test_generated_script_writes_the_env_file(self, tmp_path, monkeypatch, value) -> None:
         """Execute the generated shell script for real and check the result."""
         env_file = tmp_path / "profile.d" / "celesto_env.sh"
         monkeypatch.setattr("celesto.env.ENV_FILE", str(env_file))
@@ -255,9 +232,16 @@ class TestInjectEnvVars:
 
         ssh.run = _run
 
-        inject_env_vars(ssh, {"FOO": "bar baz"}, merge=False)
+        inject_env_vars(ssh, {"FOO": value}, merge=False)
 
-        assert env_file.read_text().splitlines()[-1] == "export FOO='bar baz'"
+        assert env_file.read_text().splitlines()[-1].startswith("export FOO=")
+        sourced = subprocess.run(
+            ["sh", "-c", '. "$1"; printf "%s" "$FOO"', "sh", str(env_file)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert sourced.stdout == value
         assert env_file.stat().st_mode & 0o777 == 0o644
         # The trap cleaned up after itself: no staging file left behind.
         assert [p.name for p in env_file.parent.iterdir()] == [env_file.name]

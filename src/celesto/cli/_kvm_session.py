@@ -134,7 +134,7 @@ def maybe_reexec_for_kvm_group(argv: Sequence[str] | None = None) -> None:
     # interpreter, etc.) we must drop the marker so the regular kvm
     # permission failure surfaces normally instead of being silenced by a
     # loop guard meant for the *next* process.
-    child_env_marker_set()
+    os.environ[_REEXEC_DONE_ENV] = "1"
     inner_cmd = shlex.join([sys.executable, *sys.argv])
     print(
         "Activating pending kvm group membership for this session "
@@ -148,19 +148,8 @@ def maybe_reexec_for_kvm_group(argv: Sequence[str] | None = None) -> None:
         # execvp normally never returns; if it raises, drop the loop guard
         # so the parent process doesn't carry a stale marker, then re-raise
         # so the original failure isn't silently swallowed.
-        child_env_marker_unset()
+        os.environ.pop(_REEXEC_DONE_ENV, None)
         raise
-
-
-def child_env_marker_set() -> None:
-    """Set the loop-guard env var. Extracted for test seams."""
-    os.environ[_REEXEC_DONE_ENV] = "1"
-
-
-def child_env_marker_unset() -> None:
-    """Clear the loop-guard env var. Used when execvp fails so the parent
-    process does not carry a stale marker into subsequent logic."""
-    os.environ.pop(_REEXEC_DONE_ENV, None)
 
 
 def _should_attempt_reexec(argv: Sequence[str] | None) -> bool:

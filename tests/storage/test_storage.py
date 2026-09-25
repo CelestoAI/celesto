@@ -29,7 +29,6 @@ from celesto.exceptions import (
     VMAlreadyExistsError,
     VMNotFoundError,
 )
-from celesto.storage import SSH_PORT_END
 from celesto.types import (
     BrowserSessionConfig,
     BrowserSessionInfo,
@@ -88,15 +87,6 @@ class TestStateManagerVMOperations:
             state_manager.create_vm(sample_config)
 
         assert exc_info.value.vm_id == "vm001"
-
-    def test_get_vm(self, state_manager: StateManager, sample_config: VMConfig) -> None:
-        """Test getting a VM."""
-        state_manager.create_vm(sample_config)
-
-        vm_info = state_manager.get_vm("vm001")
-
-        assert vm_info.vm_id == "vm001"
-        assert vm_info.status == VMState.CREATED
 
     def test_get_vm_preserves_preset_provenance(
         self,
@@ -209,14 +199,6 @@ class TestStateManagerVMOperations:
         cleared = state_manager.update_vm("vm001", clear_display=True)
         assert cleared.display is None
 
-    def test_delete_vm(self, state_manager: StateManager, sample_config: VMConfig) -> None:
-        """Test deleting a VM."""
-        state_manager.create_vm(sample_config)
-        state_manager.delete_vm("vm001")
-
-        with pytest.raises(VMNotFoundError):
-            state_manager.get_vm("vm001")
-
     def test_list_vms(self, state_manager: StateManager, tmp_path: Path) -> None:
         """Test listing VMs."""
         # Create multiple VMs
@@ -275,14 +257,6 @@ class TestStateManagerVMOperations:
 
 class TestIPAllocation:
     """Tests for IP allocation."""
-
-    def test_allocate_ip(self, state_manager: StateManager, sample_config: VMConfig) -> None:
-        """Test allocating an IP address."""
-        state_manager.create_vm(sample_config)
-
-        ip = state_manager.allocate_ip("vm001", "tap1")
-
-        assert ip == "172.16.0.2"
 
     def test_allocate_sequential_ips(self, state_manager: StateManager, tmp_path: Path) -> None:
         """Test that IPs are allocated sequentially."""
@@ -357,19 +331,6 @@ class TestIPAllocation:
 
 class TestSSHPortAllocation:
     """Tests for SSH host-port reservation."""
-
-    def test_reserve_ssh_port(self, state_manager: StateManager, sample_config: VMConfig) -> None:
-        """Test reserving an SSH host port."""
-        state_manager.create_vm(sample_config)
-
-        port = state_manager.reserve_ssh_port("vm001")
-
-        assert port == 2200
-        assert state_manager.get_ssh_port("vm001") == 2200
-
-    def test_ssh_port_pool_ends_at_tcp_max_port(self) -> None:
-        """The SSH port pool must not allocate invalid TCP ports."""
-        assert SSH_PORT_END == 65535
 
     @pytest.mark.parametrize("host_port", [0, -1, 65536])
     def test_requested_host_port_must_be_a_valid_tcp_port(

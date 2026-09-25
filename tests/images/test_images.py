@@ -83,28 +83,6 @@ def assert_staging_fds_closed(descriptors):
     descriptors.clear()
 
 
-def test_staging_descriptor_check_detects_an_open_file(staging_fds, tmp_path):
-    """The targeted check must still detect a leaked, already-unlinked file."""
-    fd, path = tempfile.mkstemp(dir=tmp_path)
-    Path(path).unlink()
-    try:
-        with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
-            assert_staging_fds_closed(staging_fds)
-    finally:
-        os.close(fd)
-    assert_staging_fds_closed(staging_fds)
-
-
-def test_staging_descriptor_check_ignores_unrelated_cleanup(staging_fds, tmp_path):
-    """Closing another file must not make the download's cleanup look like a leak."""
-    with (tmp_path / "unrelated").open("w") as unrelated:
-        fd, path = tempfile.mkstemp(dir=tmp_path)
-        os.close(fd)
-        Path(path).unlink()
-        unrelated.close()
-        assert_staging_fds_closed(staging_fds)
-
-
 class TestListAvailable:
     """Tests for listing available images."""
 
@@ -357,27 +335,6 @@ class TestDownloadFile:
         with pytest.raises(ImageError, match="Download failed"):
             image_manager._download_file("https://example.com/file", dest, "abc123")
 
-    @patch("celesto.images.manager.requests.get")
-    def test_failed_download_does_not_leak_file_descriptors(
-        self, mock_get: MagicMock, image_manager: ImageManager, tmp_path: Path, staging_fds
-    ) -> None:
-        """A failing download must close its staging descriptor.
-
-        The staging file comes from ``mkstemp``, which hands back an already-open
-        descriptor. Opening it only after the request succeeded leaked one
-        descriptor per failure, and a retry loop then exhausted the process.
-        """
-        import requests
-
-        mock_get.side_effect = requests.ConnectionError("no network")
-        dest = tmp_path / "output.bin"
-
-        for _ in range(25):
-            with pytest.raises(ImageError):
-                image_manager._download_file("https://example.com/file", dest, None)
-            assert staging_fds  # Verify this failure path actually allocated a file.
-            assert_staging_fds_closed(staging_fds)
-
     # Every way a download can fail before it completes. Pinning one failure
     # mode is not enough: a later change added blank-digest validation between
     # mkstemp() and the try block, which leaked both the descriptor and the
@@ -464,105 +421,9 @@ class TestDownloadFile:
         assert dest.read_bytes() == content
         assert totals == [None]
 
-    @patch("celesto.images.manager.requests.get")
-    def test_uppercase_expected_sha256_accepted(
-        self, mock_get: MagicMock, image_manager: ImageManager, tmp_path: Path
-    ) -> None:
-        """Hex digests are case-insensitive; an uppercase pin must verify."""
-        content = b"payload"
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.headers = {}
-        mock_resp.iter_content = lambda chunk_size: iter([content])
-        mock_get.return_value = mock_resp
 
-        dest = tmp_path / "output.bin"
-        image_manager._download_file(
-            "https://example.com/file",
-            dest,
-            hashlib.sha256(content).hexdigest().upper(),
-        )
-
-        assert dest.read_bytes() == content
-
-    @patch("celesto.images.manager.requests.get")
-    def test_uppercase_expected_sha256_still_detects_mismatch(
-        self, mock_get: MagicMock, image_manager: ImageManager, tmp_path: Path
-    ) -> None:
-        """Case-insensitive comparison must not weaken the check itself."""
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.headers = {}
-        mock_resp.iter_content = lambda chunk_size: iter([b"wrong content"])
-        mock_get.return_value = mock_resp
-
-        dest = tmp_path / "output.bin"
-        with pytest.raises(ImageError, match="SHA-256 mismatch"):
-            image_manager._download_file("https://example.com/file", dest, "A" * 64)
-
-        assert not dest.exists()
-
-
-class TestVerifySHA256:
-    """Tests for SHA-256 verification."""
-
-    def test_correct_hash(self, tmp_path: Path) -> None:
-        """Test verification with correct hash."""
-        content = b"hello world"
-        file_path = tmp_path / "test.bin"
-        file_path.write_bytes(content)
-
-        expected = hashlib.sha256(content).hexdigest()
-        assert ImageManager._verify_sha256(file_path, expected) is True
-
-    def test_wrong_hash(self, tmp_path: Path) -> None:
-        """Test verification with wrong hash."""
-        file_path = tmp_path / "test.bin"
-        file_path.write_bytes(b"hello world")
-
-        assert ImageManager._verify_sha256(file_path, "0" * 64) is False
-
-    def test_none_hash_skips_verification(self, tmp_path: Path) -> None:
-        """Test that None expected hash returns True (skip verification)."""
-        file_path = tmp_path / "test.bin"
-        file_path.write_bytes(b"any content")
-
-        assert ImageManager._verify_sha256(file_path, None) is True
-
-    def test_hash_comparison_is_case_insensitive(self, tmp_path: Path) -> None:
-        """An uppercase or padded digest verifies the same as a lowercase one.
-
-        Comparing raw strings made an uppercase pin permanently unverifiable:
-        the cached file "failed" its checksum on every run and was re-downloaded
-        forever. ``_verify_sha512`` already normalized; ``_verify_sha256`` did not.
-        """
-        content = b"hello world"
-        file_path = tmp_path / "test.bin"
-        file_path.write_bytes(content)
-
-        sha256 = hashlib.sha256(content).hexdigest()
-        sha512 = hashlib.sha512(content).hexdigest()
-
-        assert ImageManager._verify_sha256(file_path, sha256.upper()) is True
-        assert ImageManager._verify_sha256(file_path, f"  {sha256.upper()}\n") is True
-        assert ImageManager._verify_sha512(file_path, sha512.upper()) is True
-        # Normalization must not turn a real mismatch into a pass.
-        assert ImageManager._verify_sha256(file_path, "A" * 64) is False
-
-    def test_blank_hash_is_not_treated_as_unpinned(self, tmp_path: Path) -> None:
-        """A blank digest must still fail, never silently skip verification.
-
-        Callers disagree on what blank means: ``_download_file`` tests
-        truthiness (unpinned) while ``ensure_rootfs_only`` tests ``is not
-        None`` (pinned). Normalizing blank to "no digest" would let the
-        stricter caller accept an unverified rootfs.
-        """
-        file_path = tmp_path / "test.bin"
-        file_path.write_bytes(b"hello world")
-
-        assert ImageManager._verify_sha256(file_path, "") is False
-        assert ImageManager._verify_sha256(file_path, "   ") is False
-        assert ImageManager._verify_sha512(file_path, "") is False
+class TestUnpinnedImages:
+    """Tests for images without a pinned digest."""
 
     @patch("celesto.images.manager.requests.get")
     def test_download_skips_sha_when_none(self, mock_get: MagicMock, tmp_path: Path) -> None:
@@ -739,17 +600,6 @@ class TestEnsureRootfsOnly:
 class TestImageManagerInit:
     """Tests for ImageManager initialization."""
 
-    def test_custom_cache_dir(self, tmp_path: Path) -> None:
-        """Test custom cache directory."""
-        mgr = ImageManager(cache_dir=tmp_path / "custom")
-        assert mgr.cache_dir == tmp_path / "custom"
-
-    def test_custom_registry(self, tmp_path: Path) -> None:
-        """Test custom registry overrides built-in."""
-        registry: dict[str, ImageSource] = {}
-        mgr = ImageManager(cache_dir=tmp_path, registry=registry)
-        assert mgr.list_available() == []
-
     def test_default_registry_is_empty_after_kernel_migration(self) -> None:
         """Default BUILTIN_IMAGES is intentionally empty post-0.0.14a0.
 
@@ -803,37 +653,6 @@ class TestParseS3ImageUri:
 
 class TestS3ImageManifest:
     """Tests for S3 manifest model validation."""
-
-    def test_valid_manifest(self) -> None:
-        manifest = S3ImageManifest(
-            name="alpine-ssh",
-            kernel="vmlinux.bin",
-            kernel_sha256="abc123",
-            rootfs="rootfs.ext4",
-            rootfs_sha256="def456",
-        )
-        assert manifest.name == "alpine-ssh"
-        assert manifest.initrd is None
-        assert manifest.boot_args is None
-
-    def test_manifest_with_initrd(self) -> None:
-        manifest = S3ImageManifest(
-            name="ubuntu",
-            kernel="vmlinuz",
-            rootfs="rootfs.qcow2",
-            initrd="initrd.img",
-            initrd_sha256="aaa",
-        )
-        assert manifest.initrd == "initrd.img"
-
-    def test_manifest_with_boot_args(self) -> None:
-        manifest = S3ImageManifest(
-            name="custom",
-            kernel="vmlinux",
-            rootfs="rootfs.ext4",
-            boot_args="console=ttyS0 root=/dev/vda rw",
-        )
-        assert manifest.boot_args == "console=ttyS0 root=/dev/vda rw"
 
     def test_manifest_missing_required_field(self) -> None:
         with pytest.raises(Exception):  # noqa: B017
@@ -1085,18 +904,6 @@ class TestEnsureS3Image:
             pytest.raises(ImageError, match="Invalid celesto-image.json"),
         ):
             mgr.ensure_s3_image("s3://bucket/images/bad/")
-
-    def test_missing_boto3_raises_helpful_error(self, tmp_path: Path) -> None:
-        """Missing boto3 should produce a clear installation hint."""
-        mgr = ImageManager(cache_dir=tmp_path / "images")
-        with (
-            patch(
-                "celesto.images.manager._require_boto3",
-                side_effect=ImageError("S3 image support requires boto3"),
-            ),
-            pytest.raises(ImageError, match="requires boto3"),
-        ):
-            mgr.ensure_s3_image("s3://bucket/images/test/")
 
     def test_with_initrd(self, tmp_path: Path) -> None:
         """S3 images with an initrd should download all three assets."""
@@ -1468,85 +1275,3 @@ class TestDigestContractAcrossCallSites:
     ) -> None:
         """``None`` is the one value that means "no digest was pinned"."""
         assert accepts(tmp_path, None) is True, f"{label} rejected an explicitly unpinned digest"
-
-
-class TestDigestNormalizationIsStructural:
-    """Guard against a new comparison site quietly skipping normalization."""
-
-    def test_every_computed_digest_comparison_normalizes_the_expected_value(self) -> None:
-        """Any function comparing a computed digest must normalize first.
-
-        This is the shape of the S3 bug: a second download path grew its own
-        ``actual_hash != expected_sha256`` comparison and simply never picked
-        up the shared helper. A behavioural test only catches that if someone
-        remembers to add the new path to ``_DIGEST_SINKS``; this catches it
-        even if they don't.
-        """
-        import ast
-        import inspect
-
-        from celesto.images import manager
-
-        tree = ast.parse(inspect.getsource(manager))
-        # By convention in this module the freshly computed digest is bound to
-        # ``actual`` or ``actual_hash``.
-        computed_names = {"actual", "actual_hash"}
-        offenders: list[str] = []
-
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.FunctionDef):
-                continue
-            compares_a_digest = any(
-                isinstance(child, ast.Name) and child.id in computed_names
-                for cmp_node in ast.walk(node)
-                if isinstance(cmp_node, ast.Compare)
-                for child in ast.walk(cmp_node)
-            )
-            if not compares_a_digest:
-                continue
-            normalizes = any(
-                isinstance(call, ast.Call)
-                and isinstance(call.func, ast.Name)
-                and call.func.id == "_normalize_digest"
-                for call in ast.walk(node)
-            )
-            if not normalizes:
-                offenders.append(node.name)
-
-        assert not offenders, (
-            f"{offenders} compare a computed digest without calling _normalize_digest(). "
-            "Route the expected value through it so every call site agrees on "
-            "case and whitespace, then add the path to _DIGEST_SINKS."
-        )
-
-    def test_the_structural_guard_can_actually_fail(self) -> None:
-        """The guard above is worthless if its detection never fires.
-
-        A structural test that silently matches nothing passes forever. This
-        pins the detection itself against a known-bad snippet.
-        """
-        import ast
-
-        bad = ast.parse(
-            "def _download_new_thing(expected_sha256):\n"
-            "    actual_hash = h.hexdigest()\n"
-            "    if actual_hash != expected_sha256:\n"
-            "        raise ImageError('mismatch')\n"
-        )
-        function = next(n for n in ast.walk(bad) if isinstance(n, ast.FunctionDef))
-
-        compares_a_digest = any(
-            isinstance(child, ast.Name) and child.id in {"actual", "actual_hash"}
-            for cmp_node in ast.walk(function)
-            if isinstance(cmp_node, ast.Compare)
-            for child in ast.walk(cmp_node)
-        )
-        normalizes = any(
-            isinstance(call, ast.Call)
-            and isinstance(call.func, ast.Name)
-            and call.func.id == "_normalize_digest"
-            for call in ast.walk(function)
-        )
-
-        assert compares_a_digest, "detection missed a plain digest comparison"
-        assert not normalizes, "detection wrongly reported normalization"

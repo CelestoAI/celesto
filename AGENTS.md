@@ -14,6 +14,17 @@ perform system-level tasks, then disappears without affecting the host.
 
 Tests live in `tests/`.
 
+### Testing rules
+
+- Never write unit tests after you write code. If an isolated test is needed,
+  design it before implementing the behavior.
+- Highly prefer end-to-end tests as the sole testing mechanism. Use them to
+  verify complex features through the real user path. At the end of each
+  end-to-end test, produce a verifiable, repeatable artifact of the result.
+- If you must test a system in isolation, first write down all the ways it
+  could fail, then write the code. Keep an isolated test only when it catches
+  a real bug the end-to-end tests would miss.
+
 ### Release checklist
 
 For guest-agent or published-image changes:

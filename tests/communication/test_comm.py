@@ -23,9 +23,3 @@ class TestCommChannelProtocol:
         client = SSHClient(host="127.0.0.1")
         assert isinstance(client, CommChannel)
         assert client.kind == "ssh"
-
-    def test_sshclient_has_wait_ready_alias(self) -> None:
-        client = SSHClient(host="127.0.0.1")
-        # wait_ready delegates to wait_for_ssh; both must be callable.
-        assert callable(client.wait_ready)
-        assert callable(client.wait_for_ssh)

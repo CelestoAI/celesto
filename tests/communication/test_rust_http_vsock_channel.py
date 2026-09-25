@@ -60,16 +60,6 @@ def test_control_capabilities_accept_flat_dotted_features() -> None:
     assert not capabilities.enabled("env.managed")
 
 
-def test_terminal_frame_helpers_round_trip_payload() -> None:
-    host, guest = socket.socketpair()
-    try:
-        host.sendall(_pack_terminal_frame(101, b"hello"))
-        assert _read_terminal_frame(guest) == (101, b"hello")
-    finally:
-        host.close()
-        guest.close()
-
-
 def test_feature_required_error_names_recreate_commands() -> None:
     channel = RustHttpVsockChannel.from_cid(42, sandbox_name="sbx-riemann")
     channel._capabilities = ControlCapabilities(

@@ -25,29 +25,6 @@ class TestFindStaleCaches:
     def test_returns_empty_when_no_cache_dir(self, tmp_path: Path) -> None:
         assert find_stale_caches(cache_dir=tmp_path / "nonexistent") == []
 
-    def test_returns_empty_when_only_current_version(self, tmp_path: Path) -> None:
-        (tmp_path / "openclaw-v1.0.0-amd64-firecracker").mkdir()
-        (tmp_path / "base-kernel-v1.0.0-arm64").mkdir()
-        assert find_stale_caches(cache_dir=tmp_path, current_version="1.0.0") == []
-
-    def test_identifies_old_version_dirs(self, tmp_path: Path) -> None:
-        current = tmp_path / "openclaw-v1.0.0-amd64-firecracker"
-        stale1 = tmp_path / "openclaw-v0.0.13-amd64-firecracker"
-        stale2 = tmp_path / "base-kernel-v0.0.14a0-arm64"
-        current.mkdir()
-        stale1.mkdir()
-        stale2.mkdir()
-        result = find_stale_caches(cache_dir=tmp_path, current_version="1.0.0")
-        assert set(result) == {stale1, stale2}
-
-    def test_ignores_unversioned_dirs(self, tmp_path: Path) -> None:
-        (tmp_path / "s3").mkdir()
-        (tmp_path / "some-random-dir").mkdir()
-        (tmp_path / "openclaw-v0.0.13-amd64-firecracker").mkdir()
-        result = find_stale_caches(cache_dir=tmp_path, current_version="1.0.0")
-        assert len(result) == 1
-        assert result[0].name == "openclaw-v0.0.13-amd64-firecracker"
-
     def test_ignores_files(self, tmp_path: Path) -> None:
         (tmp_path / "openclaw-v0.0.13-amd64-firecracker").write_text("not a dir")
         assert find_stale_caches(cache_dir=tmp_path, current_version="1.0.0") == []

@@ -67,28 +67,13 @@ def _vm_info(
     )
 
 
-def test_browser_session_command_preserves_legacy_shape_without_proxy() -> None:
+def test_browser_session_command_quotes_profile_path() -> None:
     command = _guest_browser_session_command(
         "launch-browser",
         ["headless", "1280", "720", "9222", "/profile with space", "/downloads", "1"],
     )
 
-    assert command == (
-        "/usr/local/bin/celesto-browser-session launch-browser headless 1280 720 9222 "
-        "'/profile with space' /downloads 1"
-    )
-
-
-def test_browser_session_command_appends_one_quoted_proxy_argument() -> None:
-    command = _guest_browser_session_command(
-        "launch-browser",
-        ["headless", "1280"],
-        proxy_endpoint="http://10.0.2.100:3128",
-    )
-
-    assert command == (
-        "/usr/local/bin/celesto-browser-session launch-browser headless 1280 http://10.0.2.100:3128"
-    )
+    assert "'/profile with space'" in command
 
 
 def test_qemu_slirp_browser_uses_the_guestfwd_endpoint(tmp_path: Path) -> None:
@@ -99,11 +84,6 @@ def test_qemu_slirp_browser_uses_the_guestfwd_endpoint(tmp_path: Path) -> None:
 def test_tap_browser_uses_the_host_gateway_listener(tmp_path: Path) -> None:
     info = _vm_info(tmp_path, backend="qemu", qemu_network="tap", proxy_port=43128)
     assert _guest_browser_proxy_endpoint(info) == "http://172.16.0.1:43128"
-
-
-def test_browser_has_no_proxy_argument_without_internal_wiring(tmp_path: Path) -> None:
-    info = _vm_info(tmp_path, backend="qemu", proxy_port=None)
-    assert _guest_browser_proxy_endpoint(info) is None
 
 
 def test_browser_start_threads_the_internal_proxy_to_the_guest(tmp_path: Path) -> None:

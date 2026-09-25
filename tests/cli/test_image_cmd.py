@@ -475,15 +475,6 @@ class TestImageRm:
 
 
 class TestPruneAlias:
-    def test_top_level_prune_keeps_command_name(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
-    ) -> None:
-        ret = main(["prune", "--cache-dir", str(tmp_path), "--json"])
-
-        assert ret == 0
-        payload = json.loads(capsys.readouterr().out)
-        assert payload["command"] == "prune"
-
     def test_top_level_prune_accepts_image_dir(
         self, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:
@@ -498,15 +489,6 @@ class TestPruneAlias:
         assert payload["command"] == "prune"
         assert payload["data"]["would_remove"]
 
-    def test_image_prune_uses_dotted_command_name(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
-    ) -> None:
-        ret = main(["image", "prune", "--image-dir", str(tmp_path), "--json"])
-
-        assert ret == 0
-        payload = json.loads(capsys.readouterr().out)
-        assert payload["command"] == "image.prune"
-
     def test_image_prune_removes_stale_dirs(
         self, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:
@@ -516,6 +498,7 @@ class TestPruneAlias:
 
         assert ret == 0
         payload = json.loads(capsys.readouterr().out)
+        assert payload["command"] == "image.prune"
         assert payload["ok"] is True
         # Stale-versioned dirs go; current-version and unversioned stay.
         assert not (tmp_path / "codex-v0.0.1-amd64-firecracker").exists()
@@ -815,6 +798,7 @@ class TestImagePullAll:
 
         assert ret == 0
         capsys.readouterr()
+        assert mock_ensure.call_args_list
         assert all(c.args[3] == "alpine" for c in mock_ensure.call_args_list)
 
 

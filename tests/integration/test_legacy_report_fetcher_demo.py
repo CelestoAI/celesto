@@ -48,13 +48,6 @@ def _write_csv(path: Path, fieldnames: list[str], rows: list[dict[str, str]]) ->
         writer.writerows(rows)
 
 
-def test_parse_report_date_accepts_iso_date() -> None:
-    """The CLI should normalize valid report dates."""
-    run_demo = _load_module("legacy_run_demo", DEMO_ROOT / "run_demo.py")
-
-    assert run_demo.parse_report_date("2026-05-07") == "2026-05-07"
-
-
 @pytest.mark.parametrize(
     "value",
     [

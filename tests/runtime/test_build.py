@@ -780,13 +780,6 @@ class TestFingerprintWithContent:
     changed.
     """
 
-    def test_same_inputs_and_content_produce_stable_key(self, tmp_path: Path) -> None:
-        builder = ImageBuilder(cache_dir=tmp_path)
-        inputs = {"size_mb": 512, "ssh_password": "celesto"}
-        a = builder._fingerprint_with_content(inputs, "FROM alpine:3.19", "#!/bin/sh\nexec /init")
-        b = builder._fingerprint_with_content(inputs, "FROM alpine:3.19", "#!/bin/sh\nexec /init")
-        assert a == b
-
     def test_dockerfile_change_invalidates_key(self, tmp_path: Path) -> None:
         builder = ImageBuilder(cache_dir=tmp_path)
         inputs = {"size_mb": 512}

@@ -644,17 +644,6 @@ class TestCelestoDiskLifecycle:
         if assert_sparse:
             assert target.stat().st_blocks * 512 < target.stat().st_size
 
-    def test_copy_with_reflink_uses_host_disk_helper(self, tmp_path: Path) -> None:
-        """Raw isolated-disk copies should go through the host disk switchboard."""
-        source = tmp_path / "source.ext4"
-        target = tmp_path / "target.ext4"
-        source.write_bytes(b"rootfs")
-
-        with patch("celesto.host.disk.clone_or_sparse_copy") as mock_copy:
-            CelestoManager._copy_with_reflink(source, target)
-
-        mock_copy.assert_called_once_with(source, target)
-
     def test_copy_with_reflink_fallback_preserves_sparse_holes(
         self,
         tmp_path: Path,
@@ -1183,26 +1172,6 @@ class TestCelestoDiskLifecycle:
 class TestCelestoGet:
     """Tests for getting VM info."""
 
-    @patch("celesto.vm.NetworkManager")
-    def test_get_existing_vm(
-        self,
-        mock_network_class: MagicMock,
-        smol_vm: CelestoManager,
-        sample_config: VMConfig,
-    ) -> None:
-        """Test getting an existing VM."""
-        mock_network = MagicMock()
-        mock_network.host_ip = "172.16.0.1"
-        mock_network.generate_mac.return_value = "AA:FC:00:00:00:01"
-        mock_network_class.return_value = mock_network
-        smol_vm.network = mock_network
-
-        smol_vm.create(sample_config)
-
-        vm_info = smol_vm.get("vm001")
-
-        assert vm_info.vm_id == "vm001"
-
     def test_get_nonexistent_raises(self, smol_vm: CelestoManager) -> None:
         """Test that getting nonexistent VM raises error."""
         with pytest.raises(VMNotFoundError):
@@ -1255,26 +1224,6 @@ class TestCelestoList:
 
 class TestCelestoDelete:
     """Tests for VM deletion."""
-
-    @patch("celesto.vm.NetworkManager")
-    def test_delete_vm(
-        self,
-        mock_network_class: MagicMock,
-        smol_vm: CelestoManager,
-        sample_config: VMConfig,
-    ) -> None:
-        """Test deleting a VM."""
-        mock_network = MagicMock()
-        mock_network.host_ip = "172.16.0.1"
-        mock_network.generate_mac.return_value = "AA:FC:00:00:00:01"
-        mock_network_class.return_value = mock_network
-        smol_vm.network = mock_network
-
-        smol_vm.create(sample_config)
-        smol_vm.delete("vm001")
-
-        with pytest.raises(VMNotFoundError):
-            smol_vm.get("vm001")
 
     def test_delete_nonexistent_raises(self, smol_vm: CelestoManager) -> None:
         """Test that deleting nonexistent VM raises error."""

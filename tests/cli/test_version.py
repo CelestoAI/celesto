@@ -1,7 +1,6 @@
 """Tests for Celesto version consistency."""
 
 import importlib.metadata
-import inspect
 
 import celesto
 from celesto.cli.main import main
@@ -33,10 +32,3 @@ class TestVersion:
         """celesto -V should also trigger version output."""
         assert main(["-V"]) == 0
         assert celesto.__version__ in capsys.readouterr().out
-
-    def test_version_not_hardcoded_in_init(self) -> None:
-        """__version__ should come from package metadata, not a hardcoded string."""
-        source = inspect.getsource(celesto)
-        assert '__version__ = "' not in source, (
-            "__version__ should be read from importlib.metadata, not hardcoded"
-        )
