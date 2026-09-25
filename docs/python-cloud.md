@@ -84,12 +84,18 @@ comp.run("echo hello")
 computer_id = comp.id
 reconnected = Computer.get(computer_id)
 reconnected.run("echo again")
+reconnected.stop()
+reconnected.resume()
 reconnected.delete()
 ```
 
 Persistent and reconnected handles cannot enter a `with` block. Reconnecting never creates or starts a replacement computer. Outside a block, both lifetimes require explicit deletion. Neither lifetime adds server-side expiry or guarantees cleanup after a process crash or network loss. Cloud service policies still apply.
 
 Persistence here means retaining the computer resource; it does not enable an external disk. `external_volume_enabled=True` is a separate cloud option for disk retention across stop/restore, not a lifecycle setting.
+
+`stop()` waits until the cloud computer is stopped. `resume()` starts that same
+computer and waits until it is running. Both work on a reconnected handle and
+preserve the computer ID and its ephemeral disk on the current pool host.
 
 ## Connect to the browser or screen
 
@@ -185,6 +191,9 @@ Pass `api_key=` to override `CELESTO_API_KEY`, and `organization_id=` to select 
 Cloud creation accepts `vcpus`, `ram_mb`, `disk_size_mb`, `image`, `template_id`, `template_version`, and `external_volume_enabled`. Local options such as `mounts` and `data_dir` are not cloud options and are rejected. `startup_timeout` and `cleanup_timeout` default to 120 seconds and bound polling; individual network timeout limits are not a guarantee against every stalled or trickling response.
 
 HTTP failures raise `CloudAPIError` with a `status_code`. Missing computers raise `VMNotFoundError`. Transport failures raise `CelestoError`: creation or command execution may have succeeded even when its response was lost. No creation or command request is automatically replayed. Inspect the cloud dashboard before retrying an operation with an unknown outcome.
+
+Cloud creation supplies a unique idempotency key, as required by the pool API.
+The Scratch template uses its advertised disk default when `disk_size_mb` is omitted.
 
 ## Live smoke test
 

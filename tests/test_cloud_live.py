@@ -132,8 +132,13 @@ computer.terminal(terminal_id=sys.argv[2]).attach()
             assert_public_application(route.url)
             routes = attached.published_ports()
             assert any(r.port == 18080 and r.url == route.url for r in routes)
-            assert attached.unpublish_port(18080).status == "unpublished"
-            assert all(r.port != 18080 for r in comp.published_ports())
+            assert attached.unpublish_port(18080).status in {"unpublishing", "unpublished"}
+            deadline = time.monotonic() + 30
+            while any(r.port == 18080 for r in comp.published_ports()):
+                assert time.monotonic() < deadline, (
+                    "Published route did not drain within 30 seconds."
+                )
+                time.sleep(0.5)
             assert comp.unpublish_port(18080).status == "unpublished"
 
         with pytest.raises(VMNotFoundError):

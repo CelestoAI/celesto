@@ -1,6 +1,18 @@
 # Changelog
 
-## Unreleased
+## 0.1.2 — 2026-09-25
+
+### Added
+
+- Stop and resume the same cloud computer from Python, including after reconnecting.
+- Control local CLI and SDK telemetry capture.
+
+### Fixed
+
+- Create cloud computers on compute pools by sending the required idempotency key.
+- Wait for package publication before running the installer smoke check.
+
+## 0.1.1 — 2026-09-23
 
 ### Added
 
