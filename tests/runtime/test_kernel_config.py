@@ -47,3 +47,24 @@ def test_microvm_kernel_enables_podman_netavark_networking() -> None:
     }
     missing = required - symbols
     assert required <= symbols, f"missing symbols: {missing}"
+
+
+def test_microvm_kernel_supports_user_installed_docker() -> None:
+    """Docker can be installed later without relying on unavailable modules."""
+    symbols = _enabled_symbols(COMMON_FRAGMENT)
+
+    required = {
+        "CONFIG_MEMCG",
+        "CONFIG_CGROUP_BPF",
+        "CONFIG_VETH",
+        "CONFIG_BRIDGE",
+        "CONFIG_BRIDGE_NETFILTER",
+        "CONFIG_NETFILTER_XT_MATCH_IPVS",
+        "CONFIG_IP_VS",
+        "CONFIG_IP_NF_RAW",
+        "CONFIG_IP6_NF_RAW",
+        "CONFIG_IP6_NF_NAT",
+        "CONFIG_IP6_NF_TARGET_MASQUERADE",
+    }
+    missing = required - symbols
+    assert required <= symbols, f"missing symbols: {missing}"
