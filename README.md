@@ -88,6 +88,12 @@ celesto computer delete my-sandbox
 
 Use `celesto computer stop my-sandbox` instead when you want to keep it for later. Restart it with `celesto computer start my-sandbox`.
 
+Local CLI and Python SDK usage telemetry displays a notice before sending limited
+installation and feature counts. To turn it off, run `celesto config telemetry off`
+or set `CELESTO_NO_TELEMETRY=1` in your environment. See the
+[CLI reference](docs/reference/cli.md#local-usage-telemetry) and
+[privacy policy](https://celesto.ai/legal/privacy-policy).
+
 ## Use the Python API
 
 The installer includes the Python SDK. The `with` block creates a local sandbox when the block starts and deletes it when the block ends:
