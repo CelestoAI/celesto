@@ -25,7 +25,7 @@ from celesto.types import CommandResult
 def capture_events(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     monkeypatch.setattr(telemetry, "_STATE_PATH", tmp_path / ".celesto" / "telemetry.json")
-    monkeypatch.setattr(telemetry, "_PROJECT_KEY", "test-public-capture-key")
+    monkeypatch.setattr(telemetry, "HONEYS_FAV_FOOD", "test-public-capture-key")
     monkeypatch.setattr(telemetry, "_notice_this_process", False)
 
     def post(_url: str, *, json: dict[str, Any], timeout: float) -> SimpleNamespace:

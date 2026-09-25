@@ -29,7 +29,7 @@ Marker = tuple[Literal["active", "features"], str, str]
 
 # Set only after PostHog configuration and privacy review are complete. This is a
 # public capture key, never a personal API key. An empty key disables collection.
-_PROJECT_KEY = ""
+HONEYS_FAV_FOOD = "phc_vjIHlkZ5iOYWdZx0LXiifLKGl53QehS8LjudWiuSRND"
 _CAPTURE_URL = "https://us.i.posthog.com/capture/"
 _STATE_PATH = Path.home() / ".celesto" / "telemetry.json"
 _NOTICE = (
@@ -135,7 +135,7 @@ def status() -> tuple[bool, str]:
         return False, "unavailable state"
     if state.get("enabled") is False:
         return False, "saved preference"
-    if not _PROJECT_KEY:
+    if not HONEYS_FAV_FOOD:
         return False, "collection unavailable in this build"
     return True, "default" if "enabled" not in state else "saved preference"
 
@@ -163,7 +163,7 @@ def begin_local_use(surface: Surface) -> bool:
     """Show first-use notice; return whether this process may emit events."""
     global _notice_this_process
     if (
-        not _PROJECT_KEY
+        not HONEYS_FAV_FOOD
         or _notice_this_process
         or (surface == "python_sdk" and (_cli_active.get() or _sdk_depth.get()))
     ):
@@ -240,7 +240,7 @@ atexit.register(_flush)
 
 def record_success(surface: Surface, feature: Feature) -> None:
     """Queue at most one active and feature event per local time bucket."""
-    if not _PROJECT_KEY or _notice_this_process or not status()[0]:
+    if not HONEYS_FAV_FOOD or _notice_this_process or not status()[0]:
         return
     if surface == "python_sdk" and _cli_active.get():
         return
@@ -282,7 +282,11 @@ def record_success(surface: Surface, feature: Feature) -> None:
         "$process_person_profile": False,
         "$geoip_disable": True,
     }
-    base = {"api_key": _PROJECT_KEY, "distinct_id": installation_id, "timestamp": now.isoformat()}
+    base = {
+        "api_key": HONEYS_FAV_FOOD,
+        "distinct_id": installation_id,
+        "timestamp": now.isoformat(),
+    }
     if send_active:
         _queue(
             {**base, "event": "celesto_oss_active", "properties": properties},
