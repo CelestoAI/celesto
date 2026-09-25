@@ -12,6 +12,7 @@ from typing import Any, ClassVar, Literal, Self, Unpack
 from celesto._connection_info import DisplayMode, validate_display_mode
 from celesto._providers import ProviderName, make_provider, resolve_provider
 from celesto._providers.base import ComputerProvider
+from celesto._providers.cloud import CloudProvider
 from celesto._providers.options import CloudOptions, LocalOptions
 from celesto._telemetry import observe_sdk_operation
 from celesto._terminal import TerminalConnection, validate_terminal_id
@@ -233,6 +234,28 @@ class Computer:
     def start(self) -> Self:
         """Create and start this computer if it has not been created yet."""
         self._ensure_started()
+        return self
+
+    def stop(self) -> Self:
+        """Stop a cloud computer while retaining its files for a later resume."""
+        if self._provider_name != "cloud":
+            raise CelestoError("Stopping a local computer is not supported by this API.")
+        if self._deleted or not self._started:
+            raise CelestoError("This computer is not running; create or reconnect to it first.")
+        assert isinstance(self._provider, CloudProvider)
+        self._provider.stop()
+        return self
+
+    def resume(self) -> Self:
+        """Start a previously stopped cloud computer without creating a new one."""
+        if self._provider_name != "cloud":
+            raise CelestoError("Resuming a local computer is not supported by this API.")
+        if self._deleted or not self._started:
+            raise CelestoError(
+                "This computer has not been created; create or reconnect to it first."
+            )
+        assert isinstance(self._provider, CloudProvider)
+        self._provider.resume()
         return self
 
     def __enter__(self) -> Self:

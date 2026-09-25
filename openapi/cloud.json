@@ -9667,6 +9667,22 @@
                 "operationId": "create_computer_v1_computers_post",
                 "parameters": [
                     {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Idempotency-Key"
+                        }
+                    },
+                    {
                         "name": "x-current-organization",
                         "in": "header",
                         "required": false,

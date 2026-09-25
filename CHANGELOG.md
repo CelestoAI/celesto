@@ -4,6 +4,7 @@
 
 ### Added
 
+- Stop and resume the same cloud computer from Python, including after reconnecting.
 - Choose a fixed execution location with `LocalComputer` or `CloudComputer`, while keeping the same computer API.
 - Create local desktop computers with `celesto computer create` and open their terminals with `celesto computer terminal ID`. Use `--cloud` explicitly for cloud create, list, terminal, and delete operations.
 - Connect automation tools to the browser and viewers to the screen of the same local or cloud `Computer` with `browser()` and `display()`. Display connections default to read-only; see [connection usage](docs/python-cloud.md#connect-to-the-browser-or-screen).
@@ -14,6 +15,7 @@
 
 ### Fixed
 
+- Create cloud computers on compute pools by sending the required idempotency key.
 - Keep sandbox creation output clear when several SSH ports are busy; record one summary after choosing a free port.
 - Find Homebrew's disk preparation tools automatically when growing sandbox disks on macOS.
 

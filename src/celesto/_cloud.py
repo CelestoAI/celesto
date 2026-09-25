@@ -6,6 +6,7 @@ import json
 import math
 import os
 import time
+import uuid
 from collections.abc import Callable, Iterator
 from typing import Any, TypeVar
 from urllib.parse import quote, urlsplit
@@ -38,6 +39,12 @@ from _celesto_cloud_api.api.computers import (
 )
 from _celesto_cloud_api.api.computers import (
     publish_computer_port_v1_computers_computer_id_published_ports_post as publish_port,
+)
+from _celesto_cloud_api.api.computers import (
+    start_computer_v1_computers_computer_id_start_post as resume,
+)
+from _celesto_cloud_api.api.computers import (
+    stop_computer_v1_computers_computer_id_stop_post as stop,
 )
 from _celesto_cloud_api.api.computers import (
     unpublish_computer_port_v1_computers_computer_id_published_ports_port_delete as unpublish_port,
@@ -237,13 +244,54 @@ class _CloudComputer:
 
     def start(self) -> None:
         # Exactly one create request. Never retry a potentially billable allocation.
-        computer = self._call(create.sync_detailed, ComputerResponse, body=self._body)
+        computer = self._call(
+            create.sync_detailed,
+            ComputerResponse,
+            body=self._body,
+            idempotency_key=uuid.uuid4().hex,
+        )
         self.vm_id = computer.id
         deadline = time.monotonic() + self._startup_timeout
         while computer.status != "running":
             if computer.status not in {"creating", "starting", "restoring", "pending"}:
                 raise CelestoError(f"Computer '{self.vm_id}' is {computer.status}; call delete().")
             self._wait(deadline, "start")
+            computer = self._get()
+
+    def stop(self) -> None:
+        if self.vm_id is None:
+            raise CelestoError("This computer has not started; call start() first.")
+        computer = self._call(
+            stop.sync_detailed,
+            ComputerResponse,
+            computer_id=self.vm_id,
+            uncertain_mutation=f"stop computer {self.vm_id}",
+        )
+        deadline = time.monotonic() + self._startup_timeout
+        while computer.status != "stopped":
+            if computer.status != "stopping":
+                raise CelestoError(
+                    f"Computer '{self.vm_id}' is {computer.status}; check the cloud dashboard."
+                )
+            self._wait(deadline, "stop")
+            computer = self._get()
+
+    def resume(self) -> None:
+        if self.vm_id is None:
+            raise CelestoError("This computer has not started; call start() first.")
+        computer = self._call(
+            resume.sync_detailed,
+            ComputerResponse,
+            computer_id=self.vm_id,
+            uncertain_mutation=f"resume computer {self.vm_id}",
+        )
+        deadline = time.monotonic() + self._startup_timeout
+        while computer.status != "running":
+            if computer.status != "starting":
+                raise CelestoError(
+                    f"Computer '{self.vm_id}' is {computer.status}; check the cloud dashboard."
+                )
+            self._wait(deadline, "resume")
             computer = self._get()
 
     @staticmethod

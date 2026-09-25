@@ -80,10 +80,45 @@ def test_cloud_context_runs_and_confirms_cleanup(cloud):
     assert comp.id == "cloud-test"
     assert [r.method for r in requests] == ["POST", "GET", "POST", "DELETE", "GET"]
     assert all(r.headers["x-current-organization"] == "org-test" for r in requests)
+    assert requests[0].headers["idempotency-key"]
+    assert "idempotency-key" not in requests[1].headers
     assert json.loads(requests[0].content)["vcpus"] == 2
     comp.delete()
     with pytest.raises(CelestoError, match="deleted"):
         comp.run("again")
+    assert not replies
+
+
+def test_cloud_stop_resume_preserves_computer_and_command_state(cloud):
+    requests, replies = cloud
+    replies.extend(
+        [
+            (201, computer()),
+            (200, computer("stopping")),
+            (200, computer("stopped")),
+            (200, computer("starting")),
+            (200, computer()),
+            (200, {"stdout": "marker", "stderr": "", "exit_code": 0}),
+            (200, computer("deleted")),
+        ]
+    )
+    comp = Computer(lifetime="persistent")
+    comp.start()
+    computer_id = comp.id
+    comp.stop()
+    comp.resume()
+    assert comp.id == computer_id
+    assert comp.run("cat /tmp/marker").stdout == "marker"
+    comp.delete()
+    assert [r.url.path for r in requests] == [
+        "/v1/computers",
+        f"/v1/computers/{computer_id}/stop",
+        f"/v1/computers/{computer_id}",
+        f"/v1/computers/{computer_id}/start",
+        f"/v1/computers/{computer_id}",
+        f"/v1/computers/{computer_id}/exec",
+        f"/v1/computers/{computer_id}",
+    ]
     assert not replies
 
 

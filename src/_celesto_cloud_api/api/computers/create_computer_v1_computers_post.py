@@ -18,9 +18,13 @@ from typing import cast
 def _get_kwargs(
     *,
     body: ComputerCreateRequest,
+    idempotency_key: None | str | Unset = UNSET,
     x_current_organization: str | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
+    if not isinstance(idempotency_key, Unset):
+        headers["Idempotency-Key"] = idempotency_key
+
     if not isinstance(x_current_organization, Unset):
         headers["x-current-organization"] = x_current_organization
 
@@ -71,11 +75,13 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: ComputerCreateRequest,
+    idempotency_key: None | str | Unset = UNSET,
     x_current_organization: str | Unset = UNSET,
 ) -> Response[ComputerResponse | ComputerValidationErrorResponse]:
     """Create a new compute VM
 
     Args:
+        idempotency_key (None | str | Unset):
         x_current_organization (str | Unset): Current organization ID
         body (ComputerCreateRequest): Request to create a new compute VM.
 
@@ -89,6 +95,7 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         body=body,
+        idempotency_key=idempotency_key,
         x_current_organization=x_current_organization,
     )
 
@@ -103,11 +110,13 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     body: ComputerCreateRequest,
+    idempotency_key: None | str | Unset = UNSET,
     x_current_organization: str | Unset = UNSET,
 ) -> ComputerResponse | ComputerValidationErrorResponse | None:
     """Create a new compute VM
 
     Args:
+        idempotency_key (None | str | Unset):
         x_current_organization (str | Unset): Current organization ID
         body (ComputerCreateRequest): Request to create a new compute VM.
 
@@ -122,6 +131,7 @@ def sync(
     return sync_detailed(
         client=client,
         body=body,
+        idempotency_key=idempotency_key,
         x_current_organization=x_current_organization,
     ).parsed
 
@@ -130,11 +140,13 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: ComputerCreateRequest,
+    idempotency_key: None | str | Unset = UNSET,
     x_current_organization: str | Unset = UNSET,
 ) -> Response[ComputerResponse | ComputerValidationErrorResponse]:
     """Create a new compute VM
 
     Args:
+        idempotency_key (None | str | Unset):
         x_current_organization (str | Unset): Current organization ID
         body (ComputerCreateRequest): Request to create a new compute VM.
 
@@ -148,6 +160,7 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         body=body,
+        idempotency_key=idempotency_key,
         x_current_organization=x_current_organization,
     )
 
@@ -160,11 +173,13 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     body: ComputerCreateRequest,
+    idempotency_key: None | str | Unset = UNSET,
     x_current_organization: str | Unset = UNSET,
 ) -> ComputerResponse | ComputerValidationErrorResponse | None:
     """Create a new compute VM
 
     Args:
+        idempotency_key (None | str | Unset):
         x_current_organization (str | Unset): Current organization ID
         body (ComputerCreateRequest): Request to create a new compute VM.
 
@@ -180,6 +195,7 @@ async def asyncio(
         await asyncio_detailed(
             client=client,
             body=body,
+            idempotency_key=idempotency_key,
             x_current_organization=x_current_organization,
         )
     ).parsed
