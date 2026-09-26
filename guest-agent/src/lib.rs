@@ -1,4 +1,5 @@
 pub mod boot;
+pub mod docker;
 pub mod env;
 pub mod exec;
 pub mod files;
