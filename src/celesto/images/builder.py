@@ -1715,6 +1715,10 @@ mount -t devtmpfs dev /dev 2>/dev/null  # may already be mounted
 mkdir -p /dev/pts
 mount -t devpts devpts /dev/pts
 mount -t tmpfs tmpfs /run
+mkdir -p /sys/fs/cgroup
+if ! grep -q ' /sys/fs/cgroup cgroup2 ' /proc/mounts; then
+    mount -t cgroup2 cgroup2 /sys/fs/cgroup
+fi
 # Keep /tmp on the root disk, not tmpfs. Package managers use /tmp for
 # temporary writes, and a memory-sized tmpfs can fill up even when the disk
 # still has plenty of space.

@@ -39,6 +39,17 @@ CONFIG_NET=y                    # why: required for virtio-net + sshd
 CONFIG_INET=y                   # why: TCP/IP for SSH
 CONFIG_PACKET=y                 # why: AF_PACKET for some userspace tools
 
+# ── Containers inside the guest ─────────────────────────────────────
+# Celesto does not preinstall a container runtime. These are the built-in
+# kernel primitives that let a user install Docker later and use its default
+# cgroup-v2 resource controls and bridge networking. They must be =y because
+# this kernel deliberately ships without loadable modules.
+CONFIG_MEMCG=y                     # why: Docker memory accounting and --memory limits
+CONFIG_CGROUP_BPF=y                # why: cgroup-v2 device access rules used by modern runtimes
+CONFIG_VETH=y                      # why: connect container network namespaces to a bridge
+CONFIG_BRIDGE=y                    # why: Docker's default docker0 network
+CONFIG_BRIDGE_NETFILTER=y          # why: filter/NAT traffic crossing container bridges
+
 # ── Container networking inside the guest ───────────────────────────
 # Podman/Netavark on Ubuntu defaults to iptables-nft. Without nf_tables,
 # `iptables --version` prints "Protocol not supported" instead of a version,
@@ -54,6 +65,12 @@ CONFIG_NFT_NAT=y                # why: registers nft nat chains such as POSTROUT
 CONFIG_NFT_MASQ=y               # why: netavark emits MASQUERADE rules for bridge egress NAT
 CONFIG_NFT_COMPAT=y             # why: allows xtables matches such as `-m comment` via nft
 CONFIG_NETFILTER_XT_MATCH_COMMENT=y  # why: netavark marks its chains with `-m comment`
+CONFIG_NETFILTER_XT_MATCH_IPVS=y     # why: Docker's kernel compatibility check requires the IPVS match
+CONFIG_IP_VS=y                       # why: parent dependency for NETFILTER_XT_MATCH_IPVS
+CONFIG_IP_NF_RAW=y                   # why: Docker programs raw-table IPv4 rules
+CONFIG_IP6_NF_RAW=y                  # why: Docker programs raw-table IPv6 rules
+CONFIG_IP6_NF_NAT=y                  # why: IPv6 container network address translation
+CONFIG_IP6_NF_TARGET_MASQUERADE=y    # why: IPv6 egress from Docker bridge networks
 
 # ── vsock (host↔guest control channel) ──────────────────────────────
 # Both libkrun and Firecracker enable these; libkrun uses vsock for its
