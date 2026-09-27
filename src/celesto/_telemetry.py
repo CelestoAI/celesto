@@ -32,9 +32,11 @@ Marker = tuple[Literal["active", "features"], str, str]
 HONEYS_FAV_FOOD = "phc_vjIHlkZ5iOYWdZx0LXiifLKGl53QehS8LjudWiuSRND"
 _CAPTURE_URL = "https://us.i.posthog.com/capture/"
 _STATE_PATH = Path.home() / ".celesto" / "telemetry.json"
+_NOTICE_VERSION = 1  # Increment when the notice covers newly collected data.
 _NOTICE = (
     "Celesto may send limited local usage counts (installation ID, feature category, "
-    "version, OS family). PostHog may retain your IP address. "
+    "version, OS family). PostHog may derive your approximate location "
+    "(such as country or city) from your IP address and may retain that address. "
     "No commands, files, or URLs are sent. "
     "See https://celesto.ai/legal/privacy-policy. "
     "Opt out: celesto config telemetry off or CELESTO_NO_TELEMETRY=1."
@@ -177,8 +179,9 @@ def begin_local_use(surface: Surface) -> bool:
             state = _read_state()
             if state.get("enabled") is False:
                 return False
-            if not state.get("notice_shown"):
+            if not state.get("notice_shown") or state.get("notice_version") != _NOTICE_VERSION:
                 state["notice_shown"] = True
+                state["notice_version"] = _NOTICE_VERSION
                 _write_state(state)
                 _notice_this_process = True
                 print(_NOTICE, file=sys.stderr)
@@ -196,7 +199,11 @@ def _send(event: dict[str, Any], marker: Marker) -> None:
             if _environment_override() is not None:
                 return
             state = _read_state()
-            if state.get("enabled") is False or not state.get("notice_shown"):
+            if (
+                state.get("enabled") is False
+                or not state.get("notice_shown")
+                or state.get("notice_version") != _NOTICE_VERSION
+            ):
                 return
             bucket, key, value = marker
             markers = state.get(bucket)
@@ -251,7 +258,11 @@ def record_success(surface: Surface, feature: Feature) -> None:
     try:
         with _state_lock():
             state = _read_state()
-            if state.get("enabled") is False or not state.get("notice_shown"):
+            if (
+                state.get("enabled") is False
+                or not state.get("notice_shown")
+                or state.get("notice_version") != _NOTICE_VERSION
+            ):
                 return
             installation_id = state.get("installation_id")
             if not isinstance(installation_id, str) or not installation_id:
@@ -280,7 +291,6 @@ def record_success(surface: Surface, feature: Feature) -> None:
         "celesto_version": version,
         "os_family": platform.system().lower(),
         "$process_person_profile": False,
-        "$geoip_disable": True,
     }
     base = {
         "api_key": HONEYS_FAV_FOOD,

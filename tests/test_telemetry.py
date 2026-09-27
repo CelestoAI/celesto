@@ -48,9 +48,12 @@ def test_first_use_notice_precedes_identity_and_events(
 ) -> None:
     monkeypatch.setenv("PYTEST_CURRENT_TEST", "0")
     assert telemetry.begin_local_use("python_sdk") is False
-    assert "celesto config telemetry off" in capsys.readouterr().err
+    notice = capsys.readouterr().err
+    assert "celesto config telemetry off" in notice
+    assert "approximate location" in notice
     first_state = json.loads(telemetry._STATE_PATH.read_text())
-    assert first_state == {"notice_shown": True}
+    assert first_state["notice_shown"] is True
+    assert "installation_id" not in first_state
     telemetry.record_success("python_sdk", "computer")
     assert capture_events == []
 
@@ -74,10 +77,35 @@ def test_first_use_notice_precedes_identity_and_events(
         "celesto_version",
         "os_family",
         "$process_person_profile",
-        "$geoip_disable",
         "feature",
     }
     assert telemetry._STATE_PATH.stat().st_mode & 0o777 == 0o600
+
+
+def test_geoip_notice_precedes_events_for_existing_installations(
+    capture_events: list[dict[str, Any]],
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "0")
+    telemetry._STATE_PATH.parent.mkdir()
+    telemetry._write_state({"notice_shown": True, "installation_id": "celesto-oss-prior"})
+
+    telemetry.record_success("cli", "computer")
+    assert capture_events == []
+    assert telemetry.begin_local_use("cli") is False
+    assert "approximate location" in capsys.readouterr().err
+    telemetry.record_success("cli", "computer")
+    assert capture_events == []
+
+    monkeypatch.setattr(telemetry, "_notice_this_process", False)
+    assert telemetry.begin_local_use("cli") is True
+    telemetry.record_success("cli", "computer")
+    assert [event["event"] for event in capture_events] == [
+        "celesto_oss_active",
+        "celesto_oss_feature_used",
+    ]
+    assert all(event["distinct_id"] == "celesto-oss-prior" for event in capture_events)
 
 
 def test_opt_out_and_environment_override_create_no_identity(
