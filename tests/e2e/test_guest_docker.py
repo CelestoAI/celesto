@@ -65,9 +65,19 @@ def _ensure_cgroup_v2(sandbox: Celesto) -> None:
 
 
 def _install_docker(sandbox: Celesto) -> None:
+    # A failing lookup here distinguishes guest networking from apt/package
+    # problems, and keeps the route and resolver details in the CI log.
+    dns = sandbox.run("getent ahostsv4 archive.ubuntu.com", timeout=45)
+    if dns.exit_code != 0:
+        network = sandbox.run("ip route; cat /etc/resolv.conf", timeout=30)
+        pytest.fail(
+            "Guest DNS could not resolve archive.ubuntu.com: "
+            f"lookup={dns.stdout!r} {dns.stderr!r}; "
+            f"network={network.stdout!r} {network.stderr!r}"
+        )
     result = sandbox.run(
         "export DEBIAN_FRONTEND=noninteractive && "
-        "apt-get update -qq && "
+        "apt-get update -qq -o APT::Update::Error-Mode=any && "
         "apt-get install -y -qq docker.io iptables",
         timeout=_APT_TIMEOUT_S,
     )
