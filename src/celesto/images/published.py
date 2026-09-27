@@ -150,7 +150,7 @@ class BaseKernel(BaseModel):
 # upload step instead of silently swapping bytes under the existing
 # pins. Re-bakes against the same tag must opt in via the
 # ``force_overwrite`` workflow_dispatch input.
-IMAGES_RELEASE_TAG = "images-2026.09.27.0"
+IMAGES_RELEASE_TAG = "images-2026.09.27.1"
 
 
 def _images_release_tag() -> str:
@@ -286,8 +286,8 @@ _PI_ARM64_ROOTFS_SHA = "8de163188fd2bba399c96bb7b01293e96a7221243b74237f5d5ecd5b
 _LINUX_DESKTOP_AMD64_ROOTFS_SHA = "4d7e55863a03943733d8f1718cd143bd91450de2e42dcc143d7c49c2059df0e3"
 _LINUX_DESKTOP_ARM64_ROOTFS_SHA = "aa93c0e8fc5d54672fc1d8fa253dd32d90f10479b7070a67f030f996ac75eb67"
 # Bare Ubuntu base image (no preset install) — raw-ext4, agent baked in.
-_UBUNTU_AMD64_ROOTFS_SHA = "1261a04d82859b2046faf207c3636406a10238f7d7c1d3a9017504c234dbaa5d"
-_UBUNTU_ARM64_ROOTFS_SHA = "05cf62badd2b85521a0a7a237709dfac8b148e3edbe234297fa0b2663e62714b"
+_UBUNTU_AMD64_ROOTFS_SHA = "3da20a9de45ba1d6407b486fba075f36603ea42f09716f5094007ee3b9cef025"
+_UBUNTU_ARM64_ROOTFS_SHA = "916cbe4c537e581839d0e14f52eb76e7c2a580d907bb0ed752fe2680d2c37c35"
 _CODEX_AMD64_ALPINE_ROOTFS_SHA = "5c2c2a2879c1eb50207f8a85f825f6cbc77a1472dc10f4c89775aa59afaaa71f"
 _CODEX_ARM64_ALPINE_ROOTFS_SHA = "3e1be2599ac3c46aabaea95edce3e2e126a9fda9df301775a66cfef2b7b33c3d"
 _CLAUDE_CODE_AMD64_ALPINE_ROOTFS_SHA = (
