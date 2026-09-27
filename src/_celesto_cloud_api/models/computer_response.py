@@ -13,6 +13,7 @@ from typing import cast
 
 if TYPE_CHECKING:
     from ..models.computer_connection_info import ComputerConnectionInfo
+    from ..models.computer_location import ComputerLocation
     from ..models.computer_metrics_summary import ComputerMetricsSummary
     from ..models.computer_published_port_response import ComputerPublishedPortResponse
     from ..models.network_policy import NetworkPolicy
@@ -33,7 +34,10 @@ class ComputerResponse:
         ram_mb (int):
         disk_size_mb (int):
         image (str):
+        compute_location (ComputerLocation): Where this computer's root disk is hosted; external storage is separate.
         created_at (str):
+        size_id (None | str | Unset):
+        price_version (None | str | Unset):
         template_id (str | Unset):  Default: 'scratch'.
         template_version (None | str | Unset):
         network_policy (NetworkPolicy | Unset): Outbound internet access, fixed for the lifetime of a computer.
@@ -52,7 +56,10 @@ class ComputerResponse:
     ram_mb: int
     disk_size_mb: int
     image: str
+    compute_location: ComputerLocation
     created_at: str
+    size_id: None | str | Unset = UNSET
+    price_version: None | str | Unset = UNSET
     template_id: str | Unset = "scratch"
     template_version: None | str | Unset = UNSET
     network_policy: NetworkPolicy | Unset = UNSET
@@ -66,6 +73,7 @@ class ComputerResponse:
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.computer_connection_info import ComputerConnectionInfo  # noqa: PLC0415
+        from ..models.computer_location import ComputerLocation  # noqa: PLC0415
         from ..models.computer_metrics_summary import ComputerMetricsSummary  # noqa: PLC0415
         from ..models.computer_published_port_response import (
             ComputerPublishedPortResponse,
@@ -86,7 +94,21 @@ class ComputerResponse:
 
         image = self.image
 
+        compute_location = self.compute_location.to_dict()
+
         created_at = self.created_at
+
+        size_id: None | str | Unset
+        if isinstance(self.size_id, Unset):
+            size_id = UNSET
+        else:
+            size_id = self.size_id
+
+        price_version: None | str | Unset
+        if isinstance(self.price_version, Unset):
+            price_version = UNSET
+        else:
+            price_version = self.price_version
 
         template_id = self.template_id
 
@@ -148,9 +170,14 @@ class ComputerResponse:
                 "ram_mb": ram_mb,
                 "disk_size_mb": disk_size_mb,
                 "image": image,
+                "compute_location": compute_location,
                 "created_at": created_at,
             }
         )
+        if size_id is not UNSET:
+            field_dict["size_id"] = size_id
+        if price_version is not UNSET:
+            field_dict["price_version"] = price_version
         if template_id is not UNSET:
             field_dict["template_id"] = template_id
         if template_version is not UNSET:
@@ -175,6 +202,7 @@ class ComputerResponse:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.computer_connection_info import ComputerConnectionInfo  # noqa: PLC0415
+        from ..models.computer_location import ComputerLocation  # noqa: PLC0415
         from ..models.computer_metrics_summary import ComputerMetricsSummary  # noqa: PLC0415
         from ..models.computer_published_port_response import (
             ComputerPublishedPortResponse,
@@ -196,7 +224,27 @@ class ComputerResponse:
 
         image = d.pop("image")
 
+        compute_location = ComputerLocation.from_dict(d.pop("compute_location"))
+
         created_at = d.pop("created_at")
+
+        def _parse_size_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        size_id = _parse_size_id(d.pop("size_id", UNSET))
+
+        def _parse_price_version(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        price_version = _parse_price_version(d.pop("price_version", UNSET))
 
         template_id = d.pop("template_id", UNSET)
 
@@ -289,7 +337,10 @@ class ComputerResponse:
             ram_mb=ram_mb,
             disk_size_mb=disk_size_mb,
             image=image,
+            compute_location=compute_location,
             created_at=created_at,
+            size_id=size_id,
+            price_version=price_version,
             template_id=template_id,
             template_version=template_version,
             network_policy=network_policy,

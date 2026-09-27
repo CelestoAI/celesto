@@ -6,6 +6,7 @@ class ComputerStatus(StrEnum):
     DELETED = "deleted"
     DELETING = "deleting"
     ERROR = "error"
+    LOST = "lost"
     RESTORABLE = "restorable"
     RESTORING = "restoring"
     RUNNING = "running"

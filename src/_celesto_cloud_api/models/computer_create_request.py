@@ -23,6 +23,7 @@ class ComputerCreateRequest:
     """Request to create a new compute VM.
 
     Attributes:
+        size_id (None | str | Unset): Named sandbox size
         vcpus (int | None | Unset): Number of virtual CPUs
         ram_mb (int | None | Unset): RAM in megabytes
         disk_size_mb (int | None | Unset): Disk size in megabytes (20 GB maximum)
@@ -35,6 +36,7 @@ class ComputerCreateRequest:
             False.
     """
 
+    size_id: None | str | Unset = UNSET
     vcpus: int | None | Unset = UNSET
     ram_mb: int | None | Unset = UNSET
     disk_size_mb: int | None | Unset = UNSET
@@ -47,6 +49,12 @@ class ComputerCreateRequest:
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.network_policy import NetworkPolicy  # noqa: PLC0415
+
+        size_id: None | str | Unset
+        if isinstance(self.size_id, Unset):
+            size_id = UNSET
+        else:
+            size_id = self.size_id
 
         vcpus: int | None | Unset
         if isinstance(self.vcpus, Unset):
@@ -89,6 +97,8 @@ class ComputerCreateRequest:
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
+        if size_id is not UNSET:
+            field_dict["size_id"] = size_id
         if vcpus is not UNSET:
             field_dict["vcpus"] = vcpus
         if ram_mb is not UNSET:
@@ -113,6 +123,15 @@ class ComputerCreateRequest:
         from ..models.network_policy import NetworkPolicy  # noqa: PLC0415
 
         d = dict(src_dict)
+
+        def _parse_size_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        size_id = _parse_size_id(d.pop("size_id", UNSET))
 
         def _parse_vcpus(data: object) -> int | None | Unset:
             if data is None:
@@ -171,6 +190,7 @@ class ComputerCreateRequest:
         external_volume_enabled = d.pop("external_volume_enabled", UNSET)
 
         computer_create_request = cls(
+            size_id=size_id,
             vcpus=vcpus,
             ram_mb=ram_mb,
             disk_size_mb=disk_size_mb,
