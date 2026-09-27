@@ -45,6 +45,7 @@ CONFIG_PACKET=y                 # why: AF_PACKET for some userspace tools
 # cgroup-v2 resource controls and bridge networking. They must be =y because
 # this kernel deliberately ships without loadable modules.
 CONFIG_MEMCG=y                     # why: Docker memory accounting and --memory limits
+CONFIG_BPF_SYSCALL=y               # why: required by cgroup-attached BPF programs
 CONFIG_CGROUP_BPF=y                # why: cgroup-v2 device access rules used by modern runtimes
 CONFIG_VETH=y                      # why: connect container network namespaces to a bridge
 CONFIG_BRIDGE=y                    # why: Docker's default docker0 network
