@@ -153,6 +153,14 @@ def test_base_init_script_keeps_tmp_on_root_disk() -> None:
     assert "chmod 1777 /tmp" in script
 
 
+def test_base_init_script_mounts_cgroup_v2_for_user_installed_runtimes() -> None:
+    script = ImageBuilder()._default_init_script()
+
+    assert "mkdir -p /sys/fs/cgroup" in script
+    assert "grep -q ' /sys/fs/cgroup cgroup2 ' /proc/mounts" in script
+    assert "mount -t cgroup2 cgroup2 /sys/fs/cgroup" in script
+
+
 def test_preset_init_script_keeps_tmp_on_root_disk() -> None:
     script = Path("scripts/ci/preset-init.sh").read_text()
 
@@ -160,6 +168,14 @@ def test_preset_init_script_keeps_tmp_on_root_disk() -> None:
     assert "mount -t tmpfs tmpfs /tmp" not in script
     assert "mkdir -p /run/sshd /var/log /tmp" in script
     assert "chmod 1777 /tmp" in script
+
+
+def test_preset_init_script_mounts_cgroup_v2_for_user_installed_runtimes() -> None:
+    script = Path("scripts/ci/preset-init.sh").read_text()
+
+    assert "mkdir -p /sys/fs/cgroup" in script
+    assert "grep -q ' /sys/fs/cgroup cgroup2 ' /proc/mounts" in script
+    assert "mount -t cgroup2 cgroup2 /sys/fs/cgroup" in script
 
 
 class TestDockerDiagnostics:
