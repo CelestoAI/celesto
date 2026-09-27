@@ -43,7 +43,8 @@ pytestmark = pytest.mark.e2e
 _DOCKER_DISK_MIB = 4096
 _DOCKER_MEMORY_MIB = 2048
 _APT_TIMEOUT_S = 600
-_DOCKERD_READY_TIMEOUT_S = 120
+# Loop sleeps up to 120s; leave headroom so the failure path can print the log.
+_DOCKERD_READY_TIMEOUT_S = 180
 _HELLO_WORLD_TIMEOUT_S = 180
 
 
