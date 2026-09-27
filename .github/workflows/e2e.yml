@@ -159,6 +159,16 @@ jobs:
             --except-interface=lo \
             --pid-file=/run/celesto-e2e-dnsmasq.pid
           sudo test -s /run/celesto-e2e-dnsmasq.pid
+          # Docker on the hosted runner sets FORWARD to DROP. Its chain can
+          # override the separate nftables accept rule Celesto adds for TAPs.
+          # Admit only TAP traffic toward the runner's default interface and
+          # established replies, before Docker's FORWARD policy is evaluated.
+          sudo iptables -S FORWARD
+          outbound=$(ip -4 route show default | awk '{print $5; exit}')
+          test -n "$outbound"
+          sudo iptables -I FORWARD 1 -i tap+ -o "$outbound" -j ACCEPT
+          sudo iptables -I FORWARD 1 -i "$outbound" -o tap+ \
+            -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 
       - name: Enable KVM and optional vsock
         run: |
