@@ -1,6 +1,6 @@
 # macOS Desktop Sandboxes — End-to-End Implementation Plan
 
-**Status:** Implementation in progress; stable release blocked on the real-hardware spike and secure guest credential provisioning documented in [`docs/contributing/macos-spike.md`](docs/contributing/macos-spike.md).
+**Status:** Implementation in progress; stable release blocked on the real-hardware spike and secure guest credential provisioning documented in [`docs/contributing/macos-spike.md`](../contributing/macos-spike.md).
 **Initial release:** Experimental local preview
 **Primary user:** A developer on an Apple Silicon Mac who wants a clean macOS desktop, shares an application build, installs it normally, and deletes the sandbox afterward.
 
