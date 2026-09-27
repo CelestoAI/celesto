@@ -82,7 +82,7 @@ def test_first_use_notice_precedes_identity_and_events(
     assert telemetry._STATE_PATH.stat().st_mode & 0o777 == 0o600
 
 
-def test_geoip_notice_precedes_events_for_existing_installations(
+def test_existing_installations_continue_without_another_notice(
     capture_events: list[dict[str, Any]],
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
@@ -91,15 +91,8 @@ def test_geoip_notice_precedes_events_for_existing_installations(
     telemetry._STATE_PATH.parent.mkdir()
     telemetry._write_state({"notice_shown": True, "installation_id": "celesto-oss-prior"})
 
-    telemetry.record_success("cli", "computer")
-    assert capture_events == []
-    assert telemetry.begin_local_use("cli") is False
-    assert "approximate location" in capsys.readouterr().err
-    telemetry.record_success("cli", "computer")
-    assert capture_events == []
-
-    monkeypatch.setattr(telemetry, "_notice_this_process", False)
     assert telemetry.begin_local_use("cli") is True
+    assert capsys.readouterr().err == ""
     telemetry.record_success("cli", "computer")
     assert [event["event"] for event in capture_events] == [
         "celesto_oss_active",

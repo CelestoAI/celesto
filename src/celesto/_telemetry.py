@@ -32,7 +32,6 @@ Marker = tuple[Literal["active", "features"], str, str]
 HONEYS_FAV_FOOD = "phc_vjIHlkZ5iOYWdZx0LXiifLKGl53QehS8LjudWiuSRND"
 _CAPTURE_URL = "https://us.i.posthog.com/capture/"
 _STATE_PATH = Path.home() / ".celesto" / "telemetry.json"
-_NOTICE_VERSION = 1  # Increment when the notice covers newly collected data.
 _NOTICE = (
     "Celesto may send limited local usage counts (installation ID, feature category, "
     "version, OS family). PostHog may derive your approximate location "
@@ -179,9 +178,8 @@ def begin_local_use(surface: Surface) -> bool:
             state = _read_state()
             if state.get("enabled") is False:
                 return False
-            if not state.get("notice_shown") or state.get("notice_version") != _NOTICE_VERSION:
+            if not state.get("notice_shown"):
                 state["notice_shown"] = True
-                state["notice_version"] = _NOTICE_VERSION
                 _write_state(state)
                 _notice_this_process = True
                 print(_NOTICE, file=sys.stderr)
@@ -199,11 +197,7 @@ def _send(event: dict[str, Any], marker: Marker) -> None:
             if _environment_override() is not None:
                 return
             state = _read_state()
-            if (
-                state.get("enabled") is False
-                or not state.get("notice_shown")
-                or state.get("notice_version") != _NOTICE_VERSION
-            ):
+            if state.get("enabled") is False or not state.get("notice_shown"):
                 return
             bucket, key, value = marker
             markers = state.get(bucket)
@@ -258,11 +252,7 @@ def record_success(surface: Surface, feature: Feature) -> None:
     try:
         with _state_lock():
             state = _read_state()
-            if (
-                state.get("enabled") is False
-                or not state.get("notice_shown")
-                or state.get("notice_version") != _NOTICE_VERSION
-            ):
+            if state.get("enabled") is False or not state.get("notice_shown"):
                 return
             installation_id = state.get("installation_id")
             if not isinstance(installation_id, str) or not installation_id:

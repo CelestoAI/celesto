@@ -24,8 +24,6 @@ Set `CELESTO_FIRECRACKER_DIR` when future commands also need to find a folder th
 
 Celesto gives you a first-use notice before local CLI usage telemetry starts. It counts active installations and broad features used. It does not send commands, file paths, URLs, or sandbox names as event properties. PostHog may derive an approximate location, such as country or city, from the IP address used to deliver an event and may retain that address. See the [privacy policy](https://celesto.ai/legal/privacy-policy) for details.
 
-Existing installations see the updated notice once before location-enriched events are sent.
-
 ```bash
 celesto config telemetry       # Show the effective setting
 celesto config telemetry off   # Stop sending usage events
