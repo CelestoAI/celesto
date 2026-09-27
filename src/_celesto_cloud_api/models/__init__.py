@@ -1,6 +1,9 @@
 """Contains all the data models used in inputs/outputs"""
 
 from .access_token_response import AccessTokenResponse
+from .acknowledge_drain_v1_internal_ingress_routes_route_id_drained_post_response_acknowledge_drain_v1_internal_ingress_routes_route_id_drained_post import (
+    AcknowledgeDrainV1InternalIngressRoutesRouteIdDrainedPostResponseAcknowledgeDrainV1InternalIngressRoutesRouteIdDrainedPost,
+)
 from .active_share_info import ActiveShareInfo
 from .add_member_request import AddMemberRequest
 from .agent_archive_response import AgentArchiveResponse
@@ -40,12 +43,6 @@ from .attribution_update import AttributionUpdate
 from .audit_log_item import AuditLogItem
 from .audit_log_item_changes_type_0 import AuditLogItemChangesType0
 from .auth_status import AuthStatus
-from .aws_rebalance_recommendation_v1_internal_hosts_aws_rebalance_recommendation_post_event import (
-    AwsRebalanceRecommendationV1InternalHostsAwsRebalanceRecommendationPostEvent,
-)
-from .aws_rebalance_recommendation_v1_internal_hosts_aws_rebalance_recommendation_post_response_aws_rebalance_recommendation_v1_internal_hosts_aws_rebalance_recommendation_post import (
-    AwsRebalanceRecommendationV1InternalHostsAwsRebalanceRecommendationPostResponseAwsRebalanceRecommendationV1InternalHostsAwsRebalanceRecommendationPost,
-)
 from .billing_event_response import BillingEventResponse
 from .billing_event_response_event_metadata import BillingEventResponseEventMetadata
 from .billing_event_type import BillingEventType
@@ -63,6 +60,9 @@ from .check_gmail_integration_v1_user_emails_integration_status_get_response_che
 from .check_service_status_v1_system_emails_service_status_get_response_check_service_status_v1_system_emails_service_status_get import (
     CheckServiceStatusV1SystemEmailsServiceStatusGetResponseCheckServiceStatusV1SystemEmailsServiceStatusGet,
 )
+from .command_result_v1_internal_pool_hosts_host_id_commands_command_id_result_post_response_command_result_v1_internal_pool_hosts_host_id_commands_command_id_result_post import (
+    CommandResultV1InternalPoolHostsHostIdCommandsCommandIdResultPostResponseCommandResultV1InternalPoolHostsHostIdCommandsCommandIdResultPost,
+)
 from .computer_browser_connection_response import ComputerBrowserConnectionResponse
 from .computer_bulk_delete_request import ComputerBulkDeleteRequest
 from .computer_bulk_delete_response import ComputerBulkDeleteResponse
@@ -79,21 +79,13 @@ from .computer_display_connection_response_mode import (
 from .computer_exec_request import ComputerExecRequest
 from .computer_exec_response import ComputerExecResponse
 from .computer_list_response import ComputerListResponse
+from .computer_location import ComputerLocation
 from .computer_metrics_summary import ComputerMetricsSummary
 from .computer_observability_response import ComputerObservabilityResponse
+from .computer_operation_response import ComputerOperationResponse
 from .computer_published_port_create_request import ComputerPublishedPortCreateRequest
 from .computer_published_port_response import ComputerPublishedPortResponse
 from .computer_response import ComputerResponse
-from .computer_snapshot_report_request import ComputerSnapshotReportRequest
-from .computer_snapshot_report_request_artifact_kind_type_0 import (
-    ComputerSnapshotReportRequestArtifactKindType0,
-)
-from .computer_snapshot_report_request_consistency_type_0 import (
-    ComputerSnapshotReportRequestConsistencyType0,
-)
-from .computer_snapshot_report_request_disk_format_type_0 import (
-    ComputerSnapshotReportRequestDiskFormatType0,
-)
 from .computer_status import ComputerStatus
 from .computer_terminal_session_request import ComputerTerminalSessionRequest
 from .computer_terminal_session_response import ComputerTerminalSessionResponse
@@ -141,6 +133,7 @@ from .document_update import DocumentUpdate
 from .document_update_document_metadata_type_0 import (
     DocumentUpdateDocumentMetadataType0,
 )
+from .drain_acknowledgement import DrainAcknowledgement
 from .drive_access_rules_response import DriveAccessRulesResponse
 from .drive_access_rules_update import DriveAccessRulesUpdate
 from .email_response import EmailResponse
@@ -175,15 +168,18 @@ from .get_audit_events_v1_internal_audit_events_get_response_200_item import (
 from .get_user_features_v1_features_get_response_get_user_features_v1_features_get import (
     GetUserFeaturesV1FeaturesGetResponseGetUserFeaturesV1FeaturesGet,
 )
+from .git_credentials_v1_internal_pool_hosts_host_id_github_git_credentials_post_response_git_credentials_v1_internal_pool_hosts_host_id_github_git_credentials_post import (
+    GitCredentialsV1InternalPoolHostsHostIdGithubGitCredentialsPostResponseGitCredentialsV1InternalPoolHostsHostIdGithubGitCredentialsPost,
+)
 from .git_hub_connect_url_response import GitHubConnectUrlResponse
 from .git_hub_connection_response import GitHubConnectionResponse
 from .git_hub_connection_status_response import GitHubConnectionStatusResponse
-from .git_hub_git_credential_request import GitHubGitCredentialRequest
-from .git_hub_git_credential_response import GitHubGitCredentialResponse
 from .git_hub_repository_list_response import GitHubRepositoryListResponse
 from .git_hub_repository_permissions import GitHubRepositoryPermissions
 from .git_hub_repository_response import GitHubRepositoryResponse
-from .git_hub_runtime_token_response import GitHubRuntimeTokenResponse
+from .heartbeat_v1_internal_pool_hosts_host_id_heartbeat_post_response_heartbeat_v1_internal_pool_hosts_host_id_heartbeat_post import (
+    HeartbeatV1InternalPoolHostsHostIdHeartbeatPostResponseHeartbeatV1InternalPoolHostsHostIdHeartbeatPost,
+)
 from .hermes_api_token_response import HermesApiTokenResponse
 from .hermes_dashboard_response import HermesDashboardResponse
 from .hermes_exec_request import HermesExecRequest
@@ -200,21 +196,9 @@ from .hermes_provider import HermesProvider
 from .hermes_provision_request import HermesProvisionRequest
 from .hermes_provision_response import HermesProvisionResponse
 from .hermes_setup_step_response import HermesSetupStepResponse
-from .host_command_events_request import HostCommandEventsRequest
-from .host_command_events_response import HostCommandEventsResponse
-from .host_git_hub_runtime_config_request import HostGitHubRuntimeConfigRequest
-from .host_git_hub_runtime_config_response import HostGitHubRuntimeConfigResponse
-from .host_git_hub_runtime_config_response_github_integration_type_0 import (
-    HostGitHubRuntimeConfigResponseGithubIntegrationType0,
-)
-from .host_heartbeat_request import HostHeartbeatRequest
-from .host_heartbeat_request_metadata_type_0 import HostHeartbeatRequestMetadataType0
-from .host_register_request import HostRegisterRequest
-from .host_register_request_metadata_type_0 import HostRegisterRequestMetadataType0
-from .host_response import HostResponse
-from .host_telemetry_request import HostTelemetryRequest
-from .host_telemetry_response import HostTelemetryResponse
 from .http_validation_error import HTTPValidationError
+from .inventory import Inventory
+from .inventory_computers_item import InventoryComputersItem
 from .join_waitlist_v1_features_waitlist_post_response_join_waitlist_v1_features_waitlist_post import (
     JoinWaitlistV1FeaturesWaitlistPostResponseJoinWaitlistV1FeaturesWaitlistPost,
 )
@@ -254,6 +238,9 @@ from .open_claw_provision_request import OpenClawProvisionRequest
 from .open_claw_provision_response import OpenClawProvisionResponse
 from .open_claw_setup_step_response import OpenClawSetupStepResponse
 from .open_claw_telegram_config_request import OpenClawTelegramConfigRequest
+from .open_session_v1_internal_pool_hosts_host_id_session_post_response_open_session_v1_internal_pool_hosts_host_id_session_post import (
+    OpenSessionV1InternalPoolHostsHostIdSessionPostResponseOpenSessionV1InternalPoolHostsHostIdSessionPost,
+)
 from .organization import Organization
 from .organization_member_read import OrganizationMemberRead
 from .organization_role import OrganizationRole
@@ -264,6 +251,9 @@ from .outbound_generation_response import OutboundGenerationResponse
 from .outbound_generation_response_channel import OutboundGenerationResponseChannel
 from .pair_openclaw_instance_v1_openclaw_instance_id_pair_post_response_pair_openclaw_instance_v1_openclaw_instance_id_pair_post import (
     PairOpenclawInstanceV1OpenclawInstanceIdPairPostResponsePairOpenclawInstanceV1OpenclawInstanceIdPairPost,
+)
+from .pending_drains_v1_internal_ingress_pending_drains_get_response_pending_drains_v1_internal_ingress_pending_drains_get import (
+    PendingDrainsV1InternalIngressPendingDrainsGetResponsePendingDrainsV1InternalIngressPendingDrainsGet,
 )
 from .performed_by_user import PerformedByUser
 from .persona_data import PersonaData
@@ -280,6 +270,16 @@ from .persona_data_professional_summary_type_0 import (
 from .persona_data_qualifying_questions_type_0_item import (
     PersonaDataQualifyingQuestionsType0Item,
 )
+from .poll_request import PollRequest
+from .poll_v1_internal_pool_hosts_host_id_poll_post_response_poll_v1_internal_pool_hosts_host_id_poll_post import (
+    PollV1InternalPoolHostsHostIdPollPostResponsePollV1InternalPoolHostsHostIdPollPost,
+)
+from .pool_git_credential_request import PoolGitCredentialRequest
+from .pool_heartbeat_request import PoolHeartbeatRequest
+from .pool_heartbeat_request_running_computers_type_0_item import (
+    PoolHeartbeatRequestRunningComputersType0Item,
+)
+from .pool_telemetry_request import PoolTelemetryRequest
 from .project_create import ProjectCreate
 from .project_create_settings_type_0 import ProjectCreateSettingsType0
 from .project_list_response import ProjectListResponse
@@ -287,7 +287,12 @@ from .project_response import ProjectResponse
 from .project_response_settings_type_0 import ProjectResponseSettingsType0
 from .project_update import ProjectUpdate
 from .project_update_settings_type_0 import ProjectUpdateSettingsType0
+from .resolve_route_v1_internal_ingress_routes_hostname_get_response_resolve_route_v1_internal_ingress_routes_hostname_get import (
+    ResolveRouteV1InternalIngressRoutesHostnameGetResponseResolveRouteV1InternalIngressRoutesHostnameGet,
+)
 from .resource_limit_summary import ResourceLimitSummary
+from .result_request import ResultRequest
+from .result_request_result_type_0 import ResultRequestResultType0
 from .run_create_request import RunCreateRequest
 from .run_event_item import RunEventItem
 from .run_event_item_data import RunEventItemData
@@ -301,7 +306,6 @@ from .runtime_metrics_totals import RuntimeMetricsTotals
 from .runtime_settings_response import RuntimeSettingsResponse
 from .runtime_settings_update_request import RuntimeSettingsUpdateRequest
 from .sandbox_capability_response import SandboxCapabilityResponse
-from .sandbox_command_event_request import SandboxCommandEventRequest
 from .sandbox_command_invocation_response import SandboxCommandInvocationResponse
 from .sandbox_command_invocations_response import SandboxCommandInvocationsResponse
 from .sandbox_hours_entitlement_response import SandboxHoursEntitlementResponse
@@ -311,6 +315,7 @@ from .sandbox_hours_usage_history_response import SandboxHoursUsageHistoryRespon
 from .sandbox_hours_usage_summary import SandboxHoursUsageSummary
 from .sandbox_metric_sample_request import SandboxMetricSampleRequest
 from .sandbox_metric_sample_response import SandboxMetricSampleResponse
+from .sandbox_size_response import SandboxSizeResponse
 from .sandbox_template_response import SandboxTemplateResponse
 from .secret_action import SecretAction
 from .secret_audit_response import SecretAuditResponse
@@ -332,6 +337,7 @@ from .session_list_response import SessionListResponse
 from .session_message_item import SessionMessageItem
 from .session_message_item_item import SessionMessageItemItem
 from .session_messages_response import SessionMessagesResponse
+from .session_request import SessionRequest
 from .session_response import SessionResponse
 from .span_detail_response import SpanDetailResponse
 from .span_detail_response_error_type_0 import SpanDetailResponseErrorType0
@@ -370,6 +376,9 @@ from .telegram_bot_status import TelegramBotStatus
 from .telegram_bot_update_request import TelegramBotUpdateRequest
 from .telegram_chat_list_response import TelegramChatListResponse
 from .telegram_chat_response import TelegramChatResponse
+from .telemetry_v1_internal_pool_hosts_host_id_telemetry_post_response_telemetry_v1_internal_pool_hosts_host_id_telemetry_post import (
+    TelemetryV1InternalPoolHostsHostIdTelemetryPostResponseTelemetryV1InternalPoolHostsHostIdTelemetryPost,
+)
 from .thread_clear_response import ThreadClearResponse
 from .thread_create_request import ThreadCreateRequest
 from .thread_create_request_metadata_type_0 import ThreadCreateRequestMetadataType0
@@ -415,6 +424,10 @@ from .trace_list_response import TraceListResponse
 from .trace_share_info import TraceShareInfo
 from .trace_share_response import TraceShareResponse
 from .trace_stats import TraceStats
+from .tunnel_token_request import TunnelTokenRequest
+from .tunnel_token_v1_internal_pool_hosts_host_id_tunnel_token_post_response_tunnel_token_v1_internal_pool_hosts_host_id_tunnel_token_post import (
+    TunnelTokenV1InternalPoolHostsHostIdTunnelTokenPostResponseTunnelTokenV1InternalPoolHostsHostIdTunnelTokenPost,
+)
 from .unsuspend_user_v1_internal_users_user_id_unsuspend_post_response_unsuspend_user_v1_internal_users_user_id_unsuspend_post import (
     UnsuspendUserV1InternalUsersUserIdUnsuspendPostResponseUnsuspendUserV1InternalUsersUserIdUnsuspendPost,
 )
@@ -432,6 +445,7 @@ from .welcome_email_request import WelcomeEmailRequest
 
 __all__ = (
     "AccessTokenResponse",
+    "AcknowledgeDrainV1InternalIngressRoutesRouteIdDrainedPostResponseAcknowledgeDrainV1InternalIngressRoutesRouteIdDrainedPost",
     "ActiveShareInfo",
     "AddMemberRequest",
     "AgentArchiveResponse",
@@ -467,8 +481,6 @@ __all__ = (
     "AuditLogItem",
     "AuditLogItemChangesType0",
     "AuthStatus",
-    "AwsRebalanceRecommendationV1InternalHostsAwsRebalanceRecommendationPostEvent",
-    "AwsRebalanceRecommendationV1InternalHostsAwsRebalanceRecommendationPostResponseAwsRebalanceRecommendationV1InternalHostsAwsRebalanceRecommendationPost",
     "BillingEventResponse",
     "BillingEventResponseEventMetadata",
     "BillingEventType",
@@ -482,6 +494,7 @@ __all__ = (
     "BulkColdDMRequestChannelType0",
     "CheckGmailIntegrationV1UserEmailsIntegrationStatusGetResponseCheckGmailIntegrationV1UserEmailsIntegrationStatusGet",
     "CheckServiceStatusV1SystemEmailsServiceStatusGetResponseCheckServiceStatusV1SystemEmailsServiceStatusGet",
+    "CommandResultV1InternalPoolHostsHostIdCommandsCommandIdResultPostResponseCommandResultV1InternalPoolHostsHostIdCommandsCommandIdResultPost",
     "ComputerBrowserConnectionResponse",
     "ComputerBulkDeleteRequest",
     "ComputerBulkDeleteResponse",
@@ -494,15 +507,13 @@ __all__ = (
     "ComputerExecRequest",
     "ComputerExecResponse",
     "ComputerListResponse",
+    "ComputerLocation",
     "ComputerMetricsSummary",
     "ComputerObservabilityResponse",
+    "ComputerOperationResponse",
     "ComputerPublishedPortCreateRequest",
     "ComputerPublishedPortResponse",
     "ComputerResponse",
-    "ComputerSnapshotReportRequest",
-    "ComputerSnapshotReportRequestArtifactKindType0",
-    "ComputerSnapshotReportRequestConsistencyType0",
-    "ComputerSnapshotReportRequestDiskFormatType0",
     "ComputerStatus",
     "ComputerTerminalSessionRequest",
     "ComputerTerminalSessionResponse",
@@ -536,6 +547,7 @@ __all__ = (
     "DocumentType",
     "DocumentUpdate",
     "DocumentUpdateDocumentMetadataType0",
+    "DrainAcknowledgement",
     "DriveAccessRulesResponse",
     "DriveAccessRulesUpdate",
     "EmailResponse",
@@ -556,15 +568,14 @@ __all__ = (
     "GetAuditEventsV1InternalAuditEventsGetResponse200Item",
     "GetAuditEventV1InternalAuditEventsEventIdGetResponseGetAuditEventV1InternalAuditEventsEventIdGet",
     "GetUserFeaturesV1FeaturesGetResponseGetUserFeaturesV1FeaturesGet",
+    "GitCredentialsV1InternalPoolHostsHostIdGithubGitCredentialsPostResponseGitCredentialsV1InternalPoolHostsHostIdGithubGitCredentialsPost",
     "GitHubConnectionResponse",
     "GitHubConnectionStatusResponse",
     "GitHubConnectUrlResponse",
-    "GitHubGitCredentialRequest",
-    "GitHubGitCredentialResponse",
     "GitHubRepositoryListResponse",
     "GitHubRepositoryPermissions",
     "GitHubRepositoryResponse",
-    "GitHubRuntimeTokenResponse",
+    "HeartbeatV1InternalPoolHostsHostIdHeartbeatPostResponseHeartbeatV1InternalPoolHostsHostIdHeartbeatPost",
     "HermesApiTokenResponse",
     "HermesDashboardResponse",
     "HermesExecRequest",
@@ -579,19 +590,9 @@ __all__ = (
     "HermesProvisionRequest",
     "HermesProvisionResponse",
     "HermesSetupStepResponse",
-    "HostCommandEventsRequest",
-    "HostCommandEventsResponse",
-    "HostGitHubRuntimeConfigRequest",
-    "HostGitHubRuntimeConfigResponse",
-    "HostGitHubRuntimeConfigResponseGithubIntegrationType0",
-    "HostHeartbeatRequest",
-    "HostHeartbeatRequestMetadataType0",
-    "HostRegisterRequest",
-    "HostRegisterRequestMetadataType0",
-    "HostResponse",
-    "HostTelemetryRequest",
-    "HostTelemetryResponse",
     "HTTPValidationError",
+    "Inventory",
+    "InventoryComputersItem",
     "JoinWaitlistV1FeaturesWaitlistPostResponseJoinWaitlistV1FeaturesWaitlistPost",
     "ListSuspendedUsersV1InternalUsersSuspendedGetResponse200Item",
     "McpServerListResponse",
@@ -623,6 +624,7 @@ __all__ = (
     "OpenClawProvisionResponse",
     "OpenClawSetupStepResponse",
     "OpenClawTelegramConfigRequest",
+    "OpenSessionV1InternalPoolHostsHostIdSessionPostResponseOpenSessionV1InternalPoolHostsHostIdSessionPost",
     "Organization",
     "OrganizationMemberRead",
     "OrganizationRole",
@@ -632,6 +634,7 @@ __all__ = (
     "OutboundGenerationResponse",
     "OutboundGenerationResponseChannel",
     "PairOpenclawInstanceV1OpenclawInstanceIdPairPostResponsePairOpenclawInstanceV1OpenclawInstanceIdPairPost",
+    "PendingDrainsV1InternalIngressPendingDrainsGetResponsePendingDrainsV1InternalIngressPendingDrainsGet",
     "PerformedByUser",
     "PersonaData",
     "PersonaDataCommunicationPreferencesType0",
@@ -641,6 +644,12 @@ __all__ = (
     "PersonaDataPainPointsType0Item",
     "PersonaDataProfessionalSummaryType0",
     "PersonaDataQualifyingQuestionsType0Item",
+    "PollRequest",
+    "PollV1InternalPoolHostsHostIdPollPostResponsePollV1InternalPoolHostsHostIdPollPost",
+    "PoolGitCredentialRequest",
+    "PoolHeartbeatRequest",
+    "PoolHeartbeatRequestRunningComputersType0Item",
+    "PoolTelemetryRequest",
     "ProjectCreate",
     "ProjectCreateSettingsType0",
     "ProjectListResponse",
@@ -648,7 +657,10 @@ __all__ = (
     "ProjectResponseSettingsType0",
     "ProjectUpdate",
     "ProjectUpdateSettingsType0",
+    "ResolveRouteV1InternalIngressRoutesHostnameGetResponseResolveRouteV1InternalIngressRoutesHostnameGet",
     "ResourceLimitSummary",
+    "ResultRequest",
+    "ResultRequestResultType0",
     "RunCreateRequest",
     "RunEventItem",
     "RunEventItemData",
@@ -662,7 +674,6 @@ __all__ = (
     "RuntimeSettingsUpdateRequest",
     "RunUsage",
     "SandboxCapabilityResponse",
-    "SandboxCommandEventRequest",
     "SandboxCommandInvocationResponse",
     "SandboxCommandInvocationsResponse",
     "SandboxHoursEntitlementResponse",
@@ -672,6 +683,7 @@ __all__ = (
     "SandboxHoursUsageSummary",
     "SandboxMetricSampleRequest",
     "SandboxMetricSampleResponse",
+    "SandboxSizeResponse",
     "SandboxTemplateResponse",
     "SecretAction",
     "SecretAuditResponse",
@@ -693,6 +705,7 @@ __all__ = (
     "SessionMessageItem",
     "SessionMessageItemItem",
     "SessionMessagesResponse",
+    "SessionRequest",
     "SessionResponse",
     "SpanDetailResponse",
     "SpanDetailResponseErrorType0",
@@ -721,6 +734,7 @@ __all__ = (
     "TelegramBotUpdateRequest",
     "TelegramChatListResponse",
     "TelegramChatResponse",
+    "TelemetryV1InternalPoolHostsHostIdTelemetryPostResponseTelemetryV1InternalPoolHostsHostIdTelemetryPost",
     "ThreadClearResponse",
     "ThreadCreateRequest",
     "ThreadCreateRequestMetadataType0",
@@ -762,6 +776,8 @@ __all__ = (
     "TraceShareInfo",
     "TraceShareResponse",
     "TraceStats",
+    "TunnelTokenRequest",
+    "TunnelTokenV1InternalPoolHostsHostIdTunnelTokenPostResponseTunnelTokenV1InternalPoolHostsHostIdTunnelTokenPost",
     "UnsuspendUserV1InternalUsersUserIdUnsuspendPostResponseUnsuspendUserV1InternalUsersUserIdUnsuspendPost",
     "UpgradeRequest",
     "UpgradeResponse",

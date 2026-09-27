@@ -1182,6 +1182,32 @@
                 }
             }
         },
+        "/v1/billing/sizes": {
+            "get": {
+                "tags": [
+                    "Billing"
+                ],
+                "summary": "Get usage-priced sandbox sizes",
+                "description": "Show prices only when the Autumn catalog matches this release.",
+                "operationId": "get_sandbox_sizes_v1_billing_sizes_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/SandboxSizeResponse"
+                                    },
+                                    "type": "array",
+                                    "title": "Response Get Sandbox Sizes V1 Billing Sizes Get"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/billing/plans": {
             "get": {
                 "tags": [
@@ -7745,59 +7771,6 @@
                 }
             }
         },
-        "/v1/integrations/github/computers/{computer_id}/runtime-token": {
-            "post": {
-                "tags": [
-                    "GitHub Integration"
-                ],
-                "summary": "Issue a short-lived GitHub credential helper token for a workspace",
-                "operationId": "issue_github_runtime_token_v1_integrations_github_computers__computer_id__runtime_token_post",
-                "parameters": [
-                    {
-                        "name": "computer_id",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "title": "Computer Id"
-                        }
-                    },
-                    {
-                        "name": "x-current-organization",
-                        "in": "header",
-                        "required": false,
-                        "schema": {
-                            "type": "string",
-                            "description": "Current organization ID",
-                            "title": "X-Current-Organization"
-                        },
-                        "description": "Current organization ID"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/GitHubRuntimeTokenResponse"
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/v1/documents": {
             "post": {
                 "tags": [
@@ -9971,6 +9944,68 @@
                 }
             }
         },
+        "/v1/computers/{computer_id}/operations/{operation_id}": {
+            "get": {
+                "tags": [
+                    "Computers"
+                ],
+                "summary": "Get Computer Operation",
+                "operationId": "get_computer_operation_v1_computers__computer_id__operations__operation_id__get",
+                "parameters": [
+                    {
+                        "name": "computer_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Computer Id"
+                        }
+                    },
+                    {
+                        "name": "operation_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Operation Id"
+                        }
+                    },
+                    {
+                        "name": "x-current-organization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "description": "Current organization ID",
+                            "title": "X-Current-Organization"
+                        },
+                        "description": "Current organization ID"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ComputerOperationResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ComputerValidationErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Unprocessable Content"
+                    }
+                }
+            }
+        },
         "/v1/computers/{computer_id}/observability": {
             "get": {
                 "tags": [
@@ -10541,69 +10576,6 @@
                 }
             }
         },
-        "/v1/computers/{computer_id}/exec/stream": {
-            "post": {
-                "tags": [
-                    "Computers"
-                ],
-                "summary": "Stream command output from the VM via SSE",
-                "operationId": "exec_on_computer_stream_v1_computers__computer_id__exec_stream_post",
-                "parameters": [
-                    {
-                        "name": "computer_id",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "title": "Computer Id"
-                        }
-                    },
-                    {
-                        "name": "x-current-organization",
-                        "in": "header",
-                        "required": false,
-                        "schema": {
-                            "type": "string",
-                            "description": "Current organization ID",
-                            "title": "X-Current-Organization"
-                        },
-                        "description": "Current organization ID"
-                    }
-                ],
-                "requestBody": {
-                    "required": true,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/ComputerExecRequest"
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "text/event-stream": {
-                                "schema": {
-                                    "type": "string"
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ComputerValidationErrorResponse"
-                                }
-                            }
-                        },
-                        "description": "Unprocessable Content"
-                    }
-                }
-            }
-        },
         "/v1/computers/{computer_id}/stop": {
             "post": {
                 "tags": [
@@ -10710,60 +10682,6 @@
                 }
             }
         },
-        "/v1/computers/{computer_id}/retry-restore": {
-            "post": {
-                "tags": [
-                    "Computers"
-                ],
-                "summary": "Retry a paused restore",
-                "description": "Re-arm a restore that was paused after repeated failures.\n\nReturns the computer in ``restorable`` state; a restore worker picks it\nup immediately (the periodic sweep is the backstop). 409 when the\ncomputer is not in a retryable state or sandbox restore is disabled.",
-                "operationId": "retry_restore_v1_computers__computer_id__retry_restore_post",
-                "parameters": [
-                    {
-                        "name": "computer_id",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "title": "Computer Id"
-                        }
-                    },
-                    {
-                        "name": "x-current-organization",
-                        "in": "header",
-                        "required": false,
-                        "schema": {
-                            "type": "string",
-                            "description": "Current organization ID",
-                            "title": "X-Current-Organization"
-                        },
-                        "description": "Current organization ID"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ComputerResponse"
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ComputerValidationErrorResponse"
-                                }
-                            }
-                        },
-                        "description": "Unprocessable Content"
-                    }
-                }
-            }
-        },
         "/v1/computers/bulk-delete": {
             "post": {
                 "tags": [
@@ -10819,67 +10737,13 @@
                 }
             }
         },
-        "/v1/internal/hosts/register": {
+        "/v1/internal/pool/hosts/{host_id}/session": {
             "post": {
                 "tags": [
-                    "Internal - Hosts"
+                    "Internal pool hosts"
                 ],
-                "summary": "Register or update a compute host",
-                "operationId": "register_host_v1_internal_hosts_register_post",
-                "parameters": [
-                    {
-                        "name": "x-agent-key",
-                        "in": "header",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "description": "Host agent shared secret",
-                            "title": "X-Agent-Key"
-                        },
-                        "description": "Host agent shared secret"
-                    }
-                ],
-                "requestBody": {
-                    "required": true,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/HostRegisterRequest"
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HostResponse"
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/internal/hosts/{host_id}/heartbeat": {
-            "post": {
-                "tags": [
-                    "Internal - Hosts"
-                ],
-                "summary": "Host agent heartbeat with current utilization",
-                "operationId": "heartbeat_v1_internal_hosts__host_id__heartbeat_post",
+                "summary": "Open Session",
+                "operationId": "open_session_v1_internal_pool_hosts__host_id__session_post",
                 "parameters": [
                     {
                         "name": "host_id",
@@ -10888,442 +10752,6 @@
                         "schema": {
                             "type": "string",
                             "title": "Host Id"
-                        }
-                    },
-                    {
-                        "name": "x-agent-key",
-                        "in": "header",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "description": "Host agent shared secret",
-                            "title": "X-Agent-Key"
-                        },
-                        "description": "Host agent shared secret"
-                    }
-                ],
-                "requestBody": {
-                    "required": true,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/HostHeartbeatRequest"
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HostResponse"
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/internal/hosts/aws/rebalance-recommendation": {
-            "post": {
-                "tags": [
-                    "Internal - Hosts"
-                ],
-                "summary": "Receive an AWS EC2 rebalance recommendation event",
-                "operationId": "aws_rebalance_recommendation_v1_internal_hosts_aws_rebalance_recommendation_post",
-                "parameters": [
-                    {
-                        "name": "x-agent-key",
-                        "in": "header",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "description": "Host agent shared secret",
-                            "title": "X-Agent-Key"
-                        },
-                        "description": "Host agent shared secret"
-                    }
-                ],
-                "requestBody": {
-                    "required": true,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "type": "object",
-                                "additionalProperties": true,
-                                "title": "Event"
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                        "type": "boolean"
-                                    },
-                                    "title": "Response Aws Rebalance Recommendation V1 Internal Hosts Aws Rebalance Recommendation Post"
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/internal/hosts/{host_id}/telemetry": {
-            "post": {
-                "tags": [
-                    "Internal - Hosts"
-                ],
-                "summary": "Host agent telemetry batch",
-                "operationId": "ingest_host_telemetry_v1_internal_hosts__host_id__telemetry_post",
-                "parameters": [
-                    {
-                        "name": "host_id",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "title": "Host Id"
-                        }
-                    },
-                    {
-                        "name": "x-agent-key",
-                        "in": "header",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "description": "Host agent shared secret",
-                            "title": "X-Agent-Key"
-                        },
-                        "description": "Host agent shared secret"
-                    }
-                ],
-                "requestBody": {
-                    "required": true,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/HostTelemetryRequest"
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HostTelemetryResponse"
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/internal/hosts/{host_id}/command-events": {
-            "post": {
-                "tags": [
-                    "Internal - Hosts"
-                ],
-                "summary": "Host agent command lifecycle events",
-                "operationId": "ingest_host_command_events_v1_internal_hosts__host_id__command_events_post",
-                "parameters": [
-                    {
-                        "name": "host_id",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "title": "Host Id"
-                        }
-                    },
-                    {
-                        "name": "x-agent-key",
-                        "in": "header",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "description": "Host agent shared secret",
-                            "title": "X-Agent-Key"
-                        },
-                        "description": "Host agent shared secret"
-                    }
-                ],
-                "requestBody": {
-                    "required": true,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/HostCommandEventsRequest"
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HostCommandEventsResponse"
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/internal/hosts/{host_id}/computers/snapshot": {
-            "post": {
-                "tags": [
-                    "Internal - Hosts"
-                ],
-                "summary": "Host agent reports an S3 disk snapshot for one of its VMs",
-                "description": "Record a continuity snapshot report from a host agent.",
-                "operationId": "report_computer_snapshot_v1_internal_hosts__host_id__computers_snapshot_post",
-                "parameters": [
-                    {
-                        "name": "host_id",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "title": "Host Id"
-                        }
-                    },
-                    {
-                        "name": "x-agent-key",
-                        "in": "header",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "description": "Host agent shared secret",
-                            "title": "X-Agent-Key"
-                        },
-                        "description": "Host agent shared secret"
-                    }
-                ],
-                "requestBody": {
-                    "required": true,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/ComputerSnapshotReportRequest"
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {}
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/internal/hosts/{host_id}/draining": {
-            "post": {
-                "tags": [
-                    "Internal - Hosts"
-                ],
-                "summary": "Host agent reports imminent shutdown (spot termination or SIGTERM)",
-                "description": "Mark host as offline and trigger immediate cleanup of its computers.\n\nSets OFFLINE directly (not DRAINING) because spot termination gives ~2 min\nand cleanup_offline_hosts keys off OFFLINE status. No time for graceful drain.",
-                "operationId": "host_draining_v1_internal_hosts__host_id__draining_post",
-                "parameters": [
-                    {
-                        "name": "host_id",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "title": "Host Id"
-                        }
-                    },
-                    {
-                        "name": "x-agent-key",
-                        "in": "header",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "description": "Host agent shared secret",
-                            "title": "X-Agent-Key"
-                        },
-                        "description": "Host agent shared secret"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {}
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/internal/hosts/{host_id}/computers/{computer_id}/github-integration": {
-            "post": {
-                "tags": [
-                    "Internal - Hosts"
-                ],
-                "summary": "Issue a fresh GitHub runtime config to a host agent (on-demand renewal)",
-                "description": "Pull counterpart to the push handoff: the host broker calls this when a\nsandbox's git operation hits a missing or expired runtime config, instead of\nwaiting for the backend to re-push.\n\nTokens are minted fresh on every call \u2014 never cached \u2014 so a renewal after an\nOAuth reconnect always carries the current connection fingerprint.",
-                "operationId": "renew_github_runtime_config_v1_internal_hosts__host_id__computers__computer_id__github_integration_post",
-                "parameters": [
-                    {
-                        "name": "host_id",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "title": "Host Id"
-                        }
-                    },
-                    {
-                        "name": "computer_id",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "title": "Computer Id"
-                        }
-                    },
-                    {
-                        "name": "x-agent-key",
-                        "in": "header",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "description": "Host agent shared secret",
-                            "title": "X-Agent-Key"
-                        },
-                        "description": "Host agent shared secret"
-                    }
-                ],
-                "requestBody": {
-                    "required": true,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/HostGitHubRuntimeConfigRequest"
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HostGitHubRuntimeConfigResponse"
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/internal/workspaces/{workspace_id}/github/git-credentials": {
-            "post": {
-                "tags": [
-                    "Internal - Workspace GitHub"
-                ],
-                "summary": "Return Git credentials to a trusted workspace runtime",
-                "operationId": "get_github_git_credentials_v1_internal_workspaces__workspace_id__github_git_credentials_post",
-                "parameters": [
-                    {
-                        "name": "workspace_id",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "title": "Workspace Id"
                         }
                     },
                     {
@@ -11344,18 +10772,11 @@
                     }
                 ],
                 "requestBody": {
+                    "required": true,
                     "content": {
                         "application/json": {
                             "schema": {
-                                "anyOf": [
-                                    {
-                                        "$ref": "#/components/schemas/GitHubGitCredentialRequest"
-                                    },
-                                    {
-                                        "type": "null"
-                                    }
-                                ],
-                                "title": "Payload"
+                                "$ref": "#/components/schemas/SessionRequest"
                             }
                         }
                     }
@@ -11366,7 +10787,619 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/GitHubGitCredentialResponse"
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Open Session V1 Internal Pool Hosts  Host Id  Session Post"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/internal/pool/hosts/{host_id}/poll": {
+            "post": {
+                "tags": [
+                    "Internal pool hosts"
+                ],
+                "summary": "Poll",
+                "operationId": "poll_v1_internal_pool_hosts__host_id__poll_post",
+                "parameters": [
+                    {
+                        "name": "host_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Host Id"
+                        }
+                    },
+                    {
+                        "name": "authorization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Authorization"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PollRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Poll V1 Internal Pool Hosts  Host Id  Poll Post"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/internal/pool/hosts/{host_id}/tunnel-token": {
+            "post": {
+                "tags": [
+                    "Internal pool hosts"
+                ],
+                "summary": "Tunnel Token",
+                "operationId": "tunnel_token_v1_internal_pool_hosts__host_id__tunnel_token_post",
+                "parameters": [
+                    {
+                        "name": "host_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Host Id"
+                        }
+                    },
+                    {
+                        "name": "authorization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Authorization"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TunnelTokenRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Tunnel Token V1 Internal Pool Hosts  Host Id  Tunnel Token Post"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/internal/pool/hosts/{host_id}/github/git-credentials": {
+            "post": {
+                "tags": [
+                    "Internal pool hosts"
+                ],
+                "summary": "Git Credentials",
+                "operationId": "git_credentials_v1_internal_pool_hosts__host_id__github_git_credentials_post",
+                "parameters": [
+                    {
+                        "name": "host_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Host Id"
+                        }
+                    },
+                    {
+                        "name": "authorization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Authorization"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PoolGitCredentialRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Git Credentials V1 Internal Pool Hosts  Host Id  Github Git Credentials Post"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/internal/pool/hosts/{host_id}/telemetry": {
+            "post": {
+                "tags": [
+                    "Internal pool hosts"
+                ],
+                "summary": "Telemetry",
+                "operationId": "telemetry_v1_internal_pool_hosts__host_id__telemetry_post",
+                "parameters": [
+                    {
+                        "name": "host_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Host Id"
+                        }
+                    },
+                    {
+                        "name": "authorization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Authorization"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PoolTelemetryRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Telemetry V1 Internal Pool Hosts  Host Id  Telemetry Post"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/internal/pool/hosts/{host_id}/heartbeat": {
+            "post": {
+                "tags": [
+                    "Internal pool hosts"
+                ],
+                "summary": "Heartbeat",
+                "operationId": "heartbeat_v1_internal_pool_hosts__host_id__heartbeat_post",
+                "parameters": [
+                    {
+                        "name": "host_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Host Id"
+                        }
+                    },
+                    {
+                        "name": "authorization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Authorization"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PoolHeartbeatRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Heartbeat V1 Internal Pool Hosts  Host Id  Heartbeat Post"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/internal/pool/hosts/{host_id}/commands/{command_id}/result": {
+            "post": {
+                "tags": [
+                    "Internal pool hosts"
+                ],
+                "summary": "Command Result",
+                "operationId": "command_result_v1_internal_pool_hosts__host_id__commands__command_id__result_post",
+                "parameters": [
+                    {
+                        "name": "host_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Host Id"
+                        }
+                    },
+                    {
+                        "name": "command_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Command Id"
+                        }
+                    },
+                    {
+                        "name": "authorization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Authorization"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResultRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Command Result V1 Internal Pool Hosts  Host Id  Commands  Command Id  Result Post"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/internal/ingress/routes/{hostname}": {
+            "get": {
+                "tags": [
+                    "Internal public ingress"
+                ],
+                "summary": "Resolve Route",
+                "operationId": "resolve_route_v1_internal_ingress_routes__hostname__get",
+                "parameters": [
+                    {
+                        "name": "hostname",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Hostname"
+                        }
+                    },
+                    {
+                        "name": "authorization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Authorization"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Resolve Route V1 Internal Ingress Routes  Hostname  Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/internal/ingress/pending-drains": {
+            "get": {
+                "tags": [
+                    "Internal public ingress"
+                ],
+                "summary": "Pending Drains",
+                "operationId": "pending_drains_v1_internal_ingress_pending_drains_get",
+                "parameters": [
+                    {
+                        "name": "authorization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Authorization"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Pending Drains V1 Internal Ingress Pending Drains Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/internal/ingress/routes/{route_id}/drained": {
+            "post": {
+                "tags": [
+                    "Internal public ingress"
+                ],
+                "summary": "Acknowledge Drain",
+                "operationId": "acknowledge_drain_v1_internal_ingress_routes__route_id__drained_post",
+                "parameters": [
+                    {
+                        "name": "route_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Route Id"
+                        }
+                    },
+                    {
+                        "name": "authorization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Authorization"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DrainAcknowledgement"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Acknowledge Drain V1 Internal Ingress Routes  Route Id  Drained Post"
                                 }
                             }
                         }
@@ -13852,6 +13885,20 @@
             },
             "ComputerCreateRequest": {
                 "properties": {
+                    "size_id": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "maxLength": 32,
+                                "minLength": 1
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Size Id",
+                        "description": "Named sandbox size"
+                    },
                     "vcpus": {
                         "anyOf": [
                             {
@@ -14093,6 +14140,37 @@
                 "title": "ComputerListResponse",
                 "description": "Response for listing compute VMs."
             },
+            "ComputerLocation": {
+                "properties": {
+                    "provider": {
+                        "type": "string",
+                        "title": "Provider"
+                    },
+                    "region": {
+                        "type": "string",
+                        "title": "Region"
+                    },
+                    "country_code": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Country Code"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "provider",
+                    "region",
+                    "country_code"
+                ],
+                "title": "ComputerLocation",
+                "description": "Where this computer's root disk is hosted; external storage is separate."
+            },
             "ComputerMetricsSummary": {
                 "properties": {
                     "observed_at": {
@@ -14287,6 +14365,62 @@
                 "type": "object",
                 "title": "ComputerObservabilityResponse"
             },
+            "ComputerOperationResponse": {
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "title": "Id"
+                    },
+                    "computer_id": {
+                        "type": "string",
+                        "title": "Computer Id"
+                    },
+                    "kind": {
+                        "type": "string",
+                        "title": "Kind"
+                    },
+                    "status": {
+                        "type": "string",
+                        "title": "Status"
+                    },
+                    "error": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Error"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "title": "Created At"
+                    },
+                    "completed_at": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Completed At"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "id",
+                    "computer_id",
+                    "kind",
+                    "status",
+                    "created_at"
+                ],
+                "title": "ComputerOperationResponse",
+                "description": "Status of a durable pool-host lifecycle operation."
+            },
             "ComputerPublishedPortCreateRequest": {
                 "properties": {
                     "port": {
@@ -14379,6 +14513,28 @@
                         "type": "string",
                         "title": "Status"
                     },
+                    "size_id": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Size Id"
+                    },
+                    "price_version": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Price Version"
+                    },
                     "vcpus": {
                         "type": "integer",
                         "title": "Vcpus"
@@ -14394,6 +14550,9 @@
                     "image": {
                         "type": "string",
                         "title": "Image"
+                    },
+                    "compute_location": {
+                        "$ref": "#/components/schemas/ComputerLocation"
                     },
                     "template_id": {
                         "type": "string",
@@ -14482,291 +14641,11 @@
                     "ram_mb",
                     "disk_size_mb",
                     "image",
+                    "compute_location",
                     "created_at"
                 ],
                 "title": "ComputerResponse",
                 "description": "Response for a single compute VM."
-            },
-            "ComputerSnapshotReportRequest": {
-                "properties": {
-                    "vm_id": {
-                        "type": "string",
-                        "maxLength": 128,
-                        "title": "Vm Id"
-                    },
-                    "s3_uri": {
-                        "type": "string",
-                        "maxLength": 1024,
-                        "title": "S3 Uri"
-                    },
-                    "snapshot_at": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "format": "date-time"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Snapshot At",
-                        "description": "When the snapshot was taken (UTC). Server time used if omitted."
-                    },
-                    "snapshot_id": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "maxLength": 40,
-                                "minLength": 5,
-                                "pattern": "^snp_[A-Za-z0-9_-]+$"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Snapshot Id"
-                    },
-                    "source_host_boot_id": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "maxLength": 36
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Source Host Boot Id"
-                    },
-                    "manifest_s3_uri": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "maxLength": 1024
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Manifest S3 Uri"
-                    },
-                    "object_version_id": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "maxLength": 1024
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Object Version Id"
-                    },
-                    "artifact_kind": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "enum": [
-                                    "full",
-                                    "incremental"
-                                ]
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Artifact Kind"
-                    },
-                    "parent_snapshot_id": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "maxLength": 40,
-                                "minLength": 5,
-                                "pattern": "^snp_[A-Za-z0-9_-]+$"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Parent Snapshot Id"
-                    },
-                    "chain_id": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "maxLength": 40,
-                                "minLength": 5,
-                                "pattern": "^chn_[A-Za-z0-9_-]+$"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Chain Id"
-                    },
-                    "chain_depth": {
-                        "anyOf": [
-                            {
-                                "type": "integer",
-                                "maximum": 12.0,
-                                "minimum": 0.0
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Chain Depth"
-                    },
-                    "virtual_size_bytes": {
-                        "anyOf": [
-                            {
-                                "type": "integer",
-                                "exclusiveMinimum": 0.0
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Virtual Size Bytes"
-                    },
-                    "changed_bytes": {
-                        "anyOf": [
-                            {
-                                "type": "integer",
-                                "minimum": 0.0
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Changed Bytes"
-                    },
-                    "bitmap_granularity_bytes": {
-                        "anyOf": [
-                            {
-                                "type": "integer",
-                                "exclusiveMinimum": 0.0
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Bitmap Granularity Bytes"
-                    },
-                    "checksum_sha256": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "maxLength": 64,
-                                "minLength": 64,
-                                "pattern": "^[0-9a-fA-F]{64}$"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Checksum Sha256"
-                    },
-                    "size_bytes": {
-                        "anyOf": [
-                            {
-                                "type": "integer",
-                                "minimum": 0.0
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Size Bytes"
-                    },
-                    "disk_format": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "enum": [
-                                    "qcow2",
-                                    "ext4"
-                                ]
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Disk Format"
-                    },
-                    "backend": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "maxLength": 20,
-                                "minLength": 1
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Backend"
-                    },
-                    "consistency": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "enum": [
-                                    "filesystem",
-                                    "crash"
-                                ]
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Consistency"
-                    },
-                    "home_consistency": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "const": "independent"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Home Consistency"
-                    },
-                    "captured_at": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "format": "date-time"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Captured At"
-                    },
-                    "uploaded_at": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "format": "date-time"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Uploaded At"
-                    }
-                },
-                "type": "object",
-                "required": [
-                    "vm_id",
-                    "s3_uri"
-                ],
-                "title": "ComputerSnapshotReportRequest",
-                "description": "Host agent reports a disk snapshot it uploaded to S3 for a VM."
             },
             "ComputerStatus": {
                 "type": "string",
@@ -14779,6 +14658,7 @@
                     "deleting",
                     "deleted",
                     "error",
+                    "lost",
                     "restorable",
                     "restoring"
                 ],
@@ -15864,6 +15744,20 @@
                 "title": "DocumentUpdate",
                 "description": "Schema for updating an existing document"
             },
+            "DrainAcknowledgement": {
+                "properties": {
+                    "generation": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "title": "Generation"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "generation"
+                ],
+                "title": "DrainAcknowledgement"
+            },
             "DriveAccessRulesResponse": {
                 "properties": {
                     "version": {
@@ -16518,53 +16412,6 @@
                 ],
                 "title": "GitHubConnectionStatusResponse"
             },
-            "GitHubGitCredentialRequest": {
-                "properties": {
-                    "protocol": {
-                        "type": "string",
-                        "maxLength": 20,
-                        "title": "Protocol",
-                        "default": "https"
-                    },
-                    "host": {
-                        "type": "string",
-                        "maxLength": 255,
-                        "title": "Host",
-                        "default": "github.com"
-                    }
-                },
-                "type": "object",
-                "title": "GitHubGitCredentialRequest"
-            },
-            "GitHubGitCredentialResponse": {
-                "properties": {
-                    "protocol": {
-                        "type": "string",
-                        "title": "Protocol",
-                        "default": "https"
-                    },
-                    "host": {
-                        "type": "string",
-                        "title": "Host",
-                        "default": "github.com"
-                    },
-                    "username": {
-                        "type": "string",
-                        "title": "Username"
-                    },
-                    "password": {
-                        "type": "string",
-                        "title": "Password",
-                        "description": "GitHub OAuth access token. Only returned to trusted VM/runtime callers."
-                    }
-                },
-                "type": "object",
-                "required": [
-                    "username",
-                    "password"
-                ],
-                "title": "GitHubGitCredentialResponse"
-            },
             "GitHubRepositoryListResponse": {
                 "properties": {
                     "repositories": {
@@ -16674,29 +16521,6 @@
                     "html_url"
                 ],
                 "title": "GitHubRepositoryResponse"
-            },
-            "GitHubRuntimeTokenResponse": {
-                "properties": {
-                    "workspace_id": {
-                        "type": "string",
-                        "title": "Workspace Id"
-                    },
-                    "token": {
-                        "type": "string",
-                        "title": "Token"
-                    },
-                    "expires_at": {
-                        "type": "string",
-                        "title": "Expires At"
-                    }
-                },
-                "type": "object",
-                "required": [
-                    "workspace_id",
-                    "token",
-                    "expires_at"
-                ],
-                "title": "GitHubRuntimeTokenResponse"
             },
             "HTTPValidationError": {
                 "properties": {
@@ -17337,145 +17161,33 @@
                 ],
                 "title": "HermesSetupStepResponse"
             },
-            "HostCommandEventsRequest": {
+            "Inventory": {
                 "properties": {
-                    "host_boot_id": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "maxLength": 36
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Host Boot Id"
+                    "kvm_ready": {
+                        "type": "boolean",
+                        "title": "Kvm Ready",
+                        "default": false
                     },
-                    "events": {
-                        "items": {
-                            "$ref": "#/components/schemas/SandboxCommandEventRequest"
-                        },
-                        "type": "array",
-                        "maxItems": 500,
-                        "title": "Events"
-                    }
-                },
-                "type": "object",
-                "title": "HostCommandEventsRequest"
-            },
-            "HostCommandEventsResponse": {
-                "properties": {
-                    "accepted": {
+                    "qemu_ready": {
+                        "type": "boolean",
+                        "title": "Qemu Ready",
+                        "default": false
+                    },
+                    "public_egress_ready": {
+                        "type": "boolean",
+                        "title": "Public Egress Ready",
+                        "default": false
+                    },
+                    "disk_free_mb": {
                         "type": "integer",
-                        "title": "Accepted"
-                    },
-                    "rejected": {
-                        "type": "integer",
-                        "title": "Rejected"
-                    }
-                },
-                "type": "object",
-                "required": [
-                    "accepted",
-                    "rejected"
-                ],
-                "title": "HostCommandEventsResponse"
-            },
-            "HostGitHubRuntimeConfigRequest": {
-                "properties": {
-                    "host_boot_id": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "maxLength": 64
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Host Boot Id"
-                    }
-                },
-                "type": "object",
-                "title": "HostGitHubRuntimeConfigRequest",
-                "description": "Host agent asks for a fresh github_integration config for one of its VMs."
-            },
-            "HostGitHubRuntimeConfigResponse": {
-                "properties": {
-                    "github_integration": {
-                        "anyOf": [
-                            {
-                                "additionalProperties": true,
-                                "type": "object"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Github Integration"
-                    }
-                },
-                "type": "object",
-                "title": "HostGitHubRuntimeConfigResponse",
-                "description": "Same payload shape the push handoff sends; null when no active connection."
-            },
-            "HostHeartbeatRequest": {
-                "properties": {
-                    "available_vcpus": {
-                        "type": "integer",
-                        "minimum": 0.0,
-                        "title": "Available Vcpus"
-                    },
-                    "available_ram_mb": {
-                        "type": "integer",
-                        "minimum": 0.0,
-                        "title": "Available Ram Mb"
-                    },
-                    "running_vms": {
-                        "type": "integer",
-                        "minimum": 0.0,
-                        "title": "Running Vms"
-                    },
-                    "agent_version": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Agent Version"
-                    },
-                    "boot_id": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "maxLength": 36
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Boot Id"
-                    },
-                    "disk_used_mb": {
-                        "anyOf": [
-                            {
-                                "type": "integer",
-                                "minimum": 0.0
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Disk Used Mb"
+                        "title": "Disk Free Mb",
+                        "default": 0
                     },
                     "disk_total_mb": {
                         "anyOf": [
                             {
                                 "type": "integer",
-                                "minimum": 0.0
+                                "exclusiveMinimum": 0.0
                             },
                             {
                                 "type": "null"
@@ -17483,263 +17195,33 @@
                         ],
                         "title": "Disk Total Mb"
                     },
-                    "disk_percent": {
-                        "anyOf": [
-                            {
-                                "type": "number",
-                                "maximum": 100.0,
-                                "minimum": 0.0
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Disk Percent"
-                    },
-                    "metadata": {
-                        "anyOf": [
-                            {
-                                "additionalProperties": true,
-                                "type": "object"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Metadata"
-                    }
-                },
-                "type": "object",
-                "required": [
-                    "available_vcpus",
-                    "available_ram_mb",
-                    "running_vms"
-                ],
-                "title": "HostHeartbeatRequest",
-                "description": "Heartbeat from a host agent with current utilization."
-            },
-            "HostRegisterRequest": {
-                "properties": {
-                    "address": {
-                        "type": "string",
-                        "maxLength": 512,
-                        "title": "Address"
-                    },
-                    "total_vcpus": {
-                        "type": "integer",
-                        "minimum": 1.0,
-                        "title": "Total Vcpus"
-                    },
-                    "total_ram_mb": {
-                        "type": "integer",
-                        "minimum": 512.0,
-                        "title": "Total Ram Mb"
-                    },
-                    "agent_version": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Agent Version"
-                    },
-                    "boot_id": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "maxLength": 36
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Boot Id"
-                    },
-                    "metadata": {
-                        "anyOf": [
-                            {
-                                "additionalProperties": true,
-                                "type": "object"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Metadata"
-                    }
-                },
-                "type": "object",
-                "required": [
-                    "address",
-                    "total_vcpus",
-                    "total_ram_mb"
-                ],
-                "title": "HostRegisterRequest",
-                "description": "Request from a host agent to register itself."
-            },
-            "HostResponse": {
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "title": "Id"
-                    },
-                    "address": {
-                        "type": "string",
-                        "title": "Address"
-                    },
-                    "total_vcpus": {
-                        "type": "integer",
-                        "title": "Total Vcpus"
-                    },
-                    "total_ram_mb": {
-                        "type": "integer",
-                        "title": "Total Ram Mb"
-                    },
-                    "available_vcpus": {
-                        "type": "integer",
-                        "title": "Available Vcpus"
-                    },
-                    "available_ram_mb": {
-                        "type": "integer",
-                        "title": "Available Ram Mb"
-                    },
-                    "status": {
-                        "type": "string",
-                        "title": "Status"
-                    },
-                    "agent_version": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Agent Version"
-                    },
-                    "last_heartbeat": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Last Heartbeat"
-                    },
-                    "disk_used_mb": {
-                        "anyOf": [
-                            {
-                                "type": "integer"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Disk Used Mb"
-                    },
-                    "disk_total_mb": {
-                        "anyOf": [
-                            {
-                                "type": "integer"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Disk Total Mb"
-                    },
-                    "disk_percent": {
-                        "anyOf": [
-                            {
-                                "type": "number"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Disk Percent"
-                    },
-                    "created_at": {
-                        "type": "string",
-                        "title": "Created At"
-                    }
-                },
-                "type": "object",
-                "required": [
-                    "id",
-                    "address",
-                    "total_vcpus",
-                    "total_ram_mb",
-                    "available_vcpus",
-                    "available_ram_mb",
-                    "status",
-                    "created_at"
-                ],
-                "title": "HostResponse",
-                "description": "Response for a host record."
-            },
-            "HostTelemetryRequest": {
-                "properties": {
-                    "host_boot_id": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "maxLength": 36
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Host Boot Id"
-                    },
-                    "agent_version": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "maxLength": 50
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Agent Version"
-                    },
-                    "samples": {
+                    "computers": {
                         "items": {
-                            "$ref": "#/components/schemas/SandboxMetricSampleRequest"
+                            "additionalProperties": {
+                                "type": "string"
+                            },
+                            "type": "object"
                         },
                         "type": "array",
-                        "maxItems": 500,
-                        "title": "Samples"
-                    }
-                },
-                "type": "object",
-                "title": "HostTelemetryRequest",
-                "description": "Telemetry batch from a host agent."
-            },
-            "HostTelemetryResponse": {
-                "properties": {
-                    "accepted": {
-                        "type": "integer",
-                        "title": "Accepted"
+                        "title": "Computers"
                     },
-                    "rejected": {
-                        "type": "integer",
-                        "title": "Rejected"
+                    "unknown_vm_ids": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "title": "Unknown Vm Ids"
+                    },
+                    "missing_computer_ids": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "title": "Missing Computer Ids"
                     }
                 },
                 "type": "object",
-                "required": [
-                    "accepted",
-                    "rejected"
-                ],
-                "title": "HostTelemetryResponse"
+                "title": "Inventory"
             },
             "McpServerListResponse": {
                 "properties": {
@@ -19453,6 +18935,183 @@
                     "role": "VP Sales"
                 }
             },
+            "PollRequest": {
+                "properties": {
+                    "epoch": {
+                        "type": "integer",
+                        "title": "Epoch"
+                    },
+                    "state_id": {
+                        "type": "string",
+                        "maxLength": 36,
+                        "minLength": 36,
+                        "title": "State Id"
+                    },
+                    "inventory": {
+                        "$ref": "#/components/schemas/Inventory"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "epoch",
+                    "state_id",
+                    "inventory"
+                ],
+                "title": "PollRequest"
+            },
+            "PoolGitCredentialRequest": {
+                "properties": {
+                    "epoch": {
+                        "type": "integer",
+                        "title": "Epoch"
+                    },
+                    "state_id": {
+                        "type": "string",
+                        "maxLength": 36,
+                        "minLength": 36,
+                        "title": "State Id"
+                    },
+                    "computer_id": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "title": "Computer Id"
+                    },
+                    "protocol": {
+                        "type": "string",
+                        "maxLength": 20,
+                        "title": "Protocol"
+                    },
+                    "host": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "title": "Host"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "epoch",
+                    "state_id",
+                    "computer_id",
+                    "protocol",
+                    "host"
+                ],
+                "title": "PoolGitCredentialRequest"
+            },
+            "PoolHeartbeatRequest": {
+                "properties": {
+                    "epoch": {
+                        "type": "integer",
+                        "title": "Epoch"
+                    },
+                    "state_id": {
+                        "type": "string",
+                        "maxLength": 36,
+                        "minLength": 36,
+                        "title": "State Id"
+                    },
+                    "disk_free_mb": {
+                        "type": "integer",
+                        "minimum": 0.0,
+                        "title": "Disk Free Mb"
+                    },
+                    "disk_total_mb": {
+                        "anyOf": [
+                            {
+                                "type": "integer",
+                                "exclusiveMinimum": 0.0
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Disk Total Mb"
+                    },
+                    "stream_protocol_version": {
+                        "type": "integer",
+                        "maximum": 3.0,
+                        "minimum": 1.0,
+                        "title": "Stream Protocol Version",
+                        "default": 1
+                    },
+                    "running_computers": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    },
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Running Computers"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "epoch",
+                    "state_id",
+                    "disk_free_mb"
+                ],
+                "title": "PoolHeartbeatRequest"
+            },
+            "PoolTelemetryRequest": {
+                "properties": {
+                    "host_boot_id": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "maxLength": 36
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Host Boot Id"
+                    },
+                    "agent_version": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "maxLength": 50
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Agent Version"
+                    },
+                    "samples": {
+                        "items": {
+                            "$ref": "#/components/schemas/SandboxMetricSampleRequest"
+                        },
+                        "type": "array",
+                        "maxItems": 500,
+                        "title": "Samples"
+                    },
+                    "epoch": {
+                        "type": "integer",
+                        "title": "Epoch"
+                    },
+                    "state_id": {
+                        "type": "string",
+                        "maxLength": 36,
+                        "minLength": 36,
+                        "title": "State Id"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "epoch",
+                    "state_id"
+                ],
+                "title": "PoolTelemetryRequest"
+            },
             "ProjectCreate": {
                 "properties": {
                     "name": {
@@ -19698,6 +19357,54 @@
                 ],
                 "title": "ResourceLimitSummary",
                 "description": "Current usage summary for a non-metered resource cap."
+            },
+            "ResultRequest": {
+                "properties": {
+                    "epoch": {
+                        "type": "integer",
+                        "title": "Epoch"
+                    },
+                    "state_id": {
+                        "type": "string",
+                        "maxLength": 36,
+                        "minLength": 36,
+                        "title": "State Id"
+                    },
+                    "ok": {
+                        "type": "boolean",
+                        "title": "Ok"
+                    },
+                    "result": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Result"
+                    },
+                    "error": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Error"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "epoch",
+                    "state_id",
+                    "ok"
+                ],
+                "title": "ResultRequest"
             },
             "RunCreateRequest": {
                 "properties": {
@@ -20204,158 +19911,6 @@
                 ],
                 "title": "SandboxCapabilityResponse",
                 "description": "Boolean sandbox capability included with a plan."
-            },
-            "SandboxCommandEventRequest": {
-                "properties": {
-                    "computer_id": {
-                        "type": "string",
-                        "maxLength": 20,
-                        "title": "Computer Id"
-                    },
-                    "command_id": {
-                        "type": "string",
-                        "maxLength": 80,
-                        "title": "Command Id"
-                    },
-                    "runtime_instance_id": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "maxLength": 80
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Runtime Instance Id"
-                    },
-                    "source": {
-                        "type": "string",
-                        "maxLength": 32,
-                        "title": "Source",
-                        "default": "exec"
-                    },
-                    "status": {
-                        "type": "string",
-                        "maxLength": 32,
-                        "title": "Status"
-                    },
-                    "started_at": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "format": "date-time"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Started At"
-                    },
-                    "ended_at": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "format": "date-time"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Ended At"
-                    },
-                    "duration_ms": {
-                        "anyOf": [
-                            {
-                                "type": "integer",
-                                "minimum": 0.0
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Duration Ms"
-                    },
-                    "timeout_seconds": {
-                        "anyOf": [
-                            {
-                                "type": "integer",
-                                "minimum": 0.0
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Timeout Seconds"
-                    },
-                    "exit_code": {
-                        "anyOf": [
-                            {
-                                "type": "integer"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Exit Code"
-                    },
-                    "stdout_bytes": {
-                        "anyOf": [
-                            {
-                                "type": "integer",
-                                "minimum": 0.0
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Stdout Bytes"
-                    },
-                    "stderr_bytes": {
-                        "anyOf": [
-                            {
-                                "type": "integer",
-                                "minimum": 0.0
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Stderr Bytes"
-                    },
-                    "error_type": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "maxLength": 64
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Error Type"
-                    },
-                    "observed_at": {
-                        "anyOf": [
-                            {
-                                "type": "string",
-                                "format": "date-time"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Observed At"
-                    }
-                },
-                "type": "object",
-                "required": [
-                    "computer_id",
-                    "command_id",
-                    "status"
-                ],
-                "title": "SandboxCommandEventRequest",
-                "description": "Command lifecycle event from a host agent or backend fallback."
             },
             "SandboxCommandInvocationResponse": {
                 "properties": {
@@ -21179,6 +20734,41 @@
                     "observed_at"
                 ],
                 "title": "SandboxMetricSampleResponse"
+            },
+            "SandboxSizeResponse": {
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "title": "Id"
+                    },
+                    "vcpus": {
+                        "type": "integer",
+                        "title": "Vcpus"
+                    },
+                    "ram_mb": {
+                        "type": "integer",
+                        "title": "Ram Mb"
+                    },
+                    "root_disk_mb": {
+                        "type": "integer",
+                        "title": "Root Disk Mb"
+                    },
+                    "hourly_rate_usd": {
+                        "type": "string",
+                        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                        "title": "Hourly Rate Usd"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "id",
+                    "vcpus",
+                    "ram_mb",
+                    "root_disk_mb",
+                    "hourly_rate_usd"
+                ],
+                "title": "SandboxSizeResponse",
+                "description": "A fixed sandbox shape with its hourly price."
             },
             "SandboxTemplateResponse": {
                 "properties": {
@@ -22295,6 +21885,37 @@
                     "messages"
                 ],
                 "title": "SessionMessagesResponse"
+            },
+            "SessionRequest": {
+                "properties": {
+                    "state_id": {
+                        "type": "string",
+                        "maxLength": 36,
+                        "minLength": 36,
+                        "title": "State Id"
+                    },
+                    "inventory": {
+                        "$ref": "#/components/schemas/Inventory"
+                    },
+                    "stream_protocol_version": {
+                        "type": "integer",
+                        "maximum": 3.0,
+                        "minimum": 1.0,
+                        "title": "Stream Protocol Version",
+                        "default": 1
+                    },
+                    "usage_running_heartbeat": {
+                        "type": "boolean",
+                        "title": "Usage Running Heartbeat",
+                        "default": false
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "state_id",
+                    "inventory"
+                ],
+                "title": "SessionRequest"
             },
             "SessionResponse": {
                 "properties": {
@@ -24415,6 +24036,26 @@
                 "type": "object",
                 "title": "TraceStats",
                 "description": "Aggregated statistics for a trace."
+            },
+            "TunnelTokenRequest": {
+                "properties": {
+                    "epoch": {
+                        "type": "integer",
+                        "title": "Epoch"
+                    },
+                    "state_id": {
+                        "type": "string",
+                        "maxLength": 36,
+                        "minLength": 36,
+                        "title": "State Id"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "epoch",
+                    "state_id"
+                ],
+                "title": "TunnelTokenRequest"
             },
             "UpgradeRequest": {
                 "properties": {

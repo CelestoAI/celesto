@@ -33,6 +33,7 @@ def computer(status="running"):
         "ram_mb": 2048,
         "disk_size_mb": 10240,
         "image": "ubuntu-desktop-24.04",
+        "compute_location": {"provider": "aws", "region": "us-east-1", "country_code": "US"},
         "created_at": "2026-09-19T00:00:00Z",
     }
 
