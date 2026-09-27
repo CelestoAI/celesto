@@ -56,6 +56,7 @@ def test_microvm_kernel_supports_user_installed_docker() -> None:
     required = {
         "CONFIG_MEMCG",
         "CONFIG_CGROUP_BPF",
+        "CONFIG_USER_NS",
         "CONFIG_VETH",
         "CONFIG_BRIDGE",
         "CONFIG_BRIDGE_NETFILTER",
