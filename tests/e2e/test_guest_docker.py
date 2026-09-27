@@ -23,8 +23,6 @@ cgroup v2 mount that make that install path work.
 from __future__ import annotations
 
 from contextlib import suppress
-from ipaddress import IPv4Address, ip_address
-from pathlib import Path
 
 import pytest
 from _util import (
@@ -66,34 +64,7 @@ def _ensure_cgroup_v2(sandbox: Celesto) -> None:
     )
 
 
-def _install_docker(sandbox: Celesto, backend: E2EBackend) -> None:
-    # GitHub-hosted runners use an internal resolver and block queries to the
-    # public fallback resolvers baked into the guest image. Use the runner's
-    # reachable resolver for this package-install test on TAP-backed guests.
-    if backend == "firecracker":
-        host_resolver_file = Path("/run/systemd/resolve/resolv.conf")
-        if not host_resolver_file.is_file():
-            host_resolver_file = Path("/etc/resolv.conf")
-        resolvers = []
-        for line in host_resolver_file.read_text().splitlines():
-            fields = line.split()
-            if len(fields) != 2 or fields[0] != "nameserver":
-                continue
-            try:
-                address = ip_address(fields[1])
-            except ValueError:
-                continue
-            if isinstance(address, IPv4Address) and not address.is_loopback:
-                resolvers.append(str(address))
-        assert resolvers, "Host has no IPv4 DNS server reachable from the guest"
-        result = sandbox.run(
-            "printf '%s\\n' "
-            + " ".join(f"'nameserver {address}'" for address in resolvers[:2])
-            + " > /etc/resolv.conf",
-            timeout=30,
-        )
-        assert result.exit_code == 0, result.stderr
-
+def _install_docker(sandbox: Celesto) -> None:
     # A failing lookup here distinguishes guest networking from apt/package
     # problems, and keeps the route and resolver details in the CI log.
     dns = sandbox.run("getent ahostsv4 archive.ubuntu.com", timeout=45)
@@ -158,7 +129,7 @@ def test_user_installed_docker_runs_hello_world(
         assert sandbox.status == VMState.RUNNING
 
         _ensure_cgroup_v2(sandbox)
-        _install_docker(sandbox, backend)
+        _install_docker(sandbox)
         _wait_for_dockerd(sandbox)
 
         hello = sandbox.run(

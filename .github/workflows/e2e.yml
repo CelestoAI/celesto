@@ -145,6 +145,21 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends iproute2 iputils-ping nftables iptables
 
+      - name: Forward DNS for Firecracker guests
+        if: matrix.backend == 'firecracker'
+        run: |
+          # The guest uses its TAP gateway for DNS. GitHub runners block
+          # direct guest queries to public and Azure DNS servers, so forward
+          # through the runner's own resolver during package-install tests.
+          sudo apt-get install -y --no-install-recommends dnsmasq-base
+          sudo dnsmasq \
+            --conf-file=/dev/null \
+            --bind-dynamic \
+            --listen-address=172.16.0.1 \
+            --except-interface=lo \
+            --pid-file=/run/celesto-e2e-dnsmasq.pid
+          sudo test -s /run/celesto-e2e-dnsmasq.pid
+
       - name: Enable KVM and optional vsock
         run: |
           # The runner user isn't in the active kvm group for this already-
