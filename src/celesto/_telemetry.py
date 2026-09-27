@@ -34,7 +34,8 @@ _CAPTURE_URL = "https://us.i.posthog.com/capture/"
 _STATE_PATH = Path.home() / ".celesto" / "telemetry.json"
 _NOTICE = (
     "Celesto may send limited local usage counts (installation ID, feature category, "
-    "version, OS family). PostHog may retain your IP address. "
+    "version, OS family). PostHog may derive your approximate location "
+    "(such as country or city) from your IP address and may retain that address. "
     "No commands, files, or URLs are sent. "
     "See https://celesto.ai/legal/privacy-policy. "
     "Opt out: celesto config telemetry off or CELESTO_NO_TELEMETRY=1."
@@ -280,7 +281,6 @@ def record_success(surface: Surface, feature: Feature) -> None:
         "celesto_version": version,
         "os_family": platform.system().lower(),
         "$process_person_profile": False,
-        "$geoip_disable": True,
     }
     base = {
         "api_key": HONEYS_FAV_FOOD,
