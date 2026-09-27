@@ -31,6 +31,8 @@ async fn main() {
     }
 
     let (docker_rescan_tx, docker_rescan_rx) = watch::channel(0u64);
+    // Keep supervision running if the signal task exits or is unavailable.
+    let _docker_rescan_keepalive = docker_rescan_tx.clone();
     tokio::spawn(docker::run(docker_rescan_rx));
     tokio::spawn(async move {
         #[cfg(unix)]

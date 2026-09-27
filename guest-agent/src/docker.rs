@@ -65,8 +65,35 @@ pub async fn run(mut rescan: watch::Receiver<u64>) {
                 StartResult::Ready => {
                     failures = 0;
                     tracing::info!(path = %dockerd.display(), "docker daemon is ready");
-                    let status = child.wait().await;
-                    tracing::warn!(?status, "docker daemon exited");
+                    let mut misses = 0u8;
+                    let mut interval = tokio::time::interval(HEALTH_INTERVAL);
+                    interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
+                    loop {
+                        tokio::select! {
+                            status = child.wait() => {
+                                tracing::warn!(?status, "docker daemon exited");
+                                break;
+                            }
+                            changed = rescan.changed() => {
+                                if changed.is_err() {
+                                    return;
+                                }
+                            }
+                            _ = interval.tick() => {
+                                if docker_ready(Path::new(DOCKER_SOCKET)).await {
+                                    misses = 0;
+                                } else {
+                                    misses += 1;
+                                    if misses >= 3 {
+                                        tracing::warn!("docker daemon is unhealthy");
+                                        terminate_child(&mut child).await;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 StartResult::Exited(status) => {
                     tracing::warn!(?status, "docker daemon exited before becoming ready");

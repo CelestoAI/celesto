@@ -15,8 +15,8 @@
 """Prove a user-installed Docker runtime can run containers inside a guest.
 
 Celesto does not preinstall a container runtime. Guests use a custom ``/init``
-(not systemd), so this test installs ``docker.io``, starts ``dockerd`` by hand,
-and runs ``hello-world`` to exercise the kernel cgroup/bridge options and the
+(not systemd), so this test installs ``docker.io``, waits for the guest agent to
+start ``dockerd``, and runs ``hello-world`` to exercise the kernel cgroup/bridge options and the
 cgroup v2 mount that make that install path work.
 """
 
@@ -75,29 +75,15 @@ def _install_docker(sandbox: Celesto) -> None:
     )
 
 
-def _start_dockerd(sandbox: Celesto) -> None:
-    # Guests run Celesto's custom /init as PID 1, so systemctl is unavailable.
-    start = sandbox.run(
-        "mkdir -p /var/run /var/lib/docker /var/log && "
-        "if ! command -v dockerd >/dev/null 2>&1; then "
-        "echo 'dockerd not found after install' >&2; exit 1; "
-        "fi && "
-        "if [ ! -S /var/run/docker.sock ]; then "
-        "nohup dockerd >/var/log/dockerd.log 2>&1 & "
-        "fi",
-        timeout=30,
-    )
-    assert start.exit_code == 0, (
-        f"failed to start dockerd: stdout={start.stdout!r} stderr={start.stderr!r}"
-    )
-
+def _wait_for_dockerd(sandbox: Celesto) -> None:
+    # The guest agent discovers and starts Docker after installation.
     ready = sandbox.run(
         "for i in $(seq 1 60); do "
         "docker info >/dev/null 2>&1 && exit 0; "
         "sleep 2; "
         "done; "
         "echo 'dockerd did not become ready' >&2; "
-        "tail -n 80 /var/log/dockerd.log >&2 || true; "
+        "tail -n 80 /var/log/celesto-docker.log >&2 || true; "
         "exit 1",
         timeout=_DOCKERD_READY_TIMEOUT_S,
     )
@@ -133,7 +119,7 @@ def test_user_installed_docker_runs_hello_world(
 
         _ensure_cgroup_v2(sandbox)
         _install_docker(sandbox)
-        _start_dockerd(sandbox)
+        _wait_for_dockerd(sandbox)
 
         hello = sandbox.run(
             "docker run --rm hello-world",
