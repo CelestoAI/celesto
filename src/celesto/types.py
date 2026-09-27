@@ -611,7 +611,7 @@ class VMConfig(BaseModel):
         preset: Canonical name of the preset that created this sandbox, or
             ``None`` when it was created without a preset or predates tracking.
         vcpu_count: Number of virtual CPUs (1-32).
-        memory: Memory size in MiB (128-16384).
+        memory: Memory size in MiB (128-32768).
         boot_mode: How the guest boots:
 
             - ``"direct_kernel"`` (default): the hypervisor loads
@@ -688,7 +688,7 @@ class VMConfig(BaseModel):
     ]
     preset: str | None = None
     vcpu_count: Annotated[int, Field(ge=1, le=32)] = 2
-    memory: Annotated[int, Field(ge=128, le=16384)] = 512
+    memory: Annotated[int, Field(ge=128, le=32768)] = 512
     guest_os: GuestOS = GuestOS.ALPINE
     boot_mode: Literal["direct_kernel", "firmware", "platform"] = "direct_kernel"
     kernel_path: Path | None = None

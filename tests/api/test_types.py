@@ -138,11 +138,20 @@ class TestVMConfig:
                 rootfs_path=rootfs,
             )
 
+        # XL sandbox size is the supported upper bound.
+        xl_config = VMConfig(
+            vm_id="vm001",
+            memory=32768,
+            kernel_path=kernel,
+            rootfs_path=rootfs,
+        )
+        assert xl_config.memory == 32768
+
         # Too high
         with pytest.raises(ValidationError):
             VMConfig(
                 vm_id="vm001",
-                memory=32768,
+                memory=32769,
                 kernel_path=kernel,
                 rootfs_path=rootfs,
             )
