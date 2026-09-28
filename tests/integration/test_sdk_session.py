@@ -91,6 +91,14 @@ def test_sdk_session_authenticates_and_exits_when_control_pipe_closes() -> None:
                 urllib.request.urlopen(url, timeout=5)
             assert unauthorized.value.code == 401
 
+            # A header byte above 0x7f decodes to a non-ASCII str, which
+            # compare_digest refuses to compare. A garbage header must still be
+            # rejected as a 401 rather than surfacing as a 500.
+            garbage = urllib.request.Request(url, headers={"Authorization": "Bearer \xe9"})
+            with pytest.raises(urllib.error.HTTPError) as malformed:
+                urllib.request.urlopen(garbage, timeout=5)
+            assert malformed.value.code == 401
+
             request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
             with urllib.request.urlopen(request, timeout=5) as response:
                 payload = json.load(response)
