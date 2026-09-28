@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import platform
 import shlex
 import socket
@@ -50,6 +51,7 @@ from pydantic import ValidationError as PydanticValidationError
 from celesto._naming import generate_sandbox_name
 from celesto._network_policy import parse_network_policy, validate_network_policy_options
 from celesto._telemetry import begin_local_use, observe_sdk_operation, record_success
+from celesto._terminal_env import guest_terminal_type
 from celesto.callbacks import Callback, CallbackDispatcher, RunContext
 from celesto.comm import RustHttpVsockChannel
 from celesto.comm.base import CommChannel, CommChannelKind
@@ -2582,6 +2584,8 @@ class Celesto:
         ]
         if self._ssh.key_path:
             command.extend(["-i", self._ssh.key_path, "-o", "IdentitiesOnly=yes"])
+        if os.environ.get("TERM") in {"xterm-ghostty", "xterm-kitty"}:
+            command.extend(["-o", f"SetEnv=TERM={guest_terminal_type()}"])
         command.append(f"{self._ssh.user}@{self._ssh.host}")
         return command
 

@@ -41,6 +41,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from celesto._streaming import iter_bounded_lines, iter_sse_data, parse_command_event
+from celesto._terminal_env import guest_terminal_type
 from celesto.comm.base import CommChannelKind, ShellMode
 from celesto.exceptions import CelestoError, OperationTimeoutError
 from celesto.types import CommandEvent, CommandExitEvent, CommandResult
@@ -813,7 +814,7 @@ class RustHttpVsockChannel:
                 "version": 1,
                 "rows": rows,
                 "cols": cols,
-                "term": os.environ.get("TERM") or "xterm-256color",
+                "term": guest_terminal_type(),
                 "cwd": None,
                 "env": {},
             }
