@@ -201,16 +201,14 @@ class MemoryStateManager:
             for candidate in candidates:
                 if candidate is None or candidate in used_ips:
                     continue
-                parts = candidate.split(".")
-                if len(parts) == 4:
-                    # Skip anything that is not a usable pool address rather
-                    # than indexing arbitrary octets into a TAP name.
-                    try:
-                        index = ip_to_pool_index(candidate)
-                    except ValueError:
-                        continue
-                    if f"tap{index}" in host_interfaces:
-                        continue
+                # Validate every candidate, not just well-formed ones: a short
+                # or malformed address must never be claimed, stored or returned.
+                try:
+                    index = ip_to_pool_index(candidate)
+                except ValueError:
+                    continue
+                if f"tap{index}" in host_interfaces:
+                    continue
                 if not self._try_claim("ip", vm_id, candidate):
                     continue
                 self._ip_leases[vm_id] = (candidate, tap_device)
