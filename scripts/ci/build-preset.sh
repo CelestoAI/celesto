@@ -100,7 +100,10 @@ cleanup() {
   umount "$MNT/dev" 2>/dev/null || true
   umount "$MNT/sys" 2>/dev/null || true
   umount "$MNT/proc" 2>/dev/null || true
-  umount "$MNT" 2>/dev/null || true
+  if ! umount "$MNT"; then
+    echo "Could not finish the $PRESET filesystem; refusing to publish it." >&2
+    exit 1
+  fi
   rmdir "$MNT" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -222,4 +225,5 @@ else
   rm -f "$MNT/etc/resolv.conf"
 fi
 
+sync "$ROOTFS"
 echo "==> Preset rootfs: $ROOTFS ($(du -sh "$ROOTFS" | cut -f1))"

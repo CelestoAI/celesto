@@ -829,6 +829,16 @@ jobs:
           fi
           rootfs="/tmp/out/${name}-rootfs.ext4"
 
+          # Check the finished image, not the mounted build tree. An unflushed
+          # filesystem can look complete during construction yet boot without
+          # /init after compression.
+          verify_dir=$(mktemp -d)
+          sudo mount -o loop,ro,noload "$rootfs" "$verify_dir"
+          sudo test -x "$verify_dir/init"
+          sudo test -x "$verify_dir/usr/local/bin/celesto-guest-agent"
+          sudo umount "$verify_dir"
+          rmdir "$verify_dir"
+
           echo "rootfs_path=${rootfs}" >> "$GITHUB_OUTPUT"
           echo "name=${name}" >> "$GITHUB_OUTPUT"
 
