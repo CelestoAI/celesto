@@ -78,6 +78,15 @@ class TestInternetSettings:
         with pytest.raises(ValidationError, match="allowed_domains"):
             InternetSettings(allowed_domains=["", "  "])
 
+    @pytest.mark.parametrize("entry", ["::1", ":8080", ":"])
+    def test_entry_without_hostname_raises(self, entry: str) -> None:
+        with pytest.raises(ValidationError, match="hostname"):
+            InternetSettings(allowed_domains=[entry])
+
+    def test_entry_without_hostname_raises_alongside_valid_entries(self) -> None:
+        with pytest.raises(ValidationError, match="hostname"):
+            InternetSettings(allowed_domains=["example.com", "::1"])
+
     @pytest.mark.parametrize("methods", [["get", "post"], ["GET", "get", "Get"], ["*", "GET"]])
     def test_unenforced_methods_rejected(self, methods: list[str]) -> None:
         with pytest.raises(ValidationError, match="HTTP method restrictions"):

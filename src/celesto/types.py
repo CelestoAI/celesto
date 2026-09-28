@@ -525,6 +525,8 @@ class InternetSettings(BaseModel):
             else:
                 # Bare hostname, possibly with a port like "example.com:8080"
                 hostname = entry.split(":")[0]
+                if not hostname:
+                    raise ValueError(f"Could not extract hostname from: {entry!r}")
                 normalized.append(hostname.lower())
         if not normalized:
             raise ValueError("allowed_domains must contain at least one entry")
