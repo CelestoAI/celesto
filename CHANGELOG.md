@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Paste multiline commands from Ghostty and Kitty into sandbox SSH sessions using a compatible terminal profile. Direct sandbox shells use the same profile fallback.
+
 ## 0.1.3.post1 — 2026-09-28
 
 - Re-publish the 0.1.3 package after PyPI omitted its files from the installer index. Runtime behavior and image pins are unchanged.
