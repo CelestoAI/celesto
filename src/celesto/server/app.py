@@ -229,7 +229,10 @@ def create_app(*, auth_token: str | None = None) -> FastAPI:
         async def authenticate(request: Request, call_next):  # type: ignore[no-untyped-def]
             supplied = request.headers.get("authorization", "")
             expected = f"Bearer {auth_token}"
-            if not secrets.compare_digest(supplied, expected):
+            # Compare bytes: compare_digest rejects str operands holding non-ASCII
+            # characters, and a raw header byte above 0x7f decodes to a non-ASCII
+            # str. Encoding first keeps a garbage header a 401 instead of a 500.
+            if not secrets.compare_digest(supplied.encode(), expected.encode()):
                 return JSONResponse(
                     status_code=401,
                     headers={"X-Celesto-Error-Code": "bridge_exit"},
