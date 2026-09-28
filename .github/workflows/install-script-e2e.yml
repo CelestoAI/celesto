@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: install-script-e2e-${{ github.ref }}
+  group: install-script-e2e-${{ github.run_id }}
   cancel-in-progress: true
 
 permissions:
