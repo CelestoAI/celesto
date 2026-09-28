@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3.post1 — 2026-09-28
+
+- Re-publish the 0.1.3 package after PyPI omitted its files from the installer index. Runtime behavior and image pins are unchanged.
+
 ## 0.1.3 — 2026-09-28
 
 ### Added
