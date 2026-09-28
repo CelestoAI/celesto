@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.3 — 2026-09-28
+
+### Added
+
+- Run user-installed Docker inside Ubuntu sandboxes with the updated guest kernel and agent.
+- Use up to 32 GiB of memory with QEMU sandboxes.
+- Resolve cloud computer locations with GeoIP.
+
+### Fixed
+
+- Resolve the sandbox's own hostname so `sudo` no longer warns about `celesto`.
+- Align cloud command events with the compute pool API.
+- Reject incomplete preset images before they are published.
+
 ## 0.1.2 — 2026-09-25
 
 ### Added
