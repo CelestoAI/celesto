@@ -47,12 +47,12 @@ as shown below; machine setup only needs to be done once.
 Use Python 3.11 or newer in your project's environment:
 
 ```bash
-pip install 'celesto==0.0.15a0'
+pip install 'celesto==0.1.3'
 ```
 
 Pip installs Python packages only. If you have not used the one-command installer,
 complete the machine setup below as well. For TypeScript or local server use,
-install `celesto[server]==0.0.15a0` instead.
+install `celesto[server]==0.1.3` instead.
 
 The Python package is now named `celesto`, and Python code imports from `celesto`
 (for example, `from celesto import Computer`). The retired `smolvm` Python import

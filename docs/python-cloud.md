@@ -107,8 +107,7 @@ preserve the computer ID and its ephemeral disk on the current pool host.
 Control the browser with an automation tool, or watch the computer's screen while
 an agent works. These connections use the same computer as `run()`.
 
-Browser and display connections are available in the source checkout; they are
-not part of the published `0.0.15a0` release.
+Browser and display connections are available in Celesto 0.1.3.
 
 ```python
 from celesto import CloudComputer as Computer
