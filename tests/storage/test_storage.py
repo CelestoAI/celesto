@@ -29,6 +29,7 @@ from celesto.exceptions import (
     VMAlreadyExistsError,
     VMNotFoundError,
 )
+from celesto.storage import ip_to_pool_index, pool_index_to_ip
 from celesto.types import (
     BrowserSessionConfig,
     BrowserSessionInfo,
@@ -253,6 +254,34 @@ class TestStateManagerVMOperations:
 
         assert len(running) == 1
         assert len(stopped) == 0
+
+
+class TestPoolIndexConversion:
+    """Tests for the pool index <-> IP address conversion helpers."""
+
+    @pytest.mark.parametrize("index", [0, 2, 255, 256, 65535])
+    def test_round_trip(self, index: int) -> None:
+        assert ip_to_pool_index(pool_index_to_ip(index)) == index
+
+    @pytest.mark.parametrize(
+        "ip",
+        [
+            "10.0.5.7",  # outside the pool
+            "172.17.0.1",  # outside the pool
+            "1.2.3",  # too few octets
+            "172.16.0.1.5",  # too many octets
+            "172.16.0.999",  # octet out of range
+            "172.16.0.notanumber",
+            "",
+        ],
+    )
+    def test_invalid_ip_raises_value_error(self, ip: str) -> None:
+        with pytest.raises(ValueError):
+            ip_to_pool_index(ip)
+
+    def test_pool_index_to_ip_still_validates_range(self) -> None:
+        with pytest.raises(ValueError):
+            pool_index_to_ip(65536)
 
 
 class TestIPAllocation:

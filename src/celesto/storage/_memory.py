@@ -37,6 +37,7 @@ from celesto.storage._base import (
     SSH_PORT_START,
     VSOCK_CID_END,
     VSOCK_CID_START,
+    ip_to_pool_index,
     pool_index_to_ip,
 )
 from celesto.types import (
@@ -202,7 +203,12 @@ class MemoryStateManager:
                     continue
                 parts = candidate.split(".")
                 if len(parts) == 4:
-                    index = (int(parts[2]) << 8) | int(parts[3])
+                    # Skip anything that is not a usable pool address rather
+                    # than indexing arbitrary octets into a TAP name.
+                    try:
+                        index = ip_to_pool_index(candidate)
+                    except ValueError:
+                        continue
                     if f"tap{index}" in host_interfaces:
                         continue
                 if not self._try_claim("ip", vm_id, candidate):

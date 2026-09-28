@@ -63,7 +63,17 @@ def pool_index_to_ip(index: int) -> str:
 def ip_to_pool_index(ip: str) -> int:
     """Convert a ``172.16.x.y`` IP back to its pool index."""
     parts = ip.split(".")
-    return (int(parts[2]) << 8) | int(parts[3])
+    if len(parts) != 4:
+        raise ValueError(f"invalid IPv4 address: {ip!r}")
+    try:
+        first, second, third, fourth = (int(part) for part in parts)
+    except ValueError as exc:
+        raise ValueError(f"invalid IPv4 address: {ip!r}") from exc
+    if not all(0 <= octet <= 255 for octet in (first, second, third, fourth)):
+        raise ValueError(f"invalid IPv4 address: {ip!r}")
+    if (first, second) != (172, 16):
+        raise ValueError(f"{ip!r} is outside the 172.16.0.0/16 pool")
+    return (third << 8) | fourth
 
 
 def now_iso() -> str:
