@@ -22,8 +22,12 @@ The constructor validates configuration without contacting the server. Entering 
 
 ## Stream command output
 
-Use `run_stream()` when output should be handled as it arrives. It has the same
-interface for cloud and local computers and does not change the buffered `run()` API.
+`run_stream()` returns the same event types for cloud and local computers. Local
+computers deliver output as it arrives. Cloud computers currently deliver the
+events after the command finishes because the cloud API returns a completed
+command response. Cloud stdout is yielded before stderr, so their original
+interleaving is unavailable. Use `terminal()` when you need live output from a
+cloud shell.
 
 ```python
 from celesto import CloudComputer as Computer
@@ -37,10 +41,11 @@ with Computer() as comp:
             print(f"exit code: {event.exit_code}")
 ```
 
-The iterator normally begins with a `CommandStartedEvent`, yields `CommandOutputEvent`
+The iterator begins with a `CommandStartedEvent`, yields `CommandOutputEvent`
 objects whose `type` is `"stdout"` or `"stderr"`, and ends with one
-`CommandExitEvent`. If you stop early, close the iterator to close its connection.
-The command must not be assumed to have stopped until the computer reports that separately.
+`CommandExitEvent`. On cloud computers, the first event arrives after execution
+finishes. On local computers, close the iterator if you stop early to close its
+connection. Do not assume an interrupted iterator stopped the command.
 
 ## Open an interactive terminal
 
@@ -56,7 +61,7 @@ with Computer() as comp:
     terminal.attach()
 ```
 
-Press Ctrl+] to detach without ending the cloud shell. A cloud terminal has a
+Press Ctrl+\] to detach without ending the cloud shell. A cloud terminal has a
 durable ID that can be used to request fresh short-lived connection credentials:
 
 ```python

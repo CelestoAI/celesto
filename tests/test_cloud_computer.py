@@ -1,7 +1,9 @@
 """Exercise the public facade through real generated code and mock HTTP only."""
 
 import json
+import re
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
@@ -60,7 +62,22 @@ def cloud(monkeypatch):
 
     monkeypatch.setattr("celesto._cloud.AuthenticatedClient", make_client)
     monkeypatch.setattr("celesto._cloud.time.sleep", lambda seconds: None)
-    return requests, replies
+    yield requests, replies
+
+    schema_path = Path(__file__).resolve().parents[1] / "openapi" / "cloud.json"
+    paths = json.loads(schema_path.read_text())["paths"]
+    for request in requests:
+        assert any(
+            request.method.lower() in operations
+            and re.fullmatch(
+                "".join(
+                    "[^/]+" if part.startswith("{") else re.escape(part)
+                    for part in re.split(r"(\{[^{}]+\})", template)
+                ),
+                request.url.path,
+            )
+            for template, operations in paths.items()
+        ), f"{request.method} {request.url.path} is absent from the cloud OpenAPI schema"
 
 
 def test_cloud_context_runs_and_confirms_cleanup(cloud):
@@ -407,20 +424,22 @@ def test_published_port_hides_url_and_is_immutable():
         route.port = 9000
 
 
-def test_cloud_run_stream_yields_typed_events(cloud):
+def test_cloud_run_stream_yields_completed_command_as_typed_events(cloud):
     requests, replies = cloud
-    stream = (
-        'data: {"type":"started","command_id":"cmd-1",'
-        '"started_at_unix_ms":1,"timeout_seconds":30}\n'
-        'data: {"type":"stdout","data":"hello\\n"}\n'
-        'data: {"type":"stderr","data":"warning\\n"}\n'
-        'data: {"type":"exit","exit_code":0,"command_id":"cmd-1",'
-        '"timed_out":false}\n'
-    )
     replies.extend(
         [
             (201, computer()),
-            httpx.Response(200, text=stream, headers={"content-type": "text/event-stream"}),
+            (
+                200,
+                {
+                    "stdout": "hello\n",
+                    "stderr": "warning\n",
+                    "exit_code": 0,
+                    "command_id": "cmd-1",
+                    "duration_ms": 15,
+                    "timed_out": False,
+                },
+            ),
         ]
     )
 
@@ -433,25 +452,19 @@ def test_cloud_run_stream_yields_typed_events(cloud):
         CommandExitEvent,
     ]
     assert [event.type for event in events] == ["started", "stdout", "stderr", "exit"]
-    assert requests[1].url.path == "/v1/computers/cloud-test/exec/stream"
+    assert events[0].command_id == events[-1].command_id == "cmd-1"
+    assert (events[1].data, events[2].data, events[-1].exit_code) == ("hello\n", "warning\n", 0)
+    assert events[-1].duration_ms == 15
+    assert requests[1].url.path == "/v1/computers/cloud-test/exec"
     assert requests[1].headers["x-current-organization"] == "org-test"
     assert json.loads(requests[1].content) == {"command": "echo hello", "timeout": 30}
 
 
-def test_cloud_run_stream_rejects_incomplete_stream(cloud):
+def test_cloud_run_stream_rejects_incomplete_command_response(cloud):
     _, replies = cloud
-    replies.extend(
-        [
-            (201, computer()),
-            httpx.Response(
-                200,
-                text='data: {"type":"stdout","data":"partial"}\n\n',
-                headers={"content-type": "text/event-stream"},
-            ),
-        ]
-    )
+    replies.extend([(201, computer()), (200, {"stdout": "partial", "stderr": ""})])
 
-    with pytest.raises(CelestoError, match="before the command exited"):
+    with pytest.raises(CelestoError, match="invalid response"):
         list(Computer().run_stream("echo hello"))
 
 
@@ -459,7 +472,7 @@ def test_cloud_run_stream_transport_error_is_not_replayed(cloud):
     requests, replies = cloud
     replies.extend([(201, computer()), httpx.ReadTimeout("stream lost")])
 
-    with pytest.raises(CelestoError, match="may still be running"):
+    with pytest.raises(CelestoError, match="outcome may be unknown"):
         list(Computer(lifetime="persistent").run_stream("charge-card"))
 
     assert [request.method for request in requests] == ["POST", "POST"]
