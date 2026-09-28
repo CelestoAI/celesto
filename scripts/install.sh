@@ -126,11 +126,11 @@ install_celesto() {
     if uv tool list 2>/dev/null | grep -q '^celesto '; then
         # Installed as a uv tool — upgrade in place
         info "celesto is already installed (uv tool), upgrading …"
-        uv tool install --upgrade --refresh-package celesto 'celesto[server]>=0.0.15a0'
+        uv tool install --upgrade 'celesto[server]>=0.0.15a0'
     else
         # Fresh install (or installed via pip/editable — uv tool install won't conflict)
         info "Installing celesto …"
-        uv tool install --refresh-package celesto 'celesto[server]>=0.0.15a0'
+        uv tool install 'celesto[server]>=0.0.15a0'
     fi
 
     # uv tool bin dir may not be on PATH yet in this session
@@ -155,7 +155,7 @@ install_latest_pypi_release() {
     local tool_python wheel_uri
     tool_python="$(uv tool dir)/celesto/bin/python"
     if [[ ! -x "$tool_python" ]]; then
-        die "Celesto's Python environment is missing. Run 'curl -fsSL https://celesto.ai/install.sh | bash' again."
+        return
     fi
 
     if ! wheel_uri="$("$tool_python" - "$(celesto --version)" <<'PY'
