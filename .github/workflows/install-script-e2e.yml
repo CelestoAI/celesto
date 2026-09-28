@@ -11,6 +11,11 @@ on:
     # runner drift is caught even when main has not changed.
     - cron: "47 3 * * *"
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Package release tag to verify through the public installer"
+        required: false
+        type: string
 
 concurrency:
   group: install-script-e2e-${{ github.run_id }}
@@ -37,7 +42,7 @@ jobs:
             backend: qemu
     env:
       SANDBOX_NAME: install-script-smoke
-      RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
+      RELEASE_TAG: ${{ github.event.inputs.release_tag || github.event.workflow_run.head_branch }}
 
     steps:
       # Deliberately do not check out the repository or set up a project
