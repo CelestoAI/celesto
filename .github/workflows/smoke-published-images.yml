@@ -167,6 +167,15 @@ jobs:
           zstd -d "smoke/$asset" -o smoke/rootfs.raw
           rm "smoke/$asset"
 
+      - name: Inspect OpenCode boot files
+        if: matrix.arch == 'amd64' && matrix.rootfs == 'opencode' && matrix.os == 'ubuntu'
+        run: |
+          mkdir -p smoke/inspect
+          sudo mount -o loop,ro,noload smoke/rootfs.raw smoke/inspect
+          ls -l smoke/inspect/init smoke/inspect/bin/sh smoke/inspect/bin/dash || true
+          head -n 1 smoke/inspect/init || true
+          sudo umount smoke/inspect
+
       - name: Generate SSH key
         run: |
           # Injected into the guest on the kernel cmdline (base64 of the pubkey
