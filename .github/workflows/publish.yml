@@ -105,16 +105,19 @@ jobs:
           import hashlib
           import json
           import time
+          import tomllib
           import urllib.request
           from pathlib import Path
 
+          version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          filenames = (
+              f"celesto-{version}-py3-none-any.whl",
+              f"celesto-{version}.tar.gz",
+          )
           expected = {
-              path.name: hashlib.sha256(path.read_bytes()).hexdigest()
-              for path in Path("dist").iterdir()
-              if path.is_file()
+              name: hashlib.sha256((Path("dist") / name).read_bytes()).hexdigest()
+              for name in filenames
           }
-          if not expected:
-              raise SystemExit("No built distributions found in dist/.")
 
           url = "https://pypi.org/simple/celesto/"
           for attempt in range(1, 41):

@@ -144,7 +144,80 @@ install_celesto() {
         die "celesto installation failed — 'celesto' command not found on PATH."
     fi
 
+    install_latest_pypi_release
     info "$(celesto --version)"
+}
+
+install_latest_pypi_release() {
+    # PyPI can accept a release while its installer index still lists only the
+    # previous version. Compare the two public APIs and use the verified wheel
+    # when that happens. Keep the wheel so uv's tool receipt remains usable.
+    local tool_python wheel_uri
+    tool_python="$(uv tool dir)/celesto/bin/python"
+    if [[ ! -x "$tool_python" ]]; then
+        return
+    fi
+
+    if ! wheel_uri="$("$tool_python" - "$(celesto --version)" <<'PY'
+import hashlib
+import json
+import os
+import sys
+import tempfile
+import urllib.request
+from pathlib import Path
+from urllib.parse import urlparse
+
+
+def get_json(url, *, simple=False):
+    headers = {"Accept": "application/vnd.pypi.simple.v1+json"} if simple else {}
+    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as response:
+        return json.load(response)
+
+
+try:
+    installed = sys.argv[1].removeprefix("celesto ")
+    project = get_json("https://pypi.org/pypi/celesto/json")
+    # The PyPI project page can lag the exact release page as well as the
+    # installer index. Keep this minimum release until both indexes recover.
+    baseline = get_json("https://pypi.org/pypi/celesto/0.1.3.post1/json")
+    release = max((project, baseline), key=lambda item: item["last_serial"])
+    latest = release["info"]["version"]
+    if installed != latest:
+        index = get_json("https://pypi.org/simple/celesto/", simple=True)
+        if release["last_serial"] > index["meta"]["_last-serial"]:
+            filename = f"celesto-{latest}-py3-none-any.whl"
+            wheel = next(item for item in release["urls"] if item["filename"] == filename)
+            url = wheel["url"]
+            digest = wheel["digests"]["sha256"]
+            if urlparse(url).scheme != "https" or urlparse(url).hostname != "files.pythonhosted.org":
+                raise ValueError("the published wheel URL is invalid")
+            cache = Path.home() / ".celesto" / "packages"
+            cache.mkdir(parents=True, exist_ok=True)
+            target = cache / filename
+            if not target.is_file() or hashlib.sha256(target.read_bytes()).hexdigest() != digest:
+                with urllib.request.urlopen(url, timeout=60) as response:
+                    data = response.read()
+                if hashlib.sha256(data).hexdigest() != digest:
+                    raise ValueError("the published wheel SHA-256 does not match PyPI")
+                with tempfile.NamedTemporaryFile(dir=cache, delete=False) as temporary:
+                    temporary.write(data)
+                    temporary_path = Path(temporary.name)
+                os.replace(temporary_path, target)
+            print(target.as_uri())
+except Exception as exc:
+    print(f"Could not verify the latest Celesto release: {exc}", file=sys.stderr)
+    sys.exit(1)
+PY
+    )"; then
+        warn "The latest Celesto release could not be checked. Run 'curl -fsSL https://celesto.ai/install.sh | bash' again later."
+        return
+    fi
+
+    if [[ -n "$wheel_uri" ]]; then
+        info "The package catalog is delayed; installing the verified Celesto release …"
+        uv tool install --upgrade "celesto[server] @ $wheel_uri"
+    fi
 }
 
 # ---------------------------------------------------------------------------
