@@ -128,6 +128,11 @@ def test_user_installed_docker_runs_hello_world(
         sandbox.start(boot_timeout=BOOT_TIMEOUT)
         assert sandbox.status == VMState.RUNNING
 
+        hostname = sandbox.run('getent hosts "$(hostname)"')
+        assert hostname.exit_code == 0, (
+            f"guest hostname is not locally resolvable: {hostname.stderr!r}"
+        )
+
         _ensure_cgroup_v2(sandbox)
         _install_docker(sandbox)
         _wait_for_dockerd(sandbox)
