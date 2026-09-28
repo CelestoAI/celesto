@@ -9,7 +9,7 @@ The TypeScript SDK lets a Node.js agent create and control a disposable computer
 Install the Celesto runtime, the preview package, and a TypeScript runner:
 
 ```bash
-pip install 'celesto[server]==0.0.15a0'
+pip install 'celesto[server]==0.1.3'
 celesto setup
 celesto doctor
 npm install https://github.com/CelestoAI/Celesto/releases/download/typescript-v0.1.0-preview.1/celestoai-celesto-0.1.0-preview.1.tgz
@@ -17,8 +17,8 @@ npm install --save-dev tsx
 ```
 
 The separate TypeScript preview retains its `@celestoai/celesto` package name
-and `Celesto` class. Set `runtimePath: "celesto"` as shown below to use this alpha
-release of the Python runtime.
+and `Celesto` class. Set `runtimePath: "celesto"` as shown below to use the
+installed Python runtime.
 
 The SDK starts a private local bridge on first use. Each client gets an isolated sandbox list and a random credential passed through a private process pipe. `close()` removes that client's sandboxes and stops the bridge.
 
