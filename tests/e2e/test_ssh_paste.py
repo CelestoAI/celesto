@@ -1,5 +1,6 @@
 """Exercise terminal paste through the real CLI and OpenSSH, retaining a transcript."""
 
+import errno
 import os
 import platform
 import pty
@@ -15,7 +16,7 @@ from typing import Literal
 import pytest
 from _util import BOOT_TIMEOUT, require_backend_available, selected_backend
 
-from celesto import Celesto
+from celesto.cli.service import CLIService
 
 pytestmark = pytest.mark.e2e
 
@@ -31,7 +32,8 @@ def paste_sandbox(request: pytest.FixtureRequest) -> Iterator[str]:
     backend: Literal["qemu", "firecracker"] = "firecracker" if selected == "firecracker" else "qemu"
     if platform.system() != "Darwin":
         require_backend_available(backend, request.config, sandbox_name="ssh-paste")
-    sandbox = Celesto(os="ubuntu", backend=backend, comm_channel="ssh")
+    # The SSH subprocess reconnects through the CLI's persistent inventory.
+    sandbox = CLIService().create_vm(os="ubuntu", backend=backend, comm_channel="ssh")
     try:
         sandbox.start(boot_timeout=BOOT_TIMEOUT)
         yield sandbox.vm_id
@@ -49,7 +51,7 @@ def test_ssh_multiline_paste(paste_sandbox: str, term: str, tmp_path: Path) -> N
             [
                 sys.executable,
                 "-c",
-                "from celesto.cli.main import main; main()",
+                "from celesto.cli.main import main; raise SystemExit(main())",
                 "sandbox",
                 "ssh",
                 paste_sandbox,
@@ -57,12 +59,23 @@ def test_ssh_multiline_paste(paste_sandbox: str, term: str, tmp_path: Path) -> N
         )
     transcript = bytearray()
 
+    def read_output() -> None:
+        try:
+            transcript.extend(os.read(fd, 65536))
+        except OSError as exc:
+            if exc.errno != errno.EIO:
+                raise
+            pytest.fail(
+                "SSH session exited before the expected output; "
+                f"transcript: {transcript.decode(errors='replace')!r}"
+            )
+
     def read_until(expected: bytes, timeout: float = 60) -> None:
         start = len(transcript)
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if select.select([fd], [], [], 0.1)[0]:
-                transcript.extend(os.read(fd, 65536))
+                read_output()
                 if expected in transcript[start:]:
                     return
         pytest.fail(f"Missing {expected!r}; see {tmp_path / 'ssh-paste.log'}")
@@ -75,7 +88,7 @@ def test_ssh_multiline_paste(paste_sandbox: str, term: str, tmp_path: Path) -> N
         deadline = time.monotonic() + 0.5
         while time.monotonic() < deadline:
             if select.select([fd], [], [], 0.05)[0]:
-                transcript.extend(os.read(fd, 65536))
+                read_output()
         assert b"paste-completed\r\n" not in transcript
         os.write(fd, b"\r")
         read_until(b"paste-completed\r\n", timeout=10)
