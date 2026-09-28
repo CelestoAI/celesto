@@ -230,6 +230,7 @@ jobs:
             fi
           done
           agent_ok=0
+          hostname_ok=1
           if [ "$ok" -eq 1 ]; then
             # Boot proved kernel + rootfs + /init; now confirm the vsock guest
             # agent is baked in and running — the thing published images ship.
@@ -239,6 +240,14 @@ jobs:
                    'test -x /usr/local/bin/celesto-guest-agent && pgrep -f celesto-guest-agent >/dev/null'; then
               echo "guest agent present and running"
               agent_ok=1
+            fi
+            if [ "$OS" = "ubuntu" ] && [ "$agent_ok" -eq 1 ]; then
+              if ! ssh -p 2223 -i smoke/id_ed25519 \
+                     -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+                     -o ConnectTimeout=10 root@127.0.0.1 \
+                     'getent hosts "$(hostname)" >/dev/null'; then
+                hostname_ok=0
+              fi
             fi
             if [ "$ROOTFS" = "linux-desktop" ] && [ "$agent_ok" -eq 1 ]; then
               if ssh -p 2223 -i smoke/id_ed25519 \
@@ -285,6 +294,10 @@ jobs:
           fi
           if [ "$agent_ok" -ne 1 ]; then
             echo "::error::guest agent missing or not running on ${ARCH}/${OS}/${ROOTFS}"
+            exit 1
+          fi
+          if [ "$hostname_ok" -ne 1 ]; then
+            echo "::error::guest hostname does not resolve locally on ${ARCH}/${OS}/${ROOTFS}"
             exit 1
           fi
 

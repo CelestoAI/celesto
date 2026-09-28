@@ -1822,7 +1822,6 @@ if [ -n "$GUEST_MANAGED" ]; then
     else
         log_ts "net-config-failed"
     fi
-    hostname {custom_hostname}
     log_ts "net-config-done"
 else
     if [ -n "$IP_CONFIG" ]; then
@@ -1853,9 +1852,13 @@ else
         echo "nameserver 8.8.4.4" >> /etc/resolv.conf
     fi
 
-    hostname {custom_hostname}
     log_ts "net-config-done"
     log_ts "net-ready"
+fi
+
+hostname {custom_hostname}
+if ! grep -Fqx '127.0.1.1 {custom_hostname} # Celesto guest hostname' /etc/hosts 2>/dev/null; then
+    echo '127.0.1.1 {custom_hostname} # Celesto guest hostname' >> /etc/hosts
 fi
 
 # ── Clock sync (host-sleep drift) ────────────────────────────
