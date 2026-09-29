@@ -15,7 +15,7 @@ def install_runner_command(download_url: str) -> str:
         raise ValueError("Runner download must come from github.com over HTTPS")
     return (
         f"set -eu; mkdir -p {RUNNER_DIR}; cd {RUNNER_DIR}; "
-        f"curl -fL --retry 2 {shlex.quote(download_url)} -o runner.tar.gz; "
+        f"curl -fL --proto-redir =https --retry 2 {shlex.quote(download_url)} -o runner.tar.gz; "
         "tar -xzf runner.tar.gz; rm runner.tar.gz; "
         "export DEBIAN_FRONTEND=noninteractive; "
         "apt-get update -qq; apt-get install -y -qq libicu74"
