@@ -21,7 +21,7 @@ The live acceptance must check: a job that is queued without a runner; a GitHub 
    timeout-minutes: 120
    ```
 
-The controller needs outbound HTTPS to GitHub and the Celesto API. The job computer needs outbound HTTPS to GitHub Actions and action download hosts. Do not route untrusted fork pull requests to this pilot runner.
+The controller needs outbound HTTPS to GitHub and the Celesto API. The job computer needs outbound HTTPS to GitHub Actions, action download hosts, and Ubuntu package mirrors; it installs `libicu74` for the GitHub runner at startup. Do not route untrusted fork pull requests to this pilot runner.
 
 The GitHub token, App key, and runner registration token are sensitive. Enter controller secrets through its terminal or another private secret channel. Celesto's command API can retain command text, so do not use `computer.run()` to write long-lived secrets. The registration token is short lived but currently crosses the command API during runner setup; use this pilot only with a repository you control until that handoff is hardened.
 

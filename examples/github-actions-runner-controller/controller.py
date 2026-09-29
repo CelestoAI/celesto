@@ -284,6 +284,12 @@ def provision(config: Config, github: Github, store: JobStore, row: sqlite3.Row)
             f"curl -fL --retry 2 {shlex.quote(download_url)} -o runner.tar.gz; "
             "tar -xzf runner.tar.gz; rm runner.tar.gz",
         )
+        run_checked(
+            target,
+            "set -eu; export DEBIAN_FRONTEND=noninteractive; "
+            "apt-get update -qq; apt-get install -y -qq libicu74",
+            timeout=300,
+        )
         registration_token = github.registration_token()
         run_checked(
             target,
