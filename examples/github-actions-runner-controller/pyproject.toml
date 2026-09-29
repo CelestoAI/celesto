@@ -1,0 +1,13 @@
+[project]
+name = "celesto-github-actions-runner"
+version = "0.1.0"
+description = "Run GitHub Actions jobs on disposable Celesto Cloud computers"
+requires-python = ">=3.12"
+dependencies = [
+  "celesto>=0.1.3.post1,<0.2",
+  "httpx>=0.27,<0.29",
+  "pyjwt[crypto]>=2.10,<3",
+]
+
+[tool.ruff]
+line-length = 110

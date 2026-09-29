@@ -1,0 +1,7 @@
+.env
+.env.local
+*.pem
+*.sqlite3
+*.sqlite3-*
+artifacts/
+__pycache__/
