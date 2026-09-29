@@ -134,6 +134,29 @@ class TestResolveDomains:
         result = resolve_domains_to_ips(["example.com"])
         assert result == ["1.2.3.4"]
 
+    @pytest.mark.parametrize("entry", ["::1", ":8080", "::", ":"])
+    @patch("celesto.host.network.socket.getaddrinfo")
+    def test_entry_without_hostname_is_not_resolved(
+        self, mock_getaddrinfo: object, entry: str
+    ) -> None:
+        """An entry that reduces to an empty host must never be looked up.
+
+        socket.getaddrinfo("") returns this machine's own addresses, so
+        resolving such an entry would put the host on the allowlist.
+        """
+        mock_getaddrinfo.return_value = [  # type: ignore[union-attr]
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.1.2.3", 0)),
+        ]
+        assert resolve_domains_to_ips([entry]) == []
+        mock_getaddrinfo.assert_not_called()  # type: ignore[union-attr]
+
+    @patch("celesto.host.network.socket.getaddrinfo")
+    def test_empty_host_does_not_discard_valid_entries(self, mock_getaddrinfo: object) -> None:
+        mock_getaddrinfo.return_value = [  # type: ignore[union-attr]
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("1.2.3.4", 0)),
+        ]
+        assert resolve_domains_to_ips(["::1", "example.com"]) == ["1.2.3.4"]
+
     @patch("celesto.host.network.socket.getaddrinfo")
     def test_multiple_domains(self, mock_getaddrinfo: object) -> None:
         def fake_resolve(host: str, *args: object, **kwargs: object) -> list:
