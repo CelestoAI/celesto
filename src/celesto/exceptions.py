@@ -194,6 +194,16 @@ class HostError(CelestoError):
     pass
 
 
+class DiskCopyError(CelestoError):
+    """Raised when a saved disk can't be copied into a new sandbox.
+
+    The message is short and has no file paths; ``details`` holds the
+    paths, the disk format and any ``qemu-img`` output.
+    """
+
+    pass
+
+
 class ImageError(CelestoError):
     """Raised when image operations fail (download, checksum, cache)."""
 

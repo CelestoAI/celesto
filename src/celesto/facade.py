@@ -96,6 +96,7 @@ from celesto.exceptions import (
     CelestoError,
     CelestoWarning,
     CommandExecutionUnavailableError,
+    DiskCopyError,
     NetworkError,
     OperationTimeoutError,
     ValidationError,
@@ -4639,8 +4640,9 @@ modprobe 9pnet_virtio""".strip()
             error = identity_not_confirmed_message(name)
         elif isinstance(exc, VMAlreadyExistsError):
             error = name_taken_message(name)
-        elif isinstance(exc, CelestoError) and not created:
-            # The copy failed before the child existed; its message says why.
+        elif isinstance(exc, CelestoError) and not created and not isinstance(exc, DiskCopyError):
+            # Refused before the child existed (such as a saved disk in the
+            # way); its message says why. A failed disk copy is message 20.
             error = str(exc)
         else:
             error = child_failed_message(name)
