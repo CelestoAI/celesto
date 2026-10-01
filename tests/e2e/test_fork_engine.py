@@ -36,8 +36,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import platform
-import shutil
 import threading
 import time
 import uuid
@@ -46,7 +44,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from _util import BOOT_TIMEOUT, E2E_BACKENDS, require_backend_available, selected_backend
+from _util import BOOT_TIMEOUT, E2E_BACKENDS, require_e2e_backend
 
 from celesto import Celesto
 from celesto.cli._sqlite import SQLiteStateManager
@@ -71,18 +69,7 @@ _GUEST_IDENTITY = (
 
 
 def _require_backend(backend: str, request: pytest.FixtureRequest) -> None:
-    selected = selected_backend(request.config)
-    if selected != "all" and backend != selected:
-        pytest.skip(
-            f"End-to-end tests for '{backend}' are skipped because this run selected "
-            f"'{selected}'; rerun all backends with: pytest tests/e2e."
-        )
-    if backend == BACKEND_QEMU and platform.system() == "Darwin":
-        # macOS runs QEMU with Hypervisor.framework, so /dev/kvm is not needed.
-        if shutil.which("qemu-system-aarch64") is None:
-            pytest.skip("Install QEMU (brew install qemu) to run the fork test.")
-        return
-    require_backend_available(backend, request.config, sandbox_name=f"fork-{backend}")  # type: ignore[arg-type]
+    require_e2e_backend(backend, request.config, sandbox_name=f"fork-{backend}")  # type: ignore[arg-type]
 
 
 def _names(label: str) -> tuple[str, str]:

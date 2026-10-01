@@ -40,8 +40,7 @@ from _util import (
     BOOT_TIMEOUT,
     E2E_BACKENDS,
     E2EBackend,
-    require_backend_available,
-    selected_backend,
+    require_e2e_backend,
 )
 
 from celesto.vm import resolve_data_dir
@@ -165,13 +164,7 @@ def _wait_for_snapshot_to_hold_lock(sandbox: str, snapshot: _Background) -> None
 
 
 def _require_backend(backend: E2EBackend, request: pytest.FixtureRequest, sandbox: str) -> None:
-    selected = selected_backend(request.config)
-    if selected != "all" and backend != selected:
-        pytest.skip(
-            f"End-to-end tests for '{backend}' are skipped because this run selected "
-            f"'{selected}'; rerun all backends with: pytest tests/e2e."
-        )
-    require_backend_available(backend, request.config, sandbox_name=sandbox)
+    require_e2e_backend(backend, request.config, sandbox_name=sandbox)
 
 
 def _create_sandbox(backend: E2EBackend, sandbox: str) -> None:
