@@ -57,6 +57,7 @@ from celesto.cli.output import (
     emit_json,
     render_empty,
     render_error,
+    snapshot_wait_notice,
     status_style,
 )
 from celesto.exceptions import VMNotFoundError
@@ -271,10 +272,11 @@ class SnapshotListPayload(TypedDict):
     snapshots: list[SnapshotRow]
 
 
-class SnapshotPayload(TypedDict):
-    """JSON payload for snapshot create/restore/delete operations."""
+class SnapshotCreatePayload(TypedDict):
+    """JSON payload for ``celesto sandbox snapshot create``."""
 
     snapshot: SnapshotRow
+    warnings: list[str]
 
 
 class SnapshotRestoreVmPayload(TypedDict):
@@ -2152,9 +2154,10 @@ def _render_snapshot_list(rows: list[SnapshotRow]) -> None:
     console.print(f"Total: {len(rows)} snapshot(s).")
 
 
-def _render_snapshot_create(snapshot: SnapshotRow) -> None:
+def _render_snapshot_create(data: SnapshotCreatePayload) -> None:
     """Render a created snapshot."""
     console = console_stdout()
+    snapshot = data["snapshot"]
     console.print(
         Panel.fit(
             f"Created snapshot '{snapshot['snapshot_id']}' from VM '{snapshot['vm_id']}'.",
@@ -2162,6 +2165,8 @@ def _render_snapshot_create(snapshot: SnapshotRow) -> None:
             border_style="cyan",
         )
     )
+    for warning in data["warnings"]:
+        console.print(f"Warning: {warning}", style="yellow")
 
 
 def _render_snapshot_restore(data: SnapshotRestorePayload) -> None:
@@ -2198,7 +2203,7 @@ def _run_stop(args: SimpleNamespace) -> int:
     command_name = getattr(args, "command_name", "sandbox.stop")
     try:
         vm = _cli_vm_from_id(args.vm_id)
-        vm.stop(timeout=args.timeout)
+        vm.stop(timeout=args.timeout, on_snapshot_wait=snapshot_wait_notice(vm.vm_id))
 
         data = _vm_lifecycle_payload(vm.vm_id, VMState.STOPPED)
 
@@ -2383,12 +2388,14 @@ def _run_snapshot(args: SimpleNamespace) -> int:
                 ),
                 flush_policy=getattr(args, "flush_policy", "required"),
             )
-            row = _snapshot_row(snapshot)
-            data: SnapshotPayload = {"snapshot": row}
+            data: SnapshotCreatePayload = {
+                "snapshot": _snapshot_row(snapshot),
+                "warnings": list(snapshot.warnings),
+            }
             if json_output:
                 emit_json(command_name, 0, data=data)
             else:
-                _render_snapshot_create(row)
+                _render_snapshot_create(data)
             return 0
         except Exception as exc:
             return _emit_cli_error(command_name, 1, exc, json_output=json_output)

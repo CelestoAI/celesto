@@ -59,7 +59,10 @@ def test_manager_create_macos_skips_linux_disk_and_network(tmp_path: Path) -> No
         info = manager.create(config)
 
     materialize.assert_not_called()
-    materialize_macos.assert_called_once_with(config)
+    # Create assigns the sandbox an instance ID; everything else is passed through.
+    materialize_macos.assert_called_once_with(
+        config.model_copy(update={"instance_id": info.config.instance_id})
+    )
     assert info.status is VMState.CREATED
     assert info.network is None
     assert info.config.macos_machine == config.macos_machine
@@ -126,7 +129,9 @@ async def test_manager_async_create_macos_skips_linux_network(tmp_path: Path) ->
     with patch.object(manager, "_materialize_macos_bundle") as materialize:
         info = await manager.async_create(config)
 
-    materialize.assert_called_once_with(config)
+    materialize.assert_called_once_with(
+        config.model_copy(update={"instance_id": info.config.instance_id})
+    )
     assert info.status is VMState.CREATED
     assert info.network is None
 

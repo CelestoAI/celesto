@@ -5,6 +5,7 @@
 ### Fixed
 
 - Paste multiline commands from Ghostty and Kitty into sandbox SSH sessions using a compatible terminal profile. Direct sandbox shells use the same profile fallback.
+- Give every new sandbox its own machine ID and SSH host keys, kept across restarts and snapshot restores. Sandboxes need an image built with this release; existing sandboxes keep their current identity.
 
 ## 0.1.3.post1 — 2026-09-28
 

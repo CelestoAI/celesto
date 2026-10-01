@@ -174,18 +174,23 @@ Full research notes: the Claude Code session that produced them, and the local E
       5. libkrun (D29): "Sandbox 'sbx-einstein' runs on libkrun, which can't be forked yet. Create a sandbox with '--backend qemu' to fork it."
       6. macOS or Windows guest (D29): "macOS sandboxes can't be forked yet." / "Windows sandboxes can't be forked yet."
       7. Cloud sandbox (D4): "Fork works only on sandboxes on this machine for now. Run 'celesto sandbox create --local' to create one."
-      8. Count out of range (D23): "You can fork 1 to 10 sandboxes at a time; you asked for 25. Run 'celesto sandbox fork sbx-einstein --count 10'."
+      8. Count out of range (D23): "You can fork 1 to 10 sandboxes at a time; you asked for 25. Run 'celesto sandbox fork sbx-einstein --count 10'." When fewer than 1 is asked for, it suggests '--count 1' instead.
       9. Name taken (D23, D26): "A sandbox named 'exp-1' already exists. Choose another name with '--name', or run 'celesto sandbox delete exp-1'."
-      10. Not enough disk space (D23): "Forking 'sbx-einstein' 5 times needs about 10.4 GB, but only 3.1 GB is free. Free up space or use a smaller '--count'."
-      11. Not enough free ports (D23): "Not enough free ports for 5 new sandboxes. Run 'celesto sandbox list' to find sandboxes you can delete."
+      10. Not enough disk space (D23): "Forking 'sbx-einstein' 5 times needs about 10.4 GB, but only 3.1 GB is free. Free up space or use a smaller '--count'." With a count of 1 it says "Forking 'sbx-einstein' once needs about…".
+      11. Not enough free ports (D23): "Not enough free ports for 5 new sandboxes. Run 'celesto sandbox list' to find sandboxes you can delete." With a count of 1 it says "for 1 new sandbox".
       12. Flush failed (D5): "Sandbox 'sbx-einstein' didn't respond when saving its files. Run 'celesto sandbox stop sbx-einstein', then fork again."
       16. QEMU live copy failed or unsupported (D5): "Sandbox 'sbx-einstein' couldn't be copied while running. Run 'celesto sandbox stop sbx-einstein', then fork again."
+      17. No recorded identity yet and not running (D17, D18; added in PR 5): "Sandbox 'sbx-einstein' hasn't finished its first start, so it can't be forked yet. Run 'celesto sandbox start sbx-einstein', then fork again." A sandbox from a current image is recorded the first time it is ready; a running one without a record is read and recorded during the fork's checks instead.
+      18. Requested name isn't a valid sandbox name (D26; added in PR 5): "'Exp' can't be used as a sandbox name. Use up to 64 lowercase letters, numbers, hyphens or underscores, starting and ending with a letter or number."
+      19. Source name too long to number its children (D26; added in PR 5): "Sandbox 'sbx-einstein' has a name too long to number its forks. Choose a shorter name with '--name'."
     - **Per child (that child fails; the others continue, D24):**
       13. Boot timeout: "Sandbox 'sbx-einstein-2' didn't start within 60 seconds and was removed. Run the fork again with '--boot-timeout 120'."
       14. Reset not confirmed (D18): "Sandbox 'sbx-einstein-2' couldn't confirm it has its own identity and was removed. Run the fork again."
+      20. Any other child failure (added in PR 5): "Sandbox 'sbx-einstein-2' couldn't be created and was removed. Run the fork again." When the copy fails before the child exists, the copy's own message is shown instead.
     - **Warning (fork still succeeds):**
       15. Source stayed paused (D8): "Sandbox 'sbx-einstein' stayed paused after the fork. Run 'celesto sandbox resume sbx-einstein' to continue it."
-    - **Notices while waiting (D6, D9):** "Pausing sbx-einstein while its files are copied…" and "Waiting for the fork of sbx-einstein to finish…"
+      21. Generation left behind (D12; added in PR 5): "The fork of 'sbx-einstein' left a saved copy behind. Run 'celesto sandbox snapshot delete fork-sbx-einstein-1759400000-a1b2' to remove it."
+    - **Notices while waiting (D6, D9):** "Pausing sbx-einstein while its files are copied…" and "Waiting for the current snapshot or fork of sbx-einstein to finish…" The fork can't tell whether the operation it waits for is a snapshot or another fork, so the waiting notice names both (changed in PR 5).
   - **D1d (decided, revised 2026-10-01):** Work lands on one feature branch, `feat/sandbox-fork`, cut from `main`. Each plan pull request (PR 1 to PR 6 in `sandbox-fork-plan.md`) is a small, reviewable story with its own tests and targets the feature branch. Merge `main` into the feature branch regularly to keep conflicts small. When all six are in, a final pull request from `feat/sandbox-fork` to `main` runs the full end-to-end suite, including Firecracker, and merges only when it passes. The new image from PR 3 must be published and pinned before that final merge. CI note: `pytest` and `lint` run on every pull request, but the `e2e` workflow runs only on pull requests into `main` (`.github/workflows/e2e.yml`), so trigger it manually (`workflow_dispatch`) on `feat/sandbox-fork` after each merge. This replaces the earlier choice of merging groundwork straight to `main`.
   - The CLI and SDK must leave room to add memory fork later without renaming anything (see D26 and D27).
 
@@ -217,7 +222,7 @@ Full research notes: the Claude Code session that produced them, and the local E
 - **Decision:** Reuse today's disk snapshot path. First flush the guest (guest-agent `/sync`, `guest-agent/src/handler.rs:278`), which writes changes still held in memory to disk. Then copy, with an explicit capture policy per case:
   - **Running QEMU:** `capture_policy=LIVE_ONLY` (`src/celesto/runtime/qemu.py:452`), so the source keeps running. The default `ALLOW_PAUSE` would pause QEMU too (`qemu.py:456`). If the live copy is unsupported or fails, the fork fails with an error (D1b, message 16); it never falls back to a pause.
   - **Running Firecracker:** `capture_policy=ALLOW_PAUSE`: pause, copy, resume (D9).
-  - **Stopped source:** no flush and no pause (D7).
+  - **Stopped source:** no flush and no pause (D7). Today's snapshot path refuses stopped sandboxes, so fork copies the stopped sandbox's own disk directly, under the snapshot lock, into a `disk` snapshot (reflink or sparse copy; a QEMU disk keeps sharing its read-only base image, like its children). It is recorded like any snapshot, so a leftover shows in `celesto sandbox snapshot list` and is removed with `celesto sandbox snapshot delete` (decided in PR 5).
   The flush policy defaults to `required`: if the flush fails, fork stops with a clear error instead of giving children a possibly stale disk. No guest-agent or image release needed.
 - **Why:** Reuses tested code. The result matches pulling the power right after saving: saved data is safe, and a file being written at that exact moment may be incomplete. Databases and most tools recover from that on their own.
 - **Follow-ups:**
@@ -236,6 +241,7 @@ Full research notes: the Claude Code session that produced them, and the local E
   - While waiting, the CLI prints a short notice (for example "Waiting for the fork of sbx-einstein to finish…") so the command doesn't look stuck.
 - **Follow-ups:**
   - Locking stop and delete changes existing snapshot behavior, so it can merge as its own groundwork pull request with its own end-to-end test.
+  - Concurrent forks of one source (PR 5): forks also hold a per-source `{vm_id}.fork-names.lock` from choosing child names until every child's record exists, and choose the names again once they hold it. A second fork therefore continues the numbering instead of colliding, and a requested name taken while it waited refuses the whole fork before anything is copied. Only forks take this lock, so `stop` and `delete` of the source still wait only for the capture, not for the children's disk copies.
   - `delete()` calls `stop()` for a running sandbox (`src/celesto/vm.py:3226`), and the lock is a `flock` on a newly opened file each time (`vm.py:648`), so taking it twice in one call deadlocks. Only the public `stop()` and `delete()` take the lock; `delete()` calls an internal stop helper that doesn't. Same for the async versions.
 
 #### D7. Forking a paused or stopped source
@@ -249,6 +255,7 @@ Full research notes: the Claude Code session that produced them, and the local E
   - **Running:** fork as in D5 (flush, then copy).
   - **Paused:** refuse. Recent changes may still be in memory and the guest agent can't answer, so the flush can't run. The error gives the exact command, for example "Sandbox 'sbx-einstein' is paused. Run 'celesto sandbox resume sbx-einstein', then fork again." Celesto does not resume and re-pause on its own.
   - **Stopped:** allow. Shutdown already wrote everything to disk, so the flush is skipped and the source doesn't need to pause. If the stop had to force-kill the sandbox, the disk matches D5's "power pulled" quality, which is acceptable.
+    - How (PR 5): the stopped sandbox's disk is copied straight into the generation, without starting it; see D5.
   - **Error:** refuse, with an exact recovery command (wording in D1b, message 2).
 - **Follow-ups:**
 
@@ -576,7 +583,7 @@ These decisions belong to the later memory fork design. They are kept here so th
 | D27 | Python SDK | `fork()` raises on failure and emits warnings via `warnings.warn`; `fork_many()` returns `ForkBatch` (children, warnings, source state); async twins; local only |
 | D28 | Local server and TypeScript | Not in the first release; add later with snapshot and stop/start routes |
 | D29 | Backends | Firecracker and QEMU (Linux and macOS hosts); libkrun, VZ and Windows refused |
-| D1b | Error messages | 16 messages and 2 notices, listed under D1 |
+| D1b | Error messages | 21 messages and 2 notices, listed under D1 |
 | D1d | Pull request strategy | Feature branch `feat/sandbox-fork`; six story pull requests target it; final pull request to `main` after a full end-to-end run |
 | D2, D3, D11, D16 | Memory fork | Deferred to the memory fork design |
 
