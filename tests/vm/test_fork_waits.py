@@ -200,14 +200,6 @@ def test_stop_and_delete_wait_while_a_fork_saves_its_copy(
         assert [(c.name, c.ok) for c in race.fork.result.children] == [("src-1", True)]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Product bug: once the copy is saved, delete of the source goes ahead (D6), "
-        "but the fork then re-reads the deleted source and raises \"VM 'src' not found\" "
-        "although its child was created and started, so the caller never learns about it."
-    ),
-)
 def test_a_fork_whose_source_is_deleted_after_its_copy_still_reports_its_child(
     world: _World,  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,
@@ -226,3 +218,5 @@ def test_a_fork_whose_source_is_deleted_after_its_copy_still_reports_its_child(
     assert sorted(vm.vm_id for vm in world.state.list_vms()) == ["src-1"]
     assert race.fork.error is None, race.fork.error
     assert [(c.name, c.ok) for c in race.fork.result.children] == [("src-1", True)]
+    # The source is gone, so its state is reported as unknown rather than raising.
+    assert race.fork.result.source_state is None
