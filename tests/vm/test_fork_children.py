@@ -37,6 +37,9 @@ a QEMU live copy that fails. Failure modes, written before the code:
    children are being copied.
 10. When two forks ask for the same explicit name, the second fails child by
     child (or copies the source) instead of refusing the whole fork up front.
+11. A stopped QEMU source with a raw disk is started while the fork waits for
+    the lock, and the fork copies it live anyway, so every child gets a disk
+    in the wrong format, instead of refusing before anything is copied.
 
 The sandbox's disk copy, hypervisor start and guest agent are replaced at
 their boundaries; the fork's checks, lock, generation and cleanup are real.
@@ -416,4 +419,36 @@ def test_a_name_taken_while_waiting_refuses_the_whole_fork(world: _World, use_as
     assert _names_of(batches[0]) == ["exp-1", "exp-2"]
     # The refused fork copied nothing: only the winner's children were made.
     assert sorted(world.created) == ["exp-1", "exp-2"]
+    assert world.generations() == []
+
+
+@pytest.mark.parametrize("use_async", [False, True], ids=["sync", "async"])
+def test_a_raw_qemu_source_started_while_waiting_is_refused_before_copying(
+    world: _World, monkeypatch: pytest.MonkeyPatch, use_async: bool
+) -> None:
+    source = world.add_source("qemu", VMState.STOPPED)
+    stored = world.state.get_vm(_SOURCE).config
+    world.state.update_vm(_SOURCE, config=stored.model_copy(update={"rootfs_format": "raw"}))
+    claim = Celesto._claim_fork_names
+
+    def claim_then_start(self: Celesto, *args: Any, **kwargs: Any) -> Any:
+        # Someone starts the source after the fork's checks, before its lock.
+        claimed = claim(self, *args, **kwargs)
+        world.state.update_vm(_SOURCE, status=VMState.RUNNING)
+        return claimed
+
+    monkeypatch.setattr(Celesto, "_claim_fork_names", claim_then_start)
+
+    with pytest.raises(CelestoError) as caught:
+        if use_async:
+            asyncio.run(source._async_fork_many(2, boot_timeout=30))
+        else:
+            source._fork_many(2, boot_timeout=30)
+
+    assert str(caught.value) == (
+        "Sandbox 'src' couldn't be copied while running. "
+        "Run 'celesto sandbox stop src', then fork again."
+    )
+    assert world.capture_policies == []
+    assert world.created == []
     assert world.generations() == []

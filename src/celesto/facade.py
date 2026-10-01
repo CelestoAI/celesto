@@ -4340,8 +4340,9 @@ modprobe 9pnet_virtio""".strip()
             raise CelestoError(count_message(vm_id, count), {"vm_id": vm_id, "count": count})
         self._refresh_info()
         source = self._info
-        self._ensure_fork_state(source)
+        # What can never be forked is refused before the source's state.
         self._sdk._ensure_disk_can_be_copied(source)
+        self._ensure_fork_state(source)
         identity = self._fork_source_identity(source)
 
         # A cheap first pass so a taken name fails before any wait; the names
@@ -4350,14 +4351,6 @@ modprobe 9pnet_virtio""".strip()
 
         # Raises when the base image the children would share is missing.
         self._sdk._shared_base_image(source)
-        if (
-            source.status == VMState.RUNNING
-            and self._sdk._backend_for_vm(source) == BACKEND_QEMU
-            and source.config.effective_rootfs_format != "qcow2"
-        ):
-            # QEMU copies a running raw disk into a qcow2 file, which a raw
-            # child can't use; a stopped raw disk is copied as it is.
-            raise CelestoError(live_copy_failed_message(vm_id), {"vm_id": vm_id})
         self._sdk._ensure_fork_disk_space(source, count)
         self._sdk._ensure_fork_ports(source, count)
         return _ForkPlan(source=source, identity=identity, names=names, boot_timeout=boot_timeout)
@@ -4388,13 +4381,26 @@ modprobe 9pnet_virtio""".strip()
         """
         return replace(plan, names=self._fork_child_names(len(plan.names), name))
 
-    @staticmethod
-    def _ensure_fork_state(source: VMInfo) -> None:
-        """Refuse a paused source or one in an error state (D7)."""
+    def _ensure_fork_state(self, source: VMInfo) -> None:
+        """Refuse a source whose current state can't be copied.
+
+        Checked when the fork is planned and again under the snapshot lock,
+        since the source may be paused or started while the fork waits.
+        Paused and error states are refused (D7). QEMU copies a running raw
+        disk into a qcow2 file, which a raw child can't use, so a running
+        raw QEMU source is refused too; a stopped raw disk is copied as it is.
+        """
+        vm_id = source.vm_id
         if source.status == VMState.PAUSED:
-            raise CelestoError(paused_message(source.vm_id), {"vm_id": source.vm_id})
+            raise CelestoError(paused_message(vm_id), {"vm_id": vm_id})
         if source.status == VMState.ERROR:
-            raise CelestoError(error_state_message(source.vm_id), {"vm_id": source.vm_id})
+            raise CelestoError(error_state_message(vm_id), {"vm_id": vm_id})
+        if (
+            source.status == VMState.RUNNING
+            and self._sdk._backend_for_vm(source) == BACKEND_QEMU
+            and source.config.effective_rootfs_format != "qcow2"
+        ):
+            raise CelestoError(live_copy_failed_message(vm_id), {"vm_id": vm_id})
 
     def _fork_source_identity(self, source: VMInfo) -> VMIdentity:
         """Return the source's recorded identity, recording it now if needed.
