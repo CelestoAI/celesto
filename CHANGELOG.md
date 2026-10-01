@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- Fork a sandbox into up to 10 new, separate sandboxes with `celesto sandbox fork SOURCE`, or `fork()` and `fork_many()` in Python. Each copy starts with the source's files and settings, including environment variables, and gets its own name, address, SSH host keys and machine ID. `celesto sandbox info` shows where a copy came from. Forking works on local QEMU and Firecracker sandboxes created with this release's image. See [Fork a sandbox](docs/guides/sandboxes.md#fork-a-sandbox).
+- `celesto.CelestoWarning` reports problems that don't fail a call, such as a forked sandbox staying paused.
+
 ### Fixed
 
 - Paste multiline commands from Ghostty and Kitty into sandbox SSH sessions using a compatible terminal profile. Direct sandbox shells use the same profile fallback.
