@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import functools
 import json
 import logging
 import math
@@ -1098,13 +1099,20 @@ class CelestoManager:
             {"vm_id": vm_id},
         )
 
-    def _materialize_rootfs_from_disk(self, config: VMConfig, disk_path: Path) -> VMConfig:
+    def _materialize_rootfs_from_disk(
+        self,
+        config: VMConfig,
+        disk_path: Path,
+        *,
+        shared_base: Path | None = None,
+    ) -> VMConfig:
         """Copy a prepared disk into place as this VM's own isolated disk.
 
         Unlike :meth:`_materialize_rootfs`, this never makes a thin QEMU
-        overlay: the prepared disk may be deleted as soon as the copy exists,
-        so the copy must not depend on it. Every layer of a QEMU disk's
-        backing chain is copied next to the new disk too.
+        overlay on the prepared disk: it may be deleted as soon as the copy
+        exists, so the copy must not depend on it. The layers of a QEMU
+        disk's backing chain are copied next to the new disk too, down to
+        *shared_base*, which the copy keeps reading from.
         """
         if not disk_path.is_file():
             raise CelestoError(
@@ -1124,13 +1132,61 @@ class CelestoManager:
         if backend == BACKEND_QEMU:
             expected = "qcow2" if rootfs_format == "qcow2" else "raw"
             self._copy_qemu_disk_chain(
-                disk_path, instance_rootfs, vm_id=config.vm_id, expected_format=expected
+                disk_path,
+                instance_rootfs,
+                vm_id=config.vm_id,
+                expected_format=expected,
+                shared_base=shared_base,
             )
         else:
             self._copy_with_reflink(disk_path, instance_rootfs)
         return config.model_copy(
             update={"rootfs_path": instance_rootfs, "rootfs_format": rootfs_format}
         )
+
+    def _shared_base_image(self, source: VMInfo) -> Path | None:
+        """Return the read-only base image copies of *source*'s disk may share.
+
+        A QEMU sandbox's disk is a thin layer on a base image in the image
+        cache, the bottom of its own backing chain. Only a base outside the
+        disk directory is shared: files there belong to one sandbox and are
+        deleted with it. ``None`` means nothing is shared, so a copy takes
+        every layer.
+
+        Raises:
+            CelestoError: If the base image is missing.
+        """
+        if self._backend_for_vm(source) != BACKEND_QEMU:
+            return None
+        current = self._managed_disk_for_vm(source)
+        if current is None or not current.is_file():
+            return None
+        disk_dir = self.disk_dir.resolve()
+        seen: set[Path] = {current.resolve()}
+        while True:
+            try:
+                info = self._qemu_disk_info(current, source.vm_id)
+            except CelestoError:
+                return None
+            backing_name = info.get("full-backing-filename") or info.get("backing-filename")
+            if not backing_name:
+                break
+            current = Path(backing_name).resolve()
+            if current in seen:
+                return None
+            seen.add(current)
+            if not current.is_file():
+                break
+        if current.is_relative_to(disk_dir):
+            return None
+        if not current.is_file():
+            raise CelestoError(
+                f"Sandbox '{source.vm_id}' uses a base image that is missing on your machine: "
+                f"'{current}'. Restore it, or create a new sandbox with 'celesto sandbox "
+                "create' and fork that one.",
+                {"vm_id": source.vm_id, "base_image": str(current)},
+            )
+        return current
 
     def _qemu_disk_info(self, disk_path: Path, vm_id: str) -> dict[str, Any]:
         """Return ``qemu-img info`` for a disk, raising instead of guessing."""
@@ -1168,6 +1224,7 @@ class CelestoManager:
         *,
         vm_id: str,
         expected_format: str | None = None,
+        shared_base: Path | None = None,
         _depth: int = 0,
     ) -> str:
         """Copy a QEMU disk and its backing chain; return the copy's format.
@@ -1175,7 +1232,8 @@ class CelestoManager:
         Each layer is copied with reflink or sparse I/O. Backing layers land
         next to *target_path* as ``<disk>.backing-N`` sidecars, which delete
         and leftover cleanup already treat as part of the disk, and the copy
-        is re-pointed at them.
+        is re-pointed at them. The chain stops at *shared_base*: the copy is
+        pointed at that file itself instead of a copy of it.
         """
         info = self._qemu_disk_info(source_path, vm_id)
         disk_format = info.get("format")
@@ -1196,10 +1254,23 @@ class CelestoManager:
                 f"'{backing}'. Restore it, or run the copy again.",
                 {"vm_id": vm_id, "disk_path": str(source_path), "backing_file": str(backing)},
             )
-        backing_target = QemuRuntimeAdapter._local_backing_copy_path(target_path, backing, _depth)
-        backing_format = self._copy_qemu_disk_chain(
-            backing, backing_target, vm_id=vm_id, _depth=_depth + 1
-        )
+        if shared_base is not None and backing.resolve() == shared_base:
+            backing_target = shared_base
+            backing_format = str(
+                info.get("backing-filename-format")
+                or self._qemu_disk_info(shared_base, vm_id).get("format")
+            )
+        else:
+            backing_target = QemuRuntimeAdapter._local_backing_copy_path(
+                target_path, backing, _depth
+            )
+            backing_format = self._copy_qemu_disk_chain(
+                backing,
+                backing_target,
+                vm_id=vm_id,
+                shared_base=shared_base,
+                _depth=_depth + 1,
+            )
         qemu_img = self._find_qemu_img_binary()
         assert qemu_img is not None  # _qemu_disk_info already required it
         result = subprocess.run(
@@ -2249,6 +2320,7 @@ class CelestoManager:
         config: VMConfig,
         *,
         prepared_disk: Path | None = None,
+        prepared_disk_base: Path | None = None,
         reserve_vsock_device: bool = False,
     ) -> VMInfo:
         """Create a VM; the shared body of :meth:`create` and disk copies.
@@ -2259,6 +2331,9 @@ class CelestoManager:
                 this file instead of a disk made from ``config.rootfs_path``.
                 The copy is never resized: it already has the size it had
                 when it was saved. See :meth:`_create_from_disk`.
+            prepared_disk_base: Read-only base image at the bottom of
+                *prepared_disk*'s QEMU backing chain that the copy shares
+                instead of copying, as any QEMU sandbox shares its base.
             reserve_vsock_device: Reserve a vsock CID even when the control
                 channel will not use vsock, as an explicit ``config.vsock``
                 would. Disk copies use it to give each copy its own CID.
@@ -2326,7 +2401,7 @@ class CelestoManager:
                     self._materialize_macos_bundle(effective_config)
                 elif prepared_disk is not None:
                     effective_config = self._materialize_rootfs_from_disk(
-                        effective_config, prepared_disk
+                        effective_config, prepared_disk, shared_base=prepared_disk_base
                     )
                 else:
                     effective_config = self._materialize_rootfs(effective_config)
@@ -2571,8 +2646,11 @@ class CelestoManager:
         *disk_path* is copied, never referenced, so the caller may delete it
         as soon as this returns. It must have the format of the source's own
         disk: raw ext4 for Firecracker; for QEMU, qcow2 (or raw when the
-        source grew a raw disk). A QEMU disk may have a backing chain; every
-        layer is copied. The copy is not resized.
+        source grew a raw disk). A QEMU disk may have a backing chain: the
+        layers above the source's read-only base image are copied, and the
+        copy shares that base image like any QEMU sandbox does. A chain that
+        does not end at the source's base image is copied in full. The copy
+        is not resized.
 
         The sandbox is created, not started. Start it like any created
         sandbox, for example ``Celesto.from_id(name, state_manager=...)
@@ -2590,15 +2668,16 @@ class CelestoManager:
         Raises:
             VMAlreadyExistsError: If a sandbox named *name* exists.
             CelestoError: If the source can't be copied this way (shared
-                folders, extra drives, a shared disk, or a backend or guest
-                other than Linux on Firecracker or QEMU), a saved disk for
-                *name* is still on this machine, or the copy fails. Nothing
-                is left behind.
+                folders, extra drives, a shared disk, a missing base image,
+                or a backend or guest other than Linux on Firecracker or
+                QEMU), a saved disk for *name* is still on this machine, or
+                the copy fails. Nothing is left behind.
         """
         config = self._config_for_disk_copy(source, name)
         info = self._create(
             config,
             prepared_disk=disk_path,
+            prepared_disk_base=self._shared_base_image(source),
             reserve_vsock_device=source.config.vsock is not None,
         )
         try:
@@ -2618,9 +2697,11 @@ class CelestoManager:
     ) -> VMInfo:
         """Async version of :meth:`_create_from_disk`."""
         config = self._config_for_disk_copy(source, name)
+        base_image = await asyncio.to_thread(self._shared_base_image, source)
         info = await self._async_create(
             config,
             prepared_disk=disk_path,
+            prepared_disk_base=base_image,
             reserve_vsock_device=source.config.vsock is not None,
         )
         try:
@@ -4740,6 +4821,7 @@ class CelestoManager:
         config: VMConfig,
         *,
         prepared_disk: Path | None = None,
+        prepared_disk_base: Path | None = None,
         reserve_vsock_device: bool = False,
     ) -> VMInfo:
         """Async version of :meth:`_create`."""
@@ -4814,7 +4896,12 @@ class CelestoManager:
                     await asyncio.to_thread(self._materialize_macos_bundle, effective_config)
                 elif prepared_disk is not None:
                     effective_config = await asyncio.to_thread(
-                        self._materialize_rootfs_from_disk, effective_config, prepared_disk
+                        functools.partial(
+                            self._materialize_rootfs_from_disk,
+                            effective_config,
+                            prepared_disk,
+                            shared_base=prepared_disk_base,
+                        )
                     )
                 else:
                     effective_config = await self._async_materialize_rootfs(effective_config)
