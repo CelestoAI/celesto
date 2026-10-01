@@ -1,6 +1,6 @@
 # Sandbox fork: implementation plan
 
-This plan turns the [decision log](sandbox-fork-decisions.md) into six pull requests. Each one tells a single story that can be reviewed and tested on its own. Users see nothing of fork until the last pull request merges and the full end-to-end suite passes (D1d).
+This plan turns the [decision log](sandbox-fork-decisions.md) into six pull requests. Each one tells a single story that can be reviewed and tested on its own. All six target the feature branch `feat/sandbox-fork`; a final pull request merges it into `main` after the full end-to-end suite passes (D1d).
 
 Scope: disk fork for local sandboxes on Firecracker and QEMU, through the CLI and Python SDK. Memory fork, cloud fork, the local HTTP server and TypeScript SDK are out of scope ([issue #584](https://github.com/CelestoAI/celesto/issues/584)).
 
@@ -16,7 +16,7 @@ PR 5  Fork engine (internal)                        ┤  needs PR 1, 3, 4
 PR 6  celesto sandbox fork + vm.fork() (user-facing)┘  needs PR 5
 ```
 
-PRs 1 to 3 change behavior for existing users in small, safe ways, so each ships its own end-to-end coverage. PRs 4 and 5 add internal code with no new commands, so they are safe to ship in any unrelated release. PR 6 is the only one users can see.
+PRs 1 to 3 change behavior for existing users in small, safe ways, so each brings its own end-to-end coverage. PRs 4 and 5 add internal code with no new commands. PR 6 is the only one that adds fork itself. Nothing reaches `main` until the final feature-branch pull request. The `e2e` workflow only runs automatically on pull requests into `main`, so trigger it manually on `feat/sandbox-fork` after each merge to cover Firecracker.
 
 Every pull request follows the testing rules in `CLAUDE.md`: design the end-to-end test before the code, prefer end-to-end tests over isolated ones, and produce a repeatable artifact at the end of each end-to-end test. Isolated tests appear only where the end-to-end path can't trigger a failure, and each lists its failure modes first.
 
