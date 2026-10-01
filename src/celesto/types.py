@@ -1231,6 +1231,9 @@ class SnapshotInfo(BaseModel):
     bitmap_name: str | None = None
     restored: bool = False
     restored_vm_id: str | None = None
+    # Problems that did not fail the snapshot, such as the source staying
+    # paused. Only set on the value returned by create_snapshot; never saved.
+    warnings: tuple[str, ...] = ()
 
     model_config = {"frozen": True}
 
