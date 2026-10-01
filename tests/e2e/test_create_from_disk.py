@@ -18,8 +18,11 @@ This is the internal building block for fork (not a user command yet). The
 test creates a source sandbox, writes a marker file, stops it, copies its disk
 to a stand-in for fork's saved copy, and creates two sandboxes from that copy.
 Both must boot with the marker, their own name, network, ports and identity,
-and keep working after the saved copy and the source are deleted. Each run
-writes a JSON summary of every sandbox.
+and keep working after the saved copy and the source are deleted. They keep
+the source's settings (D19): CPU, memory, environment variables, internet
+policy, network type, SSH key and the rest, but not its kept-disk setting,
+instance ID, vsock, forward host ports or ``ip=`` / instance-ID boot
+arguments. Each run writes a JSON summary of every sandbox.
 """
 
 from __future__ import annotations
@@ -27,7 +30,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import platform
 import shutil
 import socket
 import subprocess
@@ -37,7 +39,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from _util import BOOT_TIMEOUT, E2E_BACKENDS, require_backend_available, selected_backend
+from _util import BOOT_TIMEOUT, E2E_BACKENDS, e2e_artifact_dir, require_e2e_backend
 
 from celesto import Celesto
 from celesto.cli._sqlite import SQLiteStateManager
@@ -45,7 +47,7 @@ from celesto.exceptions import CelestoError, VMNotFoundError
 from celesto.facade import _build_auto_config
 from celesto.host.disk import clone_or_sparse_copy
 from celesto.runtime.backends import BACKEND_QEMU
-from celesto.types import PortForwardConfig, VMInfo, VMState, WorkspaceMount
+from celesto.types import PortForwardConfig, VMConfig, VMInfo, VMState, WorkspaceMount
 from celesto.vm import CelestoManager, resolve_data_dir
 
 pytestmark = pytest.mark.e2e
@@ -56,18 +58,7 @@ _HOST_KEY_FINGERPRINT = "ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub | awk 
 
 
 def _require_backend(backend: str, request: pytest.FixtureRequest) -> None:
-    selected = selected_backend(request.config)
-    if selected != "all" and backend != selected:
-        pytest.skip(
-            f"End-to-end tests for '{backend}' are skipped because this run selected "
-            f"'{selected}'; rerun all backends with: pytest tests/e2e."
-        )
-    if backend == BACKEND_QEMU and platform.system() == "Darwin":
-        # macOS runs QEMU with Hypervisor.framework, so /dev/kvm is not needed.
-        if shutil.which("qemu-system-aarch64") is None:
-            pytest.skip("Install QEMU (brew install qemu) to run the copied-disk test.")
-        return
-    require_backend_available(backend, request.config, sandbox_name=f"disk-copy-{backend}")  # type: ignore[arg-type]
+    require_e2e_backend(backend, request.config, sandbox_name=f"disk-copy-{backend}")  # type: ignore[arg-type]
 
 
 def _free_local_port() -> int:
@@ -93,6 +84,14 @@ def _guest_value(sandbox: Celesto, command: str) -> str:
     return result.stdout.strip()
 
 
+def _guest_settings(sandbox: Celesto) -> dict[str, str]:
+    """CPU count and environment variable as the guest itself sees them."""
+    return {
+        "nproc": _guest_value(sandbox, "nproc"),
+        "FORK_E2E_TOKEN": _guest_value(sandbox, "printenv FORK_E2E_TOKEN"),
+    }
+
+
 def _backing_chain(disk: Path) -> list[str]:
     """Return every file a disk reads from, top first, as qemu-img reports it."""
     if disk.suffix != ".qcow2":
@@ -106,9 +105,34 @@ def _backing_chain(disk: Path) -> list[str]:
     return [str(Path(layer["filename"]).resolve()) for layer in json.loads(result.stdout)]
 
 
+def _inherited(config: VMConfig) -> dict[str, Any]:
+    """The settings a copy must keep from its source (D19), as stored."""
+    return {
+        "vcpu_count": config.vcpu_count,
+        "memory": config.memory,
+        "guest_os": config.guest_os.value,
+        "backend": config.backend,
+        "kernel_path": str(config.kernel_path),
+        "disk_size_mib": config.disk_size_mib,
+        "env_vars": config.env_vars,
+        "internet_settings": (
+            config.internet_settings.model_dump(mode="json")
+            if config.internet_settings is not None
+            else None
+        ),
+        "network_rate_limit_mbps": config.network_rate_limit_mbps,
+        "qemu_network": config.qemu_network,
+        "network_attachment": config.network_attachment.model_dump(mode="json"),
+        "ssh_public_key": config.ssh_public_key,
+        "comm_channel": config.comm_channel,
+    }
+
+
 def _summary(info: VMInfo) -> dict[str, Any]:
     network = info.network
     return {
+        "settings": _inherited(info.config),
+        "boot_args": info.config.boot_args,
         "status": info.status.value,
         "instance_id": info.config.instance_id,
         "guest_ip": network.guest_ip if network else None,
@@ -136,17 +160,27 @@ def test_sandboxes_created_from_a_copied_disk_are_independent(
     source_name = f"{prefix}disk-src-{suffix}"
     child_names = [f"{prefix}disk-copy{index}-{suffix}" for index in (1, 2)]
     marker = f"copied-disk-{suffix}"
-    artifact_dir = Path(os.environ.get("CELESTO_E2E_ARTIFACT_DIR", tmp_path))
-    artifact_dir.mkdir(parents=True, exist_ok=True)
+    artifact_dir = e2e_artifact_dir(tmp_path)
     artifact = artifact_dir / f"create-from-disk-{backend}.json"
     report: dict[str, Any] = {"backend": backend, "source": source_name, "sandboxes": {}}
 
     state = SQLiteStateManager(resolve_data_dir() / "celesto.db")
     manager = CelestoManager(state_manager=state)
     created: list[str] = []
+    source_disk: Path | None = None
     generation_dir = resolve_data_dir() / "e2e-generations" / suffix
     try:
         config, ssh_key_path = _build_auto_config(vm_name=source_name, os="alpine", backend=backend)
+        # Settings that differ from the defaults, so a copy that resets one
+        # is caught. The source keeps its disk on delete; its copies must not.
+        config = config.model_copy(
+            update={
+                "vcpu_count": 3,
+                "memory": config.memory + 128,
+                "env_vars": {"FORK_E2E_TOKEN": f"token-{suffix}"},
+                "retain_disk_on_delete": True,
+            }
+        )
         if backend == BACKEND_QEMU:
             # Create-time forwards exist only for QEMU's user-mode network.
             config = config.model_copy(
@@ -164,10 +198,13 @@ def test_sandboxes_created_from_a_copied_disk_are_independent(
         _guest_value(source, f"echo {marker} > {_MARKER_PATH} && sync && cat {_MARKER_PATH}")
         source_machine_id = _guest_value(source, "cat /etc/machine-id")
         source_fingerprint = _guest_value(source, _HOST_KEY_FINGERPRINT)
+        source_guest = _guest_settings(source)
         source.stop()
         source_info = state.get_vm(source_name)
+        source_disk = source_info.config.rootfs_path
         report["sandboxes"][source_name] = {
             **_summary(source_info),
+            "guest_settings": source_guest,
             "machine_id": source_machine_id,
             "host_key_fingerprint": source_fingerprint,
             "backing_chain": _backing_chain(source_info.config.rootfs_path),
@@ -204,6 +241,7 @@ def test_sandboxes_created_from_a_copied_disk_are_independent(
             entry["guest_instance_id"] = _guest_value(child, "cat /etc/celesto/instance-id")
             entry["machine_id"] = _guest_value(child, "cat /etc/machine-id")
             entry["host_key_fingerprint"] = _guest_value(child, _HOST_KEY_FINGERPRINT)
+            entry["guest_settings"] = _guest_settings(child)
             child_disk = Path(entry["disk"])
             entry["backing_chain"] = _backing_chain(child_disk)
             entry["base_image_copies"] = sorted(
@@ -227,6 +265,21 @@ def test_sandboxes_created_from_a_copied_disk_are_independent(
             assert entry["marker"] == marker, f"{name} lost the source's files: {entry}"
             assert entry["guest_instance_id"] == entry["instance_id"], f"{name}: {entry}"
             assert entry["retain_disk_on_delete"] is False
+            # D19: the source's settings, as stored and as the guest sees them.
+            assert entry["settings"] == sandboxes[source_name]["settings"], f"{name}: {entry}"
+            assert entry["guest_settings"] == sandboxes[source_name]["guest_settings"], (
+                f"{name}: {entry['guest_settings']}"
+            )
+            # D20: never the source's own address or identity.
+            source_instance_id = sandboxes[source_name]["instance_id"]
+            assert source_instance_id not in entry["boot_args"], f"{name}: {entry['boot_args']}"
+            source_ip_args = {
+                part
+                for part in sandboxes[source_name]["boot_args"].split()
+                if part.startswith("ip=")
+            }
+            child_ip_args = {part for part in entry["boot_args"].split() if part.startswith("ip=")}
+            assert not source_ip_args & child_ip_args, f"{name}: {entry['boot_args']}"
             assert entry["lineage"] is not None, f"{name} has no lineage"
             assert entry["lineage"]["forked_from"] == source_name
             assert [f["guest_port"] for f in entry["port_forwards"]] == [
@@ -294,6 +347,10 @@ def test_sandboxes_created_from_a_copied_disk_are_independent(
         for name in reversed(created):
             with suppress(Exception):
                 manager.delete(name)
+        if source_disk is not None:
+            # The source keeps its disk (and a marker beside it) on delete.
+            source_disk.unlink(missing_ok=True)
+            source_disk.with_name(f"{source_disk.name}.retained").unlink(missing_ok=True)
         shutil.rmtree(generation_dir, ignore_errors=True)
         manager.close()
 
@@ -307,8 +364,7 @@ def test_sources_a_disk_copy_cannot_reproduce_are_refused(
 
     prefix = os.environ.get("CELESTO_E2E_NAME_PREFIX", "e2e-")
     suffix = uuid.uuid4().hex[:6]
-    artifact_dir = Path(os.environ.get("CELESTO_E2E_ARTIFACT_DIR", tmp_path))
-    artifact_dir.mkdir(parents=True, exist_ok=True)
+    artifact_dir = e2e_artifact_dir(tmp_path)
     artifact = artifact_dir / f"create-from-disk-refusals-{backend}.json"
     state = SQLiteStateManager(resolve_data_dir() / "celesto.db")
     manager = CelestoManager(state_manager=state)
