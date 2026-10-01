@@ -30,7 +30,7 @@ Every pull request follows the testing rules in `CLAUDE.md`: design the end-to-e
 
 - `stop` (`src/celesto/vm.py:2429`) and `delete` (`src/celesto/vm.py:3203`), and their async versions, take the existing per-sandbox snapshot lock (`{vm_id}.snapshot.lock`, `src/celesto/vm.py:693`).
 - Avoid a self-deadlock: `delete()` calls `stop()` for a running sandbox (`vm.py:3226`), and the lock is a `flock` on a newly opened file each time (`vm.py:648`), so taking it twice in one call blocks forever. Only the public `stop()` and `delete()` take the lock; both call an internal, unlocked stop helper. Same for the async versions.
-- While waiting, the CLI prints "Waiting for the snapshot of sbx-einstein to finish…". PR 6 adds the fork wording.
+- While waiting, the CLI prints "Waiting for the current snapshot or fork of sbx-einstein to finish…" (first "Waiting for the snapshot of sbx-einstein to finish…"; changed in review to the fork's wording, since a fork holds the same lock).
 
 **End-to-end test** (`tests/e2e/test_lifecycle.py`, Firecracker and QEMU):
 
@@ -161,13 +161,13 @@ Every pull request follows the testing rules in `CLAUDE.md`: design the end-to-e
   - Without `--name`, children take the next free numbers after the source's name (D26).
   - Exit code 1 if any child failed (D24).
   - Per-child lines in human output, and a per-child list in `--json`.
-  - The notices "Pausing sbx-einstein while its files are copied…" and "Waiting for the fork of sbx-einstein to finish…".
+  - The notices "Pausing sbx-einstein while its files are copied…" and "Waiting for the current snapshot or fork of sbx-einstein to finish…".
 - **Python:**
   - `vm.fork(name=None)` returns one child and raises on any failure. It emits the D8 warning with `warnings.warn` and a new Celesto warning class; the SDK has no warning mechanism today.
   - `vm.fork_many(count, *, name=None, parallel=4)` returns a `ForkBatch` with `children` (one `ForkResult` each), `warnings` and `source_state`, mirroring the CLI's JSON. It raises for failures before children exist and returns per-child failures.
   - Async twins `async_fork` and `async_fork_many` (D27).
   - Cloud sandboxes raise the D4 message: call `cloud_message()` from `celesto._fork` in the SDK and CLI cloud paths. The local engine never uses message 7, because a local `Celesto` object can't be a cloud sandbox.
-- **Messages:** all 21 messages and both notices from D1b, identical in human and JSON output.
+- **Messages:** all 27 messages and both notices from D1b, identical in human and JSON output.
 - **Docs:**
   - A new "Fork a sandbox" section in `docs/guides/sandboxes.md`, or its own guide.
   - The CLI reference and the changelog.
