@@ -96,6 +96,7 @@ from celesto.types import (
     VMInfo,
     VMState,
     VsockConfig,
+    generate_instance_id,
 )
 from celesto.utils import RUNTIME_PRIVILEGE_SETUP_HINT, which
 
@@ -105,6 +106,11 @@ logger = logging.getLogger(__name__)
 DEFAULT_DATA_DIR_ENV = "CELESTO_DATA_DIR"
 DEFAULT_SYSTEM_DATA_DIR = Path("/var/lib/celesto")
 DEFAULT_SOCKET_DIR = Path("/tmp")
+
+# Kernel command-line parameter carrying ``VMConfig.instance_id``. The guest's
+# /init compares it with /etc/celesto/instance-id to tell a new machine from a
+# restart of the same one.
+_INSTANCE_ID_BOOT_PARAM = "celesto.instance_id"
 
 # Marks a per-VM disk that outlives its VM row on purpose, so the reclaim
 # sweep can tell a deliberately kept disk from a leaked one.
@@ -2084,6 +2090,12 @@ class CelestoManager:
         effective_config = config
         if effective_config.backend != backend:
             effective_config = effective_config.model_copy(update={"backend": backend})
+        if effective_config.instance_id is None:
+            # Stored with the config so restarts and snapshot restores of this
+            # sandbox boot with the same identity.
+            effective_config = effective_config.model_copy(
+                update={"instance_id": generate_instance_id()}
+            )
         if (
             effective_config.network_attachment.mode == "bridge"
             and backend == BACKEND_QEMU
@@ -3770,6 +3782,17 @@ class CelestoManager:
                 args = " ".join([args, *(f"{param}={encoded}" for param in missing_params)]).strip()
                 parts = args.split()
 
+        instance_id = vm_info.config.instance_id
+        if (
+            instance_id
+            and backend in {BACKEND_FIRECRACKER, BACKEND_QEMU}
+            and not any(part.startswith(f"{_INSTANCE_ID_BOOT_PARAM}=") for part in parts)
+        ):
+            # Only images that read this parameter act on it; older images
+            # ignore unknown parameters, so no legacy name is needed.
+            args = f"{args} {_INSTANCE_ID_BOOT_PARAM}={instance_id}".strip()
+            parts = args.split()
+
         if vm_info.network is None:
             return args
 
@@ -4298,6 +4321,12 @@ class CelestoManager:
         effective_config = config
         if effective_config.backend != backend:
             effective_config = effective_config.model_copy(update={"backend": backend})
+        if effective_config.instance_id is None:
+            # Stored with the config so restarts and snapshot restores of this
+            # sandbox boot with the same identity.
+            effective_config = effective_config.model_copy(
+                update={"instance_id": generate_instance_id()}
+            )
         if (
             effective_config.network_attachment.mode == "bridge"
             and backend == BACKEND_QEMU
