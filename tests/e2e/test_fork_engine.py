@@ -424,3 +424,71 @@ def test_forks_that_cannot_work_are_refused_before_anything_is_copied(
         print(f"fork engine artifact: {artifact}")
         _delete_everything(manager, created, source_name)
         manager.close()
+
+
+@pytest.mark.parametrize("backend", E2E_BACKENDS, ids=str)
+def test_forks_started_together_get_their_own_names(
+    backend: str, request: pytest.FixtureRequest, tmp_path: Path
+) -> None:
+    """Two forks of one source at once: the second continues the numbering."""
+    _require_backend(backend, request)
+    source_name, _suffix = _names("both")
+    artifact = _artifact(tmp_path, f"fork-engine-{backend}-concurrent.json")
+    report: dict[str, Any] = {"backend": backend, "source": source_name}
+    state = SQLiteStateManager(resolve_data_dir() / "celesto.db")
+    manager = CelestoManager(state_manager=state)
+    created: list[str] = []
+    try:
+        source, ssh_key_path = _new_source(source_name, backend, state)
+        created.append(source_name)
+        source.start(boot_timeout=BOOT_TIMEOUT)
+        assert source.run("true").exit_code == 0
+
+        start = threading.Barrier(2)
+        outcomes: list[Any] = []
+        notices: list[str] = []
+
+        def fork() -> None:
+            handle = Celesto.from_id(source_name, ssh_key_path=ssh_key_path, state_manager=state)
+            start.wait()
+            try:
+                outcomes.append(
+                    handle._fork_many(2, boot_timeout=BOOT_TIMEOUT, on_notice=notices.append)
+                )
+            except Exception as exc:  # noqa: BLE001 - reported below
+                outcomes.append(exc)
+
+        threads = [threading.Thread(target=fork) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(900)
+        batches = [outcome for outcome in outcomes if not isinstance(outcome, Exception)]
+        for batch in batches:
+            created.extend(child.name for child in batch.children)
+        report["outcomes"] = [
+            [{"name": c.name, "ok": c.ok, "error": c.error} for c in outcome.children]
+            if not isinstance(outcome, Exception)
+            else f"raised: {outcome}"
+            for outcome in outcomes
+        ]
+        report["notices"] = notices
+        report["leftover_generations"] = _leftover_generations(manager, source_name)
+
+        assert len(batches) == 2, report["outcomes"]
+        names = sorted(([c.name for c in batch.children] for batch in batches), key=str)
+        assert names == [
+            [f"{source_name}-1", f"{source_name}-2"],
+            [f"{source_name}-3", f"{source_name}-4"],
+        ], report["outcomes"]
+        assert all(c.ok for batch in batches for c in batch.children), report["outcomes"]
+        assert report["leftover_generations"] == {"snapshot_dir": [], "snapshot_list": []}
+        report["result"] = "passed"
+    except BaseException as exc:
+        report["result"] = f"failed: {exc}"
+        raise
+    finally:
+        artifact.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+        print(f"fork engine artifact: {artifact}")
+        _delete_everything(manager, created, source_name)
+        manager.close()

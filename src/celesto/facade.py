@@ -36,12 +36,13 @@ import platform
 import shlex
 import socket
 import subprocess
+import threading
 import time
 import uuid
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal, TypeVar
 from urllib.parse import urlparse
@@ -984,6 +985,18 @@ def _validate_display_sandbox_limits(
 
 def _ignore_notice(_notice: str) -> None:
     return None
+
+
+def _notify_once(notify: Callable[[str], None], notice: str) -> Callable[[], None]:
+    """Return a callback that sends *notice* the first time it is called."""
+    sent = threading.Event()
+
+    def send() -> None:
+        if not sent.is_set():
+            sent.set()
+            notify(notice)
+
+    return send
 
 
 @dataclass(frozen=True, slots=True)
@@ -4054,20 +4067,36 @@ modprobe 9pnet_virtio""".strip()
             ValueError: If *parallel* or *boot_timeout* is not positive.
         """
         notify = on_notice or _ignore_notice
+        wait_notice = _notify_once(notify, waiting_notice(self._vm_id))
         plan = self._plan_fork(count, name=name, parallel=parallel, boot_timeout=boot_timeout)
-        with self._sdk._vm_snapshot_lock(
-            self._vm_id, on_wait=lambda: notify(waiting_notice(self._vm_id))
-        ):
-            generation, warnings = self._capture_fork_generation(notify)
-        try:
-            with ThreadPoolExecutor(
-                max_workers=min(parallel, len(plan.names)), thread_name_prefix="celesto-fork"
-            ) as pool:
-                children = list(
-                    pool.map(lambda child: self._fork_child(plan, generation, child), plan.names)
+        # The names lock serializes forks of this source from choosing names
+        # until every child's record exists; the snapshot lock is held only
+        # for the capture, so stop and delete of the source wait no longer.
+        with self._sdk._fork_names_lock(self._vm_id, on_wait=wait_notice):
+            plan = self._claim_fork_names(plan, name)
+            with self._sdk._vm_snapshot_lock(self._vm_id, on_wait=wait_notice):
+                generation, warnings = self._capture_fork_generation(notify)
+            try:
+                with ThreadPoolExecutor(
+                    max_workers=min(parallel, len(plan.names)), thread_name_prefix="celesto-fork"
+                ) as pool:
+                    copies = list(
+                        pool.map(
+                            lambda child: self._create_fork_child(plan, generation, child),
+                            plan.names,
+                        )
+                    )
+            finally:
+                warnings += self._delete_fork_generation(generation)
+        with ThreadPoolExecutor(
+            max_workers=min(parallel, len(plan.names)), thread_name_prefix="celesto-fork"
+        ) as pool:
+            children = list(
+                pool.map(
+                    lambda pair: pair[1] or self._start_fork_child(plan, pair[0]),
+                    zip(plan.names, copies, strict=True),
                 )
-        finally:
-            warnings += self._delete_fork_generation(generation)
+            )
         self._refresh_info()
         return ForkBatch(
             children=tuple(children), warnings=warnings, source_state=self._info.status
@@ -4091,23 +4120,36 @@ modprobe 9pnet_virtio""".strip()
         import asyncio
 
         notify = on_notice or _ignore_notice
+        wait_notice = _notify_once(notify, waiting_notice(self._vm_id))
         plan = await asyncio.to_thread(
             self._plan_fork, count, name=name, parallel=parallel, boot_timeout=boot_timeout
         )
-        async with self._sdk._async_vm_snapshot_lock(
-            self._vm_id, on_wait=lambda: notify(waiting_notice(self._vm_id))
-        ):
-            generation, warnings = await asyncio.to_thread(self._capture_fork_generation, notify)
-        try:
-            limit = asyncio.Semaphore(parallel)
+        limit = asyncio.Semaphore(parallel)
+        async with self._sdk._async_fork_names_lock(self._vm_id, on_wait=wait_notice):
+            plan = await asyncio.to_thread(self._claim_fork_names, plan, name)
+            async with self._sdk._async_vm_snapshot_lock(self._vm_id, on_wait=wait_notice):
+                generation, warnings = await asyncio.to_thread(
+                    self._capture_fork_generation, notify
+                )
+            try:
 
-            async def fork_one(child: str) -> ForkResult:
-                async with limit:
-                    return await self._async_fork_child(plan, generation, child)
+                async def copy_one(child: str) -> ForkResult | None:
+                    async with limit:
+                        return await self._async_create_fork_child(plan, generation, child)
 
-            children = await asyncio.gather(*(fork_one(child) for child in plan.names))
-        finally:
-            warnings += await asyncio.to_thread(self._delete_fork_generation, generation)
+                copies = await asyncio.gather(*(copy_one(child) for child in plan.names))
+            finally:
+                warnings += await asyncio.to_thread(self._delete_fork_generation, generation)
+
+        async def start_one(child: str, failed: ForkResult | None) -> ForkResult:
+            if failed is not None:
+                return failed
+            async with limit:
+                return await self._async_start_fork_child(plan, child)
+
+        children = await asyncio.gather(
+            *(start_one(child, failed) for child, failed in zip(plan.names, copies, strict=True))
+        )
         await asyncio.to_thread(self._refresh_info)
         return ForkBatch(
             children=tuple(children), warnings=warnings, source_state=self._info.status
@@ -4130,16 +4172,9 @@ modprobe 9pnet_virtio""".strip()
         self._sdk._ensure_disk_can_be_copied(source)
         identity = self._fork_source_identity(source)
 
-        sandboxes, saved_disks = self._sdk._fork_taken_names()
-        try:
-            names = child_names(
-                vm_id, count, name, sandboxes if name is not None else sandboxes | saved_disks
-            )
-        except ForkNameError as exc:
-            raise CelestoError(str(exc), {"vm_id": vm_id, "name": name}) from None
-        if name is not None:
-            for child in names:
-                self._sdk._ensure_no_saved_disk(child)
+        # A cheap first pass so a taken name fails before any wait; the names
+        # are claimed again under the fork names lock (_claim_fork_names).
+        names = self._fork_child_names(count, name)
 
         # Raises when the base image the children would share is missing.
         self._sdk._shared_base_image(source)
@@ -4154,6 +4189,32 @@ modprobe 9pnet_virtio""".strip()
         self._sdk._ensure_fork_disk_space(source, count)
         self._sdk._ensure_fork_ports(source, count)
         return _ForkPlan(source=source, identity=identity, names=names, boot_timeout=boot_timeout)
+
+    def _fork_child_names(self, count: int, name: str | None) -> list[str]:
+        """Pick child names against the sandboxes and saved disks there are now."""
+        sandboxes, saved_disks = self._sdk._fork_taken_names()
+        try:
+            names = child_names(
+                self._vm_id,
+                count,
+                name,
+                sandboxes if name is not None else sandboxes | saved_disks,
+            )
+        except ForkNameError as exc:
+            raise CelestoError(str(exc), {"vm_id": self._vm_id, "name": name}) from None
+        if name is not None:
+            for child in names:
+                self._sdk._ensure_no_saved_disk(child)
+        return names
+
+    def _claim_fork_names(self, plan: _ForkPlan, name: str | None) -> _ForkPlan:
+        """Choose the names again; the caller holds the fork names lock.
+
+        Another fork of this source may have created children while this one
+        waited. Default names then continue after them; a requested name
+        taken meanwhile refuses the whole fork before anything is copied.
+        """
+        return replace(plan, names=self._fork_child_names(len(plan.names), name))
 
     @staticmethod
     def _ensure_fork_state(source: VMInfo) -> None:
@@ -4271,10 +4332,10 @@ modprobe 9pnet_virtio""".strip()
             )
         return ()
 
-    def _fork_child(self, plan: _ForkPlan, generation: SnapshotInfo, name: str) -> ForkResult:
-        """Create, start and verify one child; never raises."""
-        created = False
-        child: Celesto | None = None
+    def _create_fork_child(
+        self, plan: _ForkPlan, generation: SnapshotInfo, name: str
+    ) -> ForkResult | None:
+        """Copy the generation into a new child; return its failure, if any."""
         try:
             self._sdk._create_from_disk(
                 plan.source,
@@ -4282,22 +4343,16 @@ modprobe 9pnet_virtio""".strip()
                 name,
                 forked_at=generation.created_at,
             )
-            created = True
-            child = self._fork_child_handle(plan, name)
-            deadline = time.monotonic() + plan.boot_timeout
-            child.start(boot_timeout=plan.boot_timeout)
-            return self._confirm_fork_child(plan, child, deadline)
         except Exception as exc:  # noqa: BLE001 - one child's failure never stops the rest
-            return self._fork_child_failed(plan, name, exc, created=created, child=child)
+            return self._fork_child_failed(plan, name, exc, created=False, child=None)
+        return None
 
-    async def _async_fork_child(
+    async def _async_create_fork_child(
         self, plan: _ForkPlan, generation: SnapshotInfo, name: str
-    ) -> ForkResult:
-        """Async version of :meth:`_fork_child`."""
+    ) -> ForkResult | None:
+        """Async version of :meth:`_create_fork_child`."""
         import asyncio
 
-        created = False
-        child: Celesto | None = None
         try:
             await self._sdk._async_create_from_disk(
                 plan.source,
@@ -4305,14 +4360,36 @@ modprobe 9pnet_virtio""".strip()
                 name,
                 forked_at=generation.created_at,
             )
-            created = True
+        except Exception as exc:  # noqa: BLE001 - one child's failure never stops the rest
+            return await asyncio.to_thread(
+                self._fork_child_failed, plan, name, exc, created=False, child=None
+            )
+        return None
+
+    def _start_fork_child(self, plan: _ForkPlan, name: str) -> ForkResult:
+        """Start a created child and verify it; never raises."""
+        child: Celesto | None = None
+        try:
+            child = self._fork_child_handle(plan, name)
+            deadline = time.monotonic() + plan.boot_timeout
+            child.start(boot_timeout=plan.boot_timeout)
+            return self._confirm_fork_child(plan, child, deadline)
+        except Exception as exc:  # noqa: BLE001 - one child's failure never stops the rest
+            return self._fork_child_failed(plan, name, exc, created=True, child=child)
+
+    async def _async_start_fork_child(self, plan: _ForkPlan, name: str) -> ForkResult:
+        """Async version of :meth:`_start_fork_child`."""
+        import asyncio
+
+        child: Celesto | None = None
+        try:
             child = await asyncio.to_thread(self._fork_child_handle, plan, name)
             deadline = time.monotonic() + plan.boot_timeout
             await child.async_start(boot_timeout=plan.boot_timeout)
             return await asyncio.to_thread(self._confirm_fork_child, plan, child, deadline)
         except Exception as exc:  # noqa: BLE001 - one child's failure never stops the rest
             return await asyncio.to_thread(
-                self._fork_child_failed, plan, name, exc, created=created, child=child
+                self._fork_child_failed, plan, name, exc, created=True, child=child
             )
 
     def _fork_child_handle(self, plan: _ForkPlan, name: str) -> Celesto:
