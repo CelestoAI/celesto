@@ -764,6 +764,48 @@ class CelestoManager:
         finally:
             await asyncio.to_thread(self._release_vm_create_lock, lock)
 
+    @staticmethod
+    def _fork_names_lock_name(vm_id: str) -> str:
+        """Name of the per-source lock forks hold while they claim child names."""
+        return f"{vm_id}.fork-names.lock"
+
+    @contextmanager
+    def _fork_names_lock(
+        self,
+        vm_id: str,
+        *,
+        on_wait: Callable[[], None] | None = None,
+    ) -> Iterator[None]:
+        """Serialize forks of one source from choosing names to saving children.
+
+        Only forks take it, so ``stop`` and ``delete`` of the source never
+        wait on it. A fork holds it until every child's record exists, so the
+        next fork of the same source sees those names as taken.
+        """
+        lock = self._acquire_operation_lock(self._fork_names_lock_name(vm_id), on_wait=on_wait)
+        try:
+            yield
+        finally:
+            self._release_vm_create_lock(lock)
+
+    @asynccontextmanager
+    async def _async_fork_names_lock(
+        self,
+        vm_id: str,
+        *,
+        on_wait: Callable[[], None] | None = None,
+    ) -> Iterator[None]:
+        """Async wrapper that acquires the per-source fork names lock off the loop."""
+        lock = await asyncio.to_thread(
+            self._acquire_operation_lock,
+            self._fork_names_lock_name(vm_id),
+            on_wait=on_wait,
+        )
+        try:
+            yield
+        finally:
+            await asyncio.to_thread(self._release_vm_create_lock, lock)
+
     @contextmanager
     def _snapshot_operation_locks(self, vm_id: str, snapshot_id: str) -> Iterator[None]:
         """Serialize snapshots by source VM and globally unique snapshot ID."""
