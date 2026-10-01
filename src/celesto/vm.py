@@ -3367,6 +3367,15 @@ class CelestoManager:
                         snapshot_id,
                         vm_id,
                     )
+                    # Added after persisting so later reads don't repeat it.
+                    snapshot_info = snapshot_info.model_copy(
+                        update={
+                            "warnings": (
+                                f"Sandbox '{vm_id}' stayed paused after the snapshot. "
+                                f"Run 'celesto sandbox resume {vm_id}' to continue it.",
+                            )
+                        }
+                    )
                 else:
                     source_status = VMState.RUNNING
             self.state.update_vm(vm_id, status=source_status)
