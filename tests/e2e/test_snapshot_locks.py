@@ -266,7 +266,7 @@ def test_delete_waits_for_snapshot_of_running_sandbox(
         )
         try:
             assert code == 0, stdout + stderr
-            assert f"Waiting for the snapshot of {sandbox} to finish" in stderr
+            assert f"Waiting for the current snapshot or fork of {sandbox} to finish" in stderr
             # stderr carries the notice so --json output stays parseable.
             assert json.loads(stdout)["ok"]
             assert timeline.events["delete_end"] >= timeline.events["snapshot_end"]
@@ -312,7 +312,7 @@ def test_stop_waits_for_snapshot_of_running_sandbox(
         )
         try:
             assert code == 0, stdout + stderr
-            assert f"Waiting for the snapshot of {sandbox} to finish" in stderr
+            assert f"Waiting for the current snapshot or fork of {sandbox} to finish" in stderr
             assert json.loads(stdout)["ok"]
             assert timeline.events["stop_end"] >= timeline.events["snapshot_end"]
 
