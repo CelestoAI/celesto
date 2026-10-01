@@ -27,6 +27,8 @@ tests force what a real run can't. Failure modes, written before the code:
 4. ``fork()`` / ``fork_many()`` don't pass the name or boot timeout through.
 5. ``fork_many()`` raises for a per-child failure instead of returning it.
 6. The async twins behave differently from the sync methods.
+7. A valid name asked for with ``name=`` that is too long to number the
+   children is called an invalid name, instead of saying how long it can be.
 
 The fork engine is real; the disk copy, hypervisor and guest agent are
 replaced at their boundaries (the ``world`` fixture), except for the warning
@@ -138,3 +140,19 @@ def test_fork_emits_batch_warnings_as_celesto_warnings_at_the_callers_line(
     assert issubclass(CelestoWarning, UserWarning)
     if not use_async:
         assert caught[0].filename == __file__
+
+
+def test_a_valid_name_too_long_to_number_says_how_long_it_can_be(
+    world: _World,  # noqa: F811
+) -> None:
+    source = world.add_source("firecracker", VMState.STOPPED)
+    name = "a" * 63
+
+    with pytest.raises(CelestoError) as caught:
+        source.fork_many(3, name=name)
+
+    assert str(caught.value) == (
+        f"'{name}' is too long to number 3 forks. "
+        "Choose a name of up to 62 characters with '--name'."
+    )
+    assert world.created == []
