@@ -38,6 +38,7 @@ import socket
 import subprocess
 import time
 import uuid
+import warnings
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
@@ -92,6 +93,7 @@ from celesto.env_windows import (
 )
 from celesto.exceptions import (
     CelestoError,
+    CelestoWarning,
     CommandExecutionUnavailableError,
     NetworkError,
     OperationTimeoutError,
@@ -984,6 +986,22 @@ def _validate_display_sandbox_limits(
 
 def _ignore_notice(_notice: str) -> None:
     return None
+
+
+def _single_fork_child(batch: ForkBatch, *, stacklevel: int) -> Celesto:
+    """Return the one child of *batch*, raising its error if it failed.
+
+    Warnings in the batch are emitted as :class:`CelestoWarning`, pointing at
+    the caller's line (*stacklevel* counts from this function).
+    """
+    for message in batch.warnings:
+        warnings.warn(message, CelestoWarning, stacklevel=stacklevel)
+    (result,) = batch.children
+    if not result.ok or result.sandbox is None:
+        raise CelestoError(
+            result.error or child_failed_message(result.name), {"vm_id": result.name}
+        )
+    return result.sandbox
 
 
 @dataclass(frozen=True, slots=True)
@@ -4009,8 +4027,100 @@ modprobe 9pnet_virtio""".strip()
             logger.debug("Could not record identity for sandbox %s: %s", self._vm_id, exc)
 
     # ------------------------------------------------------------------
-    # Fork (internal until the public fork() and fork_many() land)
+    # Fork
     # ------------------------------------------------------------------
+
+    @observe_sdk_operation("snapshot")
+    def fork(
+        self, name: str | None = None, *, boot_timeout: float = _DEFAULT_FORK_BOOT_TIMEOUT
+    ) -> Celesto:
+        """Copy this sandbox into one new, independent sandbox and start it.
+
+        The new sandbox (the child) starts with a copy of this sandbox's
+        files and settings, including its environment variables, but gets
+        its own name, address, SSH host keys and machine ID. This sandbox
+        keeps running; on Firecracker it pauses briefly while its files are
+        copied. A stopped sandbox can be forked too; a paused one can't.
+
+        Args:
+            name: The child's name. Without it, the child continues the
+                numbering after this sandbox's name (``sbx-einstein-1``,
+                then ``-2`` on the next fork). Pass a name to make a retry
+                safe: a name that already exists is refused before anything
+                is copied.
+            boot_timeout: Seconds the child has to start and become ready.
+
+        Returns:
+            The started child.
+
+        Raises:
+            CelestoError: If the fork is refused or the child fails. A child
+                that fails is removed. The message says how to recover.
+
+        Warns:
+            CelestoWarning: If the fork succeeded but something needs your
+                attention, for example this sandbox stayed paused.
+        """
+        batch = self._fork_many(1, name=name, boot_timeout=boot_timeout)
+        return _single_fork_child(batch, stacklevel=4)
+
+    async def async_fork(
+        self, name: str | None = None, *, boot_timeout: float = _DEFAULT_FORK_BOOT_TIMEOUT
+    ) -> Celesto:
+        """Async version of :meth:`fork`."""
+        batch = await self._async_fork_many(1, name=name, boot_timeout=boot_timeout)
+        return _single_fork_child(batch, stacklevel=3)
+
+    @observe_sdk_operation("snapshot")
+    def fork_many(
+        self,
+        count: int,
+        *,
+        name: str | None = None,
+        parallel: int = DEFAULT_FORK_PARALLEL,
+        boot_timeout: float = _DEFAULT_FORK_BOOT_TIMEOUT,
+    ) -> ForkBatch:
+        """Copy this sandbox into several new, independent sandboxes.
+
+        Works like :meth:`fork`, but each child succeeds or fails on its own:
+        a child that fails is removed and reported in the result, and the
+        others are kept.
+
+        Args:
+            count: How many children, 1 to 10.
+            name: Without it, children continue the numbering after this
+                sandbox's name. With it, children are named ``name-1`` to
+                ``name-N`` (or exactly *name* when *count* is 1), and a name
+                that already exists is refused, so a retry can't make extra
+                children.
+            parallel: How many children are created and started at once.
+            boot_timeout: Seconds each child has to start and become ready.
+
+        Returns:
+            A :class:`~celesto.ForkBatch` with one result per child, any
+            warnings (such as this sandbox staying paused) and this
+            sandbox's state afterwards.
+
+        Raises:
+            CelestoError: If the fork is refused before any child is made,
+                for example because this sandbox is paused or a name is
+                taken. Nothing is created then.
+            ValueError: If *parallel* or *boot_timeout* is not positive.
+        """
+        return self._fork_many(count, name=name, parallel=parallel, boot_timeout=boot_timeout)
+
+    async def async_fork_many(
+        self,
+        count: int,
+        *,
+        name: str | None = None,
+        parallel: int = DEFAULT_FORK_PARALLEL,
+        boot_timeout: float = _DEFAULT_FORK_BOOT_TIMEOUT,
+    ) -> ForkBatch:
+        """Async version of :meth:`fork_many`."""
+        return await self._async_fork_many(
+            count, name=name, parallel=parallel, boot_timeout=boot_timeout
+        )
 
     def _fork_many(
         self,

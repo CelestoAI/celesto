@@ -22,7 +22,8 @@ result types, the child names, the identity check, and every user-facing
 message (decision log D1b, ``docs/designs/sandbox-fork-decisions.md``), so
 the CLI and SDK can show exactly the same words.
 
-Nothing here is exported from ``celesto`` yet.
+Only :class:`ForkBatch` and :class:`ForkResult` are public (exported from
+``celesto``); everything else here is internal.
 """
 
 from __future__ import annotations
