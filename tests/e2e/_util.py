@@ -33,6 +33,9 @@ except (ImportError, OSError):  # pragma: no cover - native extension missing en
 from celesto.host.manager import HostManager
 from celesto.runtime.backends import BACKEND_FIRECRACKER, BACKEND_QEMU
 
+# Every e2e test writes its artifact here when set (CI uploads this folder).
+E2E_ARTIFACT_DIR_ENV = "CELESTO_E2E_ARTIFACT_DIR"
+
 E2EBackend = Literal["qemu", "firecracker"]
 E2ETransport = Literal["sandbox", "ssh", "vsock"]
 
@@ -169,3 +172,15 @@ def require_e2e_backend(
             pytest.fail(message)
         pytest.skip(message)
     require_backend_available(backend, config, sandbox_name=sandbox_name)
+
+
+def e2e_artifact_dir(tmp_path: Path) -> Path:
+    """Return the folder for this test's artifact, creating it.
+
+    Uses ``$CELESTO_E2E_ARTIFACT_DIR`` when set, so a run keeps every report
+    in one place (CI uploads it); otherwise pytest's *tmp_path*.
+    """
+    configured = os.environ.get(E2E_ARTIFACT_DIR_ENV)
+    directory = Path(configured) if configured else tmp_path
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
