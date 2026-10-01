@@ -51,6 +51,7 @@ from celesto.comm.select import ChannelResolution, VsockNotSupportedError, resol
 from celesto.exceptions import (
     BridgeTapOwnershipError,
     CelestoError,
+    DiskCopyError,
     NetworkError,
     SnapshotAlreadyExistsError,
     SnapshotNotFoundError,
@@ -179,6 +180,11 @@ def _qemu_system_package_for_host() -> str:
     if arch in {"arm64", "aarch64"}:
         return "qemu-system-arm"
     return "qemu-system-x86"
+
+
+def _disk_copy_failed_message(vm_id: str) -> str:
+    """A saved disk couldn't be copied for a fork; paths go in the details."""
+    return f"The disk for sandbox '{vm_id}' couldn't be copied. Run the fork again."
 
 
 def _qemu_install_hint() -> str:
@@ -1232,10 +1238,9 @@ class CelestoManager:
         *shared_base*, which the copy keeps reading from.
         """
         if not disk_path.is_file():
-            raise CelestoError(
-                f"The saved disk for sandbox '{config.vm_id}' is missing: '{disk_path}'. "
-                "Run the copy again.",
-                {"vm_id": config.vm_id, "disk_path": str(disk_path)},
+            raise DiskCopyError(
+                _disk_copy_failed_message(config.vm_id),
+                {"vm_id": config.vm_id, "disk_path": str(disk_path), "reason": "missing"},
             )
         backend = self._backend_for_config(config)
         rootfs_format = self._materialized_rootfs_format(config, backend)
@@ -1327,9 +1332,8 @@ class CelestoManager:
             if not isinstance(info, dict):
                 raise ValueError("qemu-img info did not return an object")
         except ValueError as exc:
-            raise CelestoError(
-                f"The saved disk for sandbox '{vm_id}' can't be read: '{disk_path}'. "
-                "Run the copy again.",
+            raise DiskCopyError(
+                _disk_copy_failed_message(vm_id),
                 {"vm_id": vm_id, "disk_path": str(disk_path), "stderr": str(exc)},
             ) from exc
         return info
@@ -1355,10 +1359,14 @@ class CelestoManager:
         info = self._qemu_disk_info(source_path, vm_id)
         disk_format = info.get("format")
         if expected_format is not None and disk_format != expected_format:
-            raise CelestoError(
-                f"The saved disk for sandbox '{vm_id}' is a {disk_format} disk, but this "
-                f"sandbox needs a {expected_format} disk. Run the copy again.",
-                {"vm_id": vm_id, "disk_path": str(source_path), "format": disk_format},
+            raise DiskCopyError(
+                _disk_copy_failed_message(vm_id),
+                {
+                    "vm_id": vm_id,
+                    "disk_path": str(source_path),
+                    "format": disk_format,
+                    "expected_format": expected_format,
+                },
             )
         self._copy_with_reflink(source_path, target_path)
         backing_name = info.get("full-backing-filename") or info.get("backing-filename")
@@ -1366,9 +1374,8 @@ class CelestoManager:
             return str(disk_format)
         backing = Path(backing_name)
         if not backing.is_file():
-            raise CelestoError(
-                f"The saved disk for sandbox '{vm_id}' needs a base image that is missing: "
-                f"'{backing}'. Restore it, or run the copy again.",
+            raise DiskCopyError(
+                _disk_copy_failed_message(vm_id),
                 {"vm_id": vm_id, "disk_path": str(source_path), "backing_file": str(backing)},
             )
         if shared_base is not None and backing.resolve() == shared_base:
