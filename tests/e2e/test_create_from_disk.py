@@ -30,6 +30,7 @@ import os
 import platform
 import shutil
 import socket
+import subprocess
 import uuid
 from contextlib import suppress
 from pathlib import Path
@@ -90,6 +91,19 @@ def _guest_value(sandbox: Celesto, command: str) -> str:
     result = sandbox.run(command)
     assert result.exit_code == 0, f"{sandbox.vm_id}: {command!r} failed: {result.stderr}"
     return result.stdout.strip()
+
+
+def _backing_chain(disk: Path) -> list[str]:
+    """Return every file a disk reads from, top first, as qemu-img reports it."""
+    if disk.suffix != ".qcow2":
+        return [str(disk)]
+    result = subprocess.run(
+        ["qemu-img", "info", "-U", "--backing-chain", "--output=json", str(disk)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return [str(Path(layer["filename"]).resolve()) for layer in json.loads(result.stdout)]
 
 
 def _summary(info: VMInfo) -> dict[str, Any]:
@@ -156,6 +170,7 @@ def test_sandboxes_created_from_a_copied_disk_are_independent(
             **_summary(source_info),
             "machine_id": source_machine_id,
             "host_key_fingerprint": source_fingerprint,
+            "backing_chain": _backing_chain(source_info.config.rootfs_path),
         }
 
         # Stand-in for fork's saved copy: a disk file outside the disk
@@ -189,6 +204,11 @@ def test_sandboxes_created_from_a_copied_disk_are_independent(
             entry["guest_instance_id"] = _guest_value(child, "cat /etc/celesto/instance-id")
             entry["machine_id"] = _guest_value(child, "cat /etc/machine-id")
             entry["host_key_fingerprint"] = _guest_value(child, _HOST_KEY_FINGERPRINT)
+            child_disk = Path(entry["disk"])
+            entry["backing_chain"] = _backing_chain(child_disk)
+            entry["base_image_copies"] = sorted(
+                path.name for path in child_disk.parent.glob(f"{child_disk.name}.backing-*")
+            )
             entry["forward_host_ports_bound"] = [
                 _port_is_bound(forward["host_port"]) for forward in entry["port_forwards"]
             ]
@@ -213,6 +233,16 @@ def test_sandboxes_created_from_a_copied_disk_are_independent(
                 f["guest_port"] for f in sandboxes[source_name]["port_forwards"]
             ], f"{name} forwards different guest ports: {entry}"
             assert all(entry["forward_host_ports_bound"]), f"{name} forward not listening: {entry}"
+            if backend == BACKEND_QEMU:
+                # Like any QEMU sandbox, a copy shares the read-only base
+                # image; only the layers above it are its own.
+                source_chain = sandboxes[source_name]["backing_chain"]
+                assert len(source_chain) >= 2, f"source has no base image: {source_chain}"
+                assert entry["backing_chain"] == [
+                    str(Path(entry["disk"]).resolve()),
+                    *source_chain[1:],
+                ], f"{name} does not share the base image: {entry['backing_chain']}"
+                assert entry["base_image_copies"] == [], f"{name}: {entry['base_image_copies']}"
         for key in ("instance_id", "machine_id", "host_key_fingerprint", "ssh_host_port", "disk"):
             values = [sandboxes[name][key] for name in everyone]
             assert len(set(values)) == len(values), f"{key} is shared: {values}"
@@ -312,6 +342,30 @@ def test_sources_a_disk_copy_cannot_reproduce_are_refused(
             leftovers = sorted(p.name for p in manager.disk_dir.glob(f"{child_name}*"))
             report["cases"][case] = {"error": str(caught.value), "leftovers": leftovers}
             assert source_name in str(caught.value), caught.value
+            assert leftovers == []
+
+        if backend == BACKEND_QEMU:
+            # A copy shares its source's base image, so a missing one stops it.
+            source_name = f"{prefix}refuse-base-{suffix}"
+            child_name = f"{prefix}refuse-base-copy-{suffix}"
+            config, _key = _build_auto_config(vm_name=source_name, os="alpine", backend=backend)
+            assert config.rootfs_path is not None
+            base_copy = tmp_path / f"base{config.rootfs_path.suffix}"
+            clone_or_sparse_copy(config.rootfs_path, base_copy)
+            source = manager.create(config.model_copy(update={"rootfs_path": base_copy}))
+            created.append(source_name)
+            base_copy.unlink()
+            with pytest.raises(CelestoError) as caught:
+                manager._create_from_disk(source, saved_disk, child_name)
+            with pytest.raises(VMNotFoundError):
+                state.get_vm(child_name)
+            leftovers = sorted(p.name for p in manager.disk_dir.glob(f"{child_name}*"))
+            report["cases"]["missing-base-image"] = {
+                "error": str(caught.value),
+                "leftovers": leftovers,
+            }
+            assert source_name in str(caught.value), caught.value
+            assert str(base_copy.resolve()) in str(caught.value), caught.value
             assert leftovers == []
 
         # A kept disk under the new name must never be reused or overwritten.
