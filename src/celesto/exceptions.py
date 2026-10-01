@@ -28,6 +28,17 @@ class CelestoError(Exception):
         self.details = details or {}
 
 
+class CelestoWarning(UserWarning):
+    """A problem Celesto reports without failing the call.
+
+    For example, :meth:`celesto.Celesto.fork` warns when the source sandbox
+    stayed paused after it was copied. Python shows these warnings by default;
+    filter them like any other warning::
+
+        warnings.simplefilter("error", celesto.CelestoWarning)
+    """
+
+
 class CloudAPIError(CelestoError):
     """A cloud API request failed with an HTTP error status."""
 
