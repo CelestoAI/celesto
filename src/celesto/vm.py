@@ -216,6 +216,8 @@ def _qemu_install_hint() -> str:
 QEMU_GATEWAY_IP = "10.0.2.2"
 QEMU_NETMASK = "255.255.255.0"
 SNAPSHOT_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}[a-z0-9]$|^[a-z0-9]$")
+# Sandbox names follow the same rule (``VMConfig.vm_id``).
+_VM_ID_PATTERN = SNAPSHOT_ID_PATTERN
 
 # Backends that reach the user-mode ("usernet") branch bring their own
 # built-in NAT with fixed addresses: QEMU uses slirp's 10.0.2.0/24 and
@@ -674,8 +676,11 @@ class CelestoManager:
             return None, None
 
         lock_dir = self.data_dir / "locks"
+        lock_path = lock_dir / lock_name
+        if lock_path.parent != lock_dir or lock_name in {".", ".."} or "/" in lock_name:
+            raise ValueError(f"lock name must be a plain file name; got {lock_name!r}")
         lock_dir.mkdir(parents=True, exist_ok=True)
-        lock_file = (lock_dir / lock_name).open("w")
+        lock_file = lock_path.open("w")
         try:
             if on_wait is not None:
                 try:
@@ -725,7 +730,15 @@ class CelestoManager:
 
     @staticmethod
     def _vm_snapshot_lock_name(vm_id: str) -> str:
-        """Name of the per-VM lock held by snapshots, stop, and delete."""
+        """Name of the per-VM lock held by snapshots, stop, and delete.
+
+        Raises:
+            VMNotFoundError: If *vm_id* can't be a sandbox name, so no
+                sandbox can have it. Checked before the lock file is made,
+                since the name becomes part of its path.
+        """
+        if not _VM_ID_PATTERN.fullmatch(vm_id):
+            raise VMNotFoundError(vm_id)
         return f"{vm_id}.snapshot.lock"
 
     @contextmanager
