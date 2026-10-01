@@ -478,6 +478,14 @@ def test_forks_started_together_get_their_own_names(
             [f"{source_name}-3", f"{source_name}-4"],
         ], report["outcomes"]
         assert all(c.ok for batch in batches for c in batch.children), report["outcomes"]
+        # The fork that waited said so, once; the other one didn't wait.
+        waiting = [
+            n for n in notices if n.startswith("Waiting for the current snapshot or fork of")
+        ]
+        assert len(waiting) == 1, notices
+        assert source_name in waiting[0], notices
+        if backend == BACKEND_QEMU:
+            assert notices == waiting, notices
         assert report["leftover_generations"] == {"snapshot_dir": [], "snapshot_list": []}
         report["result"] = "passed"
     except BaseException as exc:
