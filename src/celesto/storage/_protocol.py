@@ -30,6 +30,7 @@ from celesto.types import (
     VMConfig,
     VMIdentity,
     VMInfo,
+    VMLineage,
     VMState,
 )
 
@@ -93,6 +94,25 @@ class StateManagerProtocol(Protocol):
         """Store *identity* for an existing VM, replacing any earlier record.
 
         Deleting the VM deletes its record.
+
+        Raises:
+            VMNotFoundError: If the VM does not exist.
+        """
+        ...
+
+    # ------------------------------------------------------------------
+    # Sandbox lineage
+    # ------------------------------------------------------------------
+
+    def get_vm_lineage(self, vm_id: str) -> VMLineage | None:
+        """Return where *vm_id* was copied from, or ``None`` if it was not."""
+        ...
+
+    def record_vm_lineage(self, vm_id: str, lineage: VMLineage) -> VMLineage:
+        """Store *lineage* for an existing VM, replacing any earlier record.
+
+        Deleting the VM deletes its record. Deleting the source named in the
+        record does not.
 
         Raises:
             VMNotFoundError: If the VM does not exist.

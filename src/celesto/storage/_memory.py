@@ -49,6 +49,7 @@ from celesto.types import (
     VMConfig,
     VMIdentity,
     VMInfo,
+    VMLineage,
     VMState,
 )
 
@@ -64,6 +65,7 @@ class MemoryStateManager:
         self._claims: dict[tuple[str, str], BinaryIO] = {}
         self._vms: dict[str, VMInfo] = {}
         self._identities: dict[str, VMIdentity] = {}
+        self._lineages: dict[str, VMLineage] = {}
         self._ip_leases: dict[str, tuple[str, str]] = {}
         self._ssh_ports: dict[str, int] = {}
         self._vsock_cids: dict[str, int] = {}
@@ -159,6 +161,7 @@ class MemoryStateManager:
                 raise VMNotFoundError(vm_id)
             del self._vms[vm_id]
             self._identities.pop(vm_id, None)
+            self._lineages.pop(vm_id, None)
             self._ip_leases.pop(vm_id, None)
             self._ssh_ports.pop(vm_id, None)
             self._vsock_cids.pop(vm_id, None)
@@ -181,6 +184,17 @@ class MemoryStateManager:
                 raise VMNotFoundError(vm_id)
             self._identities[vm_id] = identity
             return identity
+
+    def get_vm_lineage(self, vm_id: str) -> VMLineage | None:
+        with self._lock:
+            return self._lineages.get(vm_id)
+
+    def record_vm_lineage(self, vm_id: str, lineage: VMLineage) -> VMLineage:
+        with self._lock:
+            if vm_id not in self._vms:
+                raise VMNotFoundError(vm_id)
+            self._lineages[vm_id] = lineage
+            return lineage
 
     @staticmethod
     def _host_interface_names() -> set[str]:

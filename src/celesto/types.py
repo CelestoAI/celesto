@@ -1182,6 +1182,23 @@ class VMIdentity(BaseModel):
     model_config = {"frozen": True}
 
 
+class VMLineage(BaseModel):
+    """Where a sandbox was copied from.
+
+    Stored as plain text, not a link: deleting the source never changes this
+    record, so a copy keeps showing where it came from.
+
+    Attributes:
+        forked_from: Name of the sandbox whose disk this sandbox started from.
+        forked_at: When the copy was made (UTC).
+    """
+
+    forked_from: str
+    forked_at: datetime
+
+    model_config = {"frozen": True}
+
+
 class SnapshotArtifacts(BaseModel):
     """Filesystem artifacts associated with a persisted VM snapshot."""
 

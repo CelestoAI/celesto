@@ -59,6 +59,7 @@ from celesto.types import (
     VMConfig,
     VMIdentity,
     VMInfo,
+    VMLineage,
     VMState,
 )
 
@@ -213,6 +214,13 @@ class SQLiteStateManager:
                     ssh_host_key_fingerprint TEXT,
                     machine_id TEXT,
                     recorded_at TEXT NOT NULL,
+                    FOREIGN KEY (vm_id) REFERENCES vms(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS vm_lineage (
+                    vm_id TEXT PRIMARY KEY,
+                    forked_from TEXT NOT NULL,
+                    forked_at TEXT NOT NULL,
                     FOREIGN KEY (vm_id) REFERENCES vms(id) ON DELETE CASCADE
                 );
             """
@@ -416,6 +424,42 @@ class SQLiteStateManager:
 
         logger.info("Recorded identity for VM %s", vm_id)
         return identity
+
+    def get_vm_lineage(self, vm_id: str) -> VMLineage | None:
+        if not vm_id:
+            raise ValueError("vm_id cannot be empty")
+
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT * FROM vm_lineage WHERE vm_id = ?", (vm_id,)).fetchone()
+
+        if not row:
+            return None
+        return VMLineage(
+            forked_from=row["forked_from"],
+            forked_at=datetime.fromisoformat(row["forked_at"]),
+        )
+
+    def record_vm_lineage(self, vm_id: str, lineage: VMLineage) -> VMLineage:
+        if not vm_id:
+            raise ValueError("vm_id cannot be empty")
+
+        with self._get_connection(exclusive=True) as conn:
+            existing = conn.execute("SELECT id FROM vms WHERE id = ?", (vm_id,)).fetchone()
+            if not existing:
+                raise VMNotFoundError(vm_id)
+            conn.execute(
+                """
+                INSERT INTO vm_lineage (vm_id, forked_from, forked_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(vm_id) DO UPDATE SET
+                    forked_from = excluded.forked_from,
+                    forked_at = excluded.forked_at
+                """,
+                (vm_id, lineage.forked_from, lineage.forked_at.isoformat()),
+            )
+
+        logger.info("Recorded lineage for VM %s (from %s)", vm_id, lineage.forked_from)
+        return lineage
 
     def list_vms(self, status: VMState | None = None) -> list[VMInfo]:
         with self._get_connection() as conn:
