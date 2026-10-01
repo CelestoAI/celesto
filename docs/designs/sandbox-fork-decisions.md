@@ -180,6 +180,7 @@ Full research notes: the Claude Code session that produced them, and the local E
       11. Not enough free ports (D23): "Not enough free ports for 5 new sandboxes. Run 'celesto sandbox list' to find sandboxes you can delete."
       12. Flush failed (D5): "Sandbox 'sbx-einstein' didn't respond when saving its files. Run 'celesto sandbox stop sbx-einstein', then fork again."
       16. QEMU live copy failed or unsupported (D5): "Sandbox 'sbx-einstein' couldn't be copied while running. Run 'celesto sandbox stop sbx-einstein', then fork again."
+      17. No recorded identity yet and not running (D17, D18; added in PR 5): "Sandbox 'sbx-einstein' hasn't finished its first start, so it can't be forked yet. Run 'celesto sandbox start sbx-einstein', then fork again." A sandbox from a current image is recorded the first time it is ready; a running one without a record is read and recorded during the fork's checks instead.
     - **Per child (that child fails; the others continue, D24):**
       13. Boot timeout: "Sandbox 'sbx-einstein-2' didn't start within 60 seconds and was removed. Run the fork again with '--boot-timeout 120'."
       14. Reset not confirmed (D18): "Sandbox 'sbx-einstein-2' couldn't confirm it has its own identity and was removed. Run the fork again."
@@ -217,7 +218,7 @@ Full research notes: the Claude Code session that produced them, and the local E
 - **Decision:** Reuse today's disk snapshot path. First flush the guest (guest-agent `/sync`, `guest-agent/src/handler.rs:278`), which writes changes still held in memory to disk. Then copy, with an explicit capture policy per case:
   - **Running QEMU:** `capture_policy=LIVE_ONLY` (`src/celesto/runtime/qemu.py:452`), so the source keeps running. The default `ALLOW_PAUSE` would pause QEMU too (`qemu.py:456`). If the live copy is unsupported or fails, the fork fails with an error (D1b, message 16); it never falls back to a pause.
   - **Running Firecracker:** `capture_policy=ALLOW_PAUSE`: pause, copy, resume (D9).
-  - **Stopped source:** no flush and no pause (D7).
+  - **Stopped source:** no flush and no pause (D7). Today's snapshot path refuses stopped sandboxes, so fork copies the stopped sandbox's own disk directly, under the snapshot lock, into a `disk` snapshot (reflink or sparse copy; a QEMU disk keeps sharing its read-only base image, like its children). It is recorded like any snapshot, so a leftover shows in `celesto sandbox snapshot list` and is removed with `celesto sandbox snapshot delete` (decided in PR 5).
   The flush policy defaults to `required`: if the flush fails, fork stops with a clear error instead of giving children a possibly stale disk. No guest-agent or image release needed.
 - **Why:** Reuses tested code. The result matches pulling the power right after saving: saved data is safe, and a file being written at that exact moment may be incomplete. Databases and most tools recover from that on their own.
 - **Follow-ups:**
@@ -249,6 +250,7 @@ Full research notes: the Claude Code session that produced them, and the local E
   - **Running:** fork as in D5 (flush, then copy).
   - **Paused:** refuse. Recent changes may still be in memory and the guest agent can't answer, so the flush can't run. The error gives the exact command, for example "Sandbox 'sbx-einstein' is paused. Run 'celesto sandbox resume sbx-einstein', then fork again." Celesto does not resume and re-pause on its own.
   - **Stopped:** allow. Shutdown already wrote everything to disk, so the flush is skipped and the source doesn't need to pause. If the stop had to force-kill the sandbox, the disk matches D5's "power pulled" quality, which is acceptable.
+    - How (PR 5): the stopped sandbox's disk is copied straight into the generation, without starting it; see D5.
   - **Error:** refuse, with an exact recovery command (wording in D1b, message 2).
 - **Follow-ups:**
 
@@ -576,7 +578,7 @@ These decisions belong to the later memory fork design. They are kept here so th
 | D27 | Python SDK | `fork()` raises on failure and emits warnings via `warnings.warn`; `fork_many()` returns `ForkBatch` (children, warnings, source state); async twins; local only |
 | D28 | Local server and TypeScript | Not in the first release; add later with snapshot and stop/start routes |
 | D29 | Backends | Firecracker and QEMU (Linux and macOS hosts); libkrun, VZ and Windows refused |
-| D1b | Error messages | 16 messages and 2 notices, listed under D1 |
+| D1b | Error messages | 17 messages and 2 notices, listed under D1 |
 | D1d | Pull request strategy | Feature branch `feat/sandbox-fork`; six story pull requests target it; final pull request to `main` after a full end-to-end run |
 | D2, D3, D11, D16 | Memory fork | Deferred to the memory fork design |
 
