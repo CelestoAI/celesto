@@ -36,8 +36,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import platform
-import shutil
 import threading
 import time
 import uuid
@@ -46,7 +44,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from _util import BOOT_TIMEOUT, E2E_BACKENDS, require_backend_available, selected_backend
+from _util import BOOT_TIMEOUT, E2E_BACKENDS, e2e_artifact_dir, require_e2e_backend
 
 from celesto import Celesto
 from celesto.cli._sqlite import SQLiteStateManager
@@ -59,6 +57,9 @@ from celesto.vm import CelestoManager, resolve_data_dir
 pytestmark = pytest.mark.e2e
 
 _MARKER_PATH = "/root/fork-marker"
+# Longest silence allowed from a QEMU source while it is copied live; over
+# ten times the gap recorded on a healthy run (see the running-source test).
+_QEMU_MAX_HEARTBEAT_GAP = 1.0
 # Read with the guest's own tools, independent of what Celesto records.
 _GUEST_IDENTITY = (
     "printf 'instance_id=%s\\n' \"$(cat /etc/celesto/instance-id)\"; "
@@ -71,18 +72,7 @@ _GUEST_IDENTITY = (
 
 
 def _require_backend(backend: str, request: pytest.FixtureRequest) -> None:
-    selected = selected_backend(request.config)
-    if selected != "all" and backend != selected:
-        pytest.skip(
-            f"End-to-end tests for '{backend}' are skipped because this run selected "
-            f"'{selected}'; rerun all backends with: pytest tests/e2e."
-        )
-    if backend == BACKEND_QEMU and platform.system() == "Darwin":
-        # macOS runs QEMU with Hypervisor.framework, so /dev/kvm is not needed.
-        if shutil.which("qemu-system-aarch64") is None:
-            pytest.skip("Install QEMU (brew install qemu) to run the fork test.")
-        return
-    require_backend_available(backend, request.config, sandbox_name=f"fork-{backend}")  # type: ignore[arg-type]
+    require_e2e_backend(backend, request.config, sandbox_name=f"fork-{backend}")  # type: ignore[arg-type]
 
 
 def _names(label: str) -> tuple[str, str]:
@@ -92,9 +82,7 @@ def _names(label: str) -> tuple[str, str]:
 
 
 def _artifact(tmp_path: Path, name: str) -> Path:
-    directory = Path(os.environ.get("CELESTO_E2E_ARTIFACT_DIR", tmp_path))
-    directory.mkdir(parents=True, exist_ok=True)
-    return directory / name
+    return e2e_artifact_dir(tmp_path) / name
 
 
 def _guest_identity(sandbox: Celesto) -> dict[str, str]:
@@ -260,6 +248,14 @@ def test_running_source_forks_into_three_independent_children(
         if backend == BACKEND_QEMU:
             assert not any(notice.startswith("Pausing") for notice in notices), notices
             assert heartbeat.errors == [], heartbeat.errors
+            # Measured, not inferred from the missing notice: the source kept
+            # answering throughout. Recorded runs on macOS QEMU show a longest
+            # gap of 0.07 to 0.09 s (one round trip plus the 0.05 s sleep);
+            # a pause for the copy lasts as long as the copy, seconds.
+            assert heartbeat.beats >= 3, f"too few heartbeats to measure: {heartbeat.beats}"
+            assert heartbeat.longest_gap < _QEMU_MAX_HEARTBEAT_GAP, (
+                f"source stopped answering for {heartbeat.longest_gap:.3f} s during the fork"
+            )
         else:
             assert f"Pausing {source_name} while its files are copied…" in notices
         report["result"] = "passed"
@@ -482,6 +478,14 @@ def test_forks_started_together_get_their_own_names(
             [f"{source_name}-3", f"{source_name}-4"],
         ], report["outcomes"]
         assert all(c.ok for batch in batches for c in batch.children), report["outcomes"]
+        # The fork that waited said so, once; the other one didn't wait.
+        waiting = [
+            n for n in notices if n.startswith("Waiting for the current snapshot or fork of")
+        ]
+        assert len(waiting) == 1, notices
+        assert source_name in waiting[0], notices
+        if backend == BACKEND_QEMU:
+            assert notices == waiting, notices
         assert report["leftover_generations"] == {"snapshot_dir": [], "snapshot_list": []}
         report["result"] = "passed"
     except BaseException as exc:

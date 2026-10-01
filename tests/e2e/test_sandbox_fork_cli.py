@@ -40,7 +40,6 @@ import os
 import platform
 import re
 import shlex
-import shutil
 import subprocess
 import sys
 import uuid
@@ -49,12 +48,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from _util import BOOT_TIMEOUT, E2E_BACKENDS, require_backend_available, selected_backend
+from _util import BOOT_TIMEOUT, E2E_BACKENDS, e2e_artifact_dir, require_e2e_backend
 
 from celesto import Celesto, CelestoError, ForkBatch, ForkResult
 from celesto.cli._sqlite import SQLiteStateManager
 from celesto.facade import _build_auto_config
-from celesto.runtime.backends import BACKEND_QEMU
 from celesto.vm import CelestoManager, resolve_data_dir
 
 pytestmark = pytest.mark.e2e
@@ -64,18 +62,7 @@ _MARKER_PATH = "/marker"
 
 
 def _require_backend(backend: str, request: pytest.FixtureRequest) -> None:
-    selected = selected_backend(request.config)
-    if selected != "all" and backend != selected:
-        pytest.skip(
-            f"End-to-end tests for '{backend}' are skipped because this run selected "
-            f"'{selected}'; rerun all backends with: pytest tests/e2e."
-        )
-    if backend == BACKEND_QEMU and platform.system() == "Darwin":
-        # macOS runs QEMU with Hypervisor.framework, so /dev/kvm is not needed.
-        if shutil.which("qemu-system-aarch64") is None:
-            pytest.skip("Install QEMU (brew install qemu) to run the fork test.")
-        return
-    require_backend_available(backend, request.config, sandbox_name=f"fork-cli-{backend}")  # type: ignore[arg-type]
+    require_e2e_backend(backend, request.config, sandbox_name=f"fork-cli-{backend}")  # type: ignore[arg-type]
 
 
 def _source_name(label: str) -> tuple[str, str]:
@@ -85,9 +72,7 @@ def _source_name(label: str) -> tuple[str, str]:
 
 
 def _artifact(tmp_path: Path, name: str) -> Path:
-    directory = Path(os.environ.get("CELESTO_E2E_ARTIFACT_DIR", tmp_path))
-    directory.mkdir(parents=True, exist_ok=True)
-    return directory / name
+    return e2e_artifact_dir(tmp_path) / name
 
 
 class _Cli:
