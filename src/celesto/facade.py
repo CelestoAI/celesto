@@ -40,7 +40,7 @@ import threading
 import time
 import uuid
 import warnings
-from collections.abc import Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from dataclasses import dataclass, replace
@@ -1015,6 +1015,32 @@ def _notify_once(notify: Callable[[str], None], notice: str) -> Callable[[], Non
             notify(notice)
 
     return send
+
+
+async def _finish_despite_cancel(
+    *steps: Awaitable[Any], on_cancel: Callable[[], None] | None = None
+) -> tuple[list[Any], bool]:
+    """Run *steps* to the end even if the caller is cancelled meanwhile.
+
+    A disk copy runs in a worker thread that a cancellation can't stop, so
+    a fork must not let go of its lock, or delete what the copy reads, until
+    the copy is done. Returns the finished tasks and whether a cancellation
+    arrived; the caller cleans up and then raises ``CancelledError`` itself.
+    *on_cancel* runs once, when the first cancellation arrives.
+    """
+    import asyncio
+
+    tasks = [asyncio.ensure_future(step) for step in steps]
+    pending = set(tasks)
+    cancelled = False
+    while pending:
+        try:
+            _, pending = await asyncio.wait(pending)
+        except asyncio.CancelledError:
+            if not cancelled and on_cancel is not None:
+                on_cancel()
+            cancelled = True
+    return tasks, cancelled
 
 
 @dataclass(frozen=True, slots=True)
@@ -4223,9 +4249,15 @@ modprobe 9pnet_virtio""".strip()
     ) -> ForkBatch:
         """Async version of :meth:`_fork_many`.
 
-        ``on_notice`` runs in a worker thread, not on the event loop. If the
-        call is cancelled, children already started are kept and the
-        generation is still deleted.
+        ``on_notice`` runs in a worker thread, not on the event loop.
+
+        Disk copies run in worker threads that a cancellation can't stop, so
+        a cancelled call first waits for the copies already running. If the
+        source was being copied, the source's snapshot lock is held until
+        that copy ends and the generation is then deleted. If children were
+        being copied, those whose copy finished are removed, since none of
+        them has started, and the generation is deleted. Children that had
+        already started are kept. Then ``CancelledError`` is raised.
         """
         import asyncio
 
@@ -4238,18 +4270,48 @@ modprobe 9pnet_virtio""".strip()
         async with self._sdk._async_fork_names_lock(self._vm_id, on_wait=wait_notice):
             plan = await asyncio.to_thread(self._claim_fork_names, plan, name)
             async with self._sdk._async_vm_snapshot_lock(self._vm_id, on_wait=wait_notice):
-                generation, warnings = await asyncio.to_thread(
-                    self._capture_fork_generation, notify
+                (capture,), cancelled = await _finish_despite_cancel(
+                    asyncio.to_thread(self._capture_fork_generation, notify)
                 )
+                if cancelled:
+                    if capture.exception() is None:
+                        await _finish_despite_cancel(
+                            asyncio.to_thread(self._delete_fork_generation, capture.result()[0])
+                        )
+                    raise asyncio.CancelledError
+                generation, warnings = capture.result()
             try:
+                stopping = asyncio.Event()
 
                 async def copy_one(child: str) -> ForkResult | None:
                     async with limit:
+                        if stopping.is_set():
+                            # Cancelled before this copy began: nothing to undo.
+                            return ForkResult(name=child, ok=False)
                         return await self._async_create_fork_child(plan, generation, child)
 
-                copies = await asyncio.gather(*(copy_one(child) for child in plan.names))
+                tasks, cancelled = await _finish_despite_cancel(
+                    *(copy_one(child) for child in plan.names), on_cancel=stopping.set
+                )
+                if cancelled:
+                    copied = [
+                        child
+                        for child, task in zip(plan.names, tasks, strict=True)
+                        if task.exception() is None and task.result() is None
+                    ]
+                    if copied:
+                        await _finish_despite_cancel(
+                            asyncio.to_thread(self._remove_fork_children, copied)
+                        )
+                    raise asyncio.CancelledError
+                copies = [task.result() for task in tasks]
             finally:
-                warnings += await asyncio.to_thread(self._delete_fork_generation, generation)
+                (deleting,), cancelled = await _finish_despite_cancel(
+                    asyncio.to_thread(self._delete_fork_generation, generation)
+                )
+                warnings += deleting.result()
+                if cancelled:
+                    raise asyncio.CancelledError
 
         async def start_one(child: str, failed: ForkResult | None) -> ForkResult:
             if failed is not None:
@@ -4441,6 +4503,14 @@ modprobe 9pnet_virtio""".strip()
                 f"snapshot delete {generation.snapshot_id}' to remove it.",
             )
         return ()
+
+    def _remove_fork_children(self, names: list[str]) -> None:
+        """Remove children that were copied but never started (a cancelled fork)."""
+        for name in names:
+            try:
+                self._sdk.delete(name)
+            except Exception:  # noqa: BLE001 - remove the rest; the fork is ending anyway
+                logger.warning("Could not remove fork child %s", name, exc_info=True)
 
     def _create_fork_child(
         self, plan: _ForkPlan, generation: SnapshotInfo, name: str
