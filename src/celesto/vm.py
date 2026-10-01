@@ -38,6 +38,7 @@ import time
 from collections.abc import Iterator
 from contextlib import asynccontextmanager, contextmanager, suppress
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TextIO
 from uuid import uuid4
@@ -88,12 +89,14 @@ from celesto.storage._base import VSOCK_CID_END, VSOCK_CID_START
 from celesto.types import (
     GuestOS,
     NetworkConfig,
+    PortForwardConfig,
     RootfsFormat,
     SnapshotCapturePolicy,
     SnapshotInfo,
     SnapshotType,
     VMConfig,
     VMInfo,
+    VMLineage,
     VMState,
     VsockConfig,
     generate_instance_id,
@@ -111,6 +114,13 @@ DEFAULT_SOCKET_DIR = Path("/tmp")
 # /init compares it with /etc/celesto/instance-id to tell a new machine from a
 # restart of the same one.
 _INSTANCE_ID_BOOT_PARAM = "celesto.instance_id"
+
+# Kernel parameters that name one sandbox's own resources. A sandbox created
+# from a copy of another one's disk drops them so it gets its own.
+_DISK_COPY_DROPPED_BOOT_PARAMS = ("ip=", f"{_INSTANCE_ID_BOOT_PARAM}=")
+
+# How many free-port candidates to try per forward before giving up.
+_FORWARD_PORT_ATTEMPTS = 100
 
 # Marks a per-VM disk that outlives its VM row on purpose, so the reclaim
 # sweep can tell a deliberately kept disk from a leaked one.
@@ -1074,6 +1084,147 @@ class CelestoManager:
             update={"rootfs_path": instance_rootfs, "rootfs_format": materialized_format}
         )
 
+    def _ensure_no_saved_disk(self, vm_id: str) -> None:
+        """Refuse to put a disk copy where a kept disk for *vm_id* still lives.
+
+        A normal create reuses such a disk on purpose; a disk copy must never
+        overwrite it or boot from it instead of the copy.
+        """
+        if not self._instance_disk_paths_for_id(vm_id):
+            return
+        raise CelestoError(
+            f"A saved disk for '{vm_id}' is still on this machine. Choose another name "
+            f"with '--name', or run 'celesto sandbox delete {vm_id}' to remove it.",
+            {"vm_id": vm_id},
+        )
+
+    def _materialize_rootfs_from_disk(self, config: VMConfig, disk_path: Path) -> VMConfig:
+        """Copy a prepared disk into place as this VM's own isolated disk.
+
+        Unlike :meth:`_materialize_rootfs`, this never makes a thin QEMU
+        overlay: the prepared disk may be deleted as soon as the copy exists,
+        so the copy must not depend on it. Every layer of a QEMU disk's
+        backing chain is copied next to the new disk too.
+        """
+        if not disk_path.is_file():
+            raise CelestoError(
+                f"The saved disk for sandbox '{config.vm_id}' is missing: '{disk_path}'. "
+                "Run the copy again.",
+                {"vm_id": config.vm_id, "disk_path": str(disk_path)},
+            )
+        backend = self._backend_for_config(config)
+        rootfs_format = self._materialized_rootfs_format(config, backend)
+        instance_rootfs = self._instance_disk_path(config.vm_id, backend, rootfs_format)
+        logger.info(
+            "Copying saved disk for VM %s: %s -> %s",
+            config.vm_id,
+            disk_path,
+            instance_rootfs,
+        )
+        if backend == BACKEND_QEMU:
+            expected = "qcow2" if rootfs_format == "qcow2" else "raw"
+            self._copy_qemu_disk_chain(
+                disk_path, instance_rootfs, vm_id=config.vm_id, expected_format=expected
+            )
+        else:
+            self._copy_with_reflink(disk_path, instance_rootfs)
+        return config.model_copy(
+            update={"rootfs_path": instance_rootfs, "rootfs_format": rootfs_format}
+        )
+
+    def _qemu_disk_info(self, disk_path: Path, vm_id: str) -> dict[str, Any]:
+        """Return ``qemu-img info`` for a disk, raising instead of guessing."""
+        qemu_img = self._find_qemu_img_binary()
+        if qemu_img is None:
+            raise CelestoError(
+                f"qemu-img is needed to copy the disk for sandbox '{vm_id}'; "
+                f"{_qemu_install_hint()}",
+                {"vm_id": vm_id},
+            )
+        result = subprocess.run(
+            [str(qemu_img), "info", "-U", "--output=json", str(disk_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        try:
+            if result.returncode != 0:
+                raise ValueError(result.stderr.strip())
+            info = json.loads(result.stdout)
+            if not isinstance(info, dict):
+                raise ValueError("qemu-img info did not return an object")
+        except ValueError as exc:
+            raise CelestoError(
+                f"The saved disk for sandbox '{vm_id}' can't be read: '{disk_path}'. "
+                "Run the copy again.",
+                {"vm_id": vm_id, "disk_path": str(disk_path), "stderr": str(exc)},
+            ) from exc
+        return info
+
+    def _copy_qemu_disk_chain(
+        self,
+        source_path: Path,
+        target_path: Path,
+        *,
+        vm_id: str,
+        expected_format: str | None = None,
+        _depth: int = 0,
+    ) -> str:
+        """Copy a QEMU disk and its backing chain; return the copy's format.
+
+        Each layer is copied with reflink or sparse I/O. Backing layers land
+        next to *target_path* as ``<disk>.backing-N`` sidecars, which delete
+        and leftover cleanup already treat as part of the disk, and the copy
+        is re-pointed at them.
+        """
+        info = self._qemu_disk_info(source_path, vm_id)
+        disk_format = info.get("format")
+        if expected_format is not None and disk_format != expected_format:
+            raise CelestoError(
+                f"The saved disk for sandbox '{vm_id}' is a {disk_format} disk, but this "
+                f"sandbox needs a {expected_format} disk. Run the copy again.",
+                {"vm_id": vm_id, "disk_path": str(source_path), "format": disk_format},
+            )
+        self._copy_with_reflink(source_path, target_path)
+        backing_name = info.get("full-backing-filename") or info.get("backing-filename")
+        if not backing_name:
+            return str(disk_format)
+        backing = Path(backing_name)
+        if not backing.is_file():
+            raise CelestoError(
+                f"The saved disk for sandbox '{vm_id}' needs a base image that is missing: "
+                f"'{backing}'. Restore it, or run the copy again.",
+                {"vm_id": vm_id, "disk_path": str(source_path), "backing_file": str(backing)},
+            )
+        backing_target = QemuRuntimeAdapter._local_backing_copy_path(target_path, backing, _depth)
+        backing_format = self._copy_qemu_disk_chain(
+            backing, backing_target, vm_id=vm_id, _depth=_depth + 1
+        )
+        qemu_img = self._find_qemu_img_binary()
+        assert qemu_img is not None  # _qemu_disk_info already required it
+        result = subprocess.run(
+            [
+                str(qemu_img),
+                "rebase",
+                "-u",
+                "-b",
+                str(backing_target.resolve()),
+                "-F",
+                backing_format,
+                str(target_path),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise CelestoError(
+                f"qemu-img could not finish copying the disk for sandbox '{vm_id}'; "
+                f"{_qemu_install_hint()}",
+                {"vm_id": vm_id, "stderr": result.stderr.strip()},
+            )
+        return str(disk_format)
+
     def _materialize_macos_bundle(self, config: VMConfig) -> None:
         """Clone a local macOS base into this sandbox's managed storage."""
         machine = config.macos_machine
@@ -1753,18 +1904,26 @@ class CelestoManager:
                 host_port=network.ssh_host_port,
             )
 
-    def _maybe_enable_vsock(self, config: VMConfig, backend: str, vm_info: VMInfo) -> VMInfo:
+    def _maybe_enable_vsock(
+        self,
+        config: VMConfig,
+        backend: str,
+        vm_info: VMInfo,
+        *,
+        reserve_device: bool = False,
+    ) -> VMInfo:
         """Reserve a vsock CID and persist ``config.vsock`` when needed.
 
         Auto/explicit vsock control channels need a reserved CID. QEMU uses the
         CID directly from the host. Firecracker exposes the same guest CID via a
         host-side Unix socket, so the generated UDS path is also persisted in
-        ``config.vsock`` for the facade to dial.
+        ``config.vsock`` for the facade to dial. ``reserve_device`` asks for a
+        device with any free CID, as an explicit ``config.vsock`` does.
         """
         resolution = self._resolve_control_channel_for_config(config, backend)
         requested_vsock = config.vsock
-        should_reserve_device = (
-            backend in {BACKEND_QEMU, BACKEND_FIRECRACKER} and requested_vsock is not None
+        should_reserve_device = backend in {BACKEND_QEMU, BACKEND_FIRECRACKER} and (
+            requested_vsock is not None or reserve_device
         )
         if resolution.kind != "vsock" and not should_reserve_device:
             return vm_info
@@ -2083,6 +2242,27 @@ class CelestoManager:
             NetworkError: If network setup fails.
             ValidationError: If config is invalid.
         """
+        return self._create(config)
+
+    def _create(
+        self,
+        config: VMConfig,
+        *,
+        prepared_disk: Path | None = None,
+        reserve_vsock_device: bool = False,
+    ) -> VMInfo:
+        """Create a VM; the shared body of :meth:`create` and disk copies.
+
+        Args:
+            config: VM configuration.
+            prepared_disk: When set, the new VM's isolated disk is a copy of
+                this file instead of a disk made from ``config.rootfs_path``.
+                The copy is never resized: it already has the size it had
+                when it was saved. See :meth:`_create_from_disk`.
+            reserve_vsock_device: Reserve a vsock CID even when the control
+                channel will not use vsock, as an explicit ``config.vsock``
+                would. Disk copies use it to give each copy its own CID.
+        """
         if config is None:
             raise ValueError("config cannot be None")
 
@@ -2117,6 +2297,8 @@ class CelestoManager:
 
         with self._vm_create_lock(effective_config.vm_id):
             self._ensure_vm_id_available(effective_config.vm_id)
+            if prepared_disk is not None:
+                self._ensure_no_saved_disk(effective_config.vm_id)
             managed_disk_path = self._managed_disk_path_for_create(effective_config, backend)
             managed_disk_existed = (
                 managed_disk_path.exists() if managed_disk_path is not None else False
@@ -2142,6 +2324,10 @@ class CelestoManager:
             try:
                 if effective_config.guest_os is GuestOS.MACOS:
                     self._materialize_macos_bundle(effective_config)
+                elif prepared_disk is not None:
+                    effective_config = self._materialize_rootfs_from_disk(
+                        effective_config, prepared_disk
+                    )
                 else:
                     effective_config = self._materialize_rootfs(effective_config)
 
@@ -2164,7 +2350,8 @@ class CelestoManager:
                 if managed_disk_path is not None:
                     self._clear_retained_marker(managed_disk_path)
                 if effective_config.guest_os is not GuestOS.MACOS:
-                    effective_config = self._resize_materialized_rootfs(effective_config)
+                    if prepared_disk is None:
+                        effective_config = self._resize_materialized_rootfs(effective_config)
                     self._materialize_firmware(effective_config)
                 self._discard_existing_managed_disk_backup(managed_disk_backup)
             except BaseException:
@@ -2175,6 +2362,9 @@ class CelestoManager:
                 if vm_record_created:
                     with suppress(Exception):
                         self.state.delete_vm(effective_config.vm_id)
+                if prepared_disk is not None and managed_disk_path is not None:
+                    # A disk copy may have written backing files next to the disk.
+                    self._remove_managed_disk(effective_config.vm_id, managed_disk_path)
                 self._cleanup_unpersisted_managed_disk(
                     managed_disk_path,
                     existed_before=managed_disk_existed,
@@ -2214,7 +2404,9 @@ class CelestoManager:
                     effective_config.vm_id,
                     network=network_config,
                 )
-                vm_info = self._maybe_enable_vsock(effective_config, backend, vm_info)
+                vm_info = self._maybe_enable_vsock(
+                    effective_config, backend, vm_info, reserve_device=reserve_vsock_device
+                )
                 user = os.environ.get("USER", "root")
                 self.network.prepare_bridged_tap(
                     tap_name,
@@ -2254,7 +2446,9 @@ class CelestoManager:
                     ssh_host_port=ssh_host_port,
                 )
                 vm_info = self.state.update_vm(effective_config.vm_id, network=network_config)
-                vm_info = self._maybe_enable_vsock(effective_config, backend, vm_info)
+                vm_info = self._maybe_enable_vsock(
+                    effective_config, backend, vm_info, reserve_device=reserve_vsock_device
+                )
                 if ssh_host_port is not None:
                     logger.info(
                         "VM created: %s (backend=%s, ssh localhost:%d)",
@@ -2321,7 +2515,9 @@ class CelestoManager:
             # Update VM with network info
             vm_info = self.state.update_vm(effective_config.vm_id, network=network_config)
 
-            vm_info = self._maybe_enable_vsock(effective_config, backend, vm_info)
+            vm_info = self._maybe_enable_vsock(
+                effective_config, backend, vm_info, reserve_device=reserve_vsock_device
+            )
 
             logger.info(
                 "VM created: %s (IP: %s, TAP: %s)",
@@ -2344,6 +2540,229 @@ class CelestoManager:
             with suppress(Exception):
                 self.state.delete_vm(effective_config.vm_id)
             raise
+
+    # ------------------------------------------------------------------
+    # Sandboxes from a copied disk (internal building block for fork)
+    # ------------------------------------------------------------------
+
+    def _create_from_disk(
+        self,
+        source: VMInfo,
+        disk_path: Path,
+        name: str,
+        *,
+        forked_at: datetime | None = None,
+    ) -> VMInfo:
+        """Create a new, independent sandbox from a copy of a saved disk.
+
+        Internal: fork's children are built with this; it is not a public API.
+
+        The new sandbox keeps the source's settings: CPU, memory, guest OS,
+        backend, kernel and boot settings, disk size, internet policy, network
+        speed limit, network type, SSH public key and environment variables.
+        It gets its own name, IP address and network device, SSH host port,
+        vsock CID and sockets, logs, firmware state and a new instance ID, so
+        its startup script gives it new SSH host keys and a new machine ID.
+        Create-time port forwards keep their guest port and get a new free
+        host port. ``retain_disk_on_delete`` is reset to off. Lineage
+        (``forked_from``/``forked_at``) is recorded in the state store; read it
+        with ``state.get_vm_lineage(name)``.
+
+        *disk_path* is copied, never referenced, so the caller may delete it
+        as soon as this returns. It must have the format of the source's own
+        disk: raw ext4 for Firecracker; for QEMU, qcow2 (or raw when the
+        source grew a raw disk). A QEMU disk may have a backing chain; every
+        layer is copied. The copy is not resized.
+
+        The sandbox is created, not started. Start it like any created
+        sandbox, for example ``Celesto.from_id(name, state_manager=...)
+        .start()``; its identity is recorded the first time it is ready.
+
+        Args:
+            source: The sandbox the disk was saved from, as stored.
+            disk_path: The saved disk to copy.
+            name: Name of the new sandbox.
+            forked_at: When the disk was saved. Defaults to now.
+
+        Returns:
+            VMInfo for the new sandbox, in the ``created`` state.
+
+        Raises:
+            VMAlreadyExistsError: If a sandbox named *name* exists.
+            CelestoError: If the source can't be copied this way (shared
+                folders, extra drives, a shared disk, or a backend or guest
+                other than Linux on Firecracker or QEMU), a saved disk for
+                *name* is still on this machine, or the copy fails. Nothing
+                is left behind.
+        """
+        config = self._config_for_disk_copy(source, name)
+        info = self._create(
+            config,
+            prepared_disk=disk_path,
+            reserve_vsock_device=source.config.vsock is not None,
+        )
+        try:
+            return self._finish_disk_copy(source, info, forked_at)
+        except BaseException:
+            with suppress(Exception):
+                self.delete(name)
+            raise
+
+    async def _async_create_from_disk(
+        self,
+        source: VMInfo,
+        disk_path: Path,
+        name: str,
+        *,
+        forked_at: datetime | None = None,
+    ) -> VMInfo:
+        """Async version of :meth:`_create_from_disk`."""
+        config = self._config_for_disk_copy(source, name)
+        info = await self._async_create(
+            config,
+            prepared_disk=disk_path,
+            reserve_vsock_device=source.config.vsock is not None,
+        )
+        try:
+            return await asyncio.to_thread(self._finish_disk_copy, source, info, forked_at)
+        except BaseException:
+            with suppress(Exception):
+                await self.async_delete(name)
+            raise
+
+    def _ensure_disk_can_be_copied(self, source: VMInfo) -> None:
+        """Refuse sources that one copied disk can't fully reproduce."""
+        vm_id = source.vm_id
+        config = source.config
+        if config.guest_os is GuestOS.MACOS:
+            raise CelestoError("macOS sandboxes can't be forked yet.", {"vm_id": vm_id})
+        if config.guest_os is GuestOS.WINDOWS:
+            raise CelestoError("Windows sandboxes can't be forked yet.", {"vm_id": vm_id})
+        backend = self._backend_for_vm(source)
+        if backend not in {BACKEND_FIRECRACKER, BACKEND_QEMU}:
+            raise CelestoError(
+                f"Sandbox '{vm_id}' runs on {backend}, which can't be forked yet. "
+                "Create a sandbox with '--backend qemu' to fork it.",
+                {"vm_id": vm_id, "backend": backend},
+            )
+        if config.workspace_mounts or config.extra_drives:
+            # The folder or drive lives outside the sandbox's disk, so every
+            # copy would share the same live files or get none.
+            raise CelestoError(
+                f"Sandbox '{vm_id}' uses a shared folder or extra drive, which forks can't "
+                "copy. Create a sandbox without '--mount' to fork it.",
+                {"vm_id": vm_id},
+            )
+        if config.disk_mode != "isolated":
+            raise CelestoError(
+                f"Sandbox '{vm_id}' writes straight to its base image, so forks can't copy "
+                "it. Create a sandbox without disk_mode='shared' to fork it.",
+                {"vm_id": vm_id, "disk_mode": config.disk_mode},
+            )
+
+    def _config_for_disk_copy(self, source: VMInfo, name: str) -> VMConfig:
+        """Return the config for a new sandbox made from *source*'s disk.
+
+        Settings are copied as stored. Fields that hold the source's own
+        resources are cleared here so :meth:`_create` allocates new ones:
+        ``vsock`` (CID and socket path), ``instance_id`` and per-sandbox
+        kernel parameters. Port forwards are cleared too and get new host
+        ports in :meth:`_finish_disk_copy`. ``rootfs_path`` is replaced when
+        the copied disk is put in place.
+        """
+        self._ensure_disk_can_be_copied(source)
+        config = source.config
+        boot_args = " ".join(
+            part
+            for part in config.boot_args.split()
+            if not part.startswith(_DISK_COPY_DROPPED_BOOT_PARAMS)
+        )
+        data = config.model_dump()
+        data.update(
+            {
+                "vm_id": name,
+                "instance_id": None,
+                "retain_disk_on_delete": False,
+                "vsock": None,
+                "port_forwards": [],
+                "boot_args": boot_args,
+            }
+        )
+        # Validate rather than model_copy so a bad name fails before any work.
+        return VMConfig.model_validate(data, context={"validate_paths": False})
+
+    def _finish_disk_copy(
+        self,
+        source: VMInfo,
+        info: VMInfo,
+        forked_at: datetime | None,
+    ) -> VMInfo:
+        """Give a new copy its port forwards and record where it came from."""
+        vm_id = info.vm_id
+        if source.config.port_forwards:
+            # One lock across choosing and saving the ports, so copies made
+            # side by side can never pick the same host port.
+            lock = self._acquire_operation_lock("port-forwards.lock")
+            try:
+                forwards = self._allocate_forward_host_ports(source.config.port_forwards, vm_id)
+                self.state.update_vm(
+                    vm_id,
+                    config=self.state.get_vm(vm_id).config.model_copy(
+                        update={"port_forwards": forwards}
+                    ),
+                )
+            finally:
+                self._release_vm_create_lock(lock)
+        self.state.record_vm_lineage(
+            vm_id,
+            VMLineage(forked_from=source.vm_id, forked_at=forked_at or datetime.now(UTC)),
+        )
+        return self.state.get_vm(vm_id)
+
+    def _allocate_forward_host_ports(
+        self,
+        forwards: list[PortForwardConfig],
+        vm_id: str,
+    ) -> list[PortForwardConfig]:
+        """Return *forwards* with a new free host port each, same guest ports.
+
+        A port is free when nothing listens on it now and no sandbox has it
+        saved as an SSH port or forward, since stopped sandboxes still own
+        theirs. Callers hold the ``port-forwards.lock`` until the result is
+        saved.
+        """
+        taken: set[int] = set()
+        for vm in self.state.list_vms():
+            taken.update(forward.host_port for forward in vm.config.port_forwards)
+            if vm.network is not None and vm.network.ssh_host_port is not None:
+                taken.add(vm.network.ssh_host_port)
+
+        allocated: list[PortForwardConfig] = []
+        for forward in forwards:
+            port = self._free_forward_host_port(forward.host_address, taken)
+            if port is None:
+                raise NetworkError(
+                    f"Not enough free ports for sandbox '{vm_id}'. Run 'celesto sandbox list' "
+                    "to find sandboxes you can delete.",
+                    {"vm_id": vm_id, "guest_port": forward.guest_port},
+                )
+            taken.add(port)
+            allocated.append(forward.model_copy(update={"host_port": port}))
+        return allocated
+
+    @classmethod
+    def _free_forward_host_port(cls, host_address: str, taken: set[int]) -> int | None:
+        """Ask the OS for a free port on *host_address* that is not in *taken*."""
+        for _ in range(_FORWARD_PORT_ATTEMPTS):
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                    sock.bind((host_address, 0))
+                    port = int(sock.getsockname()[1])
+            except OSError:
+                return None
+            if port not in taken and cls._local_tcp_port_is_available(host_address, port):
+                return port
+        return None
 
     def start(
         self,
@@ -4314,6 +4733,16 @@ class CelestoManager:
 
     async def async_create(self, config: VMConfig) -> VMInfo:
         """Async version of :meth:`create`."""
+        return await self._async_create(config)
+
+    async def _async_create(
+        self,
+        config: VMConfig,
+        *,
+        prepared_disk: Path | None = None,
+        reserve_vsock_device: bool = False,
+    ) -> VMInfo:
+        """Async version of :meth:`_create`."""
         if config is None:
             raise ValueError("config cannot be None")
 
@@ -4353,6 +4782,8 @@ class CelestoManager:
 
         async with self._async_vm_create_lock(effective_config.vm_id):
             self._ensure_vm_id_available(effective_config.vm_id)
+            if prepared_disk is not None:
+                self._ensure_no_saved_disk(effective_config.vm_id)
             managed_disk_path = self._managed_disk_path_for_create(effective_config, backend)
             managed_disk_existed = (
                 managed_disk_path.exists() if managed_disk_path is not None else False
@@ -4381,6 +4812,10 @@ class CelestoManager:
             try:
                 if effective_config.guest_os is GuestOS.MACOS:
                     await asyncio.to_thread(self._materialize_macos_bundle, effective_config)
+                elif prepared_disk is not None:
+                    effective_config = await asyncio.to_thread(
+                        self._materialize_rootfs_from_disk, effective_config, prepared_disk
+                    )
                 else:
                     effective_config = await self._async_materialize_rootfs(effective_config)
 
@@ -4396,11 +4831,12 @@ class CelestoManager:
                 # See create(): clear the mark only once a row owns the disk.
                 if managed_disk_path is not None:
                     self._clear_retained_marker(managed_disk_path)
-                if effective_config.guest_os is not GuestOS.MACOS:
+                if effective_config.guest_os is not GuestOS.MACOS and prepared_disk is None:
                     effective_config = await asyncio.to_thread(
                         self._resize_materialized_rootfs,
                         effective_config,
                     )
+                if effective_config.guest_os is not GuestOS.MACOS:
                     # Firmware materialization is a small file copy — synchronous is fine.
                     self._materialize_firmware(effective_config)
                 await asyncio.to_thread(
@@ -4416,6 +4852,9 @@ class CelestoManager:
                 if vm_record_created:
                     with suppress(Exception):
                         self.state.delete_vm(effective_config.vm_id)
+                if prepared_disk is not None and managed_disk_path is not None:
+                    # A disk copy may have written backing files next to the disk.
+                    self._remove_managed_disk(effective_config.vm_id, managed_disk_path)
                 self._cleanup_unpersisted_managed_disk(
                     managed_disk_path,
                     existed_before=managed_disk_existed,
@@ -4460,7 +4899,9 @@ class CelestoManager:
                     effective_config.vm_id,
                     network=network_config,
                 )
-                vm_info = self._maybe_enable_vsock(effective_config, backend, vm_info)
+                vm_info = self._maybe_enable_vsock(
+                    effective_config, backend, vm_info, reserve_device=reserve_vsock_device
+                )
                 user = os.environ.get("USER", "root")
                 await self.network.async_prepare_bridged_tap(
                     tap_name,
@@ -4500,7 +4941,9 @@ class CelestoManager:
                     ssh_host_port=ssh_host_port,
                 )
                 vm_info = self.state.update_vm(effective_config.vm_id, network=network_config)
-                vm_info = self._maybe_enable_vsock(effective_config, backend, vm_info)
+                vm_info = self._maybe_enable_vsock(
+                    effective_config, backend, vm_info, reserve_device=reserve_vsock_device
+                )
                 return vm_info
 
             # --- NAT TAP mode (async) ---
@@ -4542,7 +4985,9 @@ class CelestoManager:
             )
             vm_info = self.state.update_vm(effective_config.vm_id, network=network_config)
 
-            vm_info = self._maybe_enable_vsock(effective_config, backend, vm_info)
+            vm_info = self._maybe_enable_vsock(
+                effective_config, backend, vm_info, reserve_device=reserve_vsock_device
+            )
 
             return vm_info
 
