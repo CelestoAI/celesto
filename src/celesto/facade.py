@@ -101,6 +101,7 @@ from celesto.exceptions import (
     OperationTimeoutError,
     ValidationError,
     VMAlreadyExistsError,
+    VMNotFoundError,
 )
 from celesto.guest_identity import (
     GUEST_IDENTITY_COMMAND,
@@ -4232,10 +4233,22 @@ modprobe 9pnet_virtio""".strip()
                     zip(plan.names, copies, strict=True),
                 )
             )
-        self._refresh_info()
         return ForkBatch(
-            children=tuple(children), warnings=warnings, source_state=self._info.status
+            children=tuple(children), warnings=warnings, source_state=self._fork_source_state()
         )
+
+    def _fork_source_state(self) -> VMState | None:
+        """Return this sandbox's state after a fork, or None if it was deleted.
+
+        D6 lets ``delete`` of the source go ahead once its copy is saved, so the
+        source may be gone by the time the children are ready. The children
+        still belong to the caller and must be reported.
+        """
+        try:
+            self._refresh_info()
+        except VMNotFoundError:
+            return None
+        return self._info.status
 
     async def _async_fork_many(
         self,
@@ -4321,10 +4334,8 @@ modprobe 9pnet_virtio""".strip()
         children = await asyncio.gather(
             *(start_one(child, failed) for child, failed in zip(plan.names, copies, strict=True))
         )
-        await asyncio.to_thread(self._refresh_info)
-        return ForkBatch(
-            children=tuple(children), warnings=warnings, source_state=self._info.status
-        )
+        source_state = await asyncio.to_thread(self._fork_source_state)
+        return ForkBatch(children=tuple(children), warnings=warnings, source_state=source_state)
 
     def _plan_fork(
         self, count: int, *, name: str | None, parallel: int, boot_timeout: float

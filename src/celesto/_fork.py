@@ -77,12 +77,13 @@ class ForkBatch:
         children: One result per requested child, in name order.
         warnings: Problems that did not fail the fork, such as the source
             staying paused (D8).
-        source_state: The source's state after the fork.
+        source_state: The source's state after the fork, or None if the source
+            was deleted while the fork finished.
     """
 
     children: tuple[ForkResult, ...]
     warnings: tuple[str, ...]
-    source_state: VMState
+    source_state: VMState | None
 
 
 # ----------------------------------------------------------------------

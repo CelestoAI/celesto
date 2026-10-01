@@ -297,7 +297,7 @@ class ForkPayload(TypedDict):
     source: str
     children: list[ForkChildPayload]
     warnings: list[str]
-    source_state: str
+    source_state: str | None
 
 
 class SnapshotRestoreVmPayload(TypedDict):
@@ -2549,7 +2549,7 @@ def _fork_payload(source: str, batch: Any) -> ForkPayload:
         "source": source,
         "children": children,
         "warnings": list(batch.warnings),
-        "source_state": batch.source_state.value,
+        "source_state": batch.source_state.value if batch.source_state is not None else None,
     }
 
 

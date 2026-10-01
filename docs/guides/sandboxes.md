@@ -160,7 +160,7 @@ celesto computer fork demo --name exp --count 2 --json
 }
 ```
 
-Each copy succeeds or fails on its own. A copy that fails is removed, and the others are kept. The command exits with code 0 only when every copy was created, and 1 otherwise. When a fork is refused before anything is copied, `data` is `null` and `error.message` says how to fix it. `warnings` lists problems that didn't stop the fork, such as the original staying paused, and `source_state` is the original's state afterwards. Notices such as `Pausing demo while its files are copied…` go to standard error, so the JSON stays readable.
+Each copy succeeds or fails on its own. A copy that fails is removed, and the others are kept. The command exits with code 0 only when every copy was created, and 1 otherwise. When a fork is refused before anything is copied, `data` is `null` and `error.message` says how to fix it. `warnings` lists problems that didn't stop the fork, such as the original staying paused, and `source_state` is the original's state afterwards, or `null` if it was deleted while the fork finished. Notices such as `Pausing demo while its files are copied…` go to standard error, so the JSON stays readable.
 
 ## Python
 
