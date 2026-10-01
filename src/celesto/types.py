@@ -16,7 +16,7 @@
 
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from ipaddress import IPv4Network, collapse_addresses
 from pathlib import Path
@@ -1154,6 +1154,30 @@ class VMInfo(BaseModel):
     control_socket_path: Path | None = None
     vsock_uds_path: Path | None = None
     display: DesktopEndpoint | None = None
+
+    model_config = {"frozen": True}
+
+
+class VMIdentity(BaseModel):
+    """A sandbox's identity, as the sandbox itself reported it.
+
+    Celesto records this the first time a sandbox is ready after its startup
+    script gave it a new identity, so it can later be compared with other
+    sandboxes even while this one is stopped.
+
+    Attributes:
+        instance_id: The instance ID the guest saved at boot. ``None`` when the
+            sandbox's startup script predates instance IDs.
+        ssh_host_key_fingerprint: OpenSSH ``SHA256:...`` fingerprint of the
+            guest's Ed25519 SSH host key, as ``ssh-keygen -l`` prints it.
+        machine_id: Contents of the guest's ``/etc/machine-id``.
+        recorded_at: When Celesto recorded this identity (UTC).
+    """
+
+    instance_id: str | None = None
+    ssh_host_key_fingerprint: str | None = None
+    machine_id: str | None = None
+    recorded_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     model_config = {"frozen": True}
 

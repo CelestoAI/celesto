@@ -28,6 +28,7 @@ from celesto.types import (
     NetworkConfig,
     SnapshotInfo,
     VMConfig,
+    VMIdentity,
     VMInfo,
     VMState,
 )
@@ -79,6 +80,24 @@ class StateManagerProtocol(Protocol):
 
     def list_vms(self, status: VMState | None = None) -> list[VMInfo]:
         pass
+
+    # ------------------------------------------------------------------
+    # Sandbox identity
+    # ------------------------------------------------------------------
+
+    def get_vm_identity(self, vm_id: str) -> VMIdentity | None:
+        """Return the identity recorded for *vm_id*, or ``None`` if none is."""
+        ...
+
+    def record_vm_identity(self, vm_id: str, identity: VMIdentity) -> VMIdentity:
+        """Store *identity* for an existing VM, replacing any earlier record.
+
+        Deleting the VM deletes its record.
+
+        Raises:
+            VMNotFoundError: If the VM does not exist.
+        """
+        ...
 
     # ------------------------------------------------------------------
     # IP allocation
