@@ -57,6 +57,9 @@ from celesto.vm import CelestoManager, resolve_data_dir
 pytestmark = pytest.mark.e2e
 
 _MARKER_PATH = "/root/fork-marker"
+# Longest silence allowed from a QEMU source while it is copied live; over
+# ten times the gap recorded on a healthy run (see the running-source test).
+_QEMU_MAX_HEARTBEAT_GAP = 1.0
 # Read with the guest's own tools, independent of what Celesto records.
 _GUEST_IDENTITY = (
     "printf 'instance_id=%s\\n' \"$(cat /etc/celesto/instance-id)\"; "
@@ -245,6 +248,14 @@ def test_running_source_forks_into_three_independent_children(
         if backend == BACKEND_QEMU:
             assert not any(notice.startswith("Pausing") for notice in notices), notices
             assert heartbeat.errors == [], heartbeat.errors
+            # Measured, not inferred from the missing notice: the source kept
+            # answering throughout. Recorded runs on macOS QEMU show a longest
+            # gap of 0.07 to 0.09 s (one round trip plus the 0.05 s sleep);
+            # a pause for the copy lasts as long as the copy, seconds.
+            assert heartbeat.beats >= 3, f"too few heartbeats to measure: {heartbeat.beats}"
+            assert heartbeat.longest_gap < _QEMU_MAX_HEARTBEAT_GAP, (
+                f"source stopped answering for {heartbeat.longest_gap:.3f} s during the fork"
+            )
         else:
             assert f"Pausing {source_name} while its files are copied…" in notices
         report["result"] = "passed"
