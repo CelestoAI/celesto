@@ -68,7 +68,7 @@ if TYPE_CHECKING:
     from celesto.facade import Celesto as FacadeVM
     from celesto.images.published import Arch, Vmm
     from celesto.storage import StateManagerProtocol
-    from celesto.types import BrowserSessionInfo, SnapshotInfo, VMConfig, VMInfo
+    from celesto.types import BrowserSessionInfo, SnapshotInfo, VMConfig, VMInfo, VMLineage
 
 DASHBOARD_ALLOW_BETA_ENV = "CELESTO_DASHBOARD_ALLOW_BETA"
 DASHBOARD_URL_ENV = "CELESTO_DASHBOARD_URL"
@@ -167,6 +167,8 @@ class InfoVmPayload(TypedDict):
     desktop_url: NotRequired[str]
     network_mode: str
     bridge: str | None
+    forked_from: NotRequired[str]
+    forked_at: NotRequired[str]
 
 
 class InfoPayload(TypedDict):
@@ -277,6 +279,25 @@ class SnapshotCreatePayload(TypedDict):
 
     snapshot: SnapshotRow
     warnings: list[str]
+
+
+class ForkChildPayload(TypedDict):
+    """One requested child in ``celesto sandbox fork`` output."""
+
+    name: str
+    ok: bool
+    status: str
+    sandbox: VmRow | None
+    error: str | None
+
+
+class ForkPayload(TypedDict):
+    """JSON payload for ``celesto sandbox fork``."""
+
+    source: str
+    children: list[ForkChildPayload]
+    warnings: list[str]
+    source_state: str
 
 
 class SnapshotRestoreVmPayload(TypedDict):
@@ -811,8 +832,16 @@ def _disk_size_mib(rootfs_path: Path | None) -> int | None:
         return None
 
 
-def _info_payload(vm: VMInfo, *, live_data: dict[str, object] | None = None) -> InfoPayload:
-    """Build the info command payload from a VMInfo plus optional live data."""
+def _info_payload(
+    vm: VMInfo,
+    *,
+    live_data: dict[str, object] | None = None,
+    lineage: VMLineage | None = None,
+) -> InfoPayload:
+    """Build the info command payload from a VMInfo plus optional live data.
+
+    A forked sandbox also shows where it came from (D14).
+    """
     network = vm.network
     config = vm.config
     live = live_data or {}
@@ -847,6 +876,9 @@ def _info_payload(vm: VMInfo, *, live_data: dict[str, object] | None = None) -> 
     )
     if isinstance(vm.display, DesktopEndpoint):
         vm_payload["desktop_url"] = vm.display.viewer_url
+    if lineage is not None:
+        vm_payload["forked_from"] = lineage.forked_from
+        vm_payload["forked_at"] = lineage.forked_at.isoformat()
     return {"vm": vm_payload}
 
 
@@ -890,6 +922,9 @@ def _render_info_result(data: InfoPayload) -> None:
     details.add_row("Disk Size", disk_str)
     if vm_data.get("desktop_url"):
         details.add_row("Desktop", str(vm_data["desktop_url"]))
+    if "forked_from" in vm_data:
+        details.add_row("Forked From", vm_data["forked_from"])
+        details.add_row("Forked At", _format_started_at(vm_data["forked_at"]))
     details.add_row(
         "PID",
         str(vm_data["pid"]) if vm_data["pid"] is not None else "-",
@@ -906,7 +941,7 @@ def _run_info(*, vm_id: str, json_output: bool, command_name: str = "sandbox.inf
             live_data: dict[str, object] | None = None
             if vm.status == VMState.RUNNING:
                 live_data = _query_live_vm_info(vm)
-            data = _info_payload(vm, live_data=live_data)
+            data = _info_payload(vm, live_data=live_data, lineage=sdk.state.get_vm_lineage(vm_id))
             if json_output:
                 emit_json(command_name, 0, data=data)
             else:
@@ -2491,6 +2526,110 @@ def _run_snapshot(args: SimpleNamespace) -> int:
         return 0
     except Exception as exc:
         return _emit_cli_error(command_name, 1, exc, json_output=json_output)
+
+
+def _fork_payload(source: str, batch: Any) -> ForkPayload:
+    """Turn a fork result into the per-child rows both outputs use (D24)."""
+    children: list[ForkChildPayload] = []
+    for child in batch.children:
+        children.append(
+            {
+                "name": child.name,
+                "ok": child.ok,
+                "status": "created" if child.ok else "failed",
+                "sandbox": (
+                    _vm_rows([child.sandbox.info])[0] if child.ok and child.sandbox else None
+                ),
+                "error": None if child.ok else child.error,
+            }
+        )
+    return {
+        "source": source,
+        "children": children,
+        "warnings": list(batch.warnings),
+        "source_state": batch.source_state.value,
+    }
+
+
+def _render_fork(data: ForkPayload) -> None:
+    """Print one line per child, then any warnings."""
+    console = console_stdout()
+    for child in data["children"]:
+        line = (
+            f"{child['name']}  created"
+            if child["ok"]
+            else f"{child['name']}  failed: {child['error']}"
+        )
+        console.print(line, markup=False, highlight=False, soft_wrap=True)
+    for warning in data["warnings"]:
+        console.print(f"Warning: {warning}", style="yellow", markup=False, highlight=False)
+
+
+def _run_fork(args: SimpleNamespace) -> int:
+    """Handle ``celesto sandbox fork``.
+
+    Exits 0 only when every child was created (D24). A refusal before any
+    child exists uses the standard error envelope; per-child failures are
+    listed in ``data.children`` with the first failure repeated as ``error``.
+    """
+    from celesto._fork import cloud_message
+    from celesto.exceptions import CelestoError
+    from celesto.facade import Celesto
+
+    command_name = getattr(args, "command_name", "sandbox.fork")
+    json_output = bool(args.json)
+    if args.provider == "cloud":
+        return _emit_cli_error(
+            command_name, 1, CelestoError(cloud_message()), json_output=json_output
+        )
+
+    def notice(message: str) -> None:
+        # stderr keeps --json output on stdout parseable.
+        console_stderr().print(message, markup=False, highlight=False)
+
+    vm: Celesto | None = None
+    batch: Any = None
+    try:
+        vm = _cli_vm_from_id(args.vm_id)
+        batch = vm._fork_many(
+            args.count,
+            name=args.name,
+            parallel=args.parallel,
+            boot_timeout=args.boot_timeout,
+            on_notice=notice,
+        )
+        data = _fork_payload(vm.vm_id, batch)
+        failures = [child["error"] or "" for child in data["children"] if not child["ok"]]
+        exit_code = 1 if failures else 0
+        if json_output:
+            emit_json(
+                command_name,
+                exit_code,
+                data=data,
+                error={"code": "fork_failed", "message": failures[0]} if failures else None,
+            )
+        else:
+            _render_fork(data)
+        return exit_code
+    except VMNotFoundError:
+        return _emit_cli_error(
+            command_name,
+            1,
+            CelestoError(
+                f"Sandbox '{args.vm_id}' was not found; run 'celesto sandbox list' to choose one."
+            ),
+            json_output=json_output,
+        )
+    except Exception as exc:
+        return _emit_cli_error(command_name, 1, exc, json_output=json_output)
+    finally:
+        if batch is not None:
+            for child in batch.children:
+                if child.sandbox is not None:
+                    with suppress(Exception):
+                        child.sandbox.close()
+        if vm is not None:
+            vm.close()
 
 
 def _render_env_change(
