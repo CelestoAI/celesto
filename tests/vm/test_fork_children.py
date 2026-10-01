@@ -30,6 +30,13 @@ a QEMU live copy that fails. Failure modes, written before the code:
 6. A child reporting an instance ID other than its own passes the check.
 7. A failed QEMU live copy falls back to pausing the source, or creates
    children anyway, instead of failing with the live-copy message.
+8. Two forks of one source started together pick their child names before
+   either child exists, so the second fork's children all collide with the
+   first's instead of continuing the numbering.
+9. A third fork still sees the first two forks' names as free while their
+   children are being copied.
+10. When two forks ask for the same explicit name, the second fails child by
+    child (or copies the source) instead of refusing the whole fork up front.
 
 The sandbox's disk copy, hypervisor start and guest agent are replaced at
 their boundaries; the fork's checks, lock, generation and cleanup are real.
@@ -38,6 +45,8 @@ their boundaries; the fork's checks, lock, generation and cleanup are real.
 from __future__ import annotations
 
 import asyncio
+import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -86,6 +95,7 @@ class _World:
         self.generation_seen: dict[str, bool] = {}
         self.capture_policies: list[SnapshotCapturePolicy] = []
         self.live_copy_error: Exception | None = None
+        self.copy_seconds = 0.0
 
     # -- sandbox rows ---------------------------------------------------
 
@@ -144,6 +154,8 @@ class _World:
 
     def create_from_disk(self, source: VMInfo, disk_path: Path, name: str, **_: Any) -> VMInfo:
         self.generation_seen[name] = disk_path.is_file()
+        # A slow copy keeps the race window open for concurrent forks.
+        time.sleep(self.copy_seconds)
         config = self.config(name, source.config.backend or "firecracker")
         self.state.create_vm(config)
         self.created.append(name)
@@ -303,3 +315,105 @@ def test_a_failed_qemu_live_copy_fails_the_fork_without_pausing(world: _World) -
     assert world.created == []
     assert world.generations() == []
     assert world.state.get_vm(_SOURCE).status == VMState.RUNNING
+
+
+def _names_of(batch: Any) -> list[str]:
+    assert all(child.ok for child in batch.children), batch.children
+    return [child.name for child in batch.children]
+
+
+def test_forks_started_together_continue_the_numbering(world: _World) -> None:
+    world.add_source("firecracker", VMState.STOPPED)
+    world.copy_seconds = 0.2
+    start = threading.Barrier(3)
+    batches: list[Any] = []
+    errors: list[BaseException] = []
+
+    def fork() -> None:
+        handle = Celesto.from_id(
+            _SOURCE, state_manager=world.state, data_dir=world.manager.data_dir
+        )
+        start.wait()
+        try:
+            batches.append(handle._fork_many(2, boot_timeout=30))
+        except BaseException as exc:  # noqa: BLE001 - reported below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=fork) for _ in range(3)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(30)
+
+    assert errors == []
+    names = sorted((_names_of(batch) for batch in batches), key=lambda names: names[0])
+    assert names == [["src-1", "src-2"], ["src-3", "src-4"], ["src-5", "src-6"]]
+    assert world.generations() == []
+
+
+def test_async_forks_started_together_continue_the_numbering(world: _World) -> None:
+    world.add_source("firecracker", VMState.STOPPED)
+    world.copy_seconds = 0.2
+
+    async def both() -> list[Any]:
+        handles = [
+            Celesto.from_id(_SOURCE, state_manager=world.state, data_dir=world.manager.data_dir)
+            for _ in range(2)
+        ]
+        return await asyncio.gather(*(h._async_fork_many(2, boot_timeout=30) for h in handles))
+
+    batches = asyncio.run(both())
+
+    names = sorted((_names_of(batch) for batch in batches), key=lambda names: names[0])
+    assert names == [["src-1", "src-2"], ["src-3", "src-4"]]
+    assert world.generations() == []
+
+
+@pytest.mark.parametrize("use_async", [False, True], ids=["sync", "async"])
+def test_a_name_taken_while_waiting_refuses_the_whole_fork(world: _World, use_async: bool) -> None:
+    world.add_source("firecracker", VMState.STOPPED)
+    world.copy_seconds = 0.2
+
+    async def both() -> list[Any]:
+        handles = [
+            Celesto.from_id(_SOURCE, state_manager=world.state, data_dir=world.manager.data_dir)
+            for _ in range(2)
+        ]
+        return await asyncio.gather(
+            *(h._async_fork_many(2, name="exp", boot_timeout=30) for h in handles),
+            return_exceptions=True,
+        )
+
+    if use_async:
+        outcomes = asyncio.run(both())
+    else:
+        outcomes = []
+        start = threading.Barrier(2)
+
+        def fork() -> None:
+            handle = Celesto.from_id(
+                _SOURCE, state_manager=world.state, data_dir=world.manager.data_dir
+            )
+            start.wait()
+            try:
+                outcomes.append(handle._fork_many(2, name="exp", boot_timeout=30))
+            except CelestoError as exc:
+                outcomes.append(exc)
+
+        threads = [threading.Thread(target=fork) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(30)
+
+    refused = [outcome for outcome in outcomes if isinstance(outcome, CelestoError)]
+    batches = [outcome for outcome in outcomes if not isinstance(outcome, BaseException)]
+    assert len(refused) == 1 and len(batches) == 1, outcomes
+    assert str(refused[0]) == (
+        "A sandbox named 'exp-1' already exists. Choose another name with '--name', "
+        "or run 'celesto sandbox delete exp-1'."
+    )
+    assert _names_of(batches[0]) == ["exp-1", "exp-2"]
+    # The refused fork copied nothing: only the winner's children were made.
+    assert sorted(world.created) == ["exp-1", "exp-2"]
+    assert world.generations() == []

@@ -166,8 +166,8 @@ Every pull request follows the testing rules in `CLAUDE.md`: design the end-to-e
   - `vm.fork(name=None)` returns one child and raises on any failure. It emits the D8 warning with `warnings.warn` and a new Celesto warning class; the SDK has no warning mechanism today.
   - `vm.fork_many(count, *, name=None, parallel=4)` returns a `ForkBatch` with `children` (one `ForkResult` each), `warnings` and `source_state`, mirroring the CLI's JSON. It raises for failures before children exist and returns per-child failures.
   - Async twins `async_fork` and `async_fork_many` (D27).
-  - Cloud sandboxes raise the D4 message.
-- **Messages:** all 16 messages and both notices from D1b, identical in human and JSON output.
+  - Cloud sandboxes raise the D4 message: call `cloud_message()` from `celesto._fork` in the SDK and CLI cloud paths. The local engine never uses message 7, because a local `Celesto` object can't be a cloud sandbox.
+- **Messages:** all 21 messages and both notices from D1b, identical in human and JSON output.
 - **Docs:**
   - A new "Fork a sandbox" section in `docs/guides/sandboxes.md`, or its own guide.
   - The CLI reference and the changelog.
