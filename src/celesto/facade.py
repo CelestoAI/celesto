@@ -73,6 +73,11 @@ from celesto.exceptions import (
     OperationTimeoutError,
     ValidationError,
 )
+from celesto.guest_identity import (
+    GUEST_IDENTITY_COMMAND,
+    GuestIdentityReport,
+    parse_guest_identity,
+)
 from celesto.images.boot import BootImage
 from celesto.images.cloud_init import (
     build_seed_iso,
@@ -121,6 +126,7 @@ from celesto.types import (
     SnapshotInfo,
     SnapshotType,
     VMConfig,
+    VMIdentity,
     VMInfo,
     VMState,
     VsockConfig,
@@ -131,6 +137,9 @@ from celesto.vm import CelestoManager
 logger = logging.getLogger(__name__)
 
 _DEFAULT_RUN_READY_TIMEOUT = 30.0
+# The identity read is a few ``cat`` calls; a guest that cannot answer this
+# fast is left unrecorded rather than slowing down readiness.
+_IDENTITY_READ_TIMEOUT = 5
 # Display sandboxes need more than the VM-only 30s timeout because startup
 # includes X11/Wayland-style display services, VNC/noVNC, a window manager, and
 # sometimes Chromium plus GPU/driver initialization. 90s was chosen
@@ -2464,6 +2473,7 @@ class Celesto:
         if on_progress is not None and not self._ssh_ready:
             on_progress("Waiting for SSH...")
         self._wait_for_ssh_over_network(timeout=timeout)
+        self._record_identity_if_missing()
         return self
 
     def wait_for_guest_tcp_ports(
@@ -3820,10 +3830,16 @@ modprobe 9pnet_virtio""".strip()
 
         It tries vsock when that is the resolved channel. Current Celesto images
         are required to include the Rust guest agent, so a missing agent is a
-        readiness failure instead of an SSH fallback trigger.
+        readiness failure instead of an SSH fallback trigger. Once ready, the
+        sandbox's identity is recorded if Celesto has none for it yet.
         """
         if self._control_ready:
             return
+        self._wait_for_control_channel(timeout)
+        self._record_identity_if_missing()
+
+    def _wait_for_control_channel(self, timeout: float) -> None:
+        """Connect the resolved control channel (see :meth:`_wait_for_ready`)."""
         resolution = self._resolve_channel()
         if resolution.kind == "vsock":
             if self._try_vsock_ready(timeout):
@@ -3836,6 +3852,94 @@ modprobe 9pnet_virtio""".strip()
                 timeout,
             )
         self._wait_for_ssh_over_network(timeout, as_control=True)
+
+    # ------------------------------------------------------------------
+    # Sandbox identity (used by fork to tell sandboxes apart)
+    # ------------------------------------------------------------------
+
+    def _recorded_identity(self) -> VMIdentity | None:
+        """Return the identity Celesto recorded for this sandbox, if any.
+
+        It is the identity the sandbox reported the first time it was ready
+        after its startup script gave it a new one, and it is available while
+        the sandbox is stopped. ``instance_id`` is ``None`` when the sandbox's
+        startup script predates instance IDs.
+        """
+        return self._sdk.state.get_vm_identity(self._vm_id)
+
+    def _read_guest_identity(
+        self, *, timeout: int = _IDENTITY_READ_TIMEOUT
+    ) -> GuestIdentityReport | None:
+        """Ask the running guest for its identity over a channel that is ready.
+
+        Uses the control channel, or SSH when only SSH is ready, and never
+        waits for one. Bypasses ``run()`` so user ``on_pre_run`` callbacks
+        neither see nor block this internal command. Returns ``None`` when no
+        channel is ready.
+
+        Raises:
+            Exception: Whatever the channel raises (timeouts, transport errors).
+        """
+        self._ensure_control_cache_attrs()
+        channel: CommChannel | SSHClient | None = None
+        if self._control_ready and self._control_channel is not None:
+            channel = self._control_channel
+        elif getattr(self, "_ssh_ready", False) and getattr(self, "_ssh", None) is not None:
+            channel = self._ssh
+        if channel is None:
+            return None
+        result = channel.run(GUEST_IDENTITY_COMMAND, timeout=timeout, shell="raw")
+        if result.exit_code != 0:
+            return None
+        return parse_guest_identity(result.stdout)
+
+    def _record_identity_if_missing(self) -> None:
+        """Record this sandbox's identity once, after its startup script set it.
+
+        Best effort and cheap: a local lookup when a record already exists, and
+        one short guest command otherwise. Failures are logged and never raised,
+        so readiness (and ``create``/``start``) is unaffected.
+        """
+        try:
+            config = self._info.config
+            instance_id = config.instance_id
+            if (
+                instance_id is None
+                or config.backend not in {BACKEND_FIRECRACKER, BACKEND_QEMU}
+                or config.guest_os in {GuestOS.WINDOWS, GuestOS.MACOS}
+            ):
+                return
+            existing = self._recorded_identity()
+            # A record without an instance ID means the startup script predates
+            # instance IDs; it is copied into the sandbox at create time and
+            # never changes, so there is nothing new to read.
+            if existing is not None and existing.instance_id in (None, instance_id):
+                return
+            report = self._read_guest_identity()
+            if report is None:
+                return
+            if report.supports_instance_id and (
+                report.instance_id != instance_id
+                or report.machine_id is None
+                or report.ssh_host_key_fingerprint is None
+            ):
+                # The reset has not finished or failed; try again next time.
+                logger.debug(
+                    "Sandbox %s identity is not ready to record (guest reports %s)",
+                    self._vm_id,
+                    report.instance_id,
+                )
+                return
+            self._sdk.state.record_vm_identity(
+                self._vm_id,
+                VMIdentity(
+                    instance_id=report.instance_id if report.supports_instance_id else None,
+                    ssh_host_key_fingerprint=report.ssh_host_key_fingerprint,
+                    machine_id=report.machine_id,
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001 - recording must never break readiness
+            logger.debug("Could not record identity for sandbox %s: %s", self._vm_id, exc)
 
     def _wait_for_ssh_over_network(self, timeout: float, *, as_control: bool = False) -> None:
         """Wait for SSH across available network endpoints."""
