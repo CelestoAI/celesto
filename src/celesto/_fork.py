@@ -44,6 +44,7 @@ DEFAULT_FORK_PARALLEL = 4
 
 # Same rule as sandbox names (``VMConfig.vm_id``).
 _SANDBOX_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}[a-z0-9]$|^[a-z0-9]$")
+_SANDBOX_NAME_LIMIT = 64
 # Generations are snapshots named ``fork-<source>-<unix time>-<random>``.
 GENERATION_PREFIX = "fork-"
 
@@ -233,6 +234,15 @@ def name_too_long_message(source: str) -> str:
     )
 
 
+def requested_name_too_long_message(name: str, count: int) -> str:
+    """A valid requested name is too long to add ``-1`` to ``-N`` to it."""
+    longest = _SANDBOX_NAME_LIMIT - len(f"-{count}")
+    return (
+        f"'{name}' is too long to number {count} forks. "
+        f"Choose a name of up to {longest} characters with '--name'."
+    )
+
+
 def _gigabytes(size: int) -> str:
     return f"{size / 1e9:.1f} GB"
 
@@ -267,14 +277,18 @@ def child_names(source: str, count: int, name: str | None, taken: Iterable[str])
         taken: Names that can't be used: existing sandboxes and saved disks.
 
     Raises:
-        ForkNameError: If a requested name is taken or isn't a valid name.
+        ForkNameError: If a requested name is taken, isn't a valid name, or
+            is too long to number the children.
     """
     used = set(taken)
     if name is not None:
         names = [name] if count == 1 else [f"{name}-{index}" for index in range(1, count + 1)]
+        if not _SANDBOX_NAME.fullmatch(name):
+            raise ForkNameError(invalid_name_message(name))
         for candidate in names:
             if not _SANDBOX_NAME.fullmatch(candidate):
-                raise ForkNameError(invalid_name_message(candidate if count == 1 else name))
+                # The name is valid, so only the added number makes it too long.
+                raise ForkNameError(requested_name_too_long_message(name, count))
         for candidate in names:
             if candidate in used:
                 raise ForkNameError(name_taken_message(candidate))
