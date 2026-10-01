@@ -1413,10 +1413,9 @@ class CelestoManager:
             check=False,
         )
         if result.returncode != 0:
-            raise CelestoError(
-                f"qemu-img could not finish copying the disk for sandbox '{vm_id}'; "
-                f"{_qemu_install_hint()}",
-                {"vm_id": vm_id, "stderr": result.stderr.strip()},
+            raise DiskCopyError(
+                _disk_copy_failed_message(vm_id),
+                {"vm_id": vm_id, "disk_path": str(target_path), "stderr": result.stderr.strip()},
             )
         return str(disk_format)
 
