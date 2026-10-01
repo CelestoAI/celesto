@@ -246,6 +246,11 @@ def _generate_vm_id() -> str:
     return generate_sandbox_name()
 
 
+def generate_instance_id() -> str:
+    """Generate a sandbox instance ID: 32 lowercase hex characters."""
+    return uuid4().hex
+
+
 def _generate_browser_session_id() -> str:
     """Generate a browser session identifier."""
     return f"browser-{uuid4().hex[:8]}"
@@ -679,6 +684,13 @@ class VMConfig(BaseModel):
             ``celesto.network=guest`` and can configure its own interface.
             Required for bridge mode so older cached or custom images cannot
             silently boot without usable networking.
+        instance_id: Identifies this sandbox as one machine. Celesto sets it
+            when the sandbox is created and keeps it across restarts and
+            snapshot restores. It is passed on the kernel command line as
+            ``celesto.instance_id=<id>``; when it differs from the ID saved in
+            the guest, ``/init`` creates new SSH host keys and a new machine ID
+            before SSH starts. ``None`` for sandboxes created before Celesto
+            assigned instance IDs; those boot exactly as before.
     """
 
     vm_id: Annotated[
@@ -718,6 +730,7 @@ class VMConfig(BaseModel):
     ssh_public_key: str | None = None
     guest_managed_networking: bool = False
     network_attachment: NetworkAttachmentConfig = Field(default_factory=NetworkAttachmentConfig)
+    instance_id: Annotated[str, Field(pattern=r"^[0-9a-f]{32}$")] | None = None
 
     @property
     def effective_rootfs_format(self) -> RootfsFormat:

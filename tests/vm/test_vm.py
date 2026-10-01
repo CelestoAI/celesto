@@ -1451,11 +1451,12 @@ class TestCelestoBootArgsAndSSHCommands:
             boot_args="console=ttyS0 ip=10.0.0.2::10.0.0.1:255.255.255.0::eth0:off",
         )
 
-        smol_vm.create(config)
+        created = smol_vm.create(config)
         smol_vm.start("vm002")
 
         boot_args = mock_client.set_boot_source.call_args[0][1]
-        assert boot_args == config.boot_args
+        # The caller's ip= is kept as-is; only the sandbox's instance ID is added.
+        assert boot_args == (f"{config.boot_args} celesto.instance_id={created.config.instance_id}")
 
     @patch("celesto.runtime.firecracker.FirecrackerClient")
     @patch.object(CelestoManager, "_start_firecracker")
