@@ -44,7 +44,13 @@ def _assert_guest_agent_starts_before_network_and_ssh(script: str) -> None:
         else script.index("hostname celesto")
     )
     assert agent_start < network_ready
-    assert agent_start < script.index("ssh-keygen -t ed25519")
+    # The usual first-boot key generation runs after the agent starts. The
+    # identity reset (which may also run ssh-keygen) runs before it on
+    # purpose, so the agent never reports another machine's keys.
+    assert agent_start < script.index(
+        "ssh-keygen -t ed25519", script.index('log_ts "ssh-hostkey-check-start"')
+    )
+    assert script.index('log_ts "identity-check-done"') < agent_start
     assert agent_start < script.index("/usr/sbin/sshd")
 
 
@@ -54,6 +60,8 @@ def _assert_startup_timestamp_markers(script: str) -> None:
             "init-start",
             "mounts-ready",
             "root-ready",
+            "identity-check-start",
+            "identity-check-done",
             "guest-agent-start",
             "guest-agent-started",
             "net-config-start",
@@ -72,6 +80,8 @@ def _assert_startup_timestamp_markers(script: str) -> None:
             "init-start",
             "mounts-ready",
             "root-ready",
+            "identity-check-start",
+            "identity-check-done",
             "guest-agent-start",
             "guest-agent-started",
             "net-config-start",
