@@ -734,6 +734,24 @@ class CelestoManager:
         finally:
             await asyncio.to_thread(self._release_vm_create_lock, lock)
 
+    async def _async_release_lock(self, lock: tuple[Any | None, TextIO | None]) -> None:
+        """Release *lock* off the event loop, even if the caller is cancelled.
+
+        A cancellation can't stop the worker thread, so without this wait the
+        caller would raise while the lock is still held. The release always
+        finishes first; then ``CancelledError`` is raised.
+        """
+        release = asyncio.ensure_future(asyncio.to_thread(self._release_vm_create_lock, lock))
+        cancelled = False
+        while not release.done():
+            try:
+                await asyncio.shield(release)
+            except asyncio.CancelledError:
+                cancelled = True
+        release.result()
+        if cancelled:
+            raise asyncio.CancelledError
+
     @staticmethod
     def _vm_snapshot_lock_name(vm_id: str) -> str:
         """Name of the per-VM lock held by snapshots, stop, and delete.
@@ -781,7 +799,7 @@ class CelestoManager:
         try:
             yield
         finally:
-            await asyncio.to_thread(self._release_vm_create_lock, lock)
+            await self._async_release_lock(lock)
 
     @staticmethod
     def _fork_names_lock_name(vm_id: str) -> str:
@@ -823,7 +841,7 @@ class CelestoManager:
         try:
             yield
         finally:
-            await asyncio.to_thread(self._release_vm_create_lock, lock)
+            await self._async_release_lock(lock)
 
     @contextmanager
     def _snapshot_operation_locks(self, vm_id: str, snapshot_id: str) -> Iterator[None]:

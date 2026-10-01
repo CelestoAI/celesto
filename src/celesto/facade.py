@@ -28,6 +28,7 @@ interface::
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import math
@@ -185,6 +186,7 @@ _LOCAL_FORWARD_PROBE_INTERVAL = 0.2
 _LOCAL_TUNNEL_START_TIMEOUT = 10.0
 _QEMU_MACHINE_ADAPTER = TypeAdapter(QemuMachine)
 _DisplaySandboxT = TypeVar("_DisplaySandboxT", bound=DisplaySandboxProtocol)
+_ResultT = TypeVar("_ResultT")
 _LOCAL_FORWARD_MAX_PORT_ATTEMPTS = 10
 _AUTO_CONFIG_DEFAULT_MEM_SIZE_MIB = {
     GuestOS.ALPINE: 512,
@@ -1043,6 +1045,77 @@ async def _finish_despite_cancel(
                 on_cancel()
             cancelled = True
     return tasks, cancelled
+
+
+async def _thread_despite_cancel(step: Callable[..., _ResultT], *args: Any) -> _ResultT:
+    """Run *step* in a worker thread; if cancelled, wait for it, then raise."""
+    import asyncio
+
+    (task,), cancelled = await _finish_despite_cancel(asyncio.to_thread(step, *args))
+    if cancelled:
+        raise asyncio.CancelledError
+    return task.result()
+
+
+def _finish_despite_interrupt(step: Callable[[], _ResultT]) -> tuple[_ResultT, bool]:
+    """Run *step* to the end even if Ctrl+C arrives meanwhile.
+
+    Ctrl+C raises ``KeyboardInterrupt`` only in the main thread, so *step*
+    runs in a worker thread it can't cut short, and the main thread waits
+    for it. Further Ctrl+C presses are absorbed until *step* ends, so a
+    cleanup is never abandoned halfway. Returns *step*'s result and whether
+    an interrupt arrived. If *step* fails, its error is raised, chained to a
+    ``KeyboardInterrupt`` when one arrived.
+    """
+    outcome: dict[str, Any] = {}
+
+    def run() -> None:
+        try:
+            outcome["result"] = step()
+        except BaseException as exc:  # noqa: BLE001 - raised again in the caller's thread
+            outcome["error"] = exc
+
+    worker = threading.Thread(target=run, name="celesto-fork-finish")
+    worker.start()
+    interrupted = False
+    while worker.is_alive():
+        try:
+            worker.join()
+        except KeyboardInterrupt:
+            interrupted = True
+    if "error" in outcome:
+        if interrupted:
+            raise KeyboardInterrupt from outcome["error"]
+        raise outcome["error"]
+    return outcome["result"], interrupted
+
+
+def _run_fork_steps(
+    step: Callable[[Any], _ResultT],
+    items: Iterator[Any] | list[Any],
+    workers: int,
+    stopping: threading.Event,
+) -> list[_ResultT]:
+    """Run *step* for each item on *workers* threads, in order.
+
+    On any interruption *stopping* is set, steps that haven't begun are
+    dropped, and the steps already running are waited for (Ctrl+C can't
+    stop a worker thread) before the interruption is raised again.
+    """
+    pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="celesto-fork")
+    futures = [pool.submit(step, item) for item in items]
+    try:
+        return [future.result() for future in futures]
+    except BaseException:
+        stopping.set()
+        raise
+    finally:
+        _, interrupted = _finish_despite_interrupt(
+            lambda: pool.shutdown(wait=True, cancel_futures=stopping.is_set())
+        )
+        if interrupted:
+            stopping.set()
+            raise KeyboardInterrupt
 
 
 @dataclass(frozen=True, slots=True)
@@ -4180,7 +4253,16 @@ modprobe 9pnet_virtio""".strip()
         Firecracker pauses it for the copy; a stopped sandbox is copied as it
         is. Each child gets its own copy of the generation, boots, and must
         prove it has its own identity (D18); a child that fails is removed.
-        The generation is deleted once every child has been attempted.
+        The generation is deleted once every child's copy has been made.
+
+        Ctrl+C (``KeyboardInterrupt``) can't stop the disk copies and starts
+        running in worker threads, so an interrupted fork first waits for
+        them; copies and starts that hadn't begun are skipped. If the source
+        was being copied, its snapshot lock is held until that copy ends.
+        Then the generation is deleted, and every child that hadn't started
+        and passed its check before the interrupt is removed. Children that
+        had are kept. Then ``KeyboardInterrupt`` is raised. Further Ctrl+C
+        presses are ignored until that cleanup ends.
 
         Args:
             count: How many children, 1 to 10.
@@ -4205,34 +4287,79 @@ modprobe 9pnet_virtio""".strip()
         notify = on_notice or _ignore_notice
         wait_notice = _notify_once(notify, waiting_notice(self._vm_id))
         plan = self._plan_fork(count, name=name, parallel=parallel, boot_timeout=boot_timeout)
-        # The names lock serializes forks of this source from choosing names
-        # until every child's record exists; the snapshot lock is held only
-        # for the capture, so stop and delete of the source wait no longer.
-        with self._sdk._fork_names_lock(self._vm_id, on_wait=wait_notice):
-            plan = self._claim_fork_names(plan, name)
-            with self._sdk._vm_snapshot_lock(self._vm_id, on_wait=wait_notice):
-                generation, warnings = self._capture_fork_generation(notify)
+        workers = min(parallel, len(plan.names))
+        # Children whose record this fork may have made and not yet handed
+        # back, and those that started and passed their check. Worker
+        # threads add and discard names; set updates are atomic.
+        made: set[str] = set()
+        verified: set[str] = set()
+        stopping = threading.Event()
+
+        def copy(child: str) -> ForkResult | None:
+            if stopping.is_set():
+                return ForkResult(name=child, ok=False)  # never reported: the fork raises
+            made.add(child)
             try:
-                with ThreadPoolExecutor(
-                    max_workers=min(parallel, len(plan.names)), thread_name_prefix="celesto-fork"
-                ) as pool:
-                    copies = list(
-                        pool.map(
-                            lambda child: self._create_fork_child(plan, generation, child),
-                            plan.names,
-                        )
+                failed = self._create_fork_child(plan, generation, child)
+            except BaseException:
+                stopping.set()
+                raise
+            if failed is not None:
+                made.discard(child)  # a failed copy removes itself
+            return failed
+
+        def start(pair: tuple[str, ForkResult | None]) -> ForkResult:
+            child, failed = pair
+            if failed is not None:
+                return failed
+            if stopping.is_set():
+                return ForkResult(name=child, ok=False)  # never reported: the fork raises
+            try:
+                result = self._start_fork_child(plan, child)
+            except BaseException:
+                stopping.set()
+                raise
+            if not result.ok:
+                made.discard(child)  # a failed start removes the child itself
+            elif stopping.is_set():
+                # Passed its check after the interrupt: it is removed with the rest.
+                with suppress(Exception):
+                    result.sandbox.close()
+            else:
+                verified.add(child)
+            return result
+
+        try:
+            # The names lock serializes forks of this source from choosing
+            # names until every child's record exists; the snapshot lock is
+            # held only for the capture, so stop and delete of the source
+            # wait no longer.
+            with self._sdk._fork_names_lock(self._vm_id, on_wait=wait_notice):
+                plan = self._claim_fork_names(plan, name)
+                with self._sdk._vm_snapshot_lock(self._vm_id, on_wait=wait_notice):
+                    (generation, warnings), interrupted = _finish_despite_interrupt(
+                        lambda: self._capture_fork_generation(notify)
                     )
-            finally:
-                warnings += self._delete_fork_generation(generation)
-        with ThreadPoolExecutor(
-            max_workers=min(parallel, len(plan.names)), thread_name_prefix="celesto-fork"
-        ) as pool:
-            children = list(
-                pool.map(
-                    lambda pair: pair[1] or self._start_fork_child(plan, pair[0]),
-                    zip(plan.names, copies, strict=True),
-                )
+                try:
+                    if interrupted:
+                        raise KeyboardInterrupt
+                    copies = _run_fork_steps(copy, plan.names, workers, stopping)
+                finally:
+                    deleted, interrupted = _finish_despite_interrupt(
+                        lambda: self._delete_fork_generation(generation)
+                    )
+                    warnings += deleted
+                    if interrupted:
+                        raise KeyboardInterrupt
+            children = _run_fork_steps(
+                start, list(zip(plan.names, copies, strict=True)), workers, stopping
             )
+        except BaseException:
+            stopping.set()
+            unstarted = sorted(made - verified)
+            if unstarted:
+                _finish_despite_interrupt(lambda: self._remove_fork_children(unstarted))
+            raise
         return ForkBatch(
             children=tuple(children), warnings=warnings, source_state=self._fork_source_state()
         )
@@ -4264,12 +4391,15 @@ modprobe 9pnet_virtio""".strip()
         ``on_notice`` runs in a worker thread, not on the event loop.
 
         Disk copies run in worker threads that a cancellation can't stop, so
-        a cancelled call first waits for the copies already running. If the
-        source was being copied, the source's snapshot lock is held until
-        that copy ends and the generation is then deleted. If children were
-        being copied, those whose copy finished are removed, since none of
-        them has started, and the generation is deleted. Children that had
-        already started are kept. Then ``CancelledError`` is raised.
+        a cancelled call first waits for the copies already running; copies
+        that hadn't begun are skipped. If the source was being copied, its
+        snapshot lock is held until that copy ends, and the lock is always
+        released. Then the generation is deleted, and every child that hadn't
+        started and passed its check before the cancellation is removed,
+        including children waiting their turn to start and a child cancelled
+        while it started. Children that had are kept. Then
+        ``CancelledError`` is raised. Further cancellations are absorbed
+        until that cleanup ends.
         """
         import asyncio
 
@@ -4279,62 +4409,87 @@ modprobe 9pnet_virtio""".strip()
             self._plan_fork, count, name=name, parallel=parallel, boot_timeout=boot_timeout
         )
         limit = asyncio.Semaphore(parallel)
-        async with self._sdk._async_fork_names_lock(self._vm_id, on_wait=wait_notice):
-            plan = await asyncio.to_thread(self._claim_fork_names, plan, name)
-            async with self._sdk._async_vm_snapshot_lock(self._vm_id, on_wait=wait_notice):
-                (capture,), cancelled = await _finish_despite_cancel(
-                    asyncio.to_thread(self._capture_fork_generation, notify)
-                )
-                if cancelled:
-                    if capture.exception() is None:
-                        await _finish_despite_cancel(
-                            asyncio.to_thread(self._delete_fork_generation, capture.result()[0])
-                        )
-                    raise asyncio.CancelledError
-                generation, warnings = capture.result()
-            try:
-                stopping = asyncio.Event()
+        # Children whose record this fork may have made and not yet handed
+        # back, and those that started and passed their check.
+        made: set[str] = set()
+        verified: set[str] = set()
+        stopping = asyncio.Event()
 
-                async def copy_one(child: str) -> ForkResult | None:
-                    async with limit:
-                        if stopping.is_set():
-                            # Cancelled before this copy began: nothing to undo.
-                            return ForkResult(name=child, ok=False)
-                        return await self._async_create_fork_child(plan, generation, child)
-
-                tasks, cancelled = await _finish_despite_cancel(
-                    *(copy_one(child) for child in plan.names), on_cancel=stopping.set
-                )
-                if cancelled:
-                    copied = [
-                        child
-                        for child, task in zip(plan.names, tasks, strict=True)
-                        if task.exception() is None and task.result() is None
-                    ]
-                    if copied:
-                        await _finish_despite_cancel(
-                            asyncio.to_thread(self._remove_fork_children, copied)
-                        )
-                    raise asyncio.CancelledError
-                copies = [task.result() for task in tasks]
-            finally:
-                (deleting,), cancelled = await _finish_despite_cancel(
-                    asyncio.to_thread(self._delete_fork_generation, generation)
-                )
-                warnings += deleting.result()
-                if cancelled:
-                    raise asyncio.CancelledError
+        async def copy_one(child: str) -> ForkResult | None:
+            async with limit:
+                if stopping.is_set():
+                    # Cancelled before this copy began: nothing to undo.
+                    return ForkResult(name=child, ok=False)
+                made.add(child)
+                failed = await self._async_create_fork_child(plan, generation, child)
+                if failed is not None:
+                    made.discard(child)  # a failed copy removes itself
+                return failed
 
         async def start_one(child: str, failed: ForkResult | None) -> ForkResult:
             if failed is not None:
                 return failed
             async with limit:
-                return await self._async_start_fork_child(plan, child)
+                result = await self._async_start_fork_child(plan, child)
+            if not result.ok:
+                made.discard(child)  # a failed start removes the child itself
+            elif not stopping.is_set():
+                verified.add(child)
+            return result
 
-        children = await asyncio.gather(
-            *(start_one(child, failed) for child, failed in zip(plan.names, copies, strict=True))
-        )
-        source_state = await asyncio.to_thread(self._fork_source_state)
+        try:
+            async with self._sdk._async_fork_names_lock(self._vm_id, on_wait=wait_notice):
+                plan = await asyncio.to_thread(self._claim_fork_names, plan, name)
+                generation: SnapshotInfo | None = None
+                warnings: tuple[str, ...] = ()
+                # The generation's cleanup covers the snapshot lock's release,
+                # which a cancellation can interrupt too.
+                try:
+                    async with self._sdk._async_vm_snapshot_lock(self._vm_id, on_wait=wait_notice):
+                        (capture,), cancelled = await _finish_despite_cancel(
+                            asyncio.to_thread(self._capture_fork_generation, notify)
+                        )
+                        if cancelled:
+                            if capture.exception() is None:
+                                generation, warnings = capture.result()
+                            raise asyncio.CancelledError
+                        generation, warnings = capture.result()
+                    tasks, cancelled = await _finish_despite_cancel(
+                        *(copy_one(child) for child in plan.names), on_cancel=stopping.set
+                    )
+                    if cancelled:
+                        raise asyncio.CancelledError
+                    copies = [task.result() for task in tasks]
+                finally:
+                    if generation is not None:
+                        (deleting,), cancelled = await _finish_despite_cancel(
+                            asyncio.to_thread(self._delete_fork_generation, generation)
+                        )
+                        warnings += deleting.result()
+                        if cancelled:
+                            raise asyncio.CancelledError
+            starts = [
+                asyncio.ensure_future(start_one(child, failed))
+                for child, failed in zip(plan.names, copies, strict=True)
+            ]
+            try:
+                children = await asyncio.gather(*starts)
+            except BaseException:
+                # Stop every start, then wait until each has wound down.
+                stopping.set()
+                for task in starts:
+                    task.cancel()
+                await _finish_despite_cancel(*starts)
+                raise
+            source_state = await asyncio.to_thread(self._fork_source_state)
+        except BaseException:
+            stopping.set()
+            unstarted = sorted(made - verified)
+            if unstarted:
+                await _finish_despite_cancel(
+                    asyncio.to_thread(self._remove_fork_children, unstarted)
+                )
+            raise
         return ForkBatch(children=tuple(children), warnings=warnings, source_state=source_state)
 
     def _plan_fork(
@@ -4521,10 +4676,16 @@ modprobe 9pnet_virtio""".strip()
         return ()
 
     def _remove_fork_children(self, names: list[str]) -> None:
-        """Remove children that were copied but never started (a cancelled fork)."""
+        """Remove children an interrupted fork made but never started.
+
+        A child whose copy was interrupted may have no record yet; it is
+        skipped.
+        """
         for name in names:
             try:
                 self._sdk.delete(name)
+            except VMNotFoundError:
+                continue
             except Exception:  # noqa: BLE001 - remove the rest; the fork is ending anyway
                 logger.warning("Could not remove fork child %s", name, exc_info=True)
 
@@ -4575,18 +4736,27 @@ modprobe 9pnet_virtio""".strip()
 
     async def _async_start_fork_child(self, plan: _ForkPlan, name: str) -> ForkResult:
         """Async version of :meth:`_start_fork_child`."""
-        import asyncio
 
+        # The worker-thread steps finish before a cancellation is raised, so
+        # the fork never removes a child while one of them still uses it.
         child: Celesto | None = None
         try:
-            child = await asyncio.to_thread(self._fork_child_handle, plan, name)
+            child = await _thread_despite_cancel(self._fork_child_handle, plan, name)
             deadline = time.monotonic() + plan.boot_timeout
             await child.async_start(boot_timeout=plan.boot_timeout)
-            return await asyncio.to_thread(self._confirm_fork_child, plan, child, deadline)
+            return await _thread_despite_cancel(self._confirm_fork_child, plan, child, deadline)
         except Exception as exc:  # noqa: BLE001 - one child's failure never stops the rest
-            return await asyncio.to_thread(
-                self._fork_child_failed, plan, name, exc, created=True, child=child
+            return await _thread_despite_cancel(
+                functools.partial(
+                    self._fork_child_failed, plan, name, exc, created=True, child=child
+                )
             )
+        except BaseException:
+            # Cancelled: the fork removes this child; only the handle is ours.
+            if child is not None:
+                with suppress(Exception):
+                    child.close()
+            raise
 
     def _fork_child_handle(self, plan: _ForkPlan, name: str) -> Celesto:
         """Open a child the way this sandbox was opened (same login, inventory)."""
