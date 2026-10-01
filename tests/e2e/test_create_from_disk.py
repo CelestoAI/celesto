@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from _util import BOOT_TIMEOUT, E2E_BACKENDS, require_e2e_backend
+from _util import BOOT_TIMEOUT, E2E_BACKENDS, e2e_artifact_dir, require_e2e_backend
 
 from celesto import Celesto
 from celesto.cli._sqlite import SQLiteStateManager
@@ -124,8 +124,7 @@ def test_sandboxes_created_from_a_copied_disk_are_independent(
     source_name = f"{prefix}disk-src-{suffix}"
     child_names = [f"{prefix}disk-copy{index}-{suffix}" for index in (1, 2)]
     marker = f"copied-disk-{suffix}"
-    artifact_dir = Path(os.environ.get("CELESTO_E2E_ARTIFACT_DIR", tmp_path))
-    artifact_dir.mkdir(parents=True, exist_ok=True)
+    artifact_dir = e2e_artifact_dir(tmp_path)
     artifact = artifact_dir / f"create-from-disk-{backend}.json"
     report: dict[str, Any] = {"backend": backend, "source": source_name, "sandboxes": {}}
 
@@ -295,8 +294,7 @@ def test_sources_a_disk_copy_cannot_reproduce_are_refused(
 
     prefix = os.environ.get("CELESTO_E2E_NAME_PREFIX", "e2e-")
     suffix = uuid.uuid4().hex[:6]
-    artifact_dir = Path(os.environ.get("CELESTO_E2E_ARTIFACT_DIR", tmp_path))
-    artifact_dir.mkdir(parents=True, exist_ok=True)
+    artifact_dir = e2e_artifact_dir(tmp_path)
     artifact = artifact_dir / f"create-from-disk-refusals-{backend}.json"
     state = SQLiteStateManager(resolve_data_dir() / "celesto.db")
     manager = CelestoManager(state_manager=state)

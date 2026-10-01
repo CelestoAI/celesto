@@ -44,7 +44,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from _util import BOOT_TIMEOUT, E2E_BACKENDS, require_e2e_backend
+from _util import BOOT_TIMEOUT, E2E_BACKENDS, e2e_artifact_dir, require_e2e_backend
 
 from celesto import Celesto
 from celesto.cli._sqlite import SQLiteStateManager
@@ -79,9 +79,7 @@ def _names(label: str) -> tuple[str, str]:
 
 
 def _artifact(tmp_path: Path, name: str) -> Path:
-    directory = Path(os.environ.get("CELESTO_E2E_ARTIFACT_DIR", tmp_path))
-    directory.mkdir(parents=True, exist_ok=True)
-    return directory / name
+    return e2e_artifact_dir(tmp_path) / name
 
 
 def _guest_identity(sandbox: Celesto) -> dict[str, str]:

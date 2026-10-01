@@ -18,7 +18,7 @@ Every step runs through the real ``celesto`` CLI in its own process, the way a
 user (or a second agent) would race a snapshot with ``stop`` or ``delete``.
 Each test writes a JSON timeline (snapshot start/end, stop or delete
 start/end) so a run can be inspected and compared later. Set
-``CELESTO_E2E_ARTIFACTS_DIR`` to keep the timelines outside pytest's tmp dir.
+``CELESTO_E2E_ARTIFACT_DIR`` to keep the timelines outside pytest's tmp dir.
 """
 
 from __future__ import annotations
@@ -40,6 +40,7 @@ from _util import (
     BOOT_TIMEOUT,
     E2E_BACKENDS,
     E2EBackend,
+    e2e_artifact_dir,
     require_e2e_backend,
 )
 
@@ -202,11 +203,6 @@ def _cleanup(*sandboxes: str) -> None:
             _cli("sandbox", "delete", sandbox, "--json", timeout=120)
 
 
-def _artifacts_dir(tmp_path: Path) -> Path:
-    configured = os.environ.get("CELESTO_E2E_ARTIFACTS_DIR")
-    return Path(configured) if configured else tmp_path / "artifacts"
-
-
 def _race_snapshot_with(
     action: str, backend: E2EBackend, sandbox: str
 ) -> tuple[_Timeline, str, tuple[int, str, str]]:
@@ -282,7 +278,7 @@ def test_delete_waits_for_snapshot_of_running_sandbox(
             assert check.stdout.split() == ["lock-sentinel", str(BIG_FILE_BYTES)]
             timeline.details["restored_check"] = check.stdout.split()
         finally:
-            timeline.write(_artifacts_dir(tmp_path))
+            timeline.write(e2e_artifact_dir(tmp_path))
     finally:
         _cleanup(sandbox)
         with suppress(Exception):
@@ -318,7 +314,7 @@ def test_stop_waits_for_snapshot_of_running_sandbox(
             assert disk_path.is_file()
             timeline.details["snapshot_disk_bytes"] = disk_path.stat().st_size
         finally:
-            timeline.write(_artifacts_dir(tmp_path))
+            timeline.write(e2e_artifact_dir(tmp_path))
     finally:
         _cleanup(sandbox)
         with suppress(Exception):
@@ -346,5 +342,5 @@ def test_delete_of_running_sandbox_without_snapshot_does_not_wait(
         info = _cli("sandbox", "info", sandbox, "--json")
         assert json.loads(info.stdout)["ok"] is False, "sandbox should be gone"
     finally:
-        timeline.write(_artifacts_dir(tmp_path))
+        timeline.write(e2e_artifact_dir(tmp_path))
         _cleanup(sandbox)

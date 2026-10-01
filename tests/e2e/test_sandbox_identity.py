@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from _util import BOOT_TIMEOUT, E2E_BACKENDS, require_e2e_backend
+from _util import BOOT_TIMEOUT, E2E_BACKENDS, e2e_artifact_dir, require_e2e_backend
 
 from celesto.cli._sqlite import SQLiteStateManager
 from celesto.vm import resolve_data_dir
@@ -154,8 +154,7 @@ def test_each_sandbox_keeps_its_own_identity(
     second = f"{prefix}identity-b-{suffix}"
     state = SQLiteStateManager(resolve_data_dir() / "celesto.db")
     report: dict[str, Any] = {"backend": backend, "sandboxes": {first: {}, second: {}}}
-    artifact_dir = Path(os.environ.get("CELESTO_E2E_ARTIFACT_DIR", tmp_path))
-    artifact_dir.mkdir(parents=True, exist_ok=True)
+    artifact_dir = e2e_artifact_dir(tmp_path)
     artifact = artifact_dir / f"sandbox-identity-{backend}.json"
     created: list[str] = []
     snapshot_id: str | None = None
