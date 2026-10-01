@@ -116,7 +116,8 @@ Celesto refuses to fork, and tells you what to do instead, when the sandbox:
 - is paused. Resume it first with `celesto computer resume demo`.
 - shares a folder from your machine (`--mount`).
 - was created from an image older than this release. Create a new sandbox and fork that one.
-- runs macOS or Windows, or uses the libkrun engine, which Celesto picks when QEMU isn't installed. Create the sandbox with `--backend qemu` instead.
+- runs macOS or Windows. These sandboxes can't be forked yet.
+- uses the libkrun engine, which Celesto picks when QEMU isn't installed. Create the sandbox again with `--backend qemu` to fork it.
 - runs in Celesto Cloud. Fork works only on sandboxes on your machine for now.
 
 A fork also stops before copying anything when there isn't enough disk space or there aren't enough free ports for every copy.
