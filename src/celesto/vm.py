@@ -45,6 +45,7 @@ from typing import Any, TextIO
 from uuid import uuid4
 
 from celesto._compat import existing_legacy_path
+from celesto._fork import GENERATION_PREFIX, disk_space_message, ports_message
 from celesto._network_policy import parse_network_policy, validate_network_policy_options
 from celesto.comm.select import ChannelResolution, VsockNotSupportedError, resolve_comm_channel
 from celesto.exceptions import (
@@ -92,6 +93,7 @@ from celesto.types import (
     NetworkConfig,
     PortForwardConfig,
     RootfsFormat,
+    SnapshotArtifacts,
     SnapshotCapturePolicy,
     SnapshotInfo,
     SnapshotType,
@@ -2904,6 +2906,232 @@ class CelestoManager:
             if port not in taken and cls._local_tcp_port_is_available(host_address, port):
                 return port
         return None
+
+    # ------------------------------------------------------------------
+    # Fork generations (internal; the facade's ``_fork_many`` drives these)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _fork_generation_id(vm_id: str) -> str:
+        """Name a fork's generation ``fork-<source>-<unix time>-<random>``.
+
+        A generation is a ``disk`` snapshot, so a leftover from a crash shows
+        in ``celesto sandbox snapshot list`` and is removed with ``celesto
+        sandbox snapshot delete``. The random part keeps two forks of one
+        source apart: the lock is released once the generation is saved,
+        while the first fork's children still copy from it. Long names are
+        cut to fit snapshot IDs.
+        """
+        stamp = f"{int(time.time())}-{uuid4().hex[:4]}"
+        room = 64 - len(GENERATION_PREFIX) - len(stamp) - 1
+        source = vm_id[:room].rstrip("-_")
+        return f"{GENERATION_PREFIX}{source}-{stamp}"
+
+    def _fork_taken_names(self) -> tuple[set[str], set[str]]:
+        """Return sandbox names in use and names that still have a saved disk."""
+        sandboxes = {vm.vm_id for vm in self.state.list_vms()}
+        saved_disks: set[str] = set()
+        if self.disk_dir.is_dir():
+            saved_disks = {
+                path.stem
+                for path in self.disk_dir.iterdir()
+                if path.suffix in {".qcow2", ".ext4"} and path.is_file()
+            }
+        return sandboxes, saved_disks
+
+    def _qemu_disk_chain(self, disk: Path, vm_id: str) -> list[Path]:
+        """Return *disk* and every file below it in its QEMU backing chain."""
+        chain = [disk.resolve()]
+        while True:
+            try:
+                info = self._qemu_disk_info(chain[-1], vm_id)
+            except CelestoError:
+                return chain
+            backing = info.get("full-backing-filename") or info.get("backing-filename")
+            if not backing:
+                return chain
+            path = Path(backing).resolve()
+            if path in chain or not path.is_file():
+                return chain
+            chain.append(path)
+
+    @staticmethod
+    def _allocated_bytes(path: Path) -> int:
+        """Bytes a file really uses on disk (its sparse holes cost nothing)."""
+        stat = path.stat()
+        blocks = getattr(stat, "st_blocks", None)
+        return blocks * 512 if blocks is not None else stat.st_size
+
+    def _ensure_fork_disk_space(self, source: VMInfo, count: int) -> None:
+        """Refuse a fork whose generation and children won't fit (D23).
+
+        The estimate is conservative: it ignores reflink clones, which cost
+        almost nothing on btrfs or XFS. A Firecracker generation of a running
+        source is a full copy of the disk (sparse holes included); every
+        other copy is sparse and costs what the source disk really uses. A
+        QEMU live copy flattens the whole chain into one file, which each
+        child copies again; a stopped QEMU source and its children share the
+        base image, so only the layers above it count.
+        """
+        disk = self._managed_disk_for_vm(source)
+        if disk is None or not disk.is_file():
+            return
+        running = source.status == VMState.RUNNING
+        if self._backend_for_vm(source) == BACKEND_QEMU:
+            chain = self._qemu_disk_chain(disk, source.vm_id)
+            base = None if running else self._shared_base_image(source)
+            per_copy = sum(self._allocated_bytes(path) for path in chain if path != base)
+            generation = per_copy
+        else:
+            per_copy = self._allocated_bytes(disk)
+            generation = disk.stat().st_size if running else per_copy
+
+        needs: dict[int, list[Any]] = {}
+        for directory, size in ((self.snapshot_dir, generation), (self.disk_dir, per_copy * count)):
+            existing = directory
+            while not existing.exists() and existing != existing.parent:
+                existing = existing.parent
+            entry = needs.setdefault(existing.stat().st_dev, [existing, 0])
+            entry[1] += size
+        for directory, needed in needs.values():
+            free = shutil.disk_usage(directory).free
+            if needed > free:
+                raise CelestoError(
+                    disk_space_message(source.vm_id, count, needed, free),
+                    {"vm_id": source.vm_id, "needed_bytes": needed, "free_bytes": free},
+                )
+
+    def _ensure_fork_ports(self, source: VMInfo, count: int) -> None:
+        """Refuse a fork when there aren't host ports for every child (D23).
+
+        Each child needs an SSH host port when the source has one, and a new
+        host port per create-time port forward. Nothing is reserved here;
+        the children reserve their ports when they are created.
+        """
+        needs_ssh = source.network is not None and source.network.ssh_host_port is not None
+        forwards = source.config.port_forwards
+        if not needs_ssh and not forwards:
+            return
+        taken: set[int] = set()
+        for vm in self.state.list_vms():
+            taken.update(forward.host_port for forward in vm.config.port_forwards)
+            if vm.network is not None and vm.network.ssh_host_port is not None:
+                taken.add(vm.network.ssh_host_port)
+
+        error = CelestoError(ports_message(count), {"vm_id": source.vm_id, "count": count})
+        if needs_ssh:
+            found: list[int] = []
+            for port in range(SSH_PORT_START, SSH_PORT_END + 1):
+                if port not in taken and self._local_ssh_port_is_available(port):
+                    found.append(port)
+                    if len(found) == count:
+                        break
+            if len(found) < count:
+                raise error
+            taken.update(found)
+        for _ in range(count):
+            for forward in forwards:
+                port = self._free_forward_host_port(forward.host_address, taken)
+                if port is None:
+                    raise error
+                taken.add(port)
+
+    def _capture_fork_generation(
+        self,
+        vm_id: str,
+        generation_id: str,
+        *,
+        capture_policy: SnapshotCapturePolicy,
+    ) -> SnapshotInfo:
+        """Save a fork's generation: a ``disk`` snapshot of *vm_id*.
+
+        The caller must hold the VM's snapshot lock (``_vm_snapshot_lock``);
+        this takes only the generation's own snapshot-ID lock, so the VM lock
+        is never taken twice. A running source goes through the normal
+        snapshot path with *capture_policy* and is resumed afterwards. A
+        stopped source is copied as it is, without starting or pausing it:
+        :meth:`_capture_stopped_disk`.
+        """
+        snapshot_root = self._snapshot_root_for_id(generation_id)
+        lock = self._acquire_operation_lock(f"snapshot-{generation_id}.lock")
+        try:
+            vm_info = self.state.get_vm(vm_id)
+            if vm_info.status in (VMState.CREATED, VMState.STOPPED):
+                return self._capture_stopped_disk(vm_info, generation_id, snapshot_root)
+            return self._create_snapshot_locked(
+                vm_id=vm_id,
+                snapshot_id=generation_id,
+                snapshot_root=snapshot_root,
+                snapshot_type=SnapshotType.DISK,
+                resume_source=True,
+                capture_policy=capture_policy,
+                timeout_seconds=600.0,
+                max_bytes_per_second=None,
+                qemu_dirty_bitmap_backup=None,
+            )
+        finally:
+            self._release_vm_create_lock(lock)
+
+    def _capture_stopped_disk(
+        self, vm_info: VMInfo, snapshot_id: str, snapshot_root: Path
+    ) -> SnapshotInfo:
+        """Save a stopped VM's disk as a ``disk`` snapshot, without starting it.
+
+        Today's snapshot path needs a running or paused VM, so a stopped one
+        is copied here directly. Its shutdown already wrote everything to
+        disk, so no flush or pause is needed (D7). The copy is a reflink or
+        sparse copy; a QEMU disk keeps sharing its read-only base image, as
+        its children will (restoring it copies that chain like any disk
+        snapshot). The result is persisted like any snapshot, so it shows in
+        the snapshot list and is removed by ``delete_snapshot``.
+        """
+        vm_id = vm_info.vm_id
+        managed_disk = self._managed_disk_for_vm(vm_info)
+        if managed_disk is None or not managed_disk.is_file() or vm_info.network is None:
+            raise CelestoError(
+                f"Sandbox '{vm_id}' has no disk of its own to copy. Create a new sandbox "
+                "with 'celesto sandbox create' and fork that one.",
+                {"vm_id": vm_id},
+            )
+        with suppress(SnapshotNotFoundError):
+            self.state.get_snapshot(snapshot_id)
+            raise SnapshotAlreadyExistsError(snapshot_id)
+        if snapshot_root.exists():
+            shutil.rmtree(snapshot_root)
+        backend = self._backend_for_vm(vm_info)
+        try:
+            snapshot_root.mkdir(parents=True)
+            captured_at = datetime.now(UTC)
+            if backend == BACKEND_QEMU and managed_disk.suffix == ".qcow2":
+                disk_path = snapshot_root / "disk.qcow2"
+                self._copy_qemu_disk_chain(
+                    managed_disk,
+                    disk_path,
+                    vm_id=vm_id,
+                    expected_format="qcow2",
+                    shared_base=self._shared_base_image(vm_info),
+                )
+            else:
+                disk_path = snapshot_root / f"disk{managed_disk.suffix}"
+                self._copy_with_reflink(managed_disk, disk_path)
+            snapshot_info = SnapshotInfo(
+                snapshot_id=snapshot_id,
+                vm_id=vm_id,
+                backend=backend,
+                artifacts=SnapshotArtifacts(disk_path=disk_path),
+                vm_config=vm_info.config,
+                network_config=vm_info.network,
+                created_at=captured_at,
+                snapshot_type=SnapshotType.DISK,
+            )
+            self.state.create_snapshot(snapshot_info)
+            self._write_snapshot_manifest(snapshot_info)
+        except BaseException:
+            shutil.rmtree(snapshot_root, ignore_errors=True)
+            with suppress(Exception):
+                self.state.delete_snapshot(snapshot_id)
+            raise
+        return snapshot_info
 
     def start(
         self,
