@@ -22,8 +22,9 @@ image. Failure modes, written before the code:
 1. The child's message tells the user to "run the copy again", which is
    not a command.
 2. The child's message shows internal file paths.
-3. The child's disk or record is left behind after the failure.
-4. The other children fail too.
+3. A failed re-pointing tells the user to install QEMU, which is installed.
+4. The child's disk or record is left behind after the failure.
+5. The other children fail too.
 
 The fork engine, child records and disk copies are real; the start, guest
 agent and ``qemu-img`` are replaced (``qemu-img`` by a small script).
@@ -31,6 +32,7 @@ agent and ``qemu-img`` are replaced (``qemu-img`` by a small script).
 
 from __future__ import annotations
 
+import json
 import stat
 import sys
 from pathlib import Path
@@ -38,7 +40,8 @@ from typing import Any
 
 import pytest
 
-from celesto.types import VMState
+from celesto.exceptions import DiskCopyError
+from celesto.types import SnapshotCapturePolicy, VMState
 from celesto.vm import CelestoManager
 from tests.vm.test_fork_children import _World, world  # noqa: F401 - fixture
 
@@ -122,7 +125,7 @@ def _assert_only_the_first_child_failed(world: _World, batch: Any) -> None:  # n
     assert world.generations() == []
 
 
-@pytest.mark.parametrize("mode", ["unreadable", "wrong-format"])
+@pytest.mark.parametrize("mode", ["unreadable", "wrong-format", "rebase"])
 def test_a_qemu_child_whose_copy_fails_says_to_run_the_fork_again(
     copying: _World, monkeypatch: pytest.MonkeyPatch, mode: str
 ) -> None:
@@ -151,3 +154,22 @@ def test_a_child_whose_saved_copy_is_missing_says_to_run_the_fork_again(
     batch = source._fork_many(2, parallel=1, boot_timeout=30)
 
     _assert_only_the_first_child_failed(copying, batch)
+
+
+def test_the_copy_error_keeps_the_details_out_of_the_message(
+    copying: _World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _use_fake_qemu_img(copying, monkeypatch, "rebase")
+    copying.add_source("qemu", VMState.STOPPED)
+    info = copying.state.get_vm("src")
+    generation = copying.manager._capture_fork_generation(
+        "src", "fork-src-1-abcd", capture_policy=SnapshotCapturePolicy.ALLOW_PAUSE
+    )
+
+    with pytest.raises(DiskCopyError) as caught:
+        copying.manager._create_from_disk(info, generation.artifacts.disk_path, "src-1")
+
+    message = str(caught.value)
+    assert str(copying.tmp_path) not in message
+    assert "install" not in message.lower()
+    assert "Could not change the backing file" in json.dumps(caught.value.details)
