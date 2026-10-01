@@ -1833,17 +1833,26 @@ class Celesto:
 
         return self
 
-    def stop(self, timeout: float = 3.0) -> Celesto:
+    def stop(
+        self,
+        timeout: float = 3.0,
+        *,
+        on_snapshot_wait: Callable[[], None] | None = None,
+    ) -> Celesto:
         """Stop the VM.
+
+        Waits for an in-progress snapshot of this VM to finish first.
 
         Args:
             timeout: Seconds to wait for graceful shutdown.
+            on_snapshot_wait: Called once, before waiting, if a snapshot of
+                this VM is in progress.
 
         Returns:
             ``self`` for method chaining.
         """
         self._cleanup_local_forwards()
-        self._info = self._sdk.stop(self._vm_id, timeout=timeout)
+        self._info = self._sdk.stop(self._vm_id, timeout=timeout, on_snapshot_wait=on_snapshot_wait)
         self._reset_runtime_state()
         logger.info("VM %s stopped", self._vm_id)
         return self
@@ -1996,10 +2005,14 @@ class Celesto:
                 f"{self._vm_id} --snapshot-type disk'."
             ) from exc
 
-    def delete(self) -> None:
-        """Delete the VM and release all resources."""
+    def delete(self, *, on_snapshot_wait: Callable[[], None] | None = None) -> None:
+        """Delete the VM and release all resources.
+
+        Waits for an in-progress snapshot of this VM to finish first.
+        ``on_snapshot_wait`` is called once, before waiting, if it has to wait.
+        """
         self._cleanup_local_forwards()
-        self._sdk.delete(self._vm_id)
+        self._sdk.delete(self._vm_id, on_snapshot_wait=on_snapshot_wait)
         self._reset_runtime_state()
         logger.info("VM %s deleted", self._vm_id)
 
@@ -3108,17 +3121,24 @@ class Celesto:
 
         return self
 
-    async def async_stop(self, timeout: float = 3.0) -> Celesto:
+    async def async_stop(
+        self,
+        timeout: float = 3.0,
+        *,
+        on_snapshot_wait: Callable[[], None] | None = None,
+    ) -> Celesto:
         """Async version of :meth:`stop`."""
         self._cleanup_local_forwards()
-        self._info = await self._sdk.async_stop(self._vm_id, timeout=timeout)
+        self._info = await self._sdk.async_stop(
+            self._vm_id, timeout=timeout, on_snapshot_wait=on_snapshot_wait
+        )
         self._reset_runtime_state()
         return self
 
-    async def async_delete(self) -> None:
+    async def async_delete(self, *, on_snapshot_wait: Callable[[], None] | None = None) -> None:
         """Async version of :meth:`delete`."""
         self._cleanup_local_forwards()
-        await self._sdk.async_delete(self._vm_id)
+        await self._sdk.async_delete(self._vm_id, on_snapshot_wait=on_snapshot_wait)
         self._reset_runtime_state()
 
     async def async_run(

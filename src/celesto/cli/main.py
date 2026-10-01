@@ -57,6 +57,7 @@ from celesto.cli.output import (
     emit_json,
     render_empty,
     render_error,
+    snapshot_wait_notice,
     status_style,
 )
 from celesto.exceptions import VMNotFoundError
@@ -2198,7 +2199,7 @@ def _run_stop(args: SimpleNamespace) -> int:
     command_name = getattr(args, "command_name", "sandbox.stop")
     try:
         vm = _cli_vm_from_id(args.vm_id)
-        vm.stop(timeout=args.timeout)
+        vm.stop(timeout=args.timeout, on_snapshot_wait=snapshot_wait_notice(vm.vm_id))
 
         data = _vm_lifecycle_payload(vm.vm_id, VMState.STOPPED)
 

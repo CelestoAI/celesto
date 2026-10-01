@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 from rich.console import Console
@@ -32,6 +33,20 @@ def console_stdout() -> Console:
 def console_stderr() -> Console:
     """Return the Rich console configured for standard error."""
     return Console(stderr=True)
+
+
+def snapshot_wait_notice(sandbox: str) -> Callable[[], None]:
+    """Return a callback that says a command is waiting on a snapshot.
+
+    The notice goes to stderr so ``--json`` output on stdout stays parseable.
+    """
+
+    def notice() -> None:
+        console_stderr().print(
+            f"Waiting for the snapshot of {sandbox} to finish…", markup=False, highlight=False
+        )
+
+    return notice
 
 
 def emit_json(

@@ -1629,7 +1629,7 @@ class TestCliStop:
 
         assert ret == 0
         mock_vm_cls.from_id.assert_called_once_with("vm001", state_manager=ANY)
-        vm.stop.assert_called_once_with(timeout=7.0)
+        vm.stop.assert_called_once_with(timeout=7.0, on_snapshot_wait=ANY)
         vm.close.assert_called_once()
         out = capsys.readouterr().out
         assert "Stopped VM 'vm001'." in out
