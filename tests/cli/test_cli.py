@@ -3551,6 +3551,8 @@ class TestCliInfo:
         with patch("celesto.vm.CelestoManager") as m:
             m.return_value.__enter__.return_value = m.return_value
             m.return_value.__exit__.side_effect = lambda *args: m.return_value.close()
+            # Not a forked sandbox unless a test says so.
+            m.return_value.state.get_vm_lineage.return_value = None
             yield m
 
     @staticmethod
