@@ -2697,6 +2697,13 @@ def resolve_domains_to_ips(domains: Sequence[str]) -> list[str]:
             continue
 
         hostname = _extract_hostname(entry)
+        if not hostname:
+            # An entry with no hostname ("::1", ":8080") splits down to an empty
+            # string, and an empty node resolves to this machine's own addresses
+            # rather than failing. That would put the host itself on the
+            # sandbox's egress allowlist, so skip the entry instead.
+            logger.warning("Allowlist entry %r has no hostname — skipping", entry)
+            continue
         try:
             infos = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
         except socket.gaierror:
