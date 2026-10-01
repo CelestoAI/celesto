@@ -136,3 +136,36 @@ def require_backend_available(
     if selected_backend(config) == backend:
         pytest.fail(message)
     pytest.skip(message)
+
+
+def require_e2e_backend(
+    backend: E2EBackend,
+    config: pytest.Config,
+    *,
+    sandbox_name: str,
+) -> None:
+    """Skip or fail unless this run can exercise *backend* on this host.
+
+    A run that selected another backend skips. On macOS, QEMU runs with
+    Hypervisor.framework, so it needs only the QEMU binary, not ``/dev/kvm``.
+    Everywhere else :func:`require_backend_available` decides. When the run
+    selected *backend* explicitly (as CI does), a missing requirement fails
+    the test instead of skipping it.
+    """
+    selected = selected_backend(config)
+    if selected != "all" and backend != selected:
+        pytest.skip(
+            f"End-to-end tests for '{backend}' are skipped because this run selected "
+            f"'{selected}'; rerun all backends with: pytest tests/e2e."
+        )
+    if backend == BACKEND_QEMU and platform.system() == "Darwin":
+        if _qemu_binary_available():
+            return
+        message = (
+            f"End-to-end tests for 'qemu' cannot run because QEMU is not installed; "
+            f"run 'brew install qemu' and rerun tests in sandbox '{sandbox_name}'."
+        )
+        if selected == backend:
+            pytest.fail(message)
+        pytest.skip(message)
+    require_backend_available(backend, config, sandbox_name=sandbox_name)
