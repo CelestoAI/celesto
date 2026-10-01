@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -60,10 +61,24 @@ def pool_index_to_ip(index: int) -> str:
     return f"172.16.{index >> 8}.{index & 0xFF}"
 
 
+# A canonical dotted-quad octet: ASCII digits only, no leading zeros, no sign.
+# int() alone would accept "02" and non-ASCII digits, so "172.16.0.02" and
+# "172.16.0.2" would resolve to the same index while the lease is tracked by
+# the original string.
+_CANONICAL_OCTET_RE = re.compile(r"(?:0|[1-9][0-9]{0,2})\Z")
+
+
 def ip_to_pool_index(ip: str) -> int:
     """Convert a ``172.16.x.y`` IP back to its pool index."""
     parts = ip.split(".")
-    return (int(parts[2]) << 8) | int(parts[3])
+    if len(parts) != 4 or not all(_CANONICAL_OCTET_RE.match(part) for part in parts):
+        raise ValueError(f"invalid IPv4 address: {ip!r}")
+    first, second, third, fourth = (int(part) for part in parts)
+    if not all(0 <= octet <= 255 for octet in (first, second, third, fourth)):
+        raise ValueError(f"invalid IPv4 address: {ip!r}")
+    if (first, second) != (172, 16):
+        raise ValueError(f"{ip!r} is outside the 172.16.0.0/16 pool")
+    return (third << 8) | fourth
 
 
 def now_iso() -> str:

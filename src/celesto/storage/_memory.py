@@ -37,6 +37,7 @@ from celesto.storage._base import (
     SSH_PORT_START,
     VSOCK_CID_END,
     VSOCK_CID_START,
+    ip_to_pool_index,
     pool_index_to_ip,
 )
 from celesto.types import (
@@ -200,11 +201,14 @@ class MemoryStateManager:
             for candidate in candidates:
                 if candidate is None or candidate in used_ips:
                     continue
-                parts = candidate.split(".")
-                if len(parts) == 4:
-                    index = (int(parts[2]) << 8) | int(parts[3])
-                    if f"tap{index}" in host_interfaces:
-                        continue
+                # Validate every candidate, not just well-formed ones: a short
+                # or malformed address must never be claimed, stored or returned.
+                try:
+                    index = ip_to_pool_index(candidate)
+                except ValueError:
+                    continue
+                if f"tap{index}" in host_interfaces:
+                    continue
                 if not self._try_claim("ip", vm_id, candidate):
                     continue
                 self._ip_leases[vm_id] = (candidate, tap_device)

@@ -25,10 +25,12 @@ import pytest
 from celesto.cli.state import SQLiteStateManager as StateManager
 from celesto.exceptions import (
     BrowserSessionNotFoundError,
+    NetworkError,
     SnapshotNotFoundError,
     VMAlreadyExistsError,
     VMNotFoundError,
 )
+from celesto.storage import ip_to_pool_index, pool_index_to_ip
 from celesto.types import (
     BrowserSessionConfig,
     BrowserSessionInfo,
@@ -253,6 +255,84 @@ class TestStateManagerVMOperations:
 
         assert len(running) == 1
         assert len(stopped) == 0
+
+
+class TestPoolIndexConversion:
+    """Tests for the pool index <-> IP address conversion helpers."""
+
+    @pytest.mark.parametrize("index", [0, 2, 255, 256, 65535])
+    def test_round_trip(self, index: int) -> None:
+        assert ip_to_pool_index(pool_index_to_ip(index)) == index
+
+    @pytest.mark.parametrize(
+        "ip",
+        [
+            "10.0.5.7",  # outside the pool
+            "172.17.0.1",  # outside the pool
+            "1.2.3",  # too few octets
+            "172.16.0.1.5",  # too many octets
+            "172.16.0.999",  # octet out of range
+            "172.16.0.notanumber",
+            "",
+        ],
+    )
+    def test_invalid_ip_raises_value_error(self, ip: str) -> None:
+        with pytest.raises(ValueError):
+            ip_to_pool_index(ip)
+
+    @pytest.mark.parametrize(
+        "ip",
+        [
+            "172.16.0.02",  # leading zero
+            "172.16.00.1",  # leading zero
+            "172.16.0.+2",  # explicit sign
+            "172.16.0. 2",  # embedded space
+            "172.16.0.\u0662",  # non-ASCII digit that int() accepts
+        ],
+    )
+    def test_non_canonical_octet_raises_value_error(self, ip: str) -> None:
+        """int() accepts forms that would alias a different lease.
+
+        Leases are tracked by the original string, so "172.16.0.02" and
+        "172.16.0.2" must not resolve to the same pool index.
+        """
+        with pytest.raises(ValueError):
+            ip_to_pool_index(ip)
+
+    def test_canonical_and_padded_forms_do_not_alias(self) -> None:
+        with pytest.raises(ValueError):
+            ip_to_pool_index("172.16.0.02")
+        assert ip_to_pool_index("172.16.0.2") == 2
+
+    def test_pool_index_to_ip_still_validates_range(self) -> None:
+        with pytest.raises(ValueError):
+            pool_index_to_ip(65536)
+
+    @pytest.mark.parametrize(
+        "requested",
+        [
+            "172.16.1",  # three parts: previously skipped validation entirely
+            "172.16.0.02",  # aliases 172.16.0.2
+            "10.0.5.7",  # outside the pool
+            "not-an-ip",
+        ],
+    )
+    def test_malformed_requested_ip_is_not_claimed(self, tmp_path: Path, requested: str) -> None:
+        """A malformed request must be refused, never stored or returned.
+
+        Validation used to sit behind a len(parts) == 4 guard, so a short
+        address skipped it entirely and was claimed as-is.
+        """
+        from celesto.storage._memory import MemoryStateManager
+
+        state_manager = MemoryStateManager(data_dir=tmp_path)
+
+        with pytest.raises(NetworkError):
+            state_manager.allocate_ip("vm001", "tap1", requested_ip=requested)
+
+        # The pool is untouched: the next legitimate allocation still works,
+        # and nothing was leased to the rejected request.
+        assert state_manager.allocate_ip("vm002", "tap2") == "172.16.0.2"
 
 
 class TestIPAllocation:
