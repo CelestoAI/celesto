@@ -3114,7 +3114,7 @@ class TestVMContextManager:
 
         mock_sdk.start.assert_called_once_with("vm001", boot_timeout=30.0)
         mock_sdk.stop.assert_called_once()
-        mock_sdk.delete.assert_called_once_with("vm001")
+        mock_sdk.delete.assert_called_once_with("vm001", on_snapshot_wait=None)
         mock_sdk.close.assert_called_once()
 
     @patch("celesto.facade.CelestoManager")
