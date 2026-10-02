@@ -45,12 +45,18 @@ CONFIG_PACKET=y                 # why: AF_PACKET for some userspace tools
 # cgroup-v2 resource controls and bridge networking. They must be =y because
 # this kernel deliberately ships without loadable modules.
 CONFIG_MEMCG=y                     # why: Docker memory accounting and --memory limits
+CONFIG_CGROUP_SCHED=y              # why: CPU controller scheduling support for Docker limits
+CONFIG_FAIR_GROUP_SCHED=y          # why: fair scheduling of container CPU groups
+CONFIG_CFS_BANDWIDTH=y             # why: cpu.max for docker run --cpus and Compose CPU limits
 CONFIG_BPF_SYSCALL=y               # why: required by cgroup-attached BPF programs
 CONFIG_CGROUP_BPF=y                # why: cgroup-v2 device access rules used by modern runtimes
 CONFIG_USER_NS=y                   # why: expose /proc/self/setgroups for runc's procfs safety check
 CONFIG_VETH=y                      # why: connect container network namespaces to a bridge
 CONFIG_BRIDGE=y                    # why: Docker's default docker0 network
 CONFIG_BRIDGE_NETFILTER=y          # why: filter/NAT traffic crossing container bridges
+CONFIG_DUMMY=y                     # why: virtual dummy links used by container networks
+CONFIG_MACVLAN=y                   # why: Docker macvlan networks
+CONFIG_IPVLAN=y                    # why: Docker ipvlan networks
 
 # ── Container networking inside the guest ───────────────────────────
 # Podman/Netavark on Ubuntu defaults to iptables-nft. Without nf_tables,
