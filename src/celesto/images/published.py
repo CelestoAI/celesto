@@ -150,7 +150,7 @@ class BaseKernel(BaseModel):
 # upload step instead of silently swapping bytes under the existing
 # pins. Re-bakes against the same tag must opt in via the
 # ``force_overwrite`` workflow_dispatch input.
-IMAGES_RELEASE_TAG = "images-2026.09.28.1"
+IMAGES_RELEASE_TAG = "images-2026.10.03.0"
 
 
 def _images_release_tag() -> str:
