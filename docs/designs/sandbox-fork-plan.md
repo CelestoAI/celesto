@@ -20,6 +20,8 @@ PRs 1 to 3 change behavior for existing users in small, safe ways, so each bring
 
 Every pull request follows the testing rules in `CLAUDE.md`: design the end-to-end test before the code, prefer end-to-end tests over isolated ones, and produce a repeatable artifact at the end of each end-to-end test. Isolated tests appear only where the end-to-end path can't trigger a failure, and each lists its failure modes first.
 
+The [testing plan](sandbox-fork-testing.md) lists the full end-to-end run and the manual checklist to complete before the feature branch merges into `main`.
+
 ## PR 1. Lock stop and delete during snapshots
 
 **Story:** Stopping or deleting a sandbox while it is being snapshotted waits for the snapshot to finish, instead of breaking it.
