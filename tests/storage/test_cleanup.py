@@ -16,7 +16,7 @@
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
@@ -55,7 +55,7 @@ class TestDelete:
         ret = run_delete(vm_ids=["vm-abc123"])
 
         assert ret == 0
-        sdk.delete.assert_called_once_with("vm-abc123")
+        sdk.delete.assert_called_once_with("vm-abc123", on_snapshot_wait=ANY)
         sdk.list_vms.assert_not_called()
 
     @patch("celesto.cli.cleanup.os.geteuid", return_value=0)
@@ -100,7 +100,7 @@ class TestDelete:
         """Partial failure should return exit code 1."""
         sdk = mock_sdk_cls
 
-        def _delete(vm_id: str) -> None:
+        def _delete(vm_id: str, **_kwargs: object) -> None:
             if vm_id == "vm-def":
                 raise RuntimeError("busy")
 
@@ -213,7 +213,7 @@ class TestCleanup:
         sdk.reconcile.return_value = []
         sdk.list_vms.return_value = [_make_vm("vm-abc123"), _make_vm("vm-def456")]
 
-        def _delete(vm_id: str) -> None:
+        def _delete(vm_id: str, **_kwargs: object) -> None:
             if vm_id == "vm-def456":
                 raise RuntimeError("busy")
 
@@ -320,7 +320,7 @@ class TestCleanup:
         ret = run_cleanup()
 
         assert ret == 0
-        sdk.delete.assert_called_once_with("vm-abc123")
+        sdk.delete.assert_called_once_with("vm-abc123", on_snapshot_wait=ANY)
 
     @patch("celesto.cli.cleanup.os.geteuid", return_value=0)
     @patch("celesto.cli.cleanup.sys.stdin")
