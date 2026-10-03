@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Locator, Page } from "playwright-core";
 import { validatePublicBrowserUrl, type BrowserTarget, type ExecutableBrowserOperation } from "./browser-operations.js";
-import { isSearchFieldCandidate } from "./search-fields.js";
+import { isSearchFieldCandidate, UNSAFE_SEARCH_AUTOCOMPLETE } from "./search-fields.js";
 
 export interface BrowserDriver {
   inspect(page: Page): Promise<{ binding: string; display: string }>;
@@ -92,9 +92,7 @@ export async function executeBrowserOperation(
 
           const autocomplete = node.autocomplete.toLowerCase();
           if (
-            /(?:^|\s)(?:section-\S+|shipping|billing|email|tel\S*|cc-\S*|.*password|one-time-code)(?:\s|$)/i.test(
-              autocomplete,
-            )
+            UNSAFE_SEARCH_AUTOCOMPLETE.test(autocomplete)
           ) {
             return null;
           }

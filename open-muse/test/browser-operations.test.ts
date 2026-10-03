@@ -7,6 +7,7 @@ import {
   type ExecutableBrowserOperation,
 } from "../server/browser-operations.js";
 import { browserHasAuthenticatedState, BrowserDriverError, executeBrowserOperation } from "../server/browser-driver.js";
+import { UNSAFE_SEARCH_AUTOCOMPLETE } from "../server/search-fields.js";
 import type { Page } from "playwright-core";
 
 const LOCATOR_ID = "00000000-0000-4000-8000-000000000001";
@@ -323,6 +324,35 @@ test("host driver refuses search forms that can submit external state", async ()
       query: "OpenMuse",
     }),
     /not a public GET form/,
+  );
+});
+
+test("host driver refuses credential username fields disguised as search", async () => {
+  assert.equal(UNSAFE_SEARCH_AUTOCOMPLETE.test("username"), true);
+  const target = {
+    count: async () => 1,
+    first: () => ({
+      isVisible: async () => true,
+      isEnabled: async () => true,
+      isEditable: async () => true,
+      // The browser-side evaluator rejects autocomplete="username" before returning form data.
+      evaluate: async () => null,
+    }),
+  };
+  const hostPage = page({
+    url: () => "https://example.com/login",
+    locator: () => ({ and: () => target }),
+    getByRole: () => ({}),
+  });
+
+  await assert.rejects(
+    executeBrowserOperation(hostPage, {
+      kind: "search",
+      ref: "e1",
+      target: { role: "textbox", name: "Search", nth: 0, locatorId: LOCATOR_ID },
+      query: "alice",
+    }),
+    /public GET form/,
   );
 });
 

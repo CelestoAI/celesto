@@ -1,5 +1,7 @@
 import { SENSITIVE_TARGET } from "./sensitive-target.js";
 
+export const UNSAFE_SEARCH_AUTOCOMPLETE = /(?:^|\s)(?:section-\S+|shipping|billing|email|tel\S*|cc-\S*|.*password|one-time-code|username)(?:\s|$)/i;
+
 export function isSearchFieldCandidate(target: {
     role: string;
     name: string;
