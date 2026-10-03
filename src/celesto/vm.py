@@ -35,7 +35,7 @@ import socket
 import subprocess
 import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -636,8 +636,17 @@ class CelestoManager:
             return
         raise VMAlreadyExistsError(vm_id)
 
-    def _acquire_operation_lock(self, lock_name: str) -> tuple[Any | None, TextIO | None]:
-        """Acquire one named cross-process operation lock."""
+    def _acquire_operation_lock(
+        self,
+        lock_name: str,
+        *,
+        on_wait: Callable[[], None] | None = None,
+    ) -> tuple[Any | None, TextIO | None]:
+        """Acquire one named cross-process operation lock.
+
+        ``on_wait`` runs once, before blocking, when another process already
+        holds the lock, so callers can tell the user why they are waiting.
+        """
         try:
             import fcntl
         except ImportError:
@@ -648,7 +657,17 @@ class CelestoManager:
         lock_dir = self.data_dir / "locks"
         lock_dir.mkdir(parents=True, exist_ok=True)
         lock_file = (lock_dir / lock_name).open("w")
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            if on_wait is not None:
+                try:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    return fcntl, lock_file
+                except BlockingIOError:
+                    on_wait()
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        except BaseException:
+            lock_file.close()
+            raise
         return fcntl, lock_file
 
     def _acquire_vm_create_lock(self, vm_id: str) -> tuple[Any | None, TextIO | None]:
@@ -685,12 +704,53 @@ class CelestoManager:
         finally:
             await asyncio.to_thread(self._release_vm_create_lock, lock)
 
+    @staticmethod
+    def _vm_snapshot_lock_name(vm_id: str) -> str:
+        """Name of the per-VM lock held by snapshots, stop, and delete."""
+        return f"{vm_id}.snapshot.lock"
+
+    @contextmanager
+    def _vm_snapshot_lock(
+        self,
+        vm_id: str,
+        *,
+        on_wait: Callable[[], None] | None = None,
+    ) -> Iterator[None]:
+        """Wait for any in-progress snapshot of one VM, then hold its lock.
+
+        ``flock`` locks belong to each opened file, so taking this lock again
+        in the same call blocks forever. Only public entry points take it.
+        """
+        lock = self._acquire_operation_lock(self._vm_snapshot_lock_name(vm_id), on_wait=on_wait)
+        try:
+            yield
+        finally:
+            self._release_vm_create_lock(lock)
+
+    @asynccontextmanager
+    async def _async_vm_snapshot_lock(
+        self,
+        vm_id: str,
+        *,
+        on_wait: Callable[[], None] | None = None,
+    ) -> Iterator[None]:
+        """Async wrapper that acquires the per-VM snapshot lock off the event loop."""
+        lock = await asyncio.to_thread(
+            self._acquire_operation_lock,
+            self._vm_snapshot_lock_name(vm_id),
+            on_wait=on_wait,
+        )
+        try:
+            yield
+        finally:
+            await asyncio.to_thread(self._release_vm_create_lock, lock)
+
     @contextmanager
     def _snapshot_operation_locks(self, vm_id: str, snapshot_id: str) -> Iterator[None]:
         """Serialize snapshots by source VM and globally unique snapshot ID."""
         locks: list[tuple[Any | None, TextIO | None]] = []
         try:
-            locks.append(self._acquire_operation_lock(f"{vm_id}.snapshot.lock"))
+            locks.append(self._acquire_operation_lock(self._vm_snapshot_lock_name(vm_id)))
             locks.append(self._acquire_operation_lock(f"snapshot-{snapshot_id}.lock"))
             yield
         finally:
@@ -2426,12 +2486,23 @@ class CelestoManager:
             self._close_runtime_log(vm_id, backend, vm_info.control_socket_path)
             raise
 
-    def stop(self, vm_id: str, timeout: float = 10.0) -> VMInfo:
+    def stop(
+        self,
+        vm_id: str,
+        timeout: float = 10.0,
+        *,
+        on_snapshot_wait: Callable[[], None] | None = None,
+    ) -> VMInfo:
         """Stop a running microVM.
+
+        Waits for an in-progress snapshot of the VM to finish first, so the
+        snapshot is never cut short.
 
         Args:
             vm_id: The VM identifier.
             timeout: Seconds to wait for graceful shutdown before killing.
+            on_snapshot_wait: Called once, before waiting, if a snapshot of
+                this VM is in progress.
 
         Returns:
             Updated VMInfo.
@@ -2442,6 +2513,11 @@ class CelestoManager:
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
 
+        with self._vm_snapshot_lock(vm_id, on_wait=on_snapshot_wait):
+            return self._stop_unlocked(vm_id, timeout)
+
+    def _stop_unlocked(self, vm_id: str, timeout: float) -> VMInfo:
+        """Stop a VM; the caller must hold its snapshot lock."""
         logger.info("Stopping VM: %s", vm_id)
 
         vm_info = self.state.get_vm(vm_id)
@@ -3200,11 +3276,21 @@ class CelestoManager:
             shutil.rmtree(snapshot_root)
         self.state.delete_snapshot(snapshot_id)
 
-    def delete(self, vm_id: str) -> None:
+    def delete(
+        self,
+        vm_id: str,
+        *,
+        on_snapshot_wait: Callable[[], None] | None = None,
+    ) -> None:
         """Delete a VM and all its resources.
+
+        Waits for an in-progress snapshot of the VM to finish first, so the
+        snapshot is never cut short.
 
         Args:
             vm_id: The VM identifier.
+            on_snapshot_wait: Called once, before waiting, if a snapshot of
+                this VM is in progress.
 
         Raises:
             VMNotFoundError: If VM doesn't exist.
@@ -3212,6 +3298,11 @@ class CelestoManager:
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
 
+        with self._vm_snapshot_lock(vm_id, on_wait=on_snapshot_wait):
+            self._delete_unlocked(vm_id)
+
+    def _delete_unlocked(self, vm_id: str) -> None:
+        """Delete a VM; the caller must hold its snapshot lock."""
         logger.info("Deleting VM: %s", vm_id)
 
         # Stop if running
@@ -3223,7 +3314,8 @@ class CelestoManager:
             raise
 
         if vm_info.status in (VMState.RUNNING, VMState.PAUSED):
-            self.stop(vm_id)
+            # Already holding the snapshot lock; stop() would take it again.
+            self._stop_unlocked(vm_id, 10.0)
 
         self._delete_macos_bundle(vm_info)
 
@@ -4608,11 +4700,25 @@ class CelestoManager:
             self._close_runtime_log(vm_id, backend, vm_info.control_socket_path)
             raise
 
-    async def async_stop(self, vm_id: str, timeout: float = 10.0) -> VMInfo:
-        """Async version of :meth:`stop`."""
+    async def async_stop(
+        self,
+        vm_id: str,
+        timeout: float = 10.0,
+        *,
+        on_snapshot_wait: Callable[[], None] | None = None,
+    ) -> VMInfo:
+        """Async version of :meth:`stop`.
+
+        ``on_snapshot_wait`` runs in a worker thread, not on the event loop.
+        """
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
 
+        async with self._async_vm_snapshot_lock(vm_id, on_wait=on_snapshot_wait):
+            return await self._async_stop_unlocked(vm_id, timeout)
+
+    async def _async_stop_unlocked(self, vm_id: str, timeout: float) -> VMInfo:
+        """Async version of :meth:`_stop_unlocked`."""
         logger.info("Stopping VM (async): %s", vm_id)
 
         vm_info = self.state.get_vm(vm_id)
@@ -4634,11 +4740,24 @@ class CelestoManager:
         logger.info("VM stopped (async): %s (backend=%s)", vm_id, backend)
         return vm_info
 
-    async def async_delete(self, vm_id: str) -> None:
-        """Async version of :meth:`delete`."""
+    async def async_delete(
+        self,
+        vm_id: str,
+        *,
+        on_snapshot_wait: Callable[[], None] | None = None,
+    ) -> None:
+        """Async version of :meth:`delete`.
+
+        ``on_snapshot_wait`` runs in a worker thread, not on the event loop.
+        """
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
 
+        async with self._async_vm_snapshot_lock(vm_id, on_wait=on_snapshot_wait):
+            await self._async_delete_unlocked(vm_id)
+
+    async def _async_delete_unlocked(self, vm_id: str) -> None:
+        """Async version of :meth:`_delete_unlocked`."""
         logger.info("Deleting VM (async): %s", vm_id)
 
         try:
@@ -4648,7 +4767,8 @@ class CelestoManager:
             raise
 
         if vm_info.status in (VMState.RUNNING, VMState.PAUSED):
-            await self.async_stop(vm_id)
+            # Already holding the snapshot lock; async_stop() would take it again.
+            await self._async_stop_unlocked(vm_id, 10.0)
 
         await asyncio.to_thread(self._delete_macos_bundle, vm_info)
 
