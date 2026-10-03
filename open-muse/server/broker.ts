@@ -9,12 +9,12 @@ import { MARKDOWN_MODEL, type MarkdownInput } from "./markdown.js";
 import type { TurnExecution } from "./trace.js";
 import { decideBrowserAction } from "./action-policy.js";
 import { isSearchFieldCandidate } from "./search-fields.js";
+import { SENSITIVE_TARGET } from "./sensitive-target.js";
 
 type Emit = (type: string, payload: Record<string, unknown>, mutates?: boolean) => void;
 type Persist = () => Promise<void>;
 type ApprovalResolution = { resumeAgent: false; recovery?: RecoveryState } | { resumeAgent: true; browserResult: unknown };
 const BROWSER_ACTION_FAILED = "The website action did not finish.";
-const SENSITIVE_TARGET = /\b(?:card|credential|cvc|cvv|otp|passcode|password|payment|secret|token|expir(?:y|ation)|(?:security|verification)[\s._/-]*code|mm[\s._/-]*yy)\b/i;
 export const MAX_BROWSER_PROGRAM_BYTES = 18_000;
 export interface BrokerTraceHooks {
   currentExecution: () => TurnExecution | undefined;

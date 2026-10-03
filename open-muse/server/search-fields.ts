@@ -1,3 +1,5 @@
+import { SENSITIVE_TARGET } from "./sensitive-target.js";
+
 export function isSearchFieldCandidate(target: {
     role: string;
     name: string;
@@ -6,9 +8,8 @@ export function isSearchFieldCandidate(target: {
 
     // Do not treat sensitive fields as public search inputs.
     if (
-        /\b(password|passcode|otp|verification|credit card|payment|email|phone)\b/i.test(
-        target.name,
-        )
+        SENSITIVE_TARGET.test(target.name) ||
+        /\b(?:email|phone|verification)\b/i.test(target.name)
     ) {
         return false;
     }

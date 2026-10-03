@@ -1,4 +1,5 @@
 import type { ExecutableBrowserOperation } from "./browser-operations.js";
+import { SENSITIVE_TARGET } from "./sensitive-target.js";
 
 export type ActionDecision = "allow" | "confirm" | "deny";
 
@@ -7,7 +8,6 @@ export interface ActionPolicyResult {
   reason: string;
 }
 
-const SENSITIVE_TARGET = /\b(?:card|credential|cvc|cvv|otp|passcode|password|payment|secret|token|expir(?:y|ation)|(?:security|verification)[\s._/-]*code|mm[\s._/-]*yy)\b/i;
 
 /**
  * Classify the effect, not the Playwright primitive. Validation of URLs, refs,
