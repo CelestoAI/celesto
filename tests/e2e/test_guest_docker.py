@@ -140,6 +140,64 @@ def test_user_installed_docker_runs_hello_world(
             f"docker run failed: stdout={hello.stdout!r} stderr={hello.stderr!r}"
         )
         assert "Hello from Docker" in hello.stdout, hello.stdout
+
+        cpu = sandbox.run(
+            "docker run --rm --cpus 0.25 busybox:1.36 cat /sys/fs/cgroup/cpu.max",
+            timeout=_HELLO_WORLD_TIMEOUT_S,
+        )
+        assert cpu.exit_code == 0, (
+            f"Docker CPU quota failed: stdout={cpu.stdout!r} stderr={cpu.stderr!r}"
+        )
+        assert cpu.stdout.strip() == "25000 100000", cpu.stdout
+
+        networks = sandbox.run(
+            # Linux refuses macvlan and ipvlan on the same parent, so each gets its own.
+            # Interface names must stay within Linux's 15-character limit.
+            "ip link add cel-dummy-mac type dummy && "
+            "ip link add cel-dummy-ip type dummy && "
+            "ip link add celesto-macvlan link cel-dummy-mac type macvlan mode bridge && "
+            "ip link add celesto-ipvlan link cel-dummy-ip type ipvlan mode l2 && "
+            "ip -o link show celesto-macvlan && ip -o link show celesto-ipvlan; "
+            "result=$?; ip link del cel-dummy-mac; ip link del cel-dummy-ip; "
+            "exit $result",
+            timeout=30,
+        )
+        assert networks.exit_code == 0, (
+            "Guest virtual network interfaces failed: "
+            f"stdout={networks.stdout!r} stderr={networks.stderr!r}"
+        )
+        macvlan = sandbox.run(
+            "docker network create -d macvlan "
+            "--subnet 198.18.0.0/24 --gateway 198.18.0.1 "
+            "-o parent=eth0 celesto-macvlan && "
+            "docker run --rm --network celesto-macvlan busybox:1.36 "
+            "ip -4 -o addr show dev eth0; "
+            "result=$?; docker network rm celesto-macvlan >/dev/null; exit $result",
+            timeout=_HELLO_WORLD_TIMEOUT_S,
+        )
+        assert macvlan.exit_code == 0, (
+            f"Docker macvlan failed: stdout={macvlan.stdout!r} stderr={macvlan.stderr!r}"
+        )
+        assert "198.18.0." in macvlan.stdout, macvlan.stdout
+
+        ipvlan = sandbox.run(
+            "docker network create -d ipvlan "
+            "--subnet 198.18.1.0/24 --gateway 198.18.1.1 "
+            "-o parent=eth0 celesto-ipvlan && "
+            "docker run --rm --network celesto-ipvlan busybox:1.36 "
+            "ip -4 -o addr show dev eth0; "
+            "result=$?; docker network rm celesto-ipvlan >/dev/null; exit $result",
+            timeout=_HELLO_WORLD_TIMEOUT_S,
+        )
+        assert ipvlan.exit_code == 0, (
+            f"Docker ipvlan failed: stdout={ipvlan.stdout!r} stderr={ipvlan.stderr!r}"
+        )
+        assert "198.18.1." in ipvlan.stdout, ipvlan.stdout
+        print(
+            f"Docker kernel smoke result: cpu.max={cpu.stdout.strip()}; "
+            f"interfaces={networks.stdout.strip()}; "
+            f"macvlan={macvlan.stdout.strip()}; ipvlan={ipvlan.stdout.strip()}"
+        )
     finally:
         with suppress(Exception):
             sandbox.stop()

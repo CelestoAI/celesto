@@ -55,11 +55,17 @@ def test_microvm_kernel_supports_user_installed_docker() -> None:
 
     required = {
         "CONFIG_MEMCG",
+        "CONFIG_CGROUP_SCHED",
+        "CONFIG_FAIR_GROUP_SCHED",
+        "CONFIG_CFS_BANDWIDTH",
         "CONFIG_CGROUP_BPF",
         "CONFIG_USER_NS",
         "CONFIG_VETH",
         "CONFIG_BRIDGE",
         "CONFIG_BRIDGE_NETFILTER",
+        "CONFIG_DUMMY",
+        "CONFIG_MACVLAN",
+        "CONFIG_IPVLAN",
         "CONFIG_NETFILTER_XT_MATCH_IPVS",
         "CONFIG_IP_VS",
         "CONFIG_IP_NF_RAW",
