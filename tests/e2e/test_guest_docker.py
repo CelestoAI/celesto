@@ -151,11 +151,14 @@ def test_user_installed_docker_runs_hello_world(
         assert cpu.stdout.strip() == "25000 100000", cpu.stdout
 
         networks = sandbox.run(
-            "ip link add celesto-dummy type dummy && "
-            "ip link add celesto-macvlan link celesto-dummy type macvlan mode bridge && "
-            "ip link add celesto-ipvlan link celesto-dummy type ipvlan mode l2 && "
+            # Linux refuses macvlan and ipvlan on the same parent, so each gets its own.
+            "ip link add celesto-dummy-mac type dummy && "
+            "ip link add celesto-dummy-ip type dummy && "
+            "ip link add celesto-macvlan link celesto-dummy-mac type macvlan mode bridge && "
+            "ip link add celesto-ipvlan link celesto-dummy-ip type ipvlan mode l2 && "
             "ip -o link show celesto-macvlan && ip -o link show celesto-ipvlan; "
-            "result=$?; ip link del celesto-dummy; exit $result",
+            "result=$?; ip link del celesto-dummy-mac; ip link del celesto-dummy-ip; "
+            "exit $result",
             timeout=30,
         )
         assert networks.exit_code == 0, (
