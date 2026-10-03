@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Locator, Page } from "playwright-core";
 import { validatePublicBrowserUrl, type BrowserTarget, type ExecutableBrowserOperation } from "./browser-operations.js";
+import { isSearchFieldCandidate, UNSAFE_SEARCH_AUTOCOMPLETE } from "./search-fields.js";
 
 export interface BrowserDriver {
   inspect(page: Page): Promise<{ binding: string; display: string }>;
@@ -65,18 +66,64 @@ export async function executeBrowserOperation(
         return { opened: url, observation: await observe(page) };
       }
       case "search": {
-        if (operation.target.role !== "searchbox") throw new Error("That ref is not a search box. Observe the page again and choose a search box.");
+        if (!isSearchFieldCandidate(operation.target)) {
+          throw new Error(
+            "This field is not recognised as a public search input. Observe the page again and choose a labelled search field, or use Take control.",
+          );
+        }
+
         const target = await resolveTarget(page, operation.target);
+
+        if (
+          !(await target.isVisible()) ||
+          !(await target.isEnabled()) ||
+          !(await target.isEditable())
+        ) {
+          throw new Error(
+            "This search field is not available. Observe the page again, or use Take control.",
+          );
+        }
+
         const form = await target.evaluate((node) => {
-          const owner = node instanceof HTMLInputElement ? node.form : node.closest("form");
-          const name = node instanceof HTMLInputElement ? node.name : "";
-          return owner ? { method: owner.method.toUpperCase(), action: owner.action, name } : undefined;
+          if (!(node instanceof HTMLInputElement)) return null;
+
+          // Reject email, password, phone and other non-search input types.
+          if (!["text", "search"].includes(node.type)) return null;
+
+          const autocomplete = node.autocomplete.toLowerCase();
+          if (
+            UNSAFE_SEARCH_AUTOCOMPLETE.test(autocomplete)
+          ) {
+            return null;
+          }
+
+          const owner = node.form;
+          if (!owner || owner.method.toUpperCase() !== "GET" || !node.name) {
+            return null;
+          }
+
+          return {
+            action: owner.action,
+            name: node.name,
+          };
         });
-        if (!form || form.method !== "GET" || !form.name) throw new Error("Use Take control to search here because this is not a public GET form.");
-        const searchUrl = new URL(form.action);
+
+        if (!form) {
+          throw new Error(
+            "Use Take control to search here because this is not a public GET form.",
+          );
+        }
+
+        // Retain the existing public-URL validation.
+        const searchUrl = new URL(validatePublicBrowserUrl(form.action));
         searchUrl.searchParams.set(form.name, operation.query);
+
         await page.goto(validatePublicBrowserUrl(searchUrl.href));
-        return { searched: true, observation: await observe(page) };
+
+        return {
+          searched: true,
+          observation: await observe(page),
+        };
       }
       case "click": {
         const target = await resolveTarget(page, operation.target);
