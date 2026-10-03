@@ -262,6 +262,9 @@ test("host driver executes every structured interaction directly on the page", a
     count: async () => 1,
     first: () => ({
       click: async () => { calls.push("click"); },
+      isVisible: async () => true,
+      isEnabled: async () => true,
+      isEditable: async () => true,
       evaluate: async () => ({ type: "text", autocomplete: "", method: "GET", action: "https://example.com/search", name: "q" }),
       fill: async (value: string) => { calls.push(`fill:${value}`); },
       press: async (key: string) => { calls.push(`target-key:${key}`); },
@@ -299,7 +302,11 @@ test("host driver refuses search forms that can submit external state", async ()
   const target = {
     count: async () => 1,
     first: () => ({
-      evaluate: async () => ({ method: "POST", action: "https://example.com/search" }),
+      isVisible: async () => true,
+      isEnabled: async () => true,
+      isEditable: async () => true,
+      // The browser-side evaluator returns null for unsupported forms.
+      evaluate: async () => null,
     }),
   };
   const hostPage = page({

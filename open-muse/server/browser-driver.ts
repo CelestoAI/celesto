@@ -112,7 +112,7 @@ export async function executeBrowserOperation(
 
         if (!form) {
           throw new Error(
-            "This field does not support a public GET search. Use Take control to search this website.",
+            "Use Take control to search here because this is not a public GET form.",
           );
         }
 
