@@ -186,7 +186,7 @@ Full research notes: the Claude Code session that produced them, and the local E
     - **Warning (fork still succeeds):**
       15. Source stayed paused (D8): "Sandbox 'sbx-einstein' stayed paused after the fork. Run 'celesto sandbox resume sbx-einstein' to continue it."
     - **Notices while waiting (D6, D9):** "Pausing sbx-einstein while its files are copied…" and "Waiting for the fork of sbx-einstein to finish…"
-  - **D1d (decided):** Several small pull requests, each one a reviewable story with its own tests. Groundwork that users cannot see merges to `main` as it is ready (storage, network allocation refactor, `create_from_snapshot`, identity reset). The final pull request adds everything users can see: CLI command, Python methods, docs and changelog (no local server route, D28). No feature flag and no long-lived branch. Every groundwork pull request must be safe to ship in an unrelated release. The feature is released only after all pull requests are merged and the full end-to-end suite passes.
+  - **D1d (decided, revised 2026-10-01):** Work lands on one feature branch, `feat/sandbox-fork`, cut from `main`. Each plan pull request (PR 1 to PR 6 in `sandbox-fork-plan.md`) is a small, reviewable story with its own tests and targets the feature branch. Merge `main` into the feature branch regularly to keep conflicts small. When all six are in, a final pull request from `feat/sandbox-fork` to `main` runs the full end-to-end suite, including Firecracker, and merges only when it passes. The new image from PR 3 must be published and pinned before that final merge. CI note: `pytest` and `lint` run on every pull request, but the `e2e` workflow runs only on pull requests into `main` (`.github/workflows/e2e.yml`), so trigger it manually (`workflow_dispatch`) on `feat/sandbox-fork` after each merge. This replaces the earlier choice of merging groundwork straight to `main`.
   - The CLI and SDK must leave room to add memory fork later without renaming anything (see D26 and D27).
 
 #### D4. Cloud scope
@@ -577,7 +577,7 @@ These decisions belong to the later memory fork design. They are kept here so th
 | D28 | Local server and TypeScript | Not in the first release; add later with snapshot and stop/start routes |
 | D29 | Backends | Firecracker and QEMU (Linux and macOS hosts); libkrun, VZ and Windows refused |
 | D1b | Error messages | 16 messages and 2 notices, listed under D1 |
-| D1d | Pull request strategy | Small story pull requests; invisible groundwork merges first; user-facing surfaces in the final pull request; release after full end-to-end pass |
+| D1d | Pull request strategy | Feature branch `feat/sandbox-fork`; six story pull requests target it; final pull request to `main` after a full end-to-end run |
 | D2, D3, D11, D16 | Memory fork | Deferred to the memory fork design |
 
 ## Parking lot
