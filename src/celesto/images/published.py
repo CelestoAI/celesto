@@ -150,7 +150,7 @@ class BaseKernel(BaseModel):
 # upload step instead of silently swapping bytes under the existing
 # pins. Re-bakes against the same tag must opt in via the
 # ``force_overwrite`` workflow_dispatch input.
-IMAGES_RELEASE_TAG = "images-2026.09.28.1"
+IMAGES_RELEASE_TAG = "images-2026.10.03.0"
 
 
 def _images_release_tag() -> str:
@@ -224,16 +224,16 @@ BASE_KERNELS: dict[Arch, BaseKernel] = {
     "amd64": BaseKernel(
         arch="amd64",
         elf_url=_release_kernel_url("amd64", "elf"),
-        elf_sha256="7e2489215d8dbb7c797c5258cb1f3ef9ad6b307cfc9f0249288df914bc88e1c8",
+        elf_sha256="ba64bd017db1014cb575e9b747889c1b269e2ae8ce75a35e4988ab35ef08f69f",
         image_url=_release_kernel_url("amd64", "image"),
-        image_sha256="cecc7cfe7ab32fa7f6508514a6d45fb6d4ccddf0b2748f4e7d01fa4a620f5847",
+        image_sha256="3c7f6f392d64989016c69e3e8f350dcb0d751c3fc1c6fc06b41a7eab8d0f8c6e",
     ),
     "arm64": BaseKernel(
         arch="arm64",
         elf_url=_release_kernel_url("arm64", "elf"),
-        elf_sha256="3425847d96e5215511db0c849f142d579c6462c487c560041f2bad3ced39fee4",
+        elf_sha256="2a0941bbe44b241440750e44b92d8e2305e0ea9576f40dfd3c11af3b2d5d9da0",
         image_url=_release_kernel_url("arm64", "image"),
-        image_sha256="4a402b846f63bddeace61b0b227fbcac7cd9285310d8a5279cc4df1c00a9476b",
+        image_sha256="4a2400fd4a3f74da3fa02fac1c28d9b33c3863ab8171cf132edf19d55a38dd6c",
     ),
 }
 
