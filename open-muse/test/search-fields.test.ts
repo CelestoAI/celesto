@@ -17,6 +17,23 @@ test("public search rejects sensitive labels for both input roles", () => {
   }
 });
 
+// Underscores must delimit sensitive terms in both search and fill checks.
+test("underscore-delimited sensitive labels are rejected", () => {
+  for (const name of [
+    "Search password_field", "Search token_input", "Search api_token",
+    "Search api_token_input", "Search security_code",
+  ]) {
+    for (const role of ["textbox", "searchbox"]) {
+      assert.equal(isSearchFieldCandidate({ role, name }), false, `${role}: ${name}`);
+    }
+    assert.equal(decideBrowserAction({
+      kind: "fill", ref: "e1",
+      target: { role: "textbox", name, nth: 0, locatorId: "00000000-0000-4000-8000-000000000001" },
+      value: "example",
+    }).decision, "deny", name);
+  }
+});
+
 test("ordinary search fields remain supported", () => {
   assert.equal(isSearchFieldCandidate({ role: "textbox", name: "Search for Products, Brands and More" }), true);
   assert.equal(isSearchFieldCandidate({ role: "searchbox", name: "Find products" }), true);
@@ -28,7 +45,7 @@ test("search-only exclusions do not change fill policy", () => {
   for (const name of ["Email", "Phone", "Verification"]) {
     const decision = decideBrowserAction({
       kind: "fill", ref: "e1",
-      target: { role: "textbox", name, nth: 0 }, value: "example",
+      target: { role: "textbox", name, nth: 0, locatorId: "00000000-0000-4000-8000-000000000001" }, value: "example",
     });
     assert.equal(decision.decision, "confirm", name);
   }
