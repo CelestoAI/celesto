@@ -8,6 +8,7 @@ import type { BrowserRef, ConversationContext, IntentGrant, PendingApproval } fr
 import { MARKDOWN_MODEL, type MarkdownInput } from "./markdown.js";
 import type { TurnExecution } from "./trace.js";
 import { decideBrowserAction } from "./action-policy.js";
+import { isSearchFieldCandidate } from "./search-fields.js";
 
 type Emit = (type: string, payload: Record<string, unknown>, mutates?: boolean) => void;
 type Persist = () => Promise<void>;
@@ -557,7 +558,8 @@ export class ActionBroker {
     const resolved = this.resolveRef(operation.ref, tab);
     if (!resolved.ref.actionable) throw new Error("That browser ref is not interactive. Observe the page again and choose an interactive ref.");
     if (operation.kind === "follow_link" && resolved.target.role !== "link") throw new Error("That browser ref is not a link. Observe the page again and choose a link.");
-    if (operation.kind === "search" && resolved.target.role !== "searchbox") throw new Error("That browser ref is not a search box. Observe the page again and choose a search box.");
+    if (operation.kind === "search" && 
+    !isSearchFieldCandidate(resolved.target)){ throw new Error("That browser ref is not a search box. Observe the page again and choose a search box."); }
     if (operation.kind === "fill") {
       if (!["textbox", "searchbox", "spinbutton"].includes(resolved.target.role)) throw new Error("OpenMuse can fill only text, search, or number fields.");
       if (SENSITIVE_TARGET.test(resolved.target.name)) throw new Error("Use Take control to enter passwords, payment details, codes, or other secrets.");
