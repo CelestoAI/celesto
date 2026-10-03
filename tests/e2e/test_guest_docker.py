@@ -152,12 +152,13 @@ def test_user_installed_docker_runs_hello_world(
 
         networks = sandbox.run(
             # Linux refuses macvlan and ipvlan on the same parent, so each gets its own.
-            "ip link add celesto-dummy-mac type dummy && "
-            "ip link add celesto-dummy-ip type dummy && "
-            "ip link add celesto-macvlan link celesto-dummy-mac type macvlan mode bridge && "
-            "ip link add celesto-ipvlan link celesto-dummy-ip type ipvlan mode l2 && "
+            # Interface names must stay within Linux's 15-character limit.
+            "ip link add cel-dummy-mac type dummy && "
+            "ip link add cel-dummy-ip type dummy && "
+            "ip link add celesto-macvlan link cel-dummy-mac type macvlan mode bridge && "
+            "ip link add celesto-ipvlan link cel-dummy-ip type ipvlan mode l2 && "
             "ip -o link show celesto-macvlan && ip -o link show celesto-ipvlan; "
-            "result=$?; ip link del celesto-dummy-mac; ip link del celesto-dummy-ip; "
+            "result=$?; ip link del cel-dummy-mac; ip link del cel-dummy-ip; "
             "exit $result",
             timeout=30,
         )
