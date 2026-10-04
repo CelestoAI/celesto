@@ -217,6 +217,7 @@ export class ActionBroker {
     try {
       this.assertAgentControl(controlEpoch);
       await onDispatch?.();
+      this.assertAgentControl(controlEpoch);
       this.emit("tool.started", { tool, summary: toolEventSummary(tool) });
       const result = await this.browserDriver.execute(page, operation, expectedPage);
       this.assertAgentControl(controlEpoch);
@@ -272,6 +273,7 @@ export class ActionBroker {
       ].join("\n");
       const encoded = Buffer.from(wrappedProgram).toString("base64url");
       await onDispatch?.();
+      this.assertAgentControl(controlEpoch);
       void summary;
       this.emit("tool.started", { tool, summary: toolEventSummary(tool) });
       const command = await computer.exec(["/usr/local/bin/celesto-browser-runner", encoded], { timeoutMs: 35_000 });
