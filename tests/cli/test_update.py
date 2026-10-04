@@ -25,6 +25,7 @@ from celesto.cli.update import (
     _check_for_stable_update,
     _is_uv_tool_install,
     _run_upgrade,
+    _UpdateCheck,
     run_update,
 )
 
@@ -35,36 +36,40 @@ class TestCheckForStableUpdate:
             patch("celesto.cli.update._get_current_version", return_value="1.0.0"),
             patch("celesto.cli.update._fetch_latest_from_pypi", return_value="1.0.0"),
         ):
-            current, latest = _check_for_stable_update()
-            assert current == "1.0.0"
-            assert latest is None
+            result = _check_for_stable_update()
+            assert result.current == "1.0.0"
+            assert result.latest is None
+            assert result.reachable is True
 
     def test_returns_latest_when_update_available(self) -> None:
         with (
             patch("celesto.cli.update._get_current_version", return_value="0.9.0"),
             patch("celesto.cli.update._fetch_latest_from_pypi", return_value="1.0.0"),
         ):
-            current, latest = _check_for_stable_update()
-            assert current == "0.9.0"
-            assert latest == "1.0.0"
+            result = _check_for_stable_update()
+            assert result.current == "0.9.0"
+            assert result.latest == "1.0.0"
+            assert result.reachable is True
 
-    def test_returns_none_on_network_failure(self) -> None:
+    def test_marks_pypi_unreachable_on_network_failure(self) -> None:
         with (
             patch("celesto.cli.update._get_current_version", return_value="1.0.0"),
             patch("celesto.cli.update._fetch_latest_from_pypi", return_value=None),
         ):
-            current, latest = _check_for_stable_update()
-            assert current == "1.0.0"
-            assert latest is None
+            result = _check_for_stable_update()
+            assert result.current == "1.0.0"
+            assert result.latest is None
+            assert result.reachable is False
 
     def test_handles_missing_current_version(self) -> None:
         with (
             patch("celesto.cli.update._get_current_version", return_value=None),
             patch("celesto.cli.update._fetch_latest_from_pypi", return_value="1.0.0"),
         ):
-            current, latest = _check_for_stable_update()
-            assert current is None
-            assert latest is None
+            result = _check_for_stable_update()
+            assert result.current is None
+            assert result.latest is None
+            assert result.reachable is True
 
 
 class TestIsUvToolInstall:
@@ -103,7 +108,10 @@ class TestIsUvToolInstall:
 class TestRunUpdate:
     def test_check_only_no_update(self, capsys: pytest.CaptureFixture[str]) -> None:
         with (
-            patch("celesto.cli.update._check_for_stable_update", return_value=("1.0.0", None)),
+            patch(
+                "celesto.cli.update._check_for_stable_update",
+                return_value=_UpdateCheck("1.0.0", None, True),
+            ),
         ):
             rc = run_update(check=True)
         assert rc == 0
@@ -112,7 +120,10 @@ class TestRunUpdate:
 
     def test_check_only_unknown_version(self, capsys: pytest.CaptureFixture[str]) -> None:
         with (
-            patch("celesto.cli.update._check_for_stable_update", return_value=(None, None)),
+            patch(
+                "celesto.cli.update._check_for_stable_update",
+                return_value=_UpdateCheck(None, None, True),
+            ),
         ):
             rc = run_update(check=True)
         assert rc == 1
@@ -122,7 +133,10 @@ class TestRunUpdate:
 
     def test_check_only_update_available(self, capsys: pytest.CaptureFixture[str]) -> None:
         with (
-            patch("celesto.cli.update._check_for_stable_update", return_value=("0.9.0", "1.0.0")),
+            patch(
+                "celesto.cli.update._check_for_stable_update",
+                return_value=_UpdateCheck("0.9.0", "1.0.0", True),
+            ),
         ):
             rc = run_update(check=True)
         assert rc == 0
@@ -131,7 +145,10 @@ class TestRunUpdate:
 
     def test_check_only_json_no_update(self, capsys: pytest.CaptureFixture[str]) -> None:
         with (
-            patch("celesto.cli.update._check_for_stable_update", return_value=("1.0.0", None)),
+            patch(
+                "celesto.cli.update._check_for_stable_update",
+                return_value=_UpdateCheck("1.0.0", None, True),
+            ),
         ):
             rc = run_update(check=True, json_output=True)
         assert rc == 0
@@ -140,7 +157,10 @@ class TestRunUpdate:
 
     def test_already_latest_skips_pip(self, capsys: pytest.CaptureFixture[str]) -> None:
         with (
-            patch("celesto.cli.update._check_for_stable_update", return_value=("1.0.0", None)),
+            patch(
+                "celesto.cli.update._check_for_stable_update",
+                return_value=_UpdateCheck("1.0.0", None, True),
+            ),
             patch("celesto.cli.update._run_upgrade") as mock_pip,
         ):
             rc = run_update()
@@ -149,7 +169,10 @@ class TestRunUpdate:
 
     def test_upgrade_calls_pip(self) -> None:
         with (
-            patch("celesto.cli.update._check_for_stable_update", return_value=("0.9.0", "1.0.0")),
+            patch(
+                "celesto.cli.update._check_for_stable_update",
+                return_value=_UpdateCheck("0.9.0", "1.0.0", True),
+            ),
             patch("celesto.cli.update._run_upgrade", return_value=(0, "")) as mock_pip,
             patch("celesto.cli.update._get_current_version", return_value="1.0.0"),
         ):
@@ -159,16 +182,78 @@ class TestRunUpdate:
 
     def test_pip_failure_returns_nonzero(self, capsys: pytest.CaptureFixture[str]) -> None:
         with (
-            patch("celesto.cli.update._check_for_stable_update", return_value=("0.9.0", "1.0.0")),
+            patch(
+                "celesto.cli.update._check_for_stable_update",
+                return_value=_UpdateCheck("0.9.0", "1.0.0", True),
+            ),
             patch("celesto.cli.update._run_upgrade", return_value=(1, "error output")),
             patch("celesto.cli.update._get_current_version", return_value="0.9.0"),
         ):
             rc = run_update()
         assert rc == 1
 
+    def test_unreachable_pypi_errors_instead_of_claiming_up_to_date(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        with (
+            patch("celesto.cli.update._get_current_version", return_value="0.1.0"),
+            patch("celesto.cli.update._fetch_latest_from_pypi", return_value=None),
+            patch("celesto.cli.update._run_upgrade") as mock_upgrade,
+        ):
+            rc = run_update()
+        assert rc != 0
+        captured = capsys.readouterr()
+        assert "already the latest stable release" not in captured.out
+        assert "up to date" not in captured.out
+        assert "Could not reach pypi.org" in captured.err
+        assert "pip install --upgrade celesto" in captured.err
+        mock_upgrade.assert_not_called()
+
+    def test_unreachable_pypi_check_reports_error(self, capsys: pytest.CaptureFixture[str]) -> None:
+        with (
+            patch("celesto.cli.update._get_current_version", return_value="0.1.0"),
+            patch("celesto.cli.update._fetch_latest_from_pypi", return_value=None),
+        ):
+            rc = run_update(check=True)
+        assert rc != 0
+        captured = capsys.readouterr()
+        assert "up to date" not in captured.out
+        assert "Could not reach pypi.org" in captured.err
+        assert "pip install --upgrade celesto" in captured.err
+
+    def test_unreachable_pypi_json_reports_error_with_recovery(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        with (
+            patch("celesto.cli.update._get_current_version", return_value="0.1.0"),
+            patch("celesto.cli.update._fetch_latest_from_pypi", return_value=None),
+        ):
+            rc = run_update(check=True, json_output=True)
+        assert rc != 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["ok"] is False
+        assert payload["error"]["message"] != ""
+        assert payload["error"]["recovery"] == "pip install --upgrade celesto"
+        assert payload["data"]["checked_pypi"] is False
+        assert "update_available" not in payload["data"]
+
+    def test_already_latest_still_reports_success(self, capsys: pytest.CaptureFixture[str]) -> None:
+        with (
+            patch("celesto.cli.update._get_current_version", return_value="1.0.0"),
+            patch("celesto.cli.update._fetch_latest_from_pypi", return_value="1.0.0"),
+            patch("celesto.cli.update._run_upgrade") as mock_upgrade,
+        ):
+            rc = run_update()
+        assert rc == 0
+        assert "celesto 1.0.0 is already the latest stable release." in capsys.readouterr().out
+        mock_upgrade.assert_not_called()
+
     def test_upgrade_json_output(self, capsys: pytest.CaptureFixture[str]) -> None:
         with (
-            patch("celesto.cli.update._check_for_stable_update", return_value=("0.9.0", "1.0.0")),
+            patch(
+                "celesto.cli.update._check_for_stable_update",
+                return_value=_UpdateCheck("0.9.0", "1.0.0", True),
+            ),
             patch(
                 "celesto.cli.update._run_upgrade",
                 return_value=(0, "Successfully installed celesto-1.0.0"),

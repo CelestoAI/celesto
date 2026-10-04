@@ -20,6 +20,7 @@ import re
 import shutil
 import subprocess
 import sys
+from typing import NamedTuple
 
 from celesto.cli.output import console_stdout, emit_json
 from celesto.cli.version_check import (
@@ -29,18 +30,64 @@ from celesto.cli.version_check import (
 )
 
 
-def _check_for_stable_update() -> tuple[str | None, str | None]:
-    """Return ``(current, latest)`` when an upgrade is available, else ``(current, None)``.
+class _UpdateCheck(NamedTuple):
+    """The outcome of comparing the installed celesto version against PyPI.
 
-    Never raises — any network failure silently returns ``(current, None)``.
+    ``latest`` holds the newer version only when one exists. ``reachable`` is
+    False when PyPI could not be asked at all, so ``latest is None`` means
+    "PyPI answered and nothing is newer" only while ``reachable`` is True.
+    """
+
+    current: str | None
+    latest: str | None
+    reachable: bool
+
+
+def _check_for_stable_update() -> _UpdateCheck:
+    """Return the installed version, the newest release, and whether PyPI answered.
+
+    Never raises — a network failure sets ``reachable`` to False instead of
+    reporting that there is nothing to upgrade to.
     """
     current = _get_current_version()
     latest = _fetch_latest_from_pypi()
-    if current is None or latest is None:
-        return current, None
+    if latest is None:
+        return _UpdateCheck(current, None, False)
+    if current is None:
+        return _UpdateCheck(None, None, True)
     if _is_newer(current, latest):
-        return current, latest
-    return current, None
+        return _UpdateCheck(current, latest, True)
+    return _UpdateCheck(current, None, True)
+
+
+def _retry_command() -> str:
+    """The upgrade command that matches how celesto was installed."""
+    if _is_uv_tool_install():
+        return "uv tool upgrade celesto"
+    return "pip install --upgrade celesto"
+
+
+def _report_pypi_unreachable(*, current: str | None, json_output: bool) -> int:
+    """Report that PyPI could not be checked and return a failure exit code."""
+    retry = _retry_command()
+    if json_output:
+        emit_json(
+            "update",
+            1,
+            data={"current": current, "latest": None, "checked_pypi": False},
+            error={
+                "code": "pypi_unreachable",
+                "message": "Could not reach pypi.org to check for a newer celesto release.",
+                "recovery": retry,
+            },
+        )
+    else:
+        sys.stderr.write(
+            "Could not reach pypi.org to check for a newer celesto release. "
+            "Check your internet connection or proxy, then run: "
+            f"{retry}\n"
+        )
+    return 1
 
 
 def _is_uv_tool_install() -> bool:
@@ -93,24 +140,28 @@ def _run_upgrade(*, json_output: bool) -> tuple[int, str]:
 
 def run_update(*, check: bool = False, json_output: bool = False) -> int:
     """Execute ``celesto update``."""
-    current, latest = _check_for_stable_update()
+    result = _check_for_stable_update()
+    current = result.current
+    latest = result.latest
 
     if check:
+        if latest is None and current is None:
+            data: dict[str, object] = {
+                "current": None,
+                "latest": None,
+                "update_available": False,
+            }
+            if json_output:
+                emit_json("update", 1, data=data)
+            else:
+                sys.stderr.write(
+                    "Could not determine the installed celesto version. "
+                    "Run: pip install --upgrade celesto\n"
+                )
+            return 1
+        if not result.reachable:
+            return _report_pypi_unreachable(current=current, json_output=json_output)
         if latest is None:
-            if current is None:
-                data: dict[str, object] = {
-                    "current": None,
-                    "latest": None,
-                    "update_available": False,
-                }
-                if json_output:
-                    emit_json("update", 1, data=data)
-                else:
-                    sys.stderr.write(
-                        "Could not determine the installed celesto version. "
-                        "Run: pip install --upgrade celesto\n"
-                    )
-                return 1
             data = {"current": current, "latest": None, "update_available": False}
             if json_output:
                 emit_json("update", 0, data=data)
@@ -128,6 +179,9 @@ def run_update(*, check: bool = False, json_output: bool = False) -> int:
                     f"Run [bold]celesto update[/bold] to install."
                 )
         return 0
+
+    if not result.reachable:
+        return _report_pypi_unreachable(current=current, json_output=json_output)
 
     if latest is None and current is not None:
         if json_output:
