@@ -91,6 +91,17 @@ def _run_upgrade(*, json_output: bool) -> tuple[int, str]:
         return 1, str(exc)
 
 
+def _retry_command() -> str:
+    """Return the upgrade command for the package manager celesto was installed with.
+
+    Kept in step with the branch in ``_run_upgrade`` so a failed upgrade tells
+    the user to retry with the same package manager that was just used.
+    """
+    if _is_uv_tool_install():
+        return "uv tool upgrade celesto"
+    return "pip install --upgrade celesto"
+
+
 def run_update(*, check: bool = False, json_output: bool = False) -> int:
     """Execute ``celesto update``."""
     current, latest = _check_for_stable_update()
@@ -108,7 +119,7 @@ def run_update(*, check: bool = False, json_output: bool = False) -> int:
                 else:
                     sys.stderr.write(
                         "Could not determine the installed celesto version. "
-                        "Run: pip install --upgrade celesto\n"
+                        f"Run: {_retry_command()}\n"
                     )
                 return 1
             data = {"current": current, "latest": None, "update_available": False}
@@ -165,5 +176,5 @@ def run_update(*, check: bool = False, json_output: bool = False) -> int:
         return returncode
 
     if returncode != 0:
-        sys.stderr.write("celesto update failed. To retry, run: pip install --upgrade celesto\n")
+        sys.stderr.write(f"celesto update failed. To retry, run: {_retry_command()}\n")
     return returncode

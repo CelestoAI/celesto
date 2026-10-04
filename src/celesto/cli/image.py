@@ -634,8 +634,8 @@ def _non_default_dir_warnings(root: Path) -> list[str]:
     if root == default_root:
         return []
     return [
-        f"Sandboxes look for images in '{default_root}'. Set "
-        f"CELESTO_IMAGE_DIR={shlex.quote(str(root))} so they use this download."
+        f"Sandboxes look for images in '{default_root}'. Run "
+        f"export CELESTO_IMAGE_DIR={shlex.quote(str(root))} so they use this download."
     ]
 
 
