@@ -845,7 +845,8 @@ def generate_doctor_report(backend: str | None = None) -> DoctorReport:
                 if available
                 else (
                     "brew tap libkrun/krun && brew install libkrun/krun/libkrun"
-                    "  # macOS\nsudo dnf install libkrun  # Fedora"
+                    if platform.system() == "Darwin"
+                    else "sudo dnf install libkrun"
                 ),
             )
         )

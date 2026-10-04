@@ -442,6 +442,53 @@ class TestDoctorQemu:
             generate_doctor_report(backend="qemu")
 
 
+class TestDoctorLibkrun:
+    """Libkrun backend diagnostic tests."""
+
+    @patch("celesto.host.doctor._check_command", new=lambda binary, hint: _pass(binary))
+    @patch("celesto.host.doctor._check_libkrun_rust_target", new=lambda: _pass("rust-musl-target"))
+    @patch("celesto.host.doctor._check_kvm_runtime", new=lambda: _pass("kvm"))
+    @patch("celesto.runtime._libkrun_ffi.is_available", return_value=False)
+    @patch("celesto.host.doctor.platform.system", return_value="Linux")
+    def test_missing_libkrun_on_linux_gives_one_runnable_command(
+        self,
+        _mock_system: MagicMock,
+        _mock_available: MagicMock,
+    ) -> None:
+        """Linux users should get only the install command that works on their machine."""
+        report = generate_doctor_report(backend="libkrun")
+
+        libkrun = next(check for check in report.checks if check.name == "libkrun-library")
+        assert libkrun.status == "fail"
+        assert libkrun.fix == "sudo dnf install libkrun"
+        assert "\n" not in libkrun.fix
+        assert "brew" not in libkrun.fix
+        assert "macOS" not in libkrun.fix
+
+    @patch("celesto.host.doctor._check_command", new=lambda binary, hint: _pass(binary))
+    @patch("celesto.host.doctor._check_libkrun_rust_target", new=lambda: _pass("rust-musl-target"))
+    @patch("celesto.host.doctor._check_gvproxy", new=lambda: _pass("gvproxy"))
+    @patch(
+        "celesto.host.doctor._check_hypervisor_entitlement",
+        new=lambda: _pass("hypervisor-entitlement"),
+    )
+    @patch("celesto.runtime._libkrun_ffi.is_available", return_value=False)
+    @patch("celesto.host.doctor.platform.system", return_value="Darwin")
+    def test_missing_libkrun_on_macos_gives_one_runnable_command(
+        self,
+        _mock_system: MagicMock,
+        _mock_available: MagicMock,
+    ) -> None:
+        """macOS users should get only the install command that works on their machine."""
+        report = generate_doctor_report(backend="libkrun")
+
+        libkrun = next(check for check in report.checks if check.name == "libkrun-library")
+        assert libkrun.status == "fail"
+        assert libkrun.fix == "brew tap libkrun/krun && brew install libkrun/krun/libkrun"
+        assert "\n" not in libkrun.fix
+        assert "dnf" not in libkrun.fix
+
+
 class TestKvmRuntimeCheck:
     """Tests for the user-facing kvm doctor row."""
 
