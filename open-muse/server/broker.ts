@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { CATALOG, STOREFRONT_VERSION, formatInr, productById } from "./catalog.js";
 import { operationReason, redactBrowserOperation, validateBrowserOperation, type BrowserOperation, type BrowserTarget, type ExecutableBrowserOperation } from "./browser-operations.js";
-import { browserHasAuthenticatedState, BrowserDriverError, hostBrowserDriver, type BrowserDriver } from "./browser-driver.js";
+import { browserHasAuthenticatedState, BrowserDriverError, hostBrowserDriver, type BrowserDriver, type BrowserFailureCode } from "./browser-driver.js";
 import { approveOperation, completeOperation, dispatchOperation, markOutcomeUnknown, upsertOperation, type OperationRecord, type RecoveryState } from "./operation-lifecycle.js";
 import type { TabTarget } from "./browser-tabs.js";
 import type { BrowserRef, ConversationContext, IntentGrant, PendingApproval } from "./types.js";
@@ -15,6 +15,23 @@ type Emit = (type: string, payload: Record<string, unknown>, mutates?: boolean) 
 type Persist = () => Promise<void>;
 type ApprovalResolution = { resumeAgent: false; recovery?: RecoveryState } | { resumeAgent: true; browserResult: unknown };
 const BROWSER_ACTION_FAILED = "The website action did not finish.";
+const BROWSER_FAILURE_MESSAGES: Record<BrowserFailureCode, string> = {
+  CDP_DISCONNECTED: "The browser automation connection was lost.",
+  PAGE_CLOSED: "The controlled browser tab is closed.",
+  OPERATION_TIMEOUT: "The browser operation timed out.",
+  ACCESSIBILITY_CAPTURE_FAILED: "The browser could not read the page controls.",
+  TEXT_EXTRACTION_FAILED: "The browser could not read the page text.",
+  BROWSER_OPERATION_FAILED: "The browser could not complete the operation.",
+  SEARCH_FIELD_UNAVAILABLE: "The search field is unavailable.",
+  SEARCH_FORM_UNSUPPORTED: "This search form is unsupported.",
+};
+
+function safeBrowserFailureCode(code: unknown): BrowserFailureCode | undefined {
+  return typeof code === "string" && Object.hasOwn(BROWSER_FAILURE_MESSAGES, code)
+    ? code as BrowserFailureCode
+    : undefined;
+}
+
 export const MAX_BROWSER_PROGRAM_BYTES = 18_000;
 export interface BrokerTraceHooks {
   currentExecution: () => TurnExecution | undefined;
@@ -197,7 +214,13 @@ export class ActionBroker {
 
   private publicResolution(resolution: ApprovalResolution): Record<string, unknown> {
     if (!resolution.resumeAgent && resolution.recovery) {
-      throw Object.assign(new Error("The approved website action needs recovery before OpenMuse can continue."), {
+      const operation = this.context.operationJournal.find((entry) => entry.id === resolution.recovery?.operationId);
+      const failureCode = safeBrowserFailureCode(operation?.errorCode);
+      const diagnostic = failureCode ? `${failureCode}: ${BROWSER_FAILURE_MESSAGES[failureCode]} ` : "";
+      const guidance = resolution.recovery.kind === "failed_before_execution"
+        ? "The approved website action was not dispatched. Use the recovery controls before trying again."
+        : "The approved website action's outcome is unconfirmed. Inspect the page and use the recovery controls before trying again.";
+      throw Object.assign(new Error(`${diagnostic}${guidance}`), {
         code: "browser_recovery_required",
       });
     }
@@ -512,10 +535,11 @@ export class ActionBroker {
       }, true);
       await this.persist().catch(() => undefined);
     } catch (error) {
+      const failureCode = safeBrowserFailureCode(error && typeof error === "object" && "code" in error ? error.code : undefined);
       if (operation.state === "dispatched" && dispatchPersisted) {
-        return this.outcomeUnknown(operation, "EXECUTION_FAILED");
+        return this.outcomeUnknown(operation, failureCode ?? "EXECUTION_FAILED");
       }
-      return this.failBeforeExecution(operation, "PRE_DISPATCH_FAILED");
+      return this.failBeforeExecution(operation, failureCode ?? "PRE_DISPATCH_FAILED");
     } finally {
       if (!(["interrupted", "stopping", "stopped"] as string[]).includes(this.context.runState)) this.context.runState = "idle";
     }
