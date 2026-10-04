@@ -562,6 +562,9 @@ export class ConversationManager {
   private async stopUnlocked(id: string): Promise<void> {
     const context = this.require(id);
     if (context.runState === "stopped") return;
+    if (context.runState === "stopping") {
+      throw Object.assign(new Error("The current task transition is still in progress. Wait, then stop the conversation again."), { status: 409, code: "conversation_transition_busy" });
+    }
     context.runState = "stopping";
     context.stateVersion += 1;
     this.invalidateViewerSessions(context.id);
