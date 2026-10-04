@@ -112,6 +112,33 @@ function page(value: Record<string, unknown>): Page {
   } as unknown as Page;
 }
 
+// Failure cases: load timeout is recoverable, but dead pages, disconnected
+// browsers and capture errors must not become successful operations.
+test("Enter preserves post-submit failures without replay", async () => {
+  for (const kind of ["timeout", "closed", "disconnected", "capture"]) {
+    let presses = 0;
+    const hostPage = page({
+      url: () => "https://example.com/",
+      isClosed: () => kind === "closed" && presses > 0,
+      context: () => ({ browser: () => ({ isConnected: () => kind !== "disconnected" || presses === 0 }) }),
+      keyboard: { press: async () => { presses += 1; } },
+      waitForLoadState: async () => {
+        if (kind === "capture") return;
+        throw Object.assign(new Error("load failed"), { name: kind === "timeout" ? "TimeoutError" : "Error" });
+      },
+      locator: () => ({ ariaSnapshot: async () => { throw new Error("capture failed"); } }),
+    });
+    if (kind === "timeout") {
+      const result = await executeBrowserOperation(hostPage, { kind: "keypress", key: "Enter" }) as { verification: { status: string } };
+      assert.equal(result.verification.status, "unavailable");
+    } else {
+      const code = kind === "closed" ? "PAGE_CLOSED" : kind === "disconnected" ? "CDP_DISCONNECTED" : "ACCESSIBILITY_CAPTURE_FAILED";
+      await assert.rejects(executeBrowserOperation(hostPage, { kind: "keypress", key: "Enter" }), (error: unknown) => error instanceof BrowserDriverError && error.code === code);
+    }
+    assert.equal(presses, 1, kind);
+  }
+});
+
 test("authenticated browser state is detected without exposing its values", async () => {
   const anonymous = page({
     context: () => ({ cookies: async () => [], browser: () => ({ isConnected: () => true }) }),
