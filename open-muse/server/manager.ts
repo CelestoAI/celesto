@@ -599,14 +599,27 @@ export class ConversationManager {
     this.cancelCurrentExecution("cancelled");
     this.confirmations.interrupt("The current task was stopped. The browser session remains available.");
     delete context.pendingApproval;
-    await this.checkpoint();
+    let checkpointError: unknown;
+    let checkpointFailed = false;
+    try {
+      await this.checkpoint();
+    } catch (error) {
+      checkpointFailed = true;
+      checkpointError = error;
+    }
     await this.activeAction?.catch(() => undefined);
     await turn.catch(() => undefined);
     if (this.context !== context || (execution && this.currentExecution?.turnId === execution.turnId)) return;
     context.runState = "idle";
     context.stateVersion += 1;
     this.emit("conversation.paused", { summary: "Current task stopped; browser session kept" }, false);
-    await this.checkpoint();
+    try {
+      await this.checkpoint();
+    } catch (error) {
+      checkpointFailed = true;
+      checkpointError ??= error;
+    }
+    if (checkpointFailed) throw checkpointError;
   }
 
   issueViewerNonce(id: string): { viewerPath: string; expiresAt: string } {
