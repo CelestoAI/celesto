@@ -554,7 +554,7 @@ const canSubmit =
       }}
       placeholder={
         showStop
-          ? "Wait for the current task, or stop the session…"
+          ? "Wait for the current task, or stop the task…"
           : interrupted
             ? "Choose Continue or Start over…"
             : pausingControl
@@ -569,7 +569,7 @@ const canSubmit =
     <button
       type="button"
       className="composer-action"
-      aria-label={showStop ? "Stop session" : "Send message"}
+      aria-label={showStop ? "Stop task" : "Send message"}
       title={
         showStop
           ? "Stop the current task and keep the browser session"

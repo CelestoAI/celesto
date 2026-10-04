@@ -586,12 +586,20 @@ export class ConversationManager {
   async pauseTask(id: string): Promise<void> {
     this.assertConversationStable();
     const context = this.require(id);
-    if (["stopped", "stopping"].includes(context.runState)) throw Object.assign(new Error("This conversation is already stopped."), { status: 409 });
+    if (["stopped", "stopping", "interrupted", "idle", "failed"].includes(context.runState)) throw Object.assign(new Error("There is no active task to stop."), { status: 409 });
+    const execution = this.currentExecution;
+    const turn = this.turnQueue;
+    context.runState = "stopping";
+    context.stateVersion += 1;
+    this.emit("conversation.pausing", { summary: "Stopping the current task" }, false);
+    await this.checkpoint();
     context.agent?.abort();
     this.cancelCurrentExecution("cancelled");
     this.confirmations.interrupt("The current task was stopped. The browser session remains available.");
     delete context.pendingApproval;
     await this.activeAction?.catch(() => undefined);
+    await turn.catch(() => undefined);
+    if (this.context !== context || (execution && this.currentExecution?.turnId === execution.turnId)) return;
     context.runState = "idle";
     context.stateVersion += 1;
     this.emit("conversation.paused", { summary: "Current task stopped; browser session kept" }, false);
