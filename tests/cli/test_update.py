@@ -113,6 +113,7 @@ class TestRunUpdate:
     def test_check_only_unknown_version(self, capsys: pytest.CaptureFixture[str]) -> None:
         with (
             patch("celesto.cli.update._check_for_stable_update", return_value=(None, None)),
+            patch("celesto.cli.update._is_uv_tool_install", return_value=False),
         ):
             rc = run_update(check=True)
         assert rc == 1
@@ -195,3 +196,47 @@ def test_upgrade_targets_celesto_distribution(uv_tool: bool) -> None:
     command = run.call_args.args[0]
     assert command[-1] == "celesto"
     assert command[1:3] == (["tool", "upgrade"] if uv_tool else ["-m", "pip"])
+
+
+class TestRetryCommand:
+    def test_failure_retry_command_is_uv_when_installed_as_uv_tool(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        with (
+            patch("celesto.cli.update._check_for_stable_update", return_value=("0.9.0", "1.0.0")),
+            patch("celesto.cli.update._is_uv_tool_install", return_value=True),
+            patch("celesto.cli.update._run_upgrade", return_value=(1, "error output")),
+            patch("celesto.cli.update._get_current_version", return_value="0.9.0"),
+        ):
+            rc = run_update()
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert "uv tool upgrade celesto" in err
+        assert "pip install" not in err
+
+    def test_failure_retry_command_is_pip_when_not_installed_as_uv_tool(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        with (
+            patch("celesto.cli.update._check_for_stable_update", return_value=("0.9.0", "1.0.0")),
+            patch("celesto.cli.update._is_uv_tool_install", return_value=False),
+            patch("celesto.cli.update._run_upgrade", return_value=(1, "error output")),
+            patch("celesto.cli.update._get_current_version", return_value="0.9.0"),
+        ):
+            rc = run_update()
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert "pip install --upgrade celesto" in err
+
+    def test_unknown_version_retry_command_is_uv_when_installed_as_uv_tool(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        with (
+            patch("celesto.cli.update._check_for_stable_update", return_value=(None, None)),
+            patch("celesto.cli.update._is_uv_tool_install", return_value=True),
+        ):
+            rc = run_update(check=True)
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert "uv tool upgrade celesto" in err
+        assert "pip install" not in err
