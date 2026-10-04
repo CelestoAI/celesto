@@ -15,6 +15,7 @@
 """Tests for Celesto image builder module."""
 
 import subprocess
+import sys
 import tarfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -126,7 +127,9 @@ def test_guest_network_setup_returns_failure_when_no_configuration_works(
     tmp_path: Path,
 ) -> None:
     start = script.index("configure_guest_managed_network()")
-    end = script.index('\n}\n\nif [ -n "$GUEST_MANAGED" ]', start) + 3
+    # Slice up to the branch that calls it, so anything documented between the
+    # function and the branch stays out of the extracted shell.
+    end = script.index('\nif [ -n "$GUEST_MANAGED" ]', start)
     function = script[start:end]
     fake_ip = tmp_path / "ip"
     fake_ip.write_text("#!/bin/sh\nexit 0\n")
@@ -142,6 +145,53 @@ def test_guest_network_setup_returns_failure_when_no_configuration_works(
 
     assert result.returncode == 1
     assert "no guest network configuration" in result.stderr
+
+
+def _write_shell_stub(path: Path, body: str) -> None:
+    path.write_text(f"#!/bin/sh\n{body}\n")
+    path.chmod(0o755)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a POSIX /bin/sh to exercise set -u")
+def test_preset_init_survives_guest_managed_network_under_set_u(tmp_path: Path) -> None:
+    """The guest-managed path must not abort PID 1 through an unset GUEST_IP.
+
+    This script runs as PID 1, so a `set -u` abort on `GUEST_IP` kills the
+    guest before the keep-alive loop — the one failure the script exists to
+    prevent. The text-only assertions above cannot see that, so execute the
+    real networking block and the real completion echo instead.
+    """
+    script = Path("scripts/ci/preset-init.sh").read_text()
+
+    assert "set -u" in script
+
+    # Verbatim: the cmdline parsing, configure_guest_managed_network(), and the
+    # whole guest-managed/static branch.
+    start = script.index("IP_CONFIG=$(cat /proc/cmdline")
+    end = script.index("\nfi\n\nhostname celesto") + len("\nfi")
+    completion = next(
+        line for line in script.splitlines() if line.startswith('echo "Celesto init complete')
+    )
+    harness = "set -u\nlog_ts() { :; }\n" + script[start:end] + "\n" + completion + "\n"
+
+    # `cat` answers for /proc/cmdline; every network helper fails, so the
+    # guest-managed branch is deterministic and never touches the host.
+    cmdline = "BOOT_IMAGE=/vmlinux celesto.network=guest ro console=ttyS0"
+    _write_shell_stub(tmp_path / "cat", f"printf '%s\\n' '{cmdline}'")
+    for helper in ("ip", "ifup", "udhcpc", "dhclient"):
+        _write_shell_stub(tmp_path / helper, "exit 1")
+
+    result = subprocess.run(
+        ["/bin/sh", "-c", harness],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={"PATH": f"{tmp_path}:/usr/bin:/bin"},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "IP=assigned by the guest" in result.stdout
+    assert "SSH listening on port 22" in result.stdout
 
 
 def test_base_init_script_keeps_tmp_on_root_disk() -> None:

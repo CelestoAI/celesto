@@ -164,6 +164,12 @@ configure_guest_managed_network() {
     return 1
 }
 
+# Under `set -u` an unset variable is a fatal error, and this script is PID 1:
+# an abort here kills the guest before the keep-alive loop below. The
+# guest-managed path has no static IP by design, so default GUEST_IP to empty.
+# GATEWAY, NETMASK and PREFIX are only read inside the static branch below.
+GUEST_IP=""
+
 if [ -n "$GUEST_MANAGED" ]; then
     if configure_guest_managed_network; then
         log_ts "net-ready"
@@ -266,7 +272,7 @@ log_ts "sshd-start"
 /usr/sbin/sshd -e &
 log_ts "sshd-invoked"
 
-echo "Celesto init complete: IP=${GUEST_IP}, SSH listening on port 22"
+echo "Celesto init complete: IP=${GUEST_IP:-assigned by the guest}, SSH listening on port 22"
 log_ts "init-complete"
 
 # ── Keep PID 1 alive ────────────────────────────────────────
