@@ -48,6 +48,8 @@ export function App() {
   const chatMenuRef = useRef<HTMLDetailsElement>(null);
   const viewerRetryAttemptRef = useRef(0);
   const viewerStableTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [stopPending, setStopPending] = useState(false);
+  const stopRequestRef = useRef(false);
 
   const showConversation = (next: api.Conversation) => { conversationIdRef.current = next.id; setConversation(next); };
   const refresh = async (id = conversationIdRef.current) => {
@@ -190,9 +192,39 @@ export function App() {
     setViewerReconnectRequired(false);
   };
 
+  const stopSession = async () => {
+  if (
+    !conversation ||
+    conversationPending ||
+    stopRequestRef.current ||
+    !conversation.availableCommands.includes("pause_task")
+  ) return;
+
+  const id = conversation.id;
+  stopRequestRef.current = true;
+  setStopPending(true);
+  setError("");
+
+  try {
+    await api.pauseTask(id);
+    if (conversationIdRef.current === id) await refresh();
+  } catch (caught) {
+    if (conversationIdRef.current === id) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not stop the current task. Check its status before retrying.",
+      );
+    }
+  } finally {
+    stopRequestRef.current = false;
+    setStopPending(false);
+  }
+};
+
   const submit = async (value = text) => {
     if (!conversation || !value.trim()) return;
-    if (!conversation.availableCommands.includes("send_message")) {
+    if (!canSubmit || stopRequestRef.current) {
       setError("OpenMuse cannot accept a message in the current state.");
       return;
     }
@@ -331,6 +363,16 @@ export function App() {
   const commandAvailable = (command: string) => conversation?.availableCommands.includes(command) ?? false;
   const activity = conversation?.activity.kind;
   const busy = approvalPending || activity === "model_running" || activity === "browser_running";
+  const showStop =
+  busy ||
+  activity === "awaiting_confirmation" ||
+  activity === "stopping" ||
+  stopPending;
+
+const canSubmit =
+  !conversationPending &&
+  !showStop &&
+  commandAvailable("send_message");
   const interrupted = activity === "recovering";
   const humanControl = activity === "human_control";
   const pausingControl = conversation?.controlOwner === "pause_requested";
@@ -479,7 +521,7 @@ export function App() {
       <div className="brand"><span className="brandmark">M</span><span>OpenMuse</span><span className="preview">PREVIEW</span></div>
       <div className="top-actions">
         <details className="chat-menu" ref={chatMenuRef}><summary>Chats</summary><div className="chat-menu-popover"><button className="new-chat" disabled={!canChangeConversation || conversationPending} onClick={() => void newConversation()}>+ New chat</button><div className="chat-list">{conversationList.conversations.map((item) => <button className={item.id === conversation?.id ? "active" : ""} disabled={!canChangeConversation || conversationPending} key={item.id} onClick={() => void activateConversation(item.id)}><span>{item.title}</span><small>{item.modelId}</small></button>)}</div><button className="reset-chat" disabled={!canChangeConversation || conversationPending} onClick={() => void resetConversation()}>Reset conversation</button></div></details>
-        {modelAccess && conversation && <button className="quiet" disabled={conversationPending || !commandAvailable("change_model")} onClick={() => setShowModelSetup(true)}>Model: {conversation.modelId}</button>}<span className={`status-dot ${busy ? "working" : ""}`}></span><span>{status}</span>{conversation && commandAvailable("stop") && <button className="quiet danger" disabled={conversationPending} onClick={() => void api.stopConversation(conversation.id)}>Stop</button>}
+        {modelAccess && conversation && <button className="quiet" disabled={conversationPending || !commandAvailable("change_model")} onClick={() => setShowModelSetup(true)}>Model: {conversation.modelId}</button>}<span className={`status-dot ${busy ? "working" : ""}`}></span><span>{status}</span>{conversation && commandAvailable("pause_task") && <button className="quiet danger" disabled={conversationPending || stopPending} onClick={() => void stopSession()}>Stop task</button>}{conversation && commandAvailable("stop") && <button className="quiet danger" disabled={conversationPending || stopPending || activity === "stopping"} onClick={() => void api.stopConversation(conversation.id)}>Stop</button>}
       </div>
     </header>
     <section className="workspace">
@@ -493,7 +535,102 @@ export function App() {
           {busy && <div className="thinking"><i></i><i></i><i></i> Working in the browser</div>}
           <div ref={endRef}></div>
         </div>
-        <div className="composer-wrap">{error && <div className="error">{error}</div>}<div className="composer"><textarea value={text} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submit(); } }} placeholder={interrupted ? "Choose Continue or Start over…" : pausingControl ? "Pausing agent control…" : humanControl ? "Return control to message OpenMuse…" : "Message OpenMuse…"} disabled={!commandAvailable("send_message")}/><button aria-label="Send" onClick={() => void submit()} disabled={!text.trim() || !commandAvailable("send_message")}>↑</button></div><div className="hint">{interrupted ? "Nothing will run until you choose" : pausingControl ? "Waiting for the current browser action to finish" : humanControl ? "Return control to continue chatting" : "Enter to send · Computer is deleted when you stop"}</div></div>
+        <div className="composer-wrap">
+  {error && <div className="error">{error}</div>}
+
+  <div className="composer">
+    <textarea
+      value={text}
+      onChange={(event) => setText(event.target.value)}
+      onKeyDown={(event) => {
+        if (
+          event.key === "Enter" &&
+          !event.shiftKey &&
+          !event.nativeEvent.isComposing
+        ) {
+          event.preventDefault();
+          if (canSubmit) void submit();
+        }
+      }}
+      placeholder={
+        showStop
+          ? "Wait for the current task, or stop the session…"
+          : interrupted
+            ? "Choose Continue or Start over…"
+            : pausingControl
+              ? "Pausing agent control…"
+              : humanControl
+                ? "Return control to message OpenMuse…"
+                : "Message OpenMuse…"
+      }
+      disabled={!canSubmit}
+    />
+
+    <button
+      type="button"
+      className="composer-action"
+      aria-label={showStop ? "Stop session" : "Send message"}
+      title={
+        showStop
+          ? "Stop the current task and keep the browser session"
+          : "Send message"
+      }
+      aria-busy={stopPending || activity === "stopping"}
+      disabled={
+        showStop
+          ? conversationPending ||
+            stopPending ||
+            activity === "stopping" ||
+            !commandAvailable("pause_task")
+          : !text.trim() || !canSubmit
+      }
+      onClick={() => {
+        if (showStop) void stopSession();
+        else void submit();
+      }}
+    >
+      {showStop ? (
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          aria-hidden="true"
+        >
+          <rect x="6" y="6" width="12" height="12" rx="2" />
+        </svg>
+      ) : (
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M12 18V6M7 11l5-5 5 5" />
+        </svg>
+      )}
+    </button>
+  </div>
+
+  <div className="hint" role="status">
+    {stopPending || activity === "stopping"
+      ? "Stopping the session…"
+      : showStop
+        ? "Stops the current task; your browser session stays available"
+        : interrupted
+          ? "Nothing will run until you choose"
+          : pausingControl
+            ? "Waiting for the current browser action to finish"
+            : humanControl
+              ? "Return control to continue chatting"
+              : "Enter to send · Shift+Enter for a new line"}
+  </div>
+</div>
       </section>
       <section className="computer-pane">
         <div className="computer-head"><div><div className="eyebrow">Isolated workspace</div><h2>Agent’s computer</h2></div><div className="computer-actions">{humanControl ? <button disabled={!controlEpoch || !commandAvailable("return_control")} onClick={() => void returnControl()}>Return control</button> : pausingControl ? <button className="secondary" disabled>Pausing…</button> : commandAvailable("take_control") ? <button className="secondary" onClick={() => void takeControl()} disabled={!conversation?.viewerReady}>Take control</button> : null}</div></div>

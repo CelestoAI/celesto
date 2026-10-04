@@ -157,6 +157,7 @@ export class ConversationManager {
       case "continue": return this.continueInterrupted(id);
       case "start_over": return this.startOver(id);
       case "stop": await this.stop(id); return { accepted: true };
+      case "pause_task": await this.pauseTask(id); return { accepted: true };
       case "reconnect_model": return this.reconnectProvider(id);
       case "change_model": return this.switchModel(id, { providerId: command.providerId, modelId: command.modelId });
       case "adopt_popup": return this.adoptPopup(id, command.tabId);
@@ -579,6 +580,21 @@ export class ConversationManager {
     context.sessionLifecycle = "deleted";
     context.stateVersion += 1;
     this.emit("conversation.stopped", { summary: "Disposable computer deleted" }, false);
+    await this.checkpoint();
+  }
+
+  async pauseTask(id: string): Promise<void> {
+    this.assertConversationStable();
+    const context = this.require(id);
+    if (["stopped", "stopping"].includes(context.runState)) throw Object.assign(new Error("This conversation is already stopped."), { status: 409 });
+    context.agent?.abort();
+    this.cancelCurrentExecution("cancelled");
+    this.confirmations.interrupt("The current task was stopped. The browser session remains available.");
+    delete context.pendingApproval;
+    await this.activeAction?.catch(() => undefined);
+    context.runState = "idle";
+    context.stateVersion += 1;
+    this.emit("conversation.paused", { summary: "Current task stopped; browser session kept" }, false);
     await this.checkpoint();
   }
 
