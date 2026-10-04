@@ -40,7 +40,7 @@ celesto sandbox snapshot create demo --snapshot-type disk --resume-source --live
 
 Snapshots do not support Windows guests, workspace mounts, extra drives, shared disks, or raw QEMU disks. Snapshot creation can pause a sandbox unless you use the live-only command above.
 
-**Implementation notes:** snapshot types and their meanings are defined in [`src/celesto/types.py`](../../src/celesto/types.py); support checks and restore behavior are in [`src/celesto/vm.py`](../../src/celesto/vm.py); the facade flushes a guest before a disk snapshot in [`src/celesto/facade.py`](../../src/celesto/facade.py). See [`tests/test_snapshot.py`](../../tests/test_snapshot.py) and [`tests/test_snapshot_qemu.py`](../../tests/test_snapshot_qemu.py).
+**Implementation notes:** snapshot types and their meanings are defined in [`src/celesto/types.py`](../../src/celesto/types.py); support checks and restore behavior are in [`src/celesto/vm.py`](../../src/celesto/vm.py); the facade flushes a guest before a disk snapshot in [`src/celesto/facade.py`](../../src/celesto/facade.py). See [`tests/api/test_snapshot.py`](../../tests/api/test_snapshot.py) and [`tests/runtime/test_snapshot_qemu.py`](../../tests/runtime/test_snapshot_qemu.py).
 
 ## Save and restore from Python
 
