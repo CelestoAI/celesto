@@ -27,6 +27,7 @@ from celesto.host.doctor import (
     DoctorCheck,
     DoctorReport,
     WorkerNodeSecurityError,
+    _check_ext4_tools,
     check_worker_node_security,
     generate_doctor_report,
     run_doctor,
@@ -51,6 +52,7 @@ class TestDoctorFirecracker:
     @patch("celesto.host.doctor._check_thp_disabled", new=lambda: _pass("worker:thp-disabled"))
     @patch("celesto.host.doctor._check_ksm_disabled", new=lambda: _pass("worker:ksm-disabled"))
     @patch("celesto.host.doctor._check_swap_disabled", new=lambda: _pass("worker:swap-disabled"))
+    @patch("celesto.host.doctor._check_ext4_tools", new=lambda: _pass("e2fsprogs"))
     @patch("celesto.host.doctor.run_command")
     @patch("celesto.host.doctor.check_network_prerequisites", return_value=[])
     @patch("celesto.host.doctor.which")
@@ -532,3 +534,25 @@ class TestWorkerNodeSecurityChecks:
         """Startup guard should reject non-pass security checks, including warnings."""
         with pytest.raises(WorkerNodeSecurityError, match=r"worker:kvm-nx-huge-pages \(warn\)"):
             check_worker_node_security()
+
+
+class TestExt4ToolsCheck:
+    """Doctor check for the e2fsprogs tools needed to grow sandbox disks."""
+
+    @patch("celesto.vm.CelestoManager._find_ext4_tool", return_value=Path("/usr/sbin/tool"))
+    def test_passes_when_both_tools_found(self, _mock_find: MagicMock) -> None:
+        check = _check_ext4_tools()
+
+        assert check.status == "pass"
+        assert check.fix is None
+
+    @patch("celesto.vm.CelestoManager._find_ext4_tool")
+    def test_warns_and_names_missing_tools(self, mock_find: MagicMock) -> None:
+        mock_find.side_effect = lambda tool: None if tool == "resize2fs" else Path("/x")
+
+        check = _check_ext4_tools()
+
+        assert check.status == "warn"
+        assert "resize2fs" in check.detail
+        assert "e2fsck" not in check.detail
+        assert check.fix is not None
