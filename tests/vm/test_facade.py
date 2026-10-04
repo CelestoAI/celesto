@@ -2763,6 +2763,26 @@ class TestVMQemuLocalExpose:
         mock_sdk_cls.return_value.network.setup_local_port_forward.assert_not_called()
         mock_start_tunnel.assert_called_once_with(host_port=18080, guest_port=8080)
 
+    @patch("celesto.facade.CelestoManager")
+    def test_expose_local_rejects_out_of_range_host_port_before_side_effects(
+        self,
+        mock_sdk_cls: MagicMock,
+        sample_config: VMConfig,
+        tmp_path: Path,
+    ) -> None:
+        """Test an out-of-range host port is rejected before the host network changes."""
+        with (
+            patch("celesto.facade.Celesto._find_available_local_port", return_value=18081),
+            patch("celesto.facade.Celesto._allocate_local_port", return_value=18081),
+        ):
+            vm = self._running_qemu_vm(mock_sdk_cls, sample_config, tmp_path)
+
+            with pytest.raises(ValueError, match="host_port must be 1-65535"):
+                vm.expose_local(guest_port=8080, host_port=70000)
+
+        mock_sdk_cls.return_value.ensure_network_connectivity.assert_not_called()
+        mock_sdk_cls.return_value.network.setup_local_port_forward.assert_not_called()
+
 
 @pytest.mark.skip(reason="Fails in macOS secure sandboxes due to bind restrictions")
 class TestVMLocalExpose:

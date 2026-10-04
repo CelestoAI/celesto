@@ -29,6 +29,7 @@ import pytest
 from rich.panel import Panel
 from rich.text import Text
 
+import celesto.cli.main
 from celesto.cli.main import (
     DASHBOARD_ALLOW_BETA_ENV,
     _current_version_is_prerelease,
@@ -2025,6 +2026,33 @@ class TestCliPort:
         assert ret == 0
         vm.unexpose_local.assert_called_once_with(8080, 3000)
         mock_remove.assert_called_once_with("vm001", 8080, 3000)
+
+    def test_port_list_reports_corrupt_state(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """`celesto sandbox port list` must report corrupt forwarding state as
+        a CLI error carrying the reset command (regression: the raw
+        RuntimeError escaped, so `--json` consumers got no envelope)."""
+
+        def corrupt(vm_id: str) -> list[dict]:
+            raise RuntimeError(
+                f"Port forward state for '{vm_id}' is corrupt. "
+                f"Run rm -- '/tmp/{vm_id}.json' to reset it."
+            )
+
+        monkeypatch.setattr(celesto.cli.main, "_load_port_forwards", corrupt)
+
+        ret = main(["sandbox", "port", "list", "sbx-x", "--json"])
+
+        assert ret == 1
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["ok"] is False
+        assert "corrupt" in payload["error"]["message"]
+
+        assert main(["sandbox", "port", "list", "sbx-x"]) == 1
+        assert "corrupt" in capsys.readouterr().err
 
 
 class TestCliShell:
