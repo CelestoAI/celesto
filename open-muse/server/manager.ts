@@ -595,11 +595,11 @@ export class ConversationManager {
     context.runState = "stopping";
     context.stateVersion += 1;
     this.emit("conversation.pausing", { summary: "Stopping the current task" }, false);
-    await this.checkpoint();
     context.agent?.abort();
     this.cancelCurrentExecution("cancelled");
     this.confirmations.interrupt("The current task was stopped. The browser session remains available.");
     delete context.pendingApproval;
+    await this.checkpoint();
     await this.activeAction?.catch(() => undefined);
     await turn.catch(() => undefined);
     if (this.context !== context || (execution && this.currentExecution?.turnId === execution.turnId)) return;
