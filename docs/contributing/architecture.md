@@ -24,7 +24,7 @@ Celesto turns a requested sandbox into a guest image, a runtime process, and a s
 4. `Celesto` waits for the selected control channel, then performs commands or file operations. A macOS desktop instead becomes ready when its loopback display is available; SSH may follow later.
 5. Stop or delete releases runtime resources; delete also removes managed state unless the configuration says otherwise.
 
-This flow is implemented primarily by [`Celesto`](../../src/celesto/facade.py) and [`CelestoManager`](../../src/celesto/vm.py), and exercised by [`tests/test_facade.py`](../../tests/test_facade.py), [`tests/test_vm.py`](../../tests/test_vm.py), and [`tests/test_async_lifecycle.py`](../../tests/test_async_lifecycle.py).
+This flow is implemented primarily by [`Celesto`](../../src/celesto/facade.py) and [`CelestoManager`](../../src/celesto/vm.py), and exercised by [`tests/vm/test_facade.py`](../../tests/vm/test_facade.py), [`tests/vm/test_vm.py`](../../tests/vm/test_vm.py), and [`tests/api/test_async_lifecycle.py`](../../tests/api/test_async_lifecycle.py).
 
 ## Backend and control-channel selection
 

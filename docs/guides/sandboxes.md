@@ -72,4 +72,4 @@ with Celesto() as vm:
 
 ## Limits and implementation notes
 
-Workspace mounts currently use QEMU; when mounts are requested without an explicit backend, Celesto selects QEMU. The default disk mode is isolated, which gives each sandbox its own writable disk. See [`src/celesto/facade.py`](../../src/celesto/facade.py), [`src/celesto/types.py`](../../src/celesto/types.py), and the behavior tests in [`tests/test_workspace.py`](../../tests/test_workspace.py), [`tests/test_facade.py`](../../tests/test_facade.py), and [`tests/test_cli.py`](../../tests/test_cli.py).
+Workspace mounts currently use QEMU; when mounts are requested without an explicit backend, Celesto selects QEMU. The default disk mode is isolated, which gives each sandbox its own writable disk. See [`src/celesto/facade.py`](../../src/celesto/facade.py), [`src/celesto/types.py`](../../src/celesto/types.py), and the behavior tests in [`tests/windows/test_workspace.py`](../../tests/windows/test_workspace.py), [`tests/vm/test_facade.py`](../../tests/vm/test_facade.py), and [`tests/cli/test_cli.py`](../../tests/cli/test_cli.py).
