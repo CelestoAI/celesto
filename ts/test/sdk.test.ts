@@ -280,6 +280,32 @@ test("computer commands reject empty argv and invalid timeouts before transport"
   await client.close();
 });
 
+test("computer creation rejects a disk size below the supported minimum before transport", async () => {
+  const transport = new FakeTransport();
+  const client = new Celesto({ transport });
+  const callsBefore = transport.calls.length;
+
+  await assert.rejects(
+    () => client.computers.create({ resources: { diskMiB: 4096 } }),
+    /diskMiB/,
+  );
+  await assert.rejects(
+    () => client.computers.create({ resources: { diskMiB: 2048 } }),
+    /8192 MiB/,
+  );
+  assert.equal(transport.calls.length, callsBefore);
+
+  const atFloor = await client.computers.create({ name: "computer-test", resources: { diskMiB: 8192 } });
+  const aboveFloor = await client.computers.create({ name: "computer-test", resources: { diskMiB: 12288 } });
+  assert.equal(atFloor.status, "ready");
+  assert.equal(aboveFloor.status, "ready");
+  const sizes = transport.calls
+    .filter((call) => call.path === "/computers")
+    .map((call) => JSON.parse(String(call.init?.body)).resources.disk_mib);
+  assert.deepEqual(sizes, [8192, 12288]);
+  await client.close();
+});
+
 test("computer timeout records server-confirmed deletion", async () => {
   class ComputerTimeoutTransport extends FakeTransport {
     override async request<T>(path: string, init?: RequestInit): Promise<T> {

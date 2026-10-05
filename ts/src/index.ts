@@ -54,6 +54,9 @@ const REQUIRED_BROWSER_CAPABILITIES = [
   "browser.events",
 ] as const;
 
+/** Mirrors `_PUBLISHED_COMPUTER_DISK_SIZE_MIB` in src/celesto/browser.py. */
+const MINIMUM_COMPUTER_DISK_MIB = 8192;
+
 const REQUIRED_COMPUTER_CAPABILITIES = [
   "computer.create",
   "computer.delete",
@@ -267,6 +270,10 @@ export class Celesto implements CelestoClient {
   }
 
   private async createComputer(options: CreateComputerOptions = {}): Promise<ComputerSession> {
+    const diskMiB = options.resources?.diskMiB;
+    if (diskMiB !== undefined && diskMiB < MINIMUM_COMPUTER_DISK_MIB) {
+      throw new RangeError(`resources.diskMiB must be at least ${MINIMUM_COMPUTER_DISK_MIB} MiB.`);
+    }
     await this.negotiate([...REQUIRED_CAPABILITIES, ...REQUIRED_COMPUTER_CAPABILITIES]);
     const requestedComputerId = options.name ?? `computer-${randomUUID().slice(0, 8)}`;
     this.emit({ type: "computer.starting", computerId: requestedComputerId });
