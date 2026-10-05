@@ -277,16 +277,15 @@ class QemuRuntimeAdapter(RuntimeAdapter):
 
         firmware_vars_path = self._firmware_vars_path(vm_info, platform_spec)
         swtpm_sidecar: _SwtpmSidecar | None = None
-        if platform_spec.requires_swtpm:
-            swtpm_sidecar = _SwtpmSidecar(
-                vm_id=vm_info.vm_id,
-                firmware_dir=self._context.firmware_dir,
-                context=self._context,
-            )
-            swtpm_sidecar.start()
-
         process: Any | None = None
         try:
+            if platform_spec.requires_swtpm:
+                swtpm_sidecar = _SwtpmSidecar(
+                    vm_id=vm_info.vm_id,
+                    firmware_dir=self._context.firmware_dir,
+                    context=self._context,
+                )
+                swtpm_sidecar.start()
             process = self._context.start_qemu(
                 vm_info,
                 log_path,
