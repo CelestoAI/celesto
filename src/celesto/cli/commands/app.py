@@ -1905,7 +1905,7 @@ def browser_open(session_id: str) -> Any:
 
 @browser.command("logs")
 @click.argument("session_id", metavar="session", shell_complete=complete_browser_session_names)
-@click.option("--tail", type=int, default=100, show_default=True)
+@click.option("--tail", type=positive_int_type(), default=100, show_default=True)
 def browser_logs(session_id: str, tail: int) -> Any:
     """Show recent browser output."""
     _before_command()

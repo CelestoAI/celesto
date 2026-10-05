@@ -6065,6 +6065,46 @@ class TestCliLogs:
         assert ret == 0
         assert capsys.readouterr().out == "line2\nline3\n"
 
+    @pytest.mark.parametrize("tail", ["0", "-5"])
+    def test_browser_logs_rejects_non_positive_tail(
+        self,
+        tail: str,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """`browser logs --tail` must reject a count below one, as `sandbox logs` does."""
+        ret = main(["browser", "logs", "browser-abc123", "--tail", tail])
+
+        assert ret == 2
+        assert "Invalid value" in capsys.readouterr().err
+
+    @pytest.mark.parametrize(
+        "args",
+        [["sandbox", "logs", "vm001"], ["browser", "logs", "browser-abc123"]],
+    )
+    def test_logs_tail_rejects_zero_for_every_command(
+        self,
+        args: list[str],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """`sandbox logs` and `browser logs` must reject `--tail 0` in the same way."""
+        ret = main([*args, "--tail", "0"])
+
+        assert ret == 2
+        assert "Invalid value" in capsys.readouterr().err
+
+    @patch("celesto.browser._BrowserSandbox")
+    def test_browser_logs_accepts_positive_tail(self, mock_browser_cls: MagicMock) -> None:
+        """A positive tail count is still accepted and reaches the session."""
+        session = MagicMock()
+        session._session_config.mode = "browser"
+        session.logs.return_value = "a\nb\n"
+        mock_browser_cls.from_id.return_value = session
+
+        ret = main(["browser", "logs", "browser-abc123", "--tail", "5"])
+
+        assert ret == 0
+        session.logs.assert_called_once_with(tail=5)
+
     def test_logs_json_payload(
         self,
         mock_vm_cls: MagicMock,
