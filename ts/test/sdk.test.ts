@@ -486,6 +486,44 @@ test("process transport preserves computer error codes from the runtime", async 
   }
 });
 
+test("process transport reports computer create failures without a wire error code", async () => {
+  const server = createServer((_request, response) => {
+    response.statusCode = 422;
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({
+      detail: [{
+        loc: ["body", "resources", "memory_mib"],
+        msg: "Input should be less than or equal to 16384",
+      }],
+    }));
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  assert(address && typeof address === "object");
+  const transport = new ProcessTransport("unused", 1_000, 1_000, 1_000, false, () => {});
+  Object.assign(transport, {
+    startPromise: Promise.resolve(),
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    token: "test-token",
+  });
+
+  try {
+    await assert.rejects(
+      () => transport.request("/computers", { method: "POST" }),
+      (error: unknown) => error instanceof CelestoError
+        && error.code === "computer_create_failed"
+        && error.message.includes("Input should be less than or equal to 16384"),
+    );
+  } finally {
+    await transport.close();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test("sandbox creation timeout invalidates every handle in its SDK session", async () => {
   let creations = 0;
   const server = createServer((request, response) => {

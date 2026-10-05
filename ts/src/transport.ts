@@ -71,6 +71,7 @@ function codeFor(
   }
   if (path === "/sandboxes") return "sandbox_create_failed";
   if (path === "/browser-sessions") return "browser_create_failed";
+  if (path === "/computers") return "computer_create_failed";
   if (path.includes("/files") && status === 400) return "invalid_path";
   return "transport_failed";
 }
