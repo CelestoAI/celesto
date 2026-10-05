@@ -86,6 +86,17 @@ export class Sandbox implements SandboxClient {
         sandboxId: this.id,
       });
     }
+    if (options.signal?.aborted) {
+      throw new CelestoError(
+        "command_aborted",
+        `Sandbox '${this.id}' did not start the command because its AbortSignal was already aborted.`,
+        {
+          operation: "sandbox.exec",
+          sandboxId: this.id,
+          actual: { sandboxDeleted: false, sessionClosed: false },
+        },
+      );
+    }
     if (Array.isArray(command) && command.length === 0) {
       throw new TypeError("Command argv must contain at least one item.");
     }
