@@ -411,15 +411,13 @@ def _emit_cli_error(
 ) -> int:
     """Emit a CLI error in JSON or Rich form."""
     if json_output:
-        emit_json(
-            command,
-            exit_code,
-            data=None,
-            error={
-                "message": str(exc),
-                "type": _error_type(exc),
-            },
-        )
+        error: dict[str, Any] = {
+            "message": str(exc),
+            "type": _error_type(exc),
+        }
+        if hint is not None:
+            error["recovery"] = hint
+        emit_json(command, exit_code, data=None, error=error)
     else:
         render_error(f"Error: {exc}", hint=hint)
     return exit_code

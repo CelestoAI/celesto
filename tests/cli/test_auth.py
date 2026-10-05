@@ -23,7 +23,7 @@ from click.testing import CliRunner
 
 from celesto.cli import _credentials
 from celesto.cli.commands.app import build_cli
-from celesto.cli.main import main
+from celesto.cli.main import _emit_cli_error, main
 
 
 @pytest.fixture(autouse=True)
@@ -157,6 +157,54 @@ def test_status_surfaces_revoked_key(monkeypatch, capsys):
     assert main(["auth", "status", "--json"]) == 1
     payload = json.loads(capsys.readouterr().out)
     assert payload["error"]["message"] == "That API key was not accepted by the server."
+
+
+def _revoked_key(monkeypatch):
+    _credentials.write_credentials(
+        api_key="celesto_sk_test", email="anurag@senseloaf.com", base_url="https://api.celesto.ai"
+    )
+    monkeypatch.setattr(
+        "celesto.cli.main._fetch_authenticated_email",
+        Mock(side_effect=ValueError("That API key was not accepted by the server.")),
+    )
+
+
+def test_status_json_carries_recovery_hint(monkeypatch, capsys):
+    _revoked_key(monkeypatch)
+
+    assert main(["auth", "status", "--json"]) == 1
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["recovery"] == "Run 'celesto auth login' again."
+
+
+def test_status_human_output_still_shows_recovery_hint(monkeypatch, capsys):
+    _revoked_key(monkeypatch)
+
+    assert main(["auth", "status"]) == 1
+
+    assert "Run 'celesto auth login' again." in capsys.readouterr().err
+
+
+def test_login_json_carries_recovery_hint(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "celesto.cli.main._fetch_authenticated_email",
+        Mock(side_effect=ValueError("That API key was not accepted by the server.")),
+    )
+
+    assert main(["auth", "login", "--api-key", "bad", "--json"]) == 1
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["recovery"] == (
+        "Check that the key was copied in full and hasn't been revoked."
+    )
+
+
+def test_emit_cli_error_without_hint_omits_recovery_key(capsys):
+    assert _emit_cli_error("sandbox.start", 1, ValueError("boom"), json_output=True) == 1
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"] == {"code": "invalid_input", "message": "boom"}
 
 
 def test_logout_removes_stored_credentials(capsys):
