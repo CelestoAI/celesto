@@ -422,6 +422,73 @@ test("browser timeout records the server-confirmed session deletion", async () =
   );
 });
 
+test("aborting an in-flight browser command reports an aborted CelestoError and issues no cancel request", async () => {
+  let markStarted!: () => void;
+  const started = new Promise<void>((resolve) => { markStarted = resolve; });
+  class InFlightBrowserAbortTransport extends FakeTransport {
+    override async request<T>(path: string, init?: RequestInit): Promise<T> {
+      if (path === "/browser-sessions/browser-test/exec") {
+        this.calls.push({ path, init });
+        markStarted();
+        return await new Promise<T>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      }
+      return super.request(path, init);
+    }
+  }
+  const transport = new InFlightBrowserAbortTransport();
+  const events: string[] = [];
+  const client = new Celesto({ transport, onEvent: (event) => events.push(event.type) });
+  const browser = await client.browsers.create();
+  const controller = new AbortController();
+
+  const command = browser.exec("sleep 60", { signal: controller.signal });
+  await started;
+  controller.abort();
+
+  let caught: unknown;
+  await assert.rejects(command, (error: unknown) => {
+    caught = error;
+    return true;
+  });
+  assert.ok(
+    caught instanceof CelestoError,
+    `expected a CelestoError, received ${String(caught)}`,
+  );
+  assert.equal((caught as DOMException).name, "CelestoError");
+  assert.equal((caught as CelestoError).code, "command_aborted");
+  assert.equal((caught as CelestoError).actual?.sandboxDeleted, false);
+  assert.equal((caught as CelestoError).actual?.sessionClosed, false);
+  assert.equal(transport.calls.some((call) => call.path.includes("/cancel")), false);
+  assert.equal(browser.status, "ready");
+  assert.deepEqual(events, ["browser.starting", "browser.ready", "command.started"]);
+
+  class BrowserDeletedTimeoutTransport extends FakeTransport {
+    override async request<T>(path: string, init?: RequestInit): Promise<T> {
+      if (path.includes("/browser-sessions/") && path.endsWith("/exec")) {
+        throw new CelestoError("command_timeout", "timed out and deleted", {
+          operation: "browser.exec",
+          actual: { sandboxDeleted: true },
+        });
+      }
+      return super.request(path, init);
+    }
+  }
+  const guardClient = new Celesto({ transport: new BrowserDeletedTimeoutTransport() });
+  const guardBrowser = await guardClient.browsers.create();
+
+  await assert.rejects(
+    () => guardBrowser.exec("sleep 60"),
+    (error: unknown) => error instanceof CelestoError && error.code === "command_timeout",
+  );
+  assert.equal(guardBrowser.status, "deleted");
+});
+
 test("browser sessions require browser runtime capabilities without breaking sandboxes", async () => {
   class SandboxOnlyTransport extends FakeTransport {
     override async request<T>(path: string, init?: RequestInit): Promise<T> {
