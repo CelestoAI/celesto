@@ -5,7 +5,7 @@ Run TypeScript agent code in a disposable computer on your own machine. No cloud
 This package is an alpha for Node.js 20.4 or newer on Linux x64 and Apple Silicon macOS. Install the Celesto runtime first; the SDK starts its private local bridge automatically.
 
 ```bash
-pip install 'celesto[server]==0.0.15a0'
+pip install 'celesto[server]==0.1.3'
 celesto setup
 npm install https://github.com/CelestoAI/Celesto/releases/download/typescript-v0.1.0-preview.1/celestoai-celesto-0.1.0-preview.1.tgz
 npm install --save-dev tsx
