@@ -118,14 +118,15 @@ def resolve_image_dir(image_dir: Path | str | None = None) -> Path:
     never targets the current working directory. A ``Path`` gets the same
     treatment: ``Path("")`` is what ``Path($UNSET_VAR)`` produces, and
     ``ImageManager(cache_dir=...)`` is typed ``Path | None``, but an empty
-    path already names the current working directory, so an argument
-    carrying no directory component counts as unset as well. Whitespace
-    around a real directory is ignored, not rejected. The directory is not
+    path already names the current working directory, so a ``Path`` argument
+    carrying no directory component counts as unset. A nonblank string such
+    as ``"."`` remains explicit for the CLI. Whitespace around a real
+    directory is ignored, not rejected. The directory is not
     created here — read-only consumers (listing, pruning) must tolerate
     a missing directory, and downloads create it at write time.
     """
     explicit = "" if image_dir is None else str(image_dir).strip()
-    if explicit and Path(explicit).parts:
+    if explicit and (isinstance(image_dir, str) or Path(explicit).parts):
         return _expand_image_dir(Path(explicit))
     env_dir = os.environ.get(IMAGE_DIR_ENV, "").strip()
     if env_dir:

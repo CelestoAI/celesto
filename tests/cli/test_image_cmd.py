@@ -100,6 +100,14 @@ class TestResolveImageDir:
         assert resolve_image_dir(Path("")) == tmp_path / "env"
         assert resolve_image_dir(Path("   ")) == tmp_path / "env"
 
+    def test_dot_string_arg_is_explicit(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The CLI passes --image-dir as a string, so '.' selects the cwd."""
+        monkeypatch.setenv(IMAGE_DIR_ENV, str(tmp_path / "env"))
+        assert resolve_image_dir(".") == Path(".")
+        assert resolve_image_dir("  .  ") == Path(".")
+
     def test_padded_path_arg_still_resolves(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
