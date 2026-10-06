@@ -294,13 +294,15 @@ class HostManager:
         with tempfile.TemporaryDirectory() as tmp_dir:
             tarball_path = Path(tmp_dir) / "firecracker.tgz"
 
-            # Stream download
-            response = requests.get(url, stream=True, timeout=120)
-            response.raise_for_status()
+            # Stream download. The response is used as a context manager so
+            # the pooled connection is released on both the success and the
+            # error path (a failed status check or a failed write).
+            with requests.get(url, stream=True, timeout=120) as response:
+                response.raise_for_status()
 
-            with open(tarball_path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
+                with open(tarball_path, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
 
             logger.debug("Downloaded tarball to %s", tarball_path)
 
