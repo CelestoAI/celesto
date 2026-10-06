@@ -163,6 +163,10 @@ def create_server() -> Any:
         except Exception as exc:
             raise _tool_error(name, exc, "delete") from exc
 
+    from celesto.mcp_server_extra import register_extra_tools
+
+    register_extra_tools(server, service, ToolAnnotations, ToolError)
+
     return server
 
 

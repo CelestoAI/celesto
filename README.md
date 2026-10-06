@@ -119,7 +119,7 @@ For an MCP client that accepts a command and arguments, use:
 }
 ```
 
-If your agent cannot find `celesto`, replace the command with the absolute path printed by `which celesto`. The agent can create, list, start, stop, and delete local computers, and run commands inside them. Computers remain available after the agent disconnects; delete one explicitly when its files are no longer needed. See the [CLI reference](docs/reference/cli.md#connect-an-agent-with-mcp) for the command.
+If your agent cannot find `celesto`, replace the command with the absolute path printed by `which celesto`. MCP tools can manage local computers, transfer files, save snapshots, configure environment variables and local port forwards, run browser sessions, and start visible desktops. Computer and browser sessions remain available after the MCP connection closes; delete or stop a session when it is no longer needed. File transfers can read or overwrite files on your machine, so review those tool requests before allowing them. See the [CLI reference](docs/reference/cli.md#connect-an-agent-with-mcp) for details.
 
 For Claude Code, add the server with:
 
