@@ -53,6 +53,7 @@ Changelog = "https://github.com/CelestoAI/celesto/releases"
 
 [project.optional-dependencies]
 dev = [
+    "mcp>=2,<3",
     "pytest>=7.0",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=4.0",
