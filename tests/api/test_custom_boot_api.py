@@ -553,6 +553,50 @@ class TestDockerRootfsBuilder:
         assert TopLevelDockerRootfsBuilder is DockerRootfsBuilder
         assert ImagesDockerRootfsBuilder is DockerRootfsBuilder
 
+    @pytest.mark.parametrize("name", [".", ".."])
+    def test_cache_name_rejects_dot_segments(self, name: str, tmp_path: Path) -> None:
+        # "." and ".." are relative path segments, not cache-entry names. The
+        # CLI already rejects them (src/celesto/cli/image.py), but this builder
+        # is public API, so it must reject them on its own.
+        with pytest.raises(ValueError, match="must not be a relative path segment"):
+            DockerRootfsBuilder(
+                name=name,
+                dockerfile="FROM scratch\n",
+                cache_dir=tmp_path / "cache",
+            )
+
+    def test_cache_name_allows_dots_inside_a_name(self, tmp_path: Path) -> None:
+        # Dots stay legal inside a name; only the whole-name dot segments are
+        # rejected, so the fix must not over-reject.
+        builder = DockerRootfsBuilder(
+            name="my.image-1_2",
+            dockerfile="FROM scratch\n",
+            cache_dir=tmp_path / "cache",
+        )
+
+        assert builder.name == "my.image-1_2"
+
+    def test_cache_path_stays_inside_the_custom_directory(self, tmp_path: Path) -> None:
+        # A custom build writes to cache_dir/custom/<name>/<fingerprint>. If
+        # <name> were "..", that path would normalise up into the top-level
+        # cache namespace where published images live, so `image list` and
+        # `image rm` for a published entry could collide with a custom build.
+        cache_dir = tmp_path / "cache"
+        custom_root = cache_dir / "custom"
+
+        try:
+            builder = DockerRootfsBuilder(
+                name="..",
+                dockerfile="FROM scratch\n",
+                cache_dir=cache_dir,
+            )
+        except ValueError:
+            return
+
+        fingerprint = "0" * 64
+        image_dir = (builder.cache_dir / "custom" / builder.name / fingerprint).resolve()
+        assert image_dir.is_relative_to(custom_root.resolve())
+
 
 class TestEnsureBaseKernelForBackend:
     """Kernel resolution hides published asset format details."""
