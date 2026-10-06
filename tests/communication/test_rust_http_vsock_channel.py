@@ -153,6 +153,32 @@ class FakeTerminalChannel(FakeRustChannel):
         return host
 
 
+class TimingOutRustChannel(RustHttpVsockChannel):
+    """Channel whose guest agent never answers, so every request times out.
+
+    The stub socket records the timeout the channel actually applied to it
+    before raising, so tests can compare what was applied against what the
+    resulting error reports.
+    """
+
+    def __init__(self, *, connect_timeout: int = 7) -> None:
+        super().__init__(guest_cid=42, connect_timeout=connect_timeout)
+        self.applied_timeouts: list[float] = []
+
+    def _open(self) -> socket.socket:
+        applied = self.applied_timeouts
+
+        class _UnansweredSocket:
+            def settimeout(self, timeout: float) -> None:
+                applied.append(timeout)
+                raise TimeoutError("guest agent did not answer")
+
+            def close(self) -> None:
+                pass
+
+        return _UnansweredSocket()  # type: ignore[return-value]
+
+
 def _read_http_request(sock: socket.socket) -> tuple[str, str, bytes]:
     buf = bytearray()
     while b"\r\n\r\n" not in buf:
@@ -449,6 +475,73 @@ def test_run_timeout_maps_to_operation_timeout() -> None:
     )
     with pytest.raises(OperationTimeoutError):
         channel.run("sleep 10", timeout=1)
+
+
+def test_json_request_timeout_reports_connect_timeout() -> None:
+    channel = TimingOutRustChannel(connect_timeout=7)
+
+    with pytest.raises(OperationTimeoutError) as exc_info:
+        channel.supports("file_raw")
+
+    error = exc_info.value
+    # The reported number must be the one applied to the socket, never 0.
+    assert error.timeout_seconds == 7.0
+    assert channel.applied_timeouts == [7.0]
+    assert "guest agent request: GET /capabilities" in str(error)
+    assert "timed out after 7.0s" in str(error)
+    assert "timed out after 0s" not in str(error)
+
+
+def test_bytes_request_timeout_reports_connect_timeout() -> None:
+    channel = TimingOutRustChannel(connect_timeout=7)
+
+    with pytest.raises(OperationTimeoutError) as exc_info:
+        channel._request_bytes("GET", "/files/content")
+
+    error = exc_info.value
+    assert error.timeout_seconds == 7.0
+    assert channel.applied_timeouts == [7.0]
+    assert "timed out after 7.0s" in str(error)
+    assert "timed out after 0s" not in str(error)
+
+
+def test_json_request_timeout_reports_explicit_timeout() -> None:
+    channel = TimingOutRustChannel(connect_timeout=7)
+
+    with pytest.raises(OperationTimeoutError) as exc_info:
+        channel._request_json("GET", "/health", timeout=3.5)
+
+    error = exc_info.value
+    assert error.timeout_seconds == 3.5
+    assert channel.applied_timeouts == [3.5]
+    assert "timed out after 3.5s" in str(error)
+    assert "timed out after 0s" not in str(error)
+
+
+def test_bytes_request_timeout_reports_explicit_timeout() -> None:
+    channel = TimingOutRustChannel(connect_timeout=7)
+
+    with pytest.raises(OperationTimeoutError) as exc_info:
+        channel._request_bytes("GET", "/files/content", timeout=3.5)
+
+    error = exc_info.value
+    assert error.timeout_seconds == 3.5
+    assert channel.applied_timeouts == [3.5]
+    assert "timed out after 3.5s" in str(error)
+    assert "timed out after 0s" not in str(error)
+
+
+def test_wait_ready_reports_the_timeout_that_was_applied() -> None:
+    channel = TimingOutRustChannel(connect_timeout=7)
+
+    with pytest.raises(OperationTimeoutError) as exc_info:
+        channel.wait_ready(timeout=0.05, interval=0.01)
+
+    message = str(exc_info.value)
+    # wait_ready embeds the inner error's message, so the inner number must
+    # still be the one that was applied.
+    assert f"timed out after {channel.applied_timeouts[0]}s" in message
+    assert "timed out after 0s" not in message
 
 
 def test_sync_posts_dedicated_endpoint() -> None:

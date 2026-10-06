@@ -80,6 +80,13 @@ def _mock_response(tarball_bytes: bytes) -> MagicMock:
     mock_response = MagicMock()
     mock_response.raise_for_status = MagicMock()
     mock_response.iter_content = lambda chunk_size: iter([tarball_bytes])
+    # The streamed download is consumed as a context manager so the pooled
+    # connection is released on both the success and the error path. A real
+    # `requests.Response` returns itself from `__enter__`, so the mock must too
+    # -- otherwise the body is read from a different object and the tarball
+    # comes out empty.
+    mock_response.__enter__.return_value = mock_response
+    mock_response.__exit__.return_value = False
     return mock_response
 
 

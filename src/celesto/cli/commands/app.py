@@ -1905,7 +1905,7 @@ def browser_open(session_id: str) -> Any:
 
 @browser.command("logs")
 @click.argument("session_id", metavar="session", shell_complete=complete_browser_session_names)
-@click.option("--tail", type=int, default=100, show_default=True)
+@click.option("--tail", type=positive_int_type(), default=100, show_default=True)
 def browser_logs(session_id: str, tail: int) -> Any:
     """Show recent browser output."""
     _before_command()
@@ -1931,7 +1931,7 @@ def computer_terminal(computer_id: str, provider: str, boot_timeout: float) -> A
 
 
 @sandbox.command("get")
-@click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
+@click.argument("computer_id", metavar="computer")
 @json_option
 def computer_get(computer_id: str, json_output: bool) -> Any:
     """Inspect a cloud computer's status and connection info."""
@@ -1942,7 +1942,7 @@ def computer_get(computer_id: str, json_output: bool) -> Any:
 
 
 @sandbox.command("run")
-@click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
+@click.argument("computer_id", metavar="computer")
 @click.argument("run_command", metavar="command")
 @click.option(
     "--timeout", type=int, default=30, show_default=True, help="Seconds to wait for the command."
@@ -1965,7 +1965,7 @@ def computer_run(computer_id: str, run_command: str, timeout: int, json_output: 
 
 @sandbox.command("open")
 @computer_local_options
-@click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
+@click.argument("computer_id", metavar="computer")
 def computer_open(computer_id: str, provider: str) -> Any:
     """Open a computer's desktop view."""
     _before_command()
@@ -1986,7 +1986,7 @@ def computer_templates(json_output: bool, provider: str) -> Any:
 
 
 @port.command("publish")
-@click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
+@click.argument("computer_id", metavar="computer")
 @click.option("--port", "port_number", type=int, required=True, help="Port to publish.")
 @json_option
 def computer_port_publish(computer_id: str, port_number: int, json_output: bool) -> Any:
@@ -2004,7 +2004,7 @@ def computer_port_publish(computer_id: str, port_number: int, json_output: bool)
 
 
 @port.command("unpublish")
-@click.argument("computer_id", metavar="computer", shell_complete=complete_browser_session_names)
+@click.argument("computer_id", metavar="computer")
 @click.option("--port", "port_number", type=int, required=True, help="Port to unpublish.")
 @json_option
 def computer_port_unpublish(computer_id: str, port_number: int, json_output: bool) -> Any:
