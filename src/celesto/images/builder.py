@@ -2358,7 +2358,7 @@ class DockerRootfsBuilder:
         dockerfile: str,
         context: dict[str, DockerContextValue] | None = None,
         rootfs_size_mb: int = 512,
-        cache_dir: Path | None = None,
+        cache_dir: Path | str | None = None,
         fingerprint_inputs: dict[str, typing.Any] | None = None,
         build_args: dict[str, str] | None = None,
         docker_platform: str | None = None,

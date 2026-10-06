@@ -45,6 +45,49 @@ class TestImageBuild:
     @patch("celesto.images.builder.DockerRootfsBuilder._build_rootfs")
     @patch("celesto.images.builder.ensure_base_kernel_for_backend")
     @patch("celesto.images.builder.ImageBuilder.check_docker", return_value=True)
+    def test_dot_image_dir_builds_in_current_directory(
+        self,
+        _mock_docker: MagicMock,
+        mock_kernel: MagicMock,
+        mock_build: MagicMock,
+        build_ctx: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        kernel = tmp_path / "vmlinux.image"
+        kernel.write_bytes(b"k")
+        mock_kernel.return_value = kernel
+        mock_build.side_effect = _fake_build_rootfs
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("CELESTO_IMAGE_DIR", str(tmp_path / "from-env"))
+
+        ret = main(
+            [
+                "image",
+                "build",
+                "-t",
+                "dot-dir",
+                str(build_ctx),
+                "--backend",
+                "qemu",
+                "--arch",
+                "amd64",
+                "--image-dir",
+                ".",
+                "--json",
+            ]
+        )
+
+        assert ret == 0
+        payload = json.loads(capsys.readouterr().out)
+        rootfs = Path(payload["data"]["rootfs_path"])
+        assert rootfs.is_file()
+        assert rootfs.resolve().is_relative_to(tmp_path / "custom" / "dot-dir")
+
+    @patch("celesto.images.builder.DockerRootfsBuilder._build_rootfs")
+    @patch("celesto.images.builder.ensure_base_kernel_for_backend")
+    @patch("celesto.images.builder.ImageBuilder.check_docker", return_value=True)
     def test_build_json_payload(
         self,
         _mock_docker: MagicMock,
