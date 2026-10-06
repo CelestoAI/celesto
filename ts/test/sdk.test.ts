@@ -668,6 +668,33 @@ for (const selection of ["option", "environment", "path"] as const) {
   });
 }
 
+test("an already-aborted sandbox command does not start or delete the sandbox", async () => {
+  class PreAbortedTransport extends FakeTransport {
+    override async request<T>(path: string, init?: RequestInit): Promise<T> {
+      if (init?.signal?.aborted) throw new DOMException("aborted", "AbortError");
+      return super.request(path, init);
+    }
+  }
+  const transport = new PreAbortedTransport();
+  const events: string[] = [];
+  const client = new Celesto({ transport, onEvent: (event) => events.push(event.type) });
+  const sandbox = await client.sandboxes.create();
+  const controller = new AbortController();
+  controller.abort();
+
+  await assert.rejects(
+    () => sandbox.exec("sleep 60", { signal: controller.signal }),
+    (error: unknown) => error instanceof CelestoError
+      && error.code === "command_aborted"
+      && error.actual?.sandboxDeleted === false
+      && error.actual?.sessionClosed === false,
+  );
+  assert.equal(sandbox.status, "running");
+  assert.equal(transport.calls.some((call) => call.path.endsWith("/exec")), false);
+  assert.equal(transport.calls.some((call) => call.path.endsWith("/cancel")), false);
+  assert.deepEqual(events, ["sandbox.starting", "sandbox.ready"]);
+});
+
 test("abort confirms sandbox deletion before rejecting", async () => {
   class AbortTransport extends FakeTransport {
     override async request<T>(path: string, init?: RequestInit): Promise<T> {
