@@ -14,11 +14,13 @@
 
 """Tests for Celesto host module."""
 
+import io
 import tarfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from celesto.exceptions import HostError
 from celesto.host.manager import (
@@ -187,11 +189,81 @@ class TestInstallFirecracker:
         mock_response.raise_for_status = MagicMock()
         mock_response.iter_content = lambda chunk_size: iter([tarball_path.read_bytes()])
         mock_get.return_value = mock_response
+        mock_get.return_value.__enter__.return_value = mock_response
 
         result = host_manager.install_firecracker()
 
         assert result.exists()
         assert result.name == "firecracker"
+
+    # Extraction restores archive ownership, which needs a POSIX-only call.
+    # Neutralised so this test asserts only on the response lifetime.
+    @patch("os.chown", create=True)
+    @patch("celesto.host.manager.requests.get")
+    @patch("celesto.host.manager.platform.machine", return_value="x86_64")
+    def test_install_success_releases_response(
+        self,
+        mock_machine: MagicMock,
+        mock_get: MagicMock,
+        mock_chown: MagicMock,
+        host_manager: HostManager,
+        tmp_path: Path,
+    ) -> None:
+        """A successful install must release the streamed response."""
+        host_manager = HostManager(firecracker_dir=tmp_path / "bin")
+
+        # Built in memory rather than with tar.add, which reads the archive
+        # owner's passwd entry and is therefore not portable.
+        version = DEFAULT_FIRECRACKER_VERSION
+        arch = "x86_64"
+        payload = b"#!/bin/sh\necho firecracker"
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
+            tarinfo = tarfile.TarInfo(f"release-{version}-{arch}/firecracker-{version}-{arch}")
+            tarinfo.size = len(payload)
+            tarinfo.mode = 0o755
+            tar.addfile(tarinfo, io.BytesIO(payload))
+
+        # Mock the HTTP response to stream the tarball
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.iter_content = lambda chunk_size: iter([buffer.getvalue()])
+        mock_get.return_value = mock_response
+        mock_get.return_value.__enter__.return_value = mock_response
+
+        result = host_manager.install_firecracker()
+
+        assert result.exists()
+        assert result.name == "firecracker"
+        mock_get.return_value.__enter__.assert_called_once()
+        mock_get.return_value.__exit__.assert_called_once()
+
+    @patch("celesto.host.manager.requests.get")
+    @patch("celesto.host.manager.platform.machine", return_value="x86_64")
+    def test_download_error_releases_response(
+        self,
+        mock_machine: MagicMock,
+        mock_get: MagicMock,
+        host_manager: HostManager,
+        tmp_path: Path,
+    ) -> None:
+        """A failed download must still release the streamed response."""
+        host_manager = HostManager(firecracker_dir=tmp_path / "bin")
+
+        # A 404 leaves the connection checked out of the pool unless it is
+        # released, so every retry of `celesto setup` would leak one.
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock(
+            side_effect=requests.HTTPError("404 Client Error: Not Found")
+        )
+        mock_get.return_value = mock_response
+        mock_get.return_value.__enter__.return_value = mock_response
+
+        with pytest.raises(HostError, match="Failed to download Firecracker"):
+            host_manager.install_firecracker()
+
+        mock_get.return_value.__enter__.assert_called_once()
+        mock_get.return_value.__exit__.assert_called_once()
 
 
 class TestValidate:
