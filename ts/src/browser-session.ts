@@ -122,7 +122,18 @@ export class BrowserSession implements BrowserSessionClient {
       ) {
         this.markDeleted();
       }
-      throw cause;
+      const aborted = options.signal?.aborted || (cause as { name?: string })?.name === "AbortError";
+      if (!aborted) throw cause;
+      throw new CelestoError(
+        "command_aborted",
+        `Command was aborted in browser session '${this.sessionId}'; it is still running, so call celesto.browsers.delete('${this.sessionId}') to stop it.`,
+        {
+          operation: "browser.exec",
+          sandboxId: this.sandboxId,
+          actual: { sandboxDeleted: false, sessionClosed: false },
+          cause,
+        },
+      );
     }
   }
 
