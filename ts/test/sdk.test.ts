@@ -280,6 +280,23 @@ test("computer commands reject empty argv and invalid timeouts before transport"
   await client.close();
 });
 
+test("browser creation rejects recordVideo unless the browser runs live", async () => {
+  const transport = new FakeTransport();
+  const client = new Celesto({ transport });
+
+  await assert.rejects(() => client.browsers.create({ recordVideo: true }), /recordVideo/);
+  await assert.rejects(
+    () => client.browsers.create({ recordVideo: true, mode: "headless" }),
+    /recordVideo/,
+  );
+  assert.equal(transport.calls.some((call) => call.path === "/browser-sessions"), false);
+
+  const browser = await client.browsers.create({ recordVideo: true, mode: "live" });
+  assert.equal(browser.status, "ready");
+  assert.equal(transport.calls.some((call) => call.path === "/browser-sessions"), true);
+  await client.close();
+});
+
 test("computer timeout records server-confirmed deletion", async () => {
   class ComputerTimeoutTransport extends FakeTransport {
     override async request<T>(path: string, init?: RequestInit): Promise<T> {
