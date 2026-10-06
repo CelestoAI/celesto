@@ -609,9 +609,10 @@ class RustHttpVsockChannel:
             headers["Content-Type"] = "application/json"
         elif content_type is not None:
             headers["Content-Type"] = content_type
+        timeout_seconds = float(timeout if timeout is not None else self.connect_timeout)
         conn = _SocketHTTPConnection(
             self._open,
-            timeout=float(timeout if timeout is not None else self.connect_timeout),
+            timeout=timeout_seconds,
         )
         try:
             conn.request(method, path, body=request_body, headers=headers)
@@ -626,7 +627,7 @@ class RustHttpVsockChannel:
             return decoded
         except TimeoutError as exc:
             raise OperationTimeoutError(
-                f"guest agent request: {method} {path}", timeout or 0
+                f"guest agent request: {method} {path}", timeout_seconds
             ) from exc
         finally:
             conn.close()
@@ -644,9 +645,10 @@ class RustHttpVsockChannel:
         headers = {"Connection": "close"}
         if content_type:
             headers["Content-Type"] = content_type
+        timeout_seconds = float(timeout if timeout is not None else self.connect_timeout)
         conn = _SocketHTTPConnection(
             self._open,
-            timeout=float(timeout if timeout is not None else self.connect_timeout),
+            timeout=timeout_seconds,
         )
         try:
             conn.request(method, path, body=body, headers=headers)
@@ -679,7 +681,7 @@ class RustHttpVsockChannel:
             return resp, data
         except TimeoutError as exc:
             raise OperationTimeoutError(
-                f"guest agent request: {method} {path}", timeout or 0
+                f"guest agent request: {method} {path}", timeout_seconds
             ) from exc
         finally:
             conn.close()
