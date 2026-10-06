@@ -2,9 +2,22 @@
 
 ## Unreleased
 
+## 0.1.4 — 2026-10-06
+
+### Added
+
+- Start and manage ephemeral GitHub Actions runners from the SDK.
+- Run Docker with CPU limits and virtual networks inside sandboxes with the updated guest kernel.
+- `celesto doctor` warns when the e2fsprogs tools are missing.
+
 ### Fixed
 
 - Paste multiline commands from Ghostty and Kitty into sandbox SSH sessions using a compatible terminal profile. Direct sandbox shells use the same profile fallback.
+- Reject invalid inputs earlier with clearer messages: disk sizes below the minimum, out-of-range ports, empty image directory paths, non-positive log tail counts, and allowed-domain entries without a hostname.
+- Report timeouts, aborted commands, oversized files and computer create failures with their own error codes, and carry recovery guidance into JSON output.
+- Keep custom image builds inside the custom cache directory.
+- Stop the swtpm helper process when it fails to start.
+- Improve browser search-field detection and stale-reference recovery.
 
 ## 0.1.3.post1 — 2026-09-28
 
