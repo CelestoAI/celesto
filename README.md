@@ -11,7 +11,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-orange.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-orange.svg)](https://www.python.org/downloads/)
 
-[OpenMuse](#built-with-celesto-openmuse) · [Quickstart](#quickstart) · [Python API](#use-the-python-api) · [Agents and automation](#agents-and-automation) · [Runtimes](#choose-a-runtime) · [Examples](#examples) · [Docs](https://docs.celesto.ai) · [Discord](https://discord.gg/KNb5UkrAmm)
+[OpenMuse](#built-with-celesto-openmuse) · [Quickstart](#quickstart) · [Python API](#use-the-python-api) · [MCP](#connect-an-agent-with-mcp) · [Agents and automation](#agents-and-automation) · [Runtimes](#choose-a-runtime) · [Examples](#examples) · [Docs](https://docs.celesto.ai) · [Discord](https://discord.gg/KNb5UkrAmm)
 
 </div>
 
@@ -94,6 +94,40 @@ request IP address. To turn telemetry off, run `celesto config telemetry off`
 or set `CELESTO_NO_TELEMETRY=1` in your environment. See the
 [CLI reference](docs/reference/cli.md#local-usage-telemetry) and
 [privacy policy](https://celesto.ai/legal/privacy-policy).
+
+## Connect an agent with MCP
+
+MCP lets an AI agent create and use Celesto computers on your machine through tools. Install the optional MCP support, then add Celesto as a local server in your agent's MCP settings:
+
+```bash
+uv tool install 'celesto[mcp]'
+celesto doctor
+```
+
+From this source checkout, run the server with `uv run --extra mcp celesto mcp start`.
+
+For an MCP client that accepts a command and arguments, use:
+
+```json
+{
+  "mcpServers": {
+    "celesto": {
+      "command": "celesto",
+      "args": ["mcp", "start"]
+    }
+  }
+}
+```
+
+If your agent cannot find `celesto`, replace the command with the absolute path printed by `which celesto`. The agent can create, list, start, stop, and delete local computers, and run commands inside them. Computers remain available after the agent disconnects; delete one explicitly when its files are no longer needed. See the [CLI reference](docs/reference/cli.md#connect-an-agent-with-mcp) for the command.
+
+For Claude Code, add the server with:
+
+```bash
+claude mcp add celesto -- celesto mcp start
+```
+
+Run `/mcp` in Claude Code to confirm that Celesto's tools are connected.
 
 ## Use the Python API
 

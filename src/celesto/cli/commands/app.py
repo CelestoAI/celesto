@@ -1346,6 +1346,22 @@ def server() -> None:
     """Run the local Celesto HTTP API."""
 
 
+@cli.group(context_settings=CONTEXT_SETTINGS)
+def mcp() -> None:
+    """Connect AI agents to local Celesto computers."""
+
+
+@mcp.command("start")
+def mcp_start() -> None:
+    """Start the local MCP server over standard input and output."""
+    from celesto.mcp_server import run
+
+    try:
+        run()
+    except RuntimeError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
 @server.command("start")
 @click.option("--host", default="127.0.0.1", show_default=True)
 @click.option("--port", default=8000, show_default=True, type=int)

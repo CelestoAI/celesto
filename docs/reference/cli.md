@@ -58,6 +58,24 @@ Run these in the order you need them:
 | `celesto computer port expose` / `close` / `list` | Manage local port forwarding. |
 | `celesto computer snapshot create` / `restore` / `list` / `delete` | Save and restore supported sandbox state. |
 
+## Connect an agent with MCP
+
+`celesto mcp start` lets an MCP-compatible agent use computers on this machine. The agent starts this command as a local process, discovers Celesto's tools, and calls them directly. Install the MCP extra first:
+
+```bash
+uv tool install 'celesto[mcp]'
+```
+
+Add `celesto mcp start` as a local server in the agent's MCP settings. The server reads requests from standard input and writes protocol responses to standard output, so run it through the agent rather than in a terminal. It uses the same computer list as the CLI. Computers stay available after the MCP connection closes.
+
+For Claude Code, register the local server and then run `/mcp` in Claude Code to check the connection:
+
+```bash
+claude mcp add celesto -- celesto mcp start
+```
+
+The first release provides `computer_create`, `computer_list`, `computer_exec`, `computer_start`, `computer_stop`, and `computer_delete`. Creation starts an Ubuntu computer; the first use may download its image. Commands return the exit code and up to 16,384 characters each of standard output and standard error, with flags indicating whether either stream was shortened.
+
 ## Start a prepared agent
 
 `celesto codex start`, `celesto claude start`, `celesto pi start`, `celesto hermes start`, `celesto openclaw start`, and `celesto opencode start` each create a sandbox and install that agent.
