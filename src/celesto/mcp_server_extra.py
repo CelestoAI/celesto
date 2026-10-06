@@ -267,22 +267,16 @@ def register_extra_tools(
             config = state.get_browser_session_config(item.session_id)
             if config.mode == "desktop":
                 continue
-            session = _BrowserSandbox.from_id(item.session_id, state_manager=state)
-            try:
+            with _BrowserSandbox.from_id(item.session_id, state_manager=state) as session:
                 browsers.append(_browser_details(session))
-            finally:
-                session.close()
         return {"browsers": browsers}
 
     @tool(annotations=annotations(read_only_hint=True, open_world_hint=True))
     def browser_open(session_id: str) -> dict[str, Any]:
         """Return connection and view URLs for a browser sandbox."""
         state = service.state_manager()
-        session = _BrowserSandbox.from_id(session_id, state_manager=state)
-        try:
+        with _BrowserSandbox.from_id(session_id, state_manager=state) as session:
             return _browser_details(session)
-        finally:
-            session.close()
 
     @tool(annotations=annotations(read_only_hint=True, open_world_hint=True))
     def browser_logs(session_id: str, lines: int = 100) -> dict[str, str]:
@@ -290,11 +284,8 @@ def register_extra_tools(
         if not 1 <= lines <= 500:
             raise tool_error("Log lines must be between 1 and 500.")
         state = service.state_manager()
-        session = _BrowserSandbox.from_id(session_id, state_manager=state)
-        try:
+        with _BrowserSandbox.from_id(session_id, state_manager=state) as session:
             return {"session_id": session_id, "logs": session.logs(tail=lines)}
-        finally:
-            session.close()
 
     @tool(annotations=annotations(destructive_hint=True, open_world_hint=True))
     def browser_stop(session_id: str) -> dict[str, str]:
@@ -313,11 +304,8 @@ def register_extra_tools(
             config = state.get_browser_session_config(item.session_id)
             if config.mode != "desktop":
                 continue
-            session = _DesktopSandbox.from_id(item.session_id, state_manager=state)
-            try:
+            with _DesktopSandbox.from_id(item.session_id, state_manager=state) as session:
                 desktops.append(_browser_details(session))
-            finally:
-                session.close()
         return {"desktops": desktops}
 
     @tool(annotations=annotations(destructive_hint=False, open_world_hint=True))
@@ -337,11 +325,8 @@ def register_extra_tools(
     def desktop_open(session_id: str) -> dict[str, Any]:
         """Return the view and display URLs for an existing desktop session."""
         state = service.state_manager()
-        session = _DesktopSandbox.from_id(session_id, state_manager=state)
-        try:
+        with _DesktopSandbox.from_id(session_id, state_manager=state) as session:
             return _browser_details(session)
-        finally:
-            session.close()
 
     @tool(annotations=annotations(destructive_hint=True, open_world_hint=True))
     def desktop_stop(session_id: str) -> dict[str, str]:
