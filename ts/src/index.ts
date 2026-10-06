@@ -222,6 +222,10 @@ export class Celesto implements CelestoClient {
   }
 
   private async createBrowser(options: CreateBrowserSessionOptions = {}): Promise<BrowserSession> {
+    const mode = options.mode ?? "headless";
+    if (options.recordVideo === true && mode !== "live") {
+      throw new TypeError('recordVideo requires mode: "live", because a recording browser must be watchable.');
+    }
     await this.negotiate([...REQUIRED_CAPABILITIES, ...REQUIRED_BROWSER_CAPABILITIES]);
     const requestedSessionId = options.sessionId ?? `browser-${randomUUID().slice(0, 8)}`;
     this.emit({ type: "browser.starting", sessionId: requestedSessionId });
@@ -236,7 +240,7 @@ export class Celesto implements CelestoClient {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           session_id: requestedSessionId,
-          mode: options.mode ?? "headless",
+          mode,
           backend: options.backend ?? "auto",
           profile_mode: profile.mode,
           profile_id: profile.mode === "persistent" ? profile.id : undefined,
