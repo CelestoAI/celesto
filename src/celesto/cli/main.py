@@ -2591,6 +2591,16 @@ def _run_fork(args: SimpleNamespace) -> int:
     batch: Any = None
     try:
         vm = _cli_vm_from_id(args.vm_id)
+    except VMNotFoundError:
+        return _emit_cli_error(
+            command_name,
+            1,
+            CelestoError(
+                f"Sandbox '{args.vm_id}' was not found; run 'celesto sandbox list' to choose one."
+            ),
+            json_output=json_output,
+        )
+    try:
         batch = vm._fork_many(
             args.count,
             name=args.name,
@@ -2611,15 +2621,6 @@ def _run_fork(args: SimpleNamespace) -> int:
         else:
             _render_fork(data)
         return exit_code
-    except VMNotFoundError:
-        return _emit_cli_error(
-            command_name,
-            1,
-            CelestoError(
-                f"Sandbox '{args.vm_id}' was not found; run 'celesto sandbox list' to choose one."
-            ),
-            json_output=json_output,
-        )
     except Exception as exc:
         return _emit_cli_error(command_name, 1, exc, json_output=json_output)
     finally:

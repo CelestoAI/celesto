@@ -170,9 +170,9 @@ Full research notes: the Claude Code session that produced them, and the local E
       1. Paused source (D7): "Sandbox 'sbx-einstein' is paused. Run 'celesto sandbox resume sbx-einstein', then fork again."
       2. Source in error (D7): "Sandbox 'sbx-einstein' is in an error state and can't be forked. Run 'celesto sandbox logs sbx-einstein' to see what went wrong."
       3. Older image (D17): "Sandbox 'sbx-einstein' was created from an older image and can't be forked. Run 'celesto image pull --all', then create a new sandbox with 'celesto sandbox create' and fork that one."
-      4. Shared folder or extra drive (D21): "Sandbox 'sbx-einstein' uses a shared folder or extra drive, which forks can't copy. Create a sandbox without '--mount' to fork it."
-      5. libkrun (D29): "Sandbox 'sbx-einstein' runs on libkrun, which can't be forked yet. Create a sandbox with '--backend qemu' to fork it."
-      6. macOS or Windows guest (D29): "macOS sandboxes can't be forked yet." / "Windows sandboxes can't be forked yet."
+      4. Shared folder or extra drive (D21): "Sandbox 'sbx-einstein' uses a shared folder or extra drive, which forks can't copy. Run 'celesto sandbox create --name sbx-einstein-copy' without --mount, then run 'celesto sandbox fork sbx-einstein-copy'."
+      5. libkrun (D29): "Sandbox 'sbx-einstein' uses an engine that can't be forked yet. Run 'celesto sandbox create --name sbx-einstein-qemu --backend qemu', then run 'celesto sandbox fork sbx-einstein-qemu'."
+      6. macOS or Windows guest (D29): "Sandbox 'sbx-einstein' runs macOS and can't be forked yet. Run 'celesto sandbox create --name sbx-einstein-linux --os ubuntu', then run 'celesto sandbox fork sbx-einstein-linux'." Use the matching guest OS in the first sentence for Windows.
       7. Cloud sandbox (D4): "Fork works only on sandboxes on this machine for now. Run 'celesto sandbox create --local' to create one."
       8. Count out of range (D23): "You can fork 1 to 10 sandboxes at a time; you asked for 25. Run 'celesto sandbox fork sbx-einstein --count 10'." When fewer than 1 is asked for, it suggests '--count 1' instead.
       9. Name taken (D23, D26): "A sandbox named 'exp-1' already exists. Choose another name with '--name', or run 'celesto sandbox delete exp-1'."
@@ -183,16 +183,16 @@ Full research notes: the Claude Code session that produced them, and the local E
       17. No recorded identity yet and not running (D17, D18; added in PR 5): "Sandbox 'sbx-einstein' hasn't finished its first start, so it can't be forked yet. Run 'celesto sandbox start sbx-einstein', then fork again." A sandbox from a current image is recorded the first time it is ready; a running one without a record is read and recorded during the fork's checks instead.
       18. Requested name isn't a valid sandbox name (D26; added in PR 5): "'Exp' can't be used as a sandbox name. Use up to 64 lowercase letters, numbers, hyphens or underscores, starting and ending with a letter or number."
       19. Source name too long to number its children (D26; added in PR 5): "Sandbox 'sbx-einstein' has a name too long to number its forks. Choose a shorter name with '--name'." When a valid name given with '--name' is too long to number the children, it says how long it may be instead (changed in review): "'exp…' is too long to number 3 forks. Choose a name of up to 62 characters with '--name'." The limit is 64 characters minus the longest number suffix, such as '-3' or '-10'.
-      22. Source writes straight to its base image (D21; added in PR 4): "Sandbox 'sbx-einstein' writes straight to its base image, so forks can't copy it. Create a sandbox without disk_mode='shared' to fork it."
+      22. Source writes straight to its base image (D21; added in PR 4): "Sandbox 'sbx-einstein' writes directly to its image, so forks can't copy it. Run 'celesto sandbox create --name sbx-einstein-copy', then run 'celesto sandbox fork sbx-einstein-copy'."
       23. A saved disk uses a requested name (D26; added in PR 4): "A saved disk for 'exp-1' is still on this machine. Choose another name with '--name', or run 'celesto sandbox delete exp-1' to remove it."
       24. Stopped source has no disk of its own (D7; added in PR 5): "Sandbox 'sbx-einstein' has no disk of its own to copy. Create a new sandbox with 'celesto sandbox create' and fork that one."
       25. Source not found (D26; added in PR 6): "Sandbox 'sbx-einstein' was not found; run 'celesto sandbox list' to choose one."
-      26. Base image missing (D10; added in PR 4): "Sandbox 'sbx-einstein' uses a base image that is missing on your machine: '/path/to/base.qcow2'. Restore it, or create a new sandbox with 'celesto sandbox create' and fork that one."
-      27. The stopped source's disk couldn't be copied (D7; added in review): "The disk for sandbox 'sbx-einstein' couldn't be copied. Run the fork again." File paths and `qemu-img` output stay in the error details, not in the message.
+      26. Base image missing (D10; added in PR 4): "Sandbox 'sbx-einstein' can't be copied because its image is missing. Run 'celesto image pull --all', then create a new sandbox with 'celesto sandbox create --name sbx-einstein-copy' and fork that one."
+      27. The stopped source's disk couldn't be copied (D7; added in review): "The disk for sandbox 'sbx-einstein' couldn't be copied. Run 'celesto sandbox fork sbx-einstein --name exp --count 3'." Include the requested `--name` and `--count` when supplied. File paths and `qemu-img` output stay in the error details, not in the message.
     - **Per child (that child fails; the others continue, D24):**
       13. Boot timeout: "Sandbox 'sbx-einstein-2' didn't start within 60 seconds and was removed. Run the fork again with '--boot-timeout 120'."
-      14. Reset not confirmed (D18): "Sandbox 'sbx-einstein-2' couldn't confirm it has its own identity and was removed. Run the fork again."
-      20. Any other child failure (added in PR 5): "Sandbox 'sbx-einstein-2' couldn't be created and was removed. Run the fork again." This includes a child whose disk copy fails (a missing or unreadable saved copy, the wrong disk format, or `qemu-img` failing to finish the copy; changed in review), with file paths and `qemu-img` output kept in the error details. When the child is refused before it exists for another reason, such as message 9 or 23, that message is shown instead.
+      14. Reset not confirmed (D18): "Sandbox 'sbx-einstein-2' couldn't confirm it has its own identity and was removed. Run 'celesto sandbox fork sbx-einstein --name sbx-einstein-2'."
+      20. Any other child failure (added in PR 5): "Sandbox 'sbx-einstein-2' couldn't be created and was removed. Run 'celesto sandbox fork sbx-einstein --name sbx-einstein-2'." This includes a child whose disk copy fails (a missing or unreadable saved copy, the wrong disk format, or `qemu-img` failing to finish the copy; changed in review), with file paths and `qemu-img` output kept in the error details. When the child is refused before it exists for another reason, such as message 9 or 23, that message is shown instead.
     - **Warning (fork still succeeds):**
       15. Source stayed paused (D8): "Sandbox 'sbx-einstein' stayed paused after the fork. Run 'celesto sandbox resume sbx-einstein' to continue it."
       21. Generation left behind (D12; added in PR 5): "The fork of 'sbx-einstein' left a saved copy behind. Run 'celesto sandbox snapshot delete fork-sbx-einstein-1759400000-a1b2' to remove it."
@@ -406,7 +406,7 @@ Full research notes: the Claude Code session that produced them, and the local E
 - **Options:** Refuse to fork, or fork without them and warn.
 - **Recommendation:** Refuse with a clear message. The issue lists copying them as out of scope.
 - **Status:** Decided (2026-10-01)
-- **Decision:** Refuse to fork a sandbox that has a shared folder (`--mount`, `workspace_mounts`) or extra drives (`extra_drives`), matching today's snapshot rule (`_ensure_snapshot_supported`, `src/celesto/vm.py:1313`). A shared folder lives on the user's machine, not on the sandbox disk: children would either all write into the same live folder or get none. Error (final wording in D1b): "Sandbox 'sbx-einstein' uses a shared folder or extra drive, which forks can't copy. Create a sandbox without '--mount' to fork it."
+- **Decision:** Refuse to fork a sandbox that has a shared folder (`--mount`, `workspace_mounts`) or extra drives (`extra_drives`), matching today's snapshot rule (`_ensure_snapshot_supported`, `src/celesto/vm.py:1313`). A shared folder lives on the user's machine, not on the sandbox disk: children would either all write into the same live folder or get none. Error (final wording in D1b): "Sandbox 'sbx-einstein' uses a shared folder or extra drive, which forks can't copy. Run 'celesto sandbox create --name sbx-einstein-copy' without --mount, then run 'celesto sandbox fork sbx-einstein-copy'."
 - **Follow-ups:**
   - Copying extra drives per child could be added later if users need it.
 
@@ -515,7 +515,7 @@ Full research notes: the Claude Code session that produced them, and the local E
 - **Status:** Decided (2026-10-01)
 - **Decision:**
   - **Supported:** Firecracker (Linux) and QEMU (Linux and macOS hosts). Both already have disk snapshots and use Celesto Linux images, so the D17 reset works.
-  - **Refused:** libkrun (no snapshot support in Celesto today, `src/celesto/vm.py:1313`), VZ / macOS guests (no snapshot support, and they don't use Celesto's Linux startup script, so the D17 reset can't apply), and Windows guests. Each refusal gives a way out, for example "Sandbox 'sbx-einstein' runs on libkrun, which can't be forked yet. Create a sandbox with '--backend qemu' to fork it." (final wording in D1b).
+  - **Refused:** libkrun (no snapshot support in Celesto today, `src/celesto/vm.py:1313`), VZ / macOS guests (no snapshot support, and they don't use Celesto's Linux startup script, so the D17 reset can't apply), and Windows guests. Each refusal gives a way out, for example "Sandbox 'sbx-einstein' uses an engine that can't be forked yet. Run 'celesto sandbox create --name sbx-einstein-qemu --backend qemu', then run 'celesto sandbox fork sbx-einstein-qemu'." (final wording in D1b).
 - **Follow-ups:**
   - Verify QEMU disk snapshots and fork on a macOS host in the end-to-end suite before promising it there; the snapshot code was mostly built and tested on Linux.
   - libkrun support can be added later by building disk snapshots for it first.

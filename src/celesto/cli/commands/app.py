@@ -680,7 +680,7 @@ def sandbox_resume(vm_id: str, json_output: bool) -> Any:
 )
 @click.option(
     "--parallel",
-    type=positive_int_type(),
+    type=int,
     default=4,
     metavar="N",
     show_default=True,
@@ -701,6 +701,14 @@ def sandbox_fork(
     """Copy a sandbox into one or more new sandboxes."""
     if local and cloud:
         raise click.UsageError("Choose either --local or --cloud, not both.")
+    from celesto._fork import count_message
+
+    if count < 1 or count > 10:
+        raise click.BadParameter(count_message(vm_id, count, name), param_hint="--count")
+    if parallel < 1 or parallel > 10:
+        raise click.UsageError(
+            f"'--parallel' must be from 1 to 10. Run 'celesto sandbox fork {vm_id} --parallel 10'."
+        )
     _before_command(json_output=json_output)
     return _handlers()._run_fork(
         _ns(

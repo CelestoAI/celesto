@@ -184,9 +184,14 @@ def _qemu_system_package_for_host() -> str:
     return "qemu-system-x86"
 
 
-def _disk_copy_failed_message(vm_id: str) -> str:
+def _disk_copy_failed_message(source: str, name: str | None = None, count: int = 1) -> str:
     """A saved disk couldn't be copied for a fork; paths go in the details."""
-    return f"The disk for sandbox '{vm_id}' couldn't be copied. Run the fork again."
+    name_option = f" --name {name}" if name else ""
+    count_option = f" --count {count}" if count > 1 else ""
+    return (
+        f"The disk for sandbox '{source}' couldn't be copied. "
+        f"Run 'celesto sandbox fork {source}{name_option}{count_option}'."
+    )
 
 
 def _qemu_install_hint() -> str:
@@ -1361,9 +1366,9 @@ class CelestoManager:
             return None
         if not current.is_file():
             raise CelestoError(
-                f"Sandbox '{source.vm_id}' uses a base image that is missing on your machine: "
-                f"'{current}'. Restore it, or create a new sandbox with 'celesto sandbox "
-                "create' and fork that one.",
+                f"Sandbox '{source.vm_id}' can't be copied because its image is missing. "
+                "Run 'celesto image pull --all', then create a new sandbox with "
+                f"'celesto sandbox create --name {source.vm_id}-copy' and fork that one.",
                 {"vm_id": source.vm_id, "base_image": str(current)},
             )
         return current
@@ -1373,7 +1378,7 @@ class CelestoManager:
         qemu_img = self._find_qemu_img_binary()
         if qemu_img is None:
             raise CelestoError(
-                f"qemu-img is needed to copy the disk for sandbox '{vm_id}'; "
+                f"Sandbox '{vm_id}' can't be copied because QEMU isn't installed. "
                 f"{_qemu_install_hint()}",
                 {"vm_id": vm_id},
             )
@@ -2913,14 +2918,25 @@ class CelestoManager:
         vm_id = source.vm_id
         config = source.config
         if config.guest_os is GuestOS.MACOS:
-            raise CelestoError("macOS sandboxes can't be forked yet.", {"vm_id": vm_id})
+            raise CelestoError(
+                f"Sandbox '{vm_id}' runs macOS and can't be forked yet. "
+                f"Run 'celesto sandbox create --name {vm_id}-linux --os ubuntu', then "
+                f"run 'celesto sandbox fork {vm_id}-linux'.",
+                {"vm_id": vm_id},
+            )
         if config.guest_os is GuestOS.WINDOWS:
-            raise CelestoError("Windows sandboxes can't be forked yet.", {"vm_id": vm_id})
+            raise CelestoError(
+                f"Sandbox '{vm_id}' runs Windows and can't be forked yet. "
+                f"Run 'celesto sandbox create --name {vm_id}-linux --os ubuntu', then "
+                f"run 'celesto sandbox fork {vm_id}-linux'.",
+                {"vm_id": vm_id},
+            )
         backend = self._backend_for_vm(source)
         if backend not in {BACKEND_FIRECRACKER, BACKEND_QEMU}:
             raise CelestoError(
-                f"Sandbox '{vm_id}' runs on {backend}, which can't be forked yet. "
-                "Create a sandbox with '--backend qemu' to fork it.",
+                f"Sandbox '{vm_id}' uses an engine that can't be forked yet. "
+                f"Run 'celesto sandbox create --name {vm_id}-qemu --backend qemu', then "
+                f"run 'celesto sandbox fork {vm_id}-qemu'.",
                 {"vm_id": vm_id, "backend": backend},
             )
         if config.workspace_mounts or config.extra_drives:
@@ -2928,13 +2944,15 @@ class CelestoManager:
             # copy would share the same live files or get none.
             raise CelestoError(
                 f"Sandbox '{vm_id}' uses a shared folder or extra drive, which forks can't "
-                "copy. Create a sandbox without '--mount' to fork it.",
+                f"copy. Run 'celesto sandbox create --name {vm_id}-copy' without --mount, "
+                f"then run 'celesto sandbox fork {vm_id}-copy'.",
                 {"vm_id": vm_id},
             )
         if config.disk_mode != "isolated":
             raise CelestoError(
-                f"Sandbox '{vm_id}' writes straight to its base image, so forks can't copy "
-                "it. Create a sandbox without disk_mode='shared' to fork it.",
+                f"Sandbox '{vm_id}' writes directly to its image, so forks can't copy it. "
+                f"Run 'celesto sandbox create --name {vm_id}-copy', then run "
+                f"'celesto sandbox fork {vm_id}-copy'.",
                 {"vm_id": vm_id, "disk_mode": config.disk_mode},
             )
 
@@ -3098,7 +3116,12 @@ class CelestoManager:
         return blocks * 512 if blocks is not None else stat.st_size
 
     def _ensure_fork_disk_space(
-        self, source: VMInfo, count: int, *, shared_base: Path | None = None
+        self,
+        source: VMInfo,
+        count: int,
+        name: str | None = None,
+        *,
+        shared_base: Path | None = None,
     ) -> None:
         """Refuse a fork whose generation and children won't fit (D23).
 
@@ -3134,7 +3157,7 @@ class CelestoManager:
             free = shutil.disk_usage(directory).free
             if needed > free:
                 raise CelestoError(
-                    disk_space_message(source.vm_id, count, needed, free),
+                    disk_space_message(source.vm_id, count, needed, free, name),
                     {"vm_id": source.vm_id, "needed_bytes": needed, "free_bytes": free},
                 )
 
