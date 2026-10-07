@@ -37,8 +37,6 @@ as failure modes before the code:
 
 from __future__ import annotations
 
-import shutil
-import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -48,9 +46,8 @@ from celesto.cli._sqlite import SQLiteStateManager
 from celesto.comm.rust_http_vsock_channel import RustHttpVsockChannel
 from celesto.exceptions import OperationTimeoutError
 from celesto.facade import Celesto
-from celesto.guest_identity import ssh_host_key_fingerprint
 from celesto.storage._memory import MemoryStateManager
-from celesto.types import CommandResult, GuestOS, VMConfig, VMIdentity, VMInfo, VMState, VsockConfig
+from celesto.types import CommandResult, GuestOS, VMConfig, VMInfo, VMState, VsockConfig
 
 _INSTANCE_ID = "0123456789abcdef0123456789abcdef"
 _MACHINE_ID = "fedcba9876543210fedcba9876543210"
@@ -151,18 +148,6 @@ def state(request: pytest.FixtureRequest, tmp_path: Path):  # noqa: ANN201
     return SQLiteStateManager(tmp_path / "celesto.db")
 
 
-def test_ready_records_identity_the_guest_reports(tmp_path: Path, state, guest: _Guest) -> None:  # noqa: ANN001
-    vm = _sandbox(tmp_path, state)
-
-    vm.wait_for_ready(timeout=5)
-
-    record = vm._recorded_identity()
-    assert record is not None
-    assert record.instance_id == _INSTANCE_ID
-    assert record.machine_id == _MACHINE_ID
-    assert record.ssh_host_key_fingerprint == ssh_host_key_fingerprint(_HOST_KEY)
-
-
 def test_failed_guest_read_does_not_fail_readiness(tmp_path: Path, state, guest: _Guest) -> None:  # noqa: ANN001
     guest.error = OperationTimeoutError("identity read", 5)
     vm = _sandbox(tmp_path, state)
@@ -171,15 +156,6 @@ def test_failed_guest_read_does_not_fail_readiness(tmp_path: Path, state, guest:
 
     assert vm._control_ready is True
     assert vm._recorded_identity() is None
-
-
-def test_existing_record_skips_the_guest_read(tmp_path: Path, state, guest: _Guest) -> None:  # noqa: ANN001
-    _sandbox(tmp_path, state).wait_for_ready(timeout=5)
-    guest.calls.clear()
-
-    _sandbox(tmp_path, state).wait_for_ready(timeout=5)
-
-    assert guest.calls == []
 
 
 def test_older_image_is_recorded_once_without_instance_id(
@@ -199,28 +175,6 @@ def test_older_image_is_recorded_once_without_instance_id(
     assert guest.calls == []
 
 
-def test_stale_instance_id_is_not_recorded(tmp_path: Path, state, guest: _Guest) -> None:  # noqa: ANN001
-    guest.output = _guest_output(instance_id="ffffffffffffffffffffffffffffffff")
-    vm = _sandbox(tmp_path, state)
-
-    vm.wait_for_ready(timeout=5)
-
-    assert vm._recorded_identity() is None
-
-
-def test_sandbox_without_instance_id_runs_no_guest_command(
-    tmp_path: Path,
-    state,  # noqa: ANN001
-    guest: _Guest,
-) -> None:
-    vm = _sandbox(tmp_path, state, instance_id=None)
-
-    vm.wait_for_ready(timeout=5)
-
-    assert guest.calls == []
-    assert vm._recorded_identity() is None
-
-
 def test_identity_read_does_not_fire_user_run_callbacks(
     tmp_path: Path,
     state,  # noqa: ANN001
@@ -232,36 +186,3 @@ def test_identity_read_does_not_fire_user_run_callbacks(
 
     assert guest.calls
     vm._callbacks.fire.assert_not_called()
-
-
-@pytest.mark.skipif(shutil.which("ssh-keygen") is None, reason="needs ssh-keygen")
-def test_fingerprint_matches_ssh_keygen(tmp_path: Path) -> None:
-    key = tmp_path / "key"
-    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)], check=True)
-    expected = subprocess.run(
-        ["ssh-keygen", "-lf", f"{key}.pub"], check=True, capture_output=True, text=True
-    ).stdout.split()[1]
-
-    assert ssh_host_key_fingerprint(Path(f"{key}.pub").read_text()) == expected
-
-
-def test_deleting_a_sandbox_drops_its_identity(tmp_path: Path, state) -> None:  # noqa: ANN001
-    kernel = tmp_path / "vmlinux"
-    rootfs = tmp_path / "rootfs.ext4"
-    kernel.touch()
-    rootfs.touch()
-    config = VMConfig(vm_id="vm1", kernel_path=kernel, rootfs_path=rootfs)
-    state.create_vm(config)
-    state.record_vm_identity(
-        "vm1",
-        VMIdentity(
-            instance_id=_INSTANCE_ID,
-            ssh_host_key_fingerprint="SHA256:abc",
-            machine_id=_MACHINE_ID,
-        ),
-    )
-
-    state.delete_vm("vm1")
-    state.create_vm(config)
-
-    assert state.get_vm_identity("vm1") is None

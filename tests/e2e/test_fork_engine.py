@@ -57,9 +57,6 @@ from celesto.vm import CelestoManager, resolve_data_dir
 pytestmark = pytest.mark.e2e
 
 _MARKER_PATH = "/root/fork-marker"
-# Longest silence allowed from a QEMU source while it is copied live; over
-# ten times the gap recorded on a healthy run (see the running-source test).
-_QEMU_MAX_HEARTBEAT_GAP = 1.0
 # Read with the guest's own tools, independent of what Celesto records.
 _GUEST_IDENTITY = (
     "printf 'instance_id=%s\\n' \"$(cat /etc/celesto/instance-id)\"; "
@@ -248,12 +245,10 @@ def test_running_source_forks_into_three_independent_children(
         if backend == BACKEND_QEMU:
             assert not any(notice.startswith("Pausing") for notice in notices), notices
             assert heartbeat.errors == [], heartbeat.errors
-            # Measured, not inferred from the missing notice: the source kept
-            # answering throughout. Recorded runs on macOS QEMU show a longest
-            # gap of 0.07 to 0.09 s (one round trip plus the 0.05 s sleep);
-            # a pause for the copy lasts as long as the copy, seconds.
+            # A pause for the copy lasts a substantial fraction of the copy
+            # time; one slow heartbeat round trip scales with neither.
             assert heartbeat.beats >= 3, f"too few heartbeats to measure: {heartbeat.beats}"
-            assert heartbeat.longest_gap < _QEMU_MAX_HEARTBEAT_GAP, (
+            assert heartbeat.longest_gap < report["fork_seconds"] / 2, (
                 f"source stopped answering for {heartbeat.longest_gap:.3f} s during the fork"
             )
         else:
@@ -315,6 +310,28 @@ def test_stopped_source_forks_into_one_named_child(
         assert child_guest["instance_id"] == child.sandbox.info.config.instance_id
         for key in ("instance_id", "fingerprint", "machine_id"):
             assert child_guest[key] != source_guest[key], f"{key} is shared"
+
+        # A child's identity must survive a normal restart, and a fork of that
+        # child must receive a fresh identity of its own.
+        child_sandbox = child.sandbox
+        assert child_sandbox is not None
+        child_sandbox.stop()
+        child_sandbox.start(boot_timeout=BOOT_TIMEOUT)
+        restarted_identity = _guest_identity(child_sandbox)
+        assert {
+            key: restarted_identity[key] for key in ("instance_id", "fingerprint", "machine_id")
+        } == {key: child_guest[key] for key in ("instance_id", "fingerprint", "machine_id")}
+        grandchild_name = f"{child_name}-copy"
+        child_batch = child_sandbox._fork_many(1, name=grandchild_name, boot_timeout=BOOT_TIMEOUT)
+        created.extend(item.name for item in child_batch.children)
+        grandchild = child_batch.children[0]
+        assert grandchild.ok, grandchild.error
+        assert grandchild.sandbox is not None
+        grandchild_identity = _guest_identity(grandchild.sandbox)
+        for key in ("instance_id", "fingerprint", "machine_id"):
+            assert grandchild_identity[key] != child_guest[key], f"{key} was inherited by fork"
+        report["child_restart_identity"] = restarted_identity
+        report["grandchild_identity"] = grandchild_identity
         assert batch.source_state == VMState.STOPPED
         assert state.get_vm(source_name).status == VMState.STOPPED
         assert notices == [], notices

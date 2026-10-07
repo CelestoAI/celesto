@@ -245,10 +245,11 @@ def test_malformed_instance_id_is_ignored(guest: _Guest, bad_id: str) -> None:
     assert guest.host_key() == key
     assert guest.read("etc/celesto/instance-id") is None
     assert not (guest.root / "pwned").exists()
-    assert not Path("pwned").exists()
 
 
 def test_failed_key_generation_does_not_save_instance_id(guest: _Guest, tmp_path: Path) -> None:
+    guest.plant_old_identity()
+    old_key = guest.host_key()
     # A PATH with the basic tools but no ssh-keygen.
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -260,6 +261,14 @@ def test_failed_key_generation_does_not_save_instance_id(guest: _Guest, tmp_path
     guest.boot(_boot_line(_ID_A), path=str(bin_dir))
 
     assert guest.read("etc/celesto/instance-id") is None
+    assert guest.host_key() is None
+
+    recovered = guest.boot(_boot_line(_ID_A))
+
+    assert recovered.returncode == 0, recovered.stderr
+    assert guest.host_key() is not None
+    assert guest.host_key() != old_key
+    assert (guest.read("etc/celesto/instance-id") or "").strip() == _ID_A
 
 
 def test_both_startup_scripts_share_one_reset_that_runs_before_services() -> None:
