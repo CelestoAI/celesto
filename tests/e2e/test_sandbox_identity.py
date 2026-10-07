@@ -193,6 +193,9 @@ def test_each_sandbox_keeps_its_own_identity(
 
         snapshot = _celesto("sandbox", "snapshot", "create", first, "--snapshot-type", "disk")
         snapshot_id = snapshot["snapshot"]["snapshot_id"]
+        # Stop first, like test_lifecycle's restore test: restoring over a
+        # still-running Firecracker sandbox races its tap device.
+        _celesto("sandbox", "stop", first)
         _celesto("sandbox", "snapshot", "restore", snapshot_id, "--resume")
         restored = _snapshot(first, state)
         report["sandboxes"][first]["after_restore"] = restored
