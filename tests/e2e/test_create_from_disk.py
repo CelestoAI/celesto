@@ -298,6 +298,9 @@ def test_sandboxes_created_from_a_copied_disk_are_independent(
                 assert entry["base_image_copies"] == [], f"{name}: {entry['base_image_copies']}"
         for key in ("instance_id", "machine_id", "host_key_fingerprint", "ssh_host_port", "disk"):
             values = [sandboxes[name][key] for name in everyone]
+            if key == "ssh_host_port":
+                # Sandboxes on a tap device are reached at their own IP, with no host port.
+                values = [value for value in values if value is not None]
             assert len(set(values)) == len(values), f"{key} is shared: {values}"
         forward_ports = [
             forward["host_port"]
