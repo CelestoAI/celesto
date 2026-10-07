@@ -230,7 +230,7 @@ def register_extra_tools(
             ]
         }
 
-    @server.tool(annotations=annotations(read_only_hint=True, open_world_hint=False))
+    @tool(annotations=annotations(read_only_hint=True, open_world_hint=False))
     def computer_doctor() -> dict[str, Any]:
         """Check whether this machine has the runtime dependencies Celesto needs."""
         report = generate_doctor_report()

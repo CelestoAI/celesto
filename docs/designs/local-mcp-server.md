@@ -47,7 +47,7 @@ The end-to-end test launches the MCP server as a subprocess, connects with an MC
 1. Prove the full local command flow with one MCP client and an end-to-end test. Done.
 1. Ship copyable Claude Code setup instructions plus a generic stdio configuration example. Done.
 1. Observe an external user connect an agent without coaching. Record where setup or tool descriptions fail.
-1. Observe an external user connect an agent without coaching. Record where setup or tool descriptions fail; evaluate Cloud and remote transport separately.
+1. Evaluate Cloud support and remote transport separately.
 
 ## Open decisions
 
