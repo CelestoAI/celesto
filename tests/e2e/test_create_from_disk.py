@@ -421,7 +421,9 @@ def test_sources_a_disk_copy_cannot_reproduce_are_refused(
                 "leftovers": leftovers,
             }
             assert source_name in str(caught.value), caught.value
-            assert str(base_copy.resolve()) in str(caught.value), caught.value
+            # The message names the problem and the recovery, not the cache path.
+            assert "its image is missing" in str(caught.value), caught.value
+            assert str(base_copy.resolve()) not in str(caught.value), caught.value
             assert leftovers == []
 
         # A kept disk under the new name must never be reused or overwritten.
