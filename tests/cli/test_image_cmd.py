@@ -86,6 +86,38 @@ class TestResolveImageDir:
         monkeypatch.setenv(IMAGE_DIR_ENV, str(tmp_path / "env"))
         assert resolve_image_dir("") == tmp_path / "env"
 
+    def test_blank_path_arg_falls_through(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`Path("")` is what `Path($UNSET_VAR)` produces, and `ImageManager`
+        takes a `Path | None`, so it must honour the same guarantee as a
+        blank str (regression: the Path branch used to be checked before any
+        emptiness test, silently caching images into the cwd)."""
+        monkeypatch.delenv(IMAGE_DIR_ENV, raising=False)
+        assert resolve_image_dir(Path("")) == Path.home() / ".celesto" / "images"
+        assert resolve_image_dir(Path("   ")) == Path.home() / ".celesto" / "images"
+        monkeypatch.setenv(IMAGE_DIR_ENV, str(tmp_path / "env"))
+        assert resolve_image_dir(Path("")) == tmp_path / "env"
+        assert resolve_image_dir(Path("   ")) == tmp_path / "env"
+
+    def test_dot_string_arg_is_explicit(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The CLI passes --image-dir as a string, so '.' selects the cwd."""
+        monkeypatch.setenv(IMAGE_DIR_ENV, str(tmp_path / "env"))
+        assert resolve_image_dir(".") == Path(".")
+        assert resolve_image_dir("  .  ") == Path(".")
+
+    def test_padded_path_arg_still_resolves(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Only a path that is empty or entirely whitespace is unset; a real
+        directory written with padding around it must still expand."""
+        monkeypatch.delenv(IMAGE_DIR_ENV, raising=False)
+        assert resolve_image_dir(Path("  ~/images  ")) == Path.home() / "images"
+        padded = tmp_path / "explicit"
+        assert resolve_image_dir(Path(f"  {padded}  ")) == padded
+
     def test_unknown_user_tilde_does_not_crash(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """expanduser failures fall back to the path as written (regression:
         a '~typo/...' value used to escape as a raw RuntimeError)."""
