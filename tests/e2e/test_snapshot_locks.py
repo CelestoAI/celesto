@@ -122,11 +122,12 @@ class _Background:
 
 def _cli(*args: str, timeout: float = COMMAND_TIMEOUT) -> subprocess.CompletedProcess[str]:
     try:
-        return subprocess.run(
+        result = subprocess.run(
             [*_CLI, *args], capture_output=True, text=True, timeout=timeout, check=False
         )
     except subprocess.TimeoutExpired:
         pytest.fail(f"'celesto {' '.join(args)}' did not finish within {timeout:.0f}s")
+    return result
 
 
 def _cli_json(*args: str) -> dict[str, Any]:

@@ -88,7 +88,6 @@ class StateManagerProtocol(Protocol):
 
     def get_vm_identity(self, vm_id: str) -> VMIdentity | None:
         """Return the identity recorded for *vm_id*, or ``None`` if none is."""
-        ...
 
     def record_vm_identity(self, vm_id: str, identity: VMIdentity) -> VMIdentity:
         """Store *identity* for an existing VM, replacing any earlier record.
@@ -98,7 +97,6 @@ class StateManagerProtocol(Protocol):
         Raises:
             VMNotFoundError: If the VM does not exist.
         """
-        ...
 
     # ------------------------------------------------------------------
     # Sandbox lineage
@@ -106,7 +104,6 @@ class StateManagerProtocol(Protocol):
 
     def get_vm_lineage(self, vm_id: str) -> VMLineage | None:
         """Return where *vm_id* was copied from, or ``None`` if it was not."""
-        ...
 
     def record_vm_lineage(self, vm_id: str, lineage: VMLineage) -> VMLineage:
         """Store *lineage* for an existing VM, replacing any earlier record.
@@ -117,7 +114,6 @@ class StateManagerProtocol(Protocol):
         Raises:
             VMNotFoundError: If the VM does not exist.
         """
-        ...
 
     # ------------------------------------------------------------------
     # IP allocation

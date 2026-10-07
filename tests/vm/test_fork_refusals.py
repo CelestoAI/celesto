@@ -243,24 +243,36 @@ def test_recovery_commands_in_fork_messages_parse_with_the_cli() -> None:
         child_failed_message("demo", "exp-1"),
         _disk_copy_failed_message("demo", "exp", 3),
         older_image_message("demo"),
-        "Sandbox 'demo' runs macOS and can't be forked yet. Run "
-        "'celesto sandbox create --name demo-linux --os ubuntu', then "
-        "run 'celesto sandbox fork demo-linux'.",
-        "Sandbox 'demo' runs Windows and can't be forked yet. Run "
-        "'celesto sandbox create --name demo-linux --os ubuntu', then "
-        "run 'celesto sandbox fork demo-linux'.",
-        "Sandbox 'demo' uses an engine that can't be forked yet. Run "
-        "'celesto sandbox create --name demo-qemu --backend qemu', then "
-        "run 'celesto sandbox fork demo-qemu'.",
-        "Sandbox 'demo' uses a shared folder or extra drive, which forks can't copy. "
-        "Run 'celesto sandbox create --name demo-copy' without --mount, then "
-        "run 'celesto sandbox fork demo-copy'.",
-        "Sandbox 'demo' writes directly to its image, so forks can't copy it. "
-        "Run 'celesto sandbox create --name demo-copy', then "
-        "run 'celesto sandbox fork demo-copy'.",
-        "Sandbox 'demo' can't be copied because its image is missing. "
-        "Run 'celesto image pull --all', then create a new sandbox with "
-        "'celesto sandbox create --name demo-copy' and fork that one.",
+        (
+            "Sandbox 'demo' runs macOS and can't be forked yet. Run "
+            "'celesto sandbox create --name demo-linux --os ubuntu', then "
+            "run 'celesto sandbox fork demo-linux'."
+        ),
+        (
+            "Sandbox 'demo' runs Windows and can't be forked yet. Run "
+            "'celesto sandbox create --name demo-linux --os ubuntu', then "
+            "run 'celesto sandbox fork demo-linux'."
+        ),
+        (
+            "Sandbox 'demo' uses an engine that can't be forked yet. Run "
+            "'celesto sandbox create --name demo-qemu --backend qemu', then "
+            "run 'celesto sandbox fork demo-qemu'."
+        ),
+        (
+            "Sandbox 'demo' uses a shared folder or extra drive, which forks can't copy. "
+            "Run 'celesto sandbox create --name demo-copy' without --mount, then "
+            "run 'celesto sandbox fork demo-copy'."
+        ),
+        (
+            "Sandbox 'demo' writes directly to its image, so forks can't copy it. "
+            "Run 'celesto sandbox create --name demo-copy', then "
+            "run 'celesto sandbox fork demo-copy'."
+        ),
+        (
+            "Sandbox 'demo' can't be copied because its image is missing. "
+            "Run 'celesto image pull --all', then create a new sandbox with "
+            "'celesto sandbox create --name demo-copy' and fork that one."
+        ),
     ]
     commands = sorted(
         {command for message in messages for command in re.findall(r"'(celesto [^']+)'", message)}
