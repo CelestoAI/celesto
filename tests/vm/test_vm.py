@@ -99,6 +99,18 @@ def _attach_mock_network(manager: CelestoManager) -> MagicMock:
 class TestCelestoCreate:
     """Tests for VM creation."""
 
+    def test_create_rejects_user_instance_id_boot_argument(
+        self, smol_vm: CelestoManager, sample_config: VMConfig
+    ) -> None:
+        config = sample_config.model_copy(
+            update={
+                "boot_args": "console=ttyS0 celesto.instance_id=22222222222222222222222222222222"
+            }
+        )
+
+        with pytest.raises(CelestoError, match="celesto.instance_id"):
+            smol_vm._create(config)
+
     @patch("celesto.vm.NetworkManager")
     def test_create_vm_allocates_resources(
         self,

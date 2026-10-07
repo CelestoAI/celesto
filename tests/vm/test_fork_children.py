@@ -452,3 +452,35 @@ def test_a_raw_qemu_source_started_while_waiting_is_refused_before_copying(
     assert world.capture_policies == []
     assert world.created == []
     assert world.generations() == []
+
+
+def test_fork_plan_captures_shared_base_once_and_reuses_it(
+    world: _World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A source disappearing after capture must not make each child recopy its base."""
+    base = world.tmp_path / "base.qcow2"
+    source = world.add_source("qemu", VMState.STOPPED)
+    lookups: list[str] = []
+    passed_bases: list[Path | None] = []
+    monkeypatch.setattr(
+        source._sdk,
+        "_shared_base_image",
+        lambda info: (lookups.append(info.vm_id), base)[1],
+    )
+    monkeypatch.setattr(source._sdk, "_ensure_fork_disk_space", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(source._sdk, "_ensure_fork_ports", lambda *_args: None)
+    monkeypatch.setattr(
+        source._sdk,
+        "_create_from_disk",
+        lambda _source, _disk, _name, **kwargs: passed_bases.append(kwargs["shared_base"]),
+    )
+    plan = source._plan_fork(2, name="exp", parallel=1, boot_timeout=30)
+    generation = SimpleNamespace(
+        artifacts=SimpleNamespace(disk_path=world.tmp_path / "capture"), created_at=None
+    )
+    source._create_fork_child(plan, generation, "exp-1")
+    source._create_fork_child(plan, generation, "exp-2")
+
+    assert lookups == ["src"]
+    assert plan.shared_base == base
+    assert passed_bases == [base, base]

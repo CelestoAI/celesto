@@ -35,13 +35,14 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, TextIO, cast
 from uuid import uuid4
 
 from celesto._compat import existing_legacy_path
@@ -118,6 +119,7 @@ DEFAULT_SOCKET_DIR = Path("/tmp")
 # /init compares it with /etc/celesto/instance-id to tell a new machine from a
 # restart of the same one.
 _INSTANCE_ID_BOOT_PARAM = "celesto.instance_id"
+_SHARED_BASE_UNSET = object()
 
 # Kernel parameters that name one sandbox's own resources. A sandbox created
 # from a copy of another one's disk drops them so it gets its own.
@@ -791,11 +793,30 @@ class CelestoManager:
         on_wait: Callable[[], None] | None = None,
     ) -> Iterator[None]:
         """Async wrapper that acquires the per-VM snapshot lock off the event loop."""
-        lock = await asyncio.to_thread(
-            self._acquire_operation_lock,
-            self._vm_snapshot_lock_name(vm_id),
-            on_wait=on_wait,
+        cancelled = threading.Event()
+
+        def notify_if_waiting() -> None:
+            if on_wait is not None and not cancelled.is_set():
+                on_wait()
+
+        acquire = asyncio.create_task(
+            asyncio.to_thread(
+                self._acquire_operation_lock,
+                self._vm_snapshot_lock_name(vm_id),
+                on_wait=notify_if_waiting if on_wait is not None else None,
+            )
         )
+        try:
+            lock = await asyncio.shield(acquire)
+        except asyncio.CancelledError:
+            cancelled.set()
+            while not acquire.done():
+                try:
+                    await asyncio.shield(acquire)
+                except asyncio.CancelledError:
+                    cancelled.set()
+            await self._async_release_lock(acquire.result())
+            raise
         try:
             yield
         finally:
@@ -833,11 +854,30 @@ class CelestoManager:
         on_wait: Callable[[], None] | None = None,
     ) -> Iterator[None]:
         """Async wrapper that acquires the per-source fork names lock off the loop."""
-        lock = await asyncio.to_thread(
-            self._acquire_operation_lock,
-            self._fork_names_lock_name(vm_id),
-            on_wait=on_wait,
+        cancelled = threading.Event()
+
+        def notify_if_waiting() -> None:
+            if on_wait is not None and not cancelled.is_set():
+                on_wait()
+
+        acquire = asyncio.create_task(
+            asyncio.to_thread(
+                self._acquire_operation_lock,
+                self._fork_names_lock_name(vm_id),
+                on_wait=notify_if_waiting if on_wait is not None else None,
+            )
         )
+        try:
+            lock = await asyncio.shield(acquire)
+        except asyncio.CancelledError:
+            cancelled.set()
+            while not acquire.done():
+                try:
+                    await asyncio.shield(acquire)
+                except asyncio.CancelledError:
+                    cancelled.set()
+            await self._async_release_lock(acquire.result())
+            raise
         try:
             yield
         finally:
@@ -2481,6 +2521,13 @@ class CelestoManager:
         """
         if config is None:
             raise ValueError("config cannot be None")
+        if any(part.startswith(f"{_INSTANCE_ID_BOOT_PARAM}=") for part in config.boot_args.split()):
+            raise CelestoError(
+                f"Sandbox '{config.vm_id}' boot arguments cannot set its instance ID. "
+                f"Remove 'celesto.instance_id=' and run 'celesto sandbox create --name "
+                f"{config.vm_id}' again.",
+                {"vm_id": config.vm_id},
+            )
 
         backend = self._backend_for_config(config)
         effective_config = config
@@ -2768,6 +2815,7 @@ class CelestoManager:
         name: str,
         *,
         forked_at: datetime | None = None,
+        shared_base: Path | None | object = _SHARED_BASE_UNSET,
     ) -> VMInfo:
         """Create a new, independent sandbox from a copy of a saved disk.
 
@@ -2818,7 +2866,11 @@ class CelestoManager:
         info = self._create(
             config,
             prepared_disk=disk_path,
-            prepared_disk_base=self._shared_base_image(source),
+            prepared_disk_base=(
+                self._shared_base_image(source)
+                if shared_base is _SHARED_BASE_UNSET
+                else cast(Path | None, shared_base)
+            ),
             reserve_vsock_device=source.config.vsock is not None,
         )
         try:
@@ -2835,10 +2887,14 @@ class CelestoManager:
         name: str,
         *,
         forked_at: datetime | None = None,
+        shared_base: Path | None | object = _SHARED_BASE_UNSET,
     ) -> VMInfo:
         """Async version of :meth:`_create_from_disk`."""
         config = self._config_for_disk_copy(source, name)
-        base_image = await asyncio.to_thread(self._shared_base_image, source)
+        base_image = shared_base
+        if base_image is _SHARED_BASE_UNSET:
+            base_image = await asyncio.to_thread(self._shared_base_image, source)
+        base_image = cast(Path | None, base_image)
         info = await self._async_create(
             config,
             prepared_disk=disk_path,
@@ -3041,7 +3097,9 @@ class CelestoManager:
         blocks = getattr(stat, "st_blocks", None)
         return blocks * 512 if blocks is not None else stat.st_size
 
-    def _ensure_fork_disk_space(self, source: VMInfo, count: int) -> None:
+    def _ensure_fork_disk_space(
+        self, source: VMInfo, count: int, *, shared_base: Path | None = None
+    ) -> None:
         """Refuse a fork whose generation and children won't fit (D23).
 
         The estimate is conservative: it ignores reflink clones, which cost
@@ -3058,7 +3116,7 @@ class CelestoManager:
         running = source.status == VMState.RUNNING
         if self._backend_for_vm(source) == BACKEND_QEMU:
             chain = self._qemu_disk_chain(disk, source.vm_id)
-            base = None if running else self._shared_base_image(source)
+            base = None if running else shared_base
             per_copy = sum(self._allocated_bytes(path) for path in chain if path != base)
             generation = per_copy
         else:
