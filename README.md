@@ -129,6 +129,18 @@ claude mcp add celesto -- celesto mcp start
 
 Run `/mcp` in Claude Code to confirm that Celesto's tools are connected.
 
+### Connect from a remote MCP client
+
+For a client that connects to an HTTP endpoint, run a Cloud-only MCP server on a machine reachable by that client:
+
+```bash
+celesto mcp serve --host 0.0.0.0 --port 8000 --allowed-host mcp.example.com
+```
+
+Put it behind an HTTPS reverse proxy, then configure the client with `https://mcp.example.com/mcp` and an `Authorization: Bearer <Celesto API key>` header. The server validates that key with Celesto Cloud on each request and exposes only Cloud computer tools. Keep the key in the client's private secret settings; do not commit it in project config.
+
+This package provides a self-hostable HTTP gateway, not a public Celesto endpoint. Users need an MCP client that supports Streamable HTTP and custom headers. Celesto-managed hosting and OAuth sign-in remain deployment work in the Cloud service. See the [hosted Cloud MCP plan](docs/designs/hosted-cloud-mcp.md) for the production rollout steps.
+
 ## Use the Python API
 
 The installer includes the Python SDK. The `with` block creates a local sandbox when the block starts and deletes it when the block ends:

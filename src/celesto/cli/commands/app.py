@@ -1362,6 +1362,39 @@ def mcp_start() -> None:
         raise click.ClickException(str(exc)) from exc
 
 
+@mcp.command("serve")
+@click.option("--host", default="127.0.0.1", show_default=True)
+@click.option("--port", default=8000, type=click.IntRange(1, 65535), show_default=True)
+@click.option(
+    "--allowed-host",
+    multiple=True,
+    help="Allowed HTTP Host value. Repeat for multiple names; required off loopback.",
+)
+@click.option(
+    "--allowed-origin",
+    multiple=True,
+    help="Allowed browser Origin value for clients that send one.",
+)
+def mcp_serve(
+    host: str,
+    port: int,
+    allowed_host: tuple[str, ...],
+    allowed_origin: tuple[str, ...],
+) -> None:
+    """Serve Cloud computer tools over authenticated Streamable HTTP."""
+    from celesto.mcp_server import serve_cloud_http
+
+    try:
+        serve_cloud_http(
+            host=host,
+            port=port,
+            allowed_hosts=list(allowed_host),
+            allowed_origins=list(allowed_origin),
+        )
+    except (RuntimeError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
 @server.command("start")
 @click.option("--host", default="127.0.0.1", show_default=True)
 @click.option("--port", default=8000, show_default=True, type=int)

@@ -170,6 +170,206 @@ def create_server() -> Any:
     return server
 
 
+class _CloudOnlyToolRegistry:
+    """Register only Cloud computer tools on a wrapped MCP server."""
+
+    def __init__(self, server: Any) -> None:
+        self._server = server
+
+    def tool(self, *args: Any, **kwargs: Any) -> Any:
+        register = self._server.tool(*args, **kwargs)
+
+        def register_cloud_tool(function: Any) -> Any:
+            if function.__name__.startswith("cloud_computer_"):
+                return register(function)
+            return function
+
+        return register_cloud_tool
+
+
+def _validate_cloud_api_key(api_key: str, api_base_url: str) -> bool | None:
+    """Check a caller key against Celesto Cloud; None means the auth API is unavailable."""
+    import httpx
+
+    from _celesto_cloud_api.api.users.get_info_v1_users_info_get import sync_detailed
+    from _celesto_cloud_api.client import AuthenticatedClient
+
+    client = AuthenticatedClient(
+        base_url=api_base_url.rstrip("/"),
+        token=api_key,
+        timeout=httpx.Timeout(10),
+        raise_on_unexpected_status=False,
+    )
+    try:
+        response = sync_detailed(client=client)
+        if response.status_code in (401, 403):
+            return False
+        if response.status_code != 200 or response.parsed is None:
+            return None
+        return not response.parsed.access_suspended
+    except httpx.TransportError:
+        return None
+    finally:
+        client.get_httpx_client().close()
+
+
+class _CelestoAPIKeyMiddleware:
+    """Require and validate a Celesto API key on every remote MCP request."""
+
+    def __init__(self, app: Any, *, api_base_url: str) -> None:
+        self.app = app
+        self.api_base_url = api_base_url
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        from starlette.concurrency import run_in_threadpool
+        from starlette.requests import Request
+        from starlette.responses import JSONResponse
+
+        request = Request(scope, receive=receive)
+        if request.url.path == "/healthz":
+            await JSONResponse({"status": "ok"})(scope, receive, send)
+            return
+
+        authorization = request.headers.get("authorization", "")
+        scheme, separator, api_key = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not separator or not api_key.strip():
+            response = JSONResponse(
+                {"error": "Send a Celesto API key in the Authorization Bearer header."},
+                status_code=401,
+                headers={"WWW-Authenticate": 'Bearer realm="Celesto Cloud MCP"'},
+            )
+            await response(scope, receive, send)
+            return
+
+        valid = await run_in_threadpool(_validate_cloud_api_key, api_key.strip(), self.api_base_url)
+        if valid is None:
+            response = JSONResponse(
+                {"error": "Celesto Cloud authentication is temporarily unavailable."},
+                status_code=503,
+            )
+            await response(scope, receive, send)
+            return
+        if not valid:
+            response = JSONResponse(
+                {"error": "The Celesto API key is invalid or its account is suspended."},
+                status_code=401,
+                headers={"WWW-Authenticate": 'Bearer realm="Celesto Cloud MCP"'},
+            )
+            await response(scope, receive, send)
+            return
+
+        await self.app(scope, receive, send)
+
+
+def create_cloud_http_app(
+    *,
+    host: str = "127.0.0.1",
+    allowed_hosts: list[str] | None = None,
+    allowed_origins: list[str] | None = None,
+) -> Any:
+    """Build a Cloud-only stateless Streamable HTTP app protected by caller API keys."""
+    try:
+        from mcp.server import MCPServer
+        from mcp.server.mcpserver.exceptions import ToolError
+        from mcp.server.transport_security import TransportSecuritySettings
+        from mcp.types import ToolAnnotations
+    except ImportError as exc:
+        raise RuntimeError(
+            "MCP support is missing. Run 'uv tool install \"celesto[mcp]\"' to install it."
+        ) from exc
+
+    from starlette.responses import JSONResponse
+
+    from celesto._cloud import _DEFAULT_CLOUD_BASE_URL
+    from celesto.mcp_server_extra import register_extra_tools
+
+    if allowed_hosts:
+        host_allowlist = allowed_hosts
+    elif host in {"127.0.0.1", "localhost", "::1"}:
+        host_allowlist = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+    else:
+        raise ValueError(
+            "A non-loopback MCP server needs an explicit allowed hostname. "
+            "Pass --allowed-host for the hostname used by its HTTPS endpoint."
+        )
+
+    if allowed_origins is not None:
+        origin_allowlist = allowed_origins
+    elif host in {"127.0.0.1", "localhost", "::1"}:
+        origin_allowlist = [
+            "http://127.0.0.1:*",
+            "http://localhost:*",
+            "http://[::1]:*",
+        ]
+    else:
+        origin_allowlist = []
+
+    security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=host_allowlist,
+        allowed_origins=origin_allowlist,
+    )
+    server = MCPServer(
+        "Celesto Cloud",
+        instructions=(
+            "These tools manage Celesto Cloud computers for the account authenticated "
+            "by this request. They do not manage computers on this server's machine."
+        ),
+    )
+    # No local tool is registered on the remote endpoint.
+    register_extra_tools(
+        _CloudOnlyToolRegistry(server),
+        service=None,
+        annotations=ToolAnnotations,
+        tool_error=ToolError,
+    )
+    app = server.streamable_http_app(
+        streamable_http_path="/mcp",
+        stateless_http=True,
+        transport_security=security,
+        host=host,
+    )
+
+    async def health(_request: Any) -> JSONResponse:
+        return JSONResponse({"status": "ok"})
+
+    app.add_route("/healthz", health, methods=["GET"])
+    app.add_middleware(_CelestoAPIKeyMiddleware, api_base_url=_DEFAULT_CLOUD_BASE_URL)
+
+    async def health(_request: Any) -> JSONResponse:
+        return JSONResponse({"status": "ok"})
+
+    app.add_route("/healthz", health, methods=["GET"])
+    return app
+
+
+def serve_cloud_http(
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    allowed_hosts: list[str] | None = None,
+    allowed_origins: list[str] | None = None,
+) -> None:
+    """Serve the remote Cloud MCP endpoint over Streamable HTTP."""
+    try:
+        import uvicorn
+    except ImportError as exc:
+        raise RuntimeError(
+            "HTTP MCP support is missing. Install it with 'uv tool install \"celesto[mcp]\"'."
+        ) from exc
+
+    app = create_cloud_http_app(
+        host=host,
+        allowed_hosts=allowed_hosts,
+        allowed_origins=allowed_origins,
+    )
+    uvicorn.run(app, host=host, port=port, log_level="info")
+
+
 def run() -> None:
     """Run until the MCP client closes standard input."""
     create_server().run()

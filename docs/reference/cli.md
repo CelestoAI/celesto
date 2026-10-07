@@ -74,6 +74,24 @@ For Claude Code, register the local server and then run `/mcp` in Claude Code to
 claude mcp add celesto -- celesto mcp start
 ```
 
+### Serve Cloud tools over HTTP
+
+`celesto mcp serve` runs a stateless Streamable HTTP server that exposes only Cloud computer tools. It validates the caller's API key with Celesto Cloud and uses that same key for each Cloud operation:
+
+```bash
+celesto mcp serve
+```
+
+The default address is loopback (`127.0.0.1`). For a server behind an HTTPS reverse proxy, bind to all container interfaces and allow the public hostname:
+
+```bash
+celesto mcp serve --host 0.0.0.0 --port 8000 --allowed-host mcp.example.com
+```
+
+The reverse proxy should forward requests to `/mcp` and terminate HTTPS. Configure the MCP client with the resulting `https://mcp.example.com/mcp` URL and an `Authorization: Bearer <Celesto API key>` header. Use a private user-level secret store, not a checked-in project config. `--allowed-origin` can be repeated for browser clients that send an `Origin` header.
+
+The HTTP gateway is self-hostable, but this release does not deploy a public Celesto endpoint or provide OAuth sign-in. Remote clients must support Streamable HTTP and custom headers; enter the API key in a private client secret setting, not a checked-in config. A Celesto-managed endpoint and OAuth flow require deployment and identity-provider configuration in the Cloud service.
+
 Local computer tools cover lifecycle, details, logs, commands, file upload and download, environment variables, localhost port forwarding, and snapshots. `computer_doctor` checks local setup and `computer_templates` lists built-in templates. `cloud_computer_*` tools create, list, inspect, run commands on, start, stop, and delete Cloud computers, and publish or list their public ports. Run `celesto auth login` to save the credentials the MCP server uses for Cloud calls. Command results include the exit code, elapsed time, timeout, and up to 16,384 characters each of standard output and standard error, with flags when output was shortened. `browser_*` tools manage local browser sessions; `desktop_*` tools manage visible desktops. Local computer creation starts Ubuntu; first use may download its image.
 
 ## Start a prepared agent

@@ -15,12 +15,12 @@ class CloudProvider(_CloudComputer):
         pass
 
 
-def get_cloud_computer(computer_id: str) -> dict[str, str | int]:
+def get_cloud_computer(computer_id: str, *, api_key: str | None = None) -> dict[str, str | int]:
     """Return public CLI fields for one cloud computer without leaking generated models."""
     from _celesto_cloud_api.api.computers import get_computer_v1_computers_computer_id_get
     from _celesto_cloud_api.models.computer_response import ComputerResponse
 
-    provider = CloudProvider()
+    provider = CloudProvider(api_key=api_key)
     provider.vm_id = computer_id
     try:
         computer = provider._call(
@@ -42,12 +42,12 @@ def get_cloud_computer(computer_id: str) -> dict[str, str | int]:
         provider.close()
 
 
-def stop_cloud_computer(computer_id: str) -> dict[str, str]:
+def stop_cloud_computer(computer_id: str, *, api_key: str | None = None) -> dict[str, str]:
     """Pause a cloud computer and return its public CLI fields."""
     from _celesto_cloud_api.api.computers import stop_computer_v1_computers_computer_id_stop_post
     from _celesto_cloud_api.models.computer_response import ComputerResponse
 
-    provider = CloudProvider()
+    provider = CloudProvider(api_key=api_key)
     provider.vm_id = computer_id
     try:
         computer = provider._call(
@@ -61,12 +61,12 @@ def stop_cloud_computer(computer_id: str) -> dict[str, str]:
         provider.close()
 
 
-def start_cloud_computer(computer_id: str) -> dict[str, str]:
+def start_cloud_computer(computer_id: str, *, api_key: str | None = None) -> dict[str, str]:
     """Resume a paused cloud computer and return its public CLI fields."""
     from _celesto_cloud_api.api.computers import start_computer_v1_computers_computer_id_start_post
     from _celesto_cloud_api.models.computer_response import ComputerResponse
 
-    provider = CloudProvider()
+    provider = CloudProvider(api_key=api_key)
     provider.vm_id = computer_id
     try:
         computer = provider._call(
@@ -80,12 +80,14 @@ def start_cloud_computer(computer_id: str) -> dict[str, str]:
         provider.close()
 
 
-def list_cloud_computers(limit: int = 50) -> tuple[list[dict[str, str]], bool]:
+def list_cloud_computers(
+    limit: int = 50, *, api_key: str | None = None
+) -> tuple[list[dict[str, str]], bool]:
     """Return public CLI fields and flag a potentially incomplete list."""
     from _celesto_cloud_api.api.computers import list_computers_v1_computers_get
     from _celesto_cloud_api.models.computer_list_response import ComputerListResponse
 
-    provider = CloudProvider()
+    provider = CloudProvider(api_key=api_key)
     try:
         response = provider._call(
             list_computers_v1_computers_get.sync_detailed, ComputerListResponse, limit=limit
