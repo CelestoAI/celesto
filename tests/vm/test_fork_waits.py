@@ -59,13 +59,13 @@ class _Run(threading.Thread):
         super().__init__(daemon=True)
         self._call = call
         self.result: Any = None
-        self.error: BaseException | None = None
+        self.error: Exception | None = None
         self.finished_at: float | None = None
 
     def run(self) -> None:
         try:
             self.result = self._call()
-        except BaseException as exc:  # noqa: BLE001 - checked by the test
+        except Exception as exc:  # noqa: BLE001 - checked by the test
             self.error = exc
         self.finished_at = time.monotonic()
 

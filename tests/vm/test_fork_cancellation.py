@@ -117,8 +117,9 @@ async def _cancel_while_held(world: _World, gate: _Gate) -> tuple[bool, bool]:  
     returned_early = task.done()
     lock_free = _lock_is_free(world)
     gate.release.set()
+    await asyncio.wait({task})
     with pytest.raises(asyncio.CancelledError):
-        await task
+        task.result()
     copy_running_after_return = not gate.finished.is_set()
     # Let a copy that outlived the fork finish before the test inspects disks.
     await asyncio.to_thread(gate.finished.wait, 10)
@@ -189,8 +190,9 @@ async def _cancel_while(hold: _Hold, fork: Any) -> bool:
     await asyncio.sleep(0)
     returned_early = task.done()
     hold.release.set()
+    await asyncio.wait({task})
     with pytest.raises(asyncio.CancelledError):
-        await task
+        task.result()
     return returned_early or not hold.finished.is_set()
 
 

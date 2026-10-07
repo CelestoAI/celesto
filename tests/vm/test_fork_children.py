@@ -349,7 +349,7 @@ def test_forks_started_together_continue_the_numbering(world: _World) -> None:
     world.copy_seconds = 0.2
     start = threading.Barrier(3)
     batches: list[Any] = []
-    errors: list[BaseException] = []
+    errors: list[Exception] = []
 
     def fork() -> None:
         handle = Celesto.from_id(
@@ -358,7 +358,7 @@ def test_forks_started_together_continue_the_numbering(world: _World) -> None:
         start.wait()
         try:
             batches.append(handle._fork_many(2, boot_timeout=30))
-        except BaseException as exc:  # noqa: BLE001 - reported below
+        except Exception as exc:  # noqa: BLE001 - reported below
             errors.append(exc)
 
     threads = [threading.Thread(target=fork) for _ in range(3)]
