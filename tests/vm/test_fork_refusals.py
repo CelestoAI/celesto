@@ -67,6 +67,7 @@ from tests.vm.test_fork_children import (  # noqa: F401 - fixture
     _World,
     world,
 )
+from tests.vm.test_snapshot_lock_names import _files_outside_locks
 
 _OLDER_IMAGE = (
     "Sandbox '{name}' was created from an older image and can't be forked. "
@@ -257,13 +258,19 @@ def test_macos_and_windows_sandboxes_are_refused(
 
 
 @pytest.mark.parametrize("count", [1, 2])
-def test_a_name_that_is_not_a_sandbox_name_is_refused(world: _World, count: int) -> None:  # noqa: F811
+@pytest.mark.parametrize("name", ["Exp", "../x", "a/b"])
+def test_a_name_that_is_not_a_sandbox_name_is_refused(
+    world: _World,  # noqa: F811
+    count: int,
+    name: str,
+) -> None:
     source = _source(world)
 
-    assert _refused(world, source, count, name="Exp") == (
-        "'Exp' can't be used as a sandbox name. Use up to 64 lowercase letters, "
+    assert _refused(world, source, count, name=name) == (
+        f"'{name}' can't be used as a sandbox name. Use up to 64 lowercase letters, "
         "numbers, hyphens or underscores, starting and ending with a letter or number."
     )
+    assert _files_outside_locks(world.tmp_path, world.manager) == []
 
 
 def test_a_source_name_too_long_to_number_is_refused(world: _World) -> None:  # noqa: F811

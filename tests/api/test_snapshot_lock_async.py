@@ -66,9 +66,10 @@ def manager(tmp_path: Path) -> CelestoManager:
     return vm_manager
 
 
-def _hold_snapshot_lock(manager: CelestoManager, seconds: float) -> threading.Event:
+def _hold_snapshot_lock(manager: CelestoManager) -> tuple[threading.Event, threading.Event]:
     """Hold the sandbox's snapshot lock from another thread, like a snapshot would."""
     acquired = threading.Event()
+    release = threading.Event()
     lock_path = manager.data_dir / "locks" / f"{VM_ID}.snapshot.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -76,12 +77,12 @@ def _hold_snapshot_lock(manager: CelestoManager, seconds: float) -> threading.Ev
         with lock_path.open("w") as handle:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
             acquired.set()
-            threading.Event().wait(seconds)
+            release.wait()
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     threading.Thread(target=hold, daemon=True).start()
     assert acquired.wait(5)
-    return acquired
+    return acquired, release
 
 
 @pytest.mark.asyncio
@@ -107,20 +108,21 @@ async def test_async_action_waits_for_snapshot_without_blocking_event_loop(
     action: str,
 ) -> None:
     notices: list[str] = []
-    _hold_snapshot_lock(manager, seconds=0.6)
+    noticed = threading.Event()
+    acquired, release = _hold_snapshot_lock(manager)
+    assert acquired.wait(5)
 
-    task = asyncio.create_task(
-        getattr(manager, action)(VM_ID, on_snapshot_wait=lambda: notices.append("waiting"))
-    )
-    loop = asyncio.get_running_loop()
-    started = loop.time()
-    await asyncio.sleep(0.2)
+    def on_wait() -> None:
+        notices.append("waiting")
+        noticed.set()
 
-    # A blocked loop would only wake after the 0.6s hold, with the task done.
-    assert loop.time() - started < 0.5, "the event loop stalled while waiting"
-    assert not task.done(), f"{action} ran while the snapshot still held the lock"
-    assert notices == ["waiting"]
-
+    task = asyncio.create_task(getattr(manager, action)(VM_ID, on_snapshot_wait=on_wait))
+    try:
+        assert await asyncio.to_thread(noticed.wait, 5), "the wait notice did not fire"
+        assert notices == ["waiting"]
+        assert not task.done(), f"{action} ran while the snapshot still held the lock"
+    finally:
+        release.set()
     await asyncio.wait_for(task, timeout=5)
     if action == "async_stop":
         assert manager.state.get_vm(VM_ID).status == VMState.STOPPED
