@@ -380,7 +380,7 @@ def test_sync_fork_deletes_generation_if_snapshot_lock_exit_is_interrupted(
     sandbox._claim_fork_names = lambda current, _name: current
     deleted: list[Path] = []
 
-    def capture(_notify: Any) -> tuple[Any, tuple[str, ...]]:
+    def capture(_notify: Any, **_kwargs: Any) -> tuple[Any, tuple[str, ...]]:
         generation_path.write_bytes(b"captured generation")
         return SimpleNamespace(path=generation_path), ()
 
