@@ -62,7 +62,8 @@ import asyncio
 import fcntl
 import threading
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
@@ -171,22 +172,26 @@ class _Hold:
     def __init__(self) -> None:
         self.entered = threading.Event()
         self.release = threading.Event()
+        self.finished = threading.Event()
 
     def wait_here(self) -> None:
         self.entered.set()
         assert self.release.wait(10), "the test never let the held call go"
+        self.finished.set()
 
 
-async def _cancel_while(hold: _Hold, fork: Any) -> None:
+async def _cancel_while(hold: _Hold, fork: Any) -> bool:
     """Cancel *fork* while *hold* keeps one of its steps open, then await it."""
     task = asyncio.ensure_future(fork)
     assert await asyncio.to_thread(hold.entered.wait, 10), "the held step never ran"
     task.cancel()
     # Let the cancellation reach the fork before the held step finishes.
     await asyncio.sleep(0)
+    returned_early = task.done()
     hold.release.set()
     with pytest.raises(asyncio.CancelledError):
         await task
+    return returned_early or not hold.finished.is_set()
 
 
 def _rows(world: _World) -> list[tuple[str, VMState]]:  # noqa: F811
@@ -262,6 +267,125 @@ def test_cancelling_while_children_start_keeps_started_children_and_removes_the_
     assert _rows(world) == [("src", VMState.STOPPED), ("src-1", VMState.RUNNING)]
     assert world.generations() == []
     assert _lock_is_free(world)
+
+
+def test_cancelling_during_child_start_waits_for_start_to_finish() -> None:
+    from celesto.facade import _ForkPlan
+
+    hold = _Hold()
+    child: Any = SimpleNamespace()
+
+    def start(**_kwargs: Any) -> None:
+        hold.wait_here()
+
+    async def async_start(**_kwargs: Any) -> None:
+        await asyncio.to_thread(start)
+
+    child.start = start
+    child.async_start = async_start
+    child.close = lambda: None
+    facade: Any = Celesto.__new__(Celesto)
+    facade._fork_child_handle = lambda *_args: child
+    facade._confirm_fork_child = lambda *_args: SimpleNamespace(
+        name="src-1", ok=True, sandbox=child
+    )
+    plan = _ForkPlan(
+        source=cast(Any, object()), identity=cast(Any, object()), names=["src-1"], boot_timeout=30
+    )
+
+    returned_early = asyncio.run(_cancel_while(hold, facade._async_start_fork_child(plan, "src-1")))
+
+    assert not returned_early, "cancellation escaped while the child start was still running"
+
+
+def test_cancelling_during_child_handle_creation_closes_handle_after_thread_finishes() -> None:
+    from celesto.facade import _ForkPlan
+
+    hold = _Hold()
+    opened: list[SimpleNamespace] = []
+
+    def held_handle(*_args: Any) -> SimpleNamespace:
+        child = SimpleNamespace(closed=False)
+
+        def close() -> None:
+            child.closed = True
+
+        child.close = close
+        opened.append(child)
+        hold.wait_here()
+        return child
+
+    facade: Any = Celesto.__new__(Celesto)
+    facade._fork_child_handle = held_handle
+    plan = _ForkPlan(
+        source=cast(Any, object()), identity=cast(Any, object()), names=["src-1"], boot_timeout=30
+    )
+
+    returned_early = asyncio.run(_cancel_while(hold, facade._async_start_fork_child(plan, "src-1")))
+
+    assert not returned_early, "cancellation escaped while the handle factory was still running"
+    assert len(opened) == 1
+    assert opened[0].closed
+
+
+def test_sync_fork_deletes_generation_if_snapshot_lock_exit_is_interrupted(
+    tmp_path: Path,
+) -> None:
+    import contextlib
+    from types import TracebackType
+
+    from celesto.facade import _ForkPlan
+
+    class InterruptOnExit:
+        def __enter__(self) -> None:
+            return None
+
+        def __exit__(
+            self,
+            _exc_type: type[BaseException] | None,
+            _exc: BaseException | None,
+            _traceback: TracebackType | None,
+        ) -> bool:
+            raise KeyboardInterrupt("interrupted while releasing snapshot lock")
+
+    class SDK:
+        @staticmethod
+        def _fork_names_lock(*_args: Any, **_kwargs: Any) -> Any:
+            return contextlib.nullcontext()
+
+        @staticmethod
+        def _vm_snapshot_lock(*_args: Any, **_kwargs: Any) -> InterruptOnExit:
+            return InterruptOnExit()
+
+    generation_path = tmp_path / "generation.qcow2"
+    sandbox: Any = Celesto.__new__(Celesto)
+    sandbox._vm_id = "src"
+    sandbox._sdk = SDK()
+    plan = _ForkPlan(
+        source=cast(Any, object()), identity=cast(Any, object()), names=["src-1"], boot_timeout=30
+    )
+    sandbox._plan_fork = lambda *_args, **_kwargs: plan
+    sandbox._claim_fork_names = lambda current, _name: current
+    deleted: list[Path] = []
+
+    def capture(_notify: Any) -> tuple[Any, tuple[str, ...]]:
+        generation_path.write_bytes(b"captured generation")
+        return SimpleNamespace(path=generation_path), ()
+
+    def delete_generation(generation: Any) -> tuple[str, ...]:
+        deleted.append(generation.path)
+        generation.path.unlink()
+        return ()
+
+    sandbox._capture_fork_generation = capture
+    sandbox._delete_fork_generation = delete_generation
+
+    with pytest.raises(KeyboardInterrupt, match="interrupted while releasing"):
+        sandbox._fork_many(1, boot_timeout=30)
+
+    assert len(deleted) == 1
+    assert deleted == [generation_path]
+    assert not generation_path.exists()
 
 
 @pytest.mark.parametrize("step", ["copy", "start"])

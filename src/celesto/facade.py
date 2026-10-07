@@ -4325,6 +4325,7 @@ modprobe 9pnet_virtio""".strip()
                 made.discard(child)  # a failed start removes the child itself
             elif stopping.is_set():
                 # Passed its check after the interrupt: it is removed with the rest.
+                assert result.sandbox is not None
                 with suppress(Exception):
                     result.sandbox.close()
             else:
@@ -4338,21 +4339,25 @@ modprobe 9pnet_virtio""".strip()
             # wait no longer.
             with self._sdk._fork_names_lock(self._vm_id, on_wait=wait_notice):
                 plan = self._claim_fork_names(plan, name)
-                with self._sdk._vm_snapshot_lock(self._vm_id, on_wait=wait_notice):
-                    (generation, warnings), interrupted = _finish_despite_interrupt(
-                        lambda: self._capture_fork_generation(notify)
-                    )
+                generation: SnapshotInfo | None = None
+                warnings: tuple[str, ...] = ()
                 try:
+                    with self._sdk._vm_snapshot_lock(self._vm_id, on_wait=wait_notice):
+                        (generation, warnings), interrupted = _finish_despite_interrupt(
+                            lambda: self._capture_fork_generation(notify)
+                        )
                     if interrupted:
                         raise KeyboardInterrupt
+                    assert generation is not None
                     copies = _run_fork_steps(copy, plan.names, workers, stopping)
                 finally:
-                    deleted, interrupted = _finish_despite_interrupt(
-                        lambda: self._delete_fork_generation(generation)
-                    )
-                    warnings += deleted
-                    if interrupted:
-                        raise KeyboardInterrupt
+                    if generation is not None:
+                        deleted, interrupted = _finish_despite_interrupt(
+                            lambda: self._delete_fork_generation(generation)
+                        )
+                        warnings += deleted
+                        if interrupted:
+                            raise KeyboardInterrupt
             children = _run_fork_steps(
                 start, list(zip(plan.names, copies, strict=True)), workers, stopping
             )
@@ -4437,6 +4442,10 @@ modprobe 9pnet_virtio""".strip()
                 made.discard(child)  # a failed start removes the child itself
             elif not stopping.is_set():
                 verified.add(child)
+            elif result.sandbox is not None:
+                # It finished after cancellation, so the fork won't return its handle.
+                with suppress(Exception):
+                    result.sandbox.close()
             return result
 
         try:
@@ -4742,10 +4751,19 @@ modprobe 9pnet_virtio""".strip()
         # The worker-thread steps finish before a cancellation is raised, so
         # the fork never removes a child while one of them still uses it.
         child: Celesto | None = None
+        opened: list[Celesto] = []
         try:
-            child = await _thread_despite_cancel(self._fork_child_handle, plan, name)
+
+            def open_child() -> Celesto:
+                result = self._fork_child_handle(plan, name)
+                opened.append(result)
+                return result
+
+            child = await _thread_despite_cancel(open_child)
             deadline = time.monotonic() + plan.boot_timeout
-            await child.async_start(boot_timeout=plan.boot_timeout)
+            await _thread_despite_cancel(
+                functools.partial(child.start, boot_timeout=plan.boot_timeout)
+            )
             return await _thread_despite_cancel(self._confirm_fork_child, plan, child, deadline)
         except Exception as exc:  # noqa: BLE001 - one child's failure never stops the rest
             return await _thread_despite_cancel(
@@ -4755,6 +4773,8 @@ modprobe 9pnet_virtio""".strip()
             )
         except BaseException:
             # Cancelled: the fork removes this child; only the handle is ours.
+            if child is None and opened:
+                child = opened[0]
             if child is not None:
                 with suppress(Exception):
                     child.close()
