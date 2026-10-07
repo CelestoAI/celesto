@@ -43,6 +43,7 @@ Ways the reset could fail, written before the shell code:
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -269,6 +270,45 @@ def test_failed_key_generation_does_not_save_instance_id(guest: _Guest, tmp_path
     assert guest.host_key() is not None
     assert guest.host_key() != old_key
     assert (guest.read("etc/celesto/instance-id") or "").strip() == _ID_A
+
+
+def test_identity_files_are_synced_before_and_after_saving_instance_id(
+    guest: _Guest, tmp_path: Path
+) -> None:
+    guest.plant_old_identity()
+    bin_dir = tmp_path / "sync-bin"
+    bin_dir.mkdir()
+    for tool in ("tr", "grep", "head", "cut", "cat", "rm", "mkdir", "od", "mv", "chmod"):
+        found = shutil.which(tool)
+        assert found is not None, tool
+        (bin_dir / tool).symlink_to(found)
+
+    sync_log = tmp_path / "sync-state.log"
+    root = guest.root
+    (bin_dir / "sync").write_text(
+        "#!/bin/sh\n"
+        f"printf '%s|%s|%s\\n' "
+        f"\"$(cat '{root}/etc/ssh/ssh_host_ed25519_key.pub' 2>/dev/null)\" "
+        f"\"$(cat '{root}/etc/machine-id' 2>/dev/null)\" "
+        f"\"$(cat '{root}/etc/celesto/instance-id' 2>/dev/null)\" "
+        f">> '{sync_log}'\n"
+    )
+    (bin_dir / "sync").chmod(0o755)
+
+    path = f"{bin_dir}:{os.environ['PATH']}"
+    result = guest.boot(_boot_line(_ID_A), path=path)
+
+    assert result.returncode == 0, result.stderr
+    sync_states = sync_log.read_text().splitlines()
+    assert len(sync_states) == 2, sync_states
+    key_before_instance_id, machine_before_instance_id, id_before = sync_states[0].split("|")
+    key_after_instance_id, machine_after_instance_id, id_after = sync_states[1].split("|")
+    assert key_before_instance_id
+    assert machine_before_instance_id != "11111111111111111111111111111111"
+    assert id_before == ""
+    assert key_after_instance_id == key_before_instance_id
+    assert machine_after_instance_id == machine_before_instance_id
+    assert id_after == _ID_A
 
 
 def test_both_startup_scripts_share_one_reset_that_runs_before_services() -> None:

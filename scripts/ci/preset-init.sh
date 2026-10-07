@@ -160,9 +160,11 @@ celesto_reset_identity() {
         echo "Celesto init: could not create SSH host keys" >&2
         return 1
     fi
+    sync
     mkdir -p "$ID_ROOT/etc/celesto"
     printf '%s\n' "$INSTANCE_ID" > "$ID_ROOT/etc/celesto/instance-id.tmp"
     mv -f "$ID_ROOT/etc/celesto/instance-id.tmp" "$ID_ROOT/etc/celesto/instance-id"
+    sync
 }
 # <<< Celesto identity reset
 
