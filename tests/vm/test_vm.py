@@ -108,8 +108,13 @@ class TestCelestoCreate:
             }
         )
 
-        with pytest.raises(CelestoError, match="celesto.instance_id"):
+        with pytest.raises(CelestoError) as caught:
             smol_vm._create(config)
+
+        assert str(caught.value) == (
+            "Sandbox 'vm001' can't set 'celesto.instance_id' in its boot arguments; "
+            "Celesto sets it for you. Remove it from boot_args and create the sandbox again."
+        )
 
     @patch("celesto.vm.NetworkManager")
     def test_create_vm_allocates_resources(

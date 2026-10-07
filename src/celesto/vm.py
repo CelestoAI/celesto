@@ -2523,9 +2523,9 @@ class CelestoManager:
             raise ValueError("config cannot be None")
         if any(part.startswith(f"{_INSTANCE_ID_BOOT_PARAM}=") for part in config.boot_args.split()):
             raise CelestoError(
-                f"Sandbox '{config.vm_id}' boot arguments cannot set its instance ID. "
-                f"Remove 'celesto.instance_id=' and run 'celesto sandbox create --name "
-                f"{config.vm_id}' again.",
+                f"Sandbox '{config.vm_id}' can't set 'celesto.instance_id' in its boot "
+                "arguments; Celesto sets it for you. Remove it from boot_args and create "
+                "the sandbox again.",
                 {"vm_id": config.vm_id},
             )
 
