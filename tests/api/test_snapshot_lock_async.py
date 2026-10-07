@@ -153,13 +153,12 @@ async def test_cancelled_snapshot_lock_waiter_releases_lock_before_returning(
     fcntl.flock(owner.fileno(), fcntl.LOCK_EX)
     waiting = threading.Event()
     notices: list[str] = []
-    task = asyncio.create_task(
-        _enter_and_hold(
-            manager,
-            lock_method,
-            lambda: (waiting.set(), notices.append("waiting")),
-        )
-    )
+
+    def record_wait() -> None:
+        waiting.set()
+        notices.append("waiting")
+
+    task = asyncio.create_task(_enter_and_hold(manager, lock_method, record_wait))
     assert await asyncio.to_thread(waiting.wait, 5)
     task.cancel()
     await asyncio.sleep(0)

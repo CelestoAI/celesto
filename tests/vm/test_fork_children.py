@@ -462,6 +462,11 @@ def test_fork_plan_captures_shared_base_once_and_reuses_it(
     source = world.add_source("qemu", VMState.STOPPED)
     lookups: list[str] = []
     passed_bases: list[Path | None] = []
+
+    def record_base(_source: VMInfo, _disk: Path, _name: str, **kwargs: Any) -> VMInfo:
+        passed_bases.append(kwargs["shared_base"])
+        return world.state.get_vm(_SOURCE)
+
     monkeypatch.setattr(
         source._sdk,
         "_shared_base_image",
@@ -469,13 +474,9 @@ def test_fork_plan_captures_shared_base_once_and_reuses_it(
     )
     monkeypatch.setattr(source._sdk, "_ensure_fork_disk_space", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(source._sdk, "_ensure_fork_ports", lambda *_args: None)
-    monkeypatch.setattr(
-        source._sdk,
-        "_create_from_disk",
-        lambda _source, _disk, _name, **kwargs: passed_bases.append(kwargs["shared_base"]),
-    )
+    monkeypatch.setattr(source._sdk, "_create_from_disk", record_base)
     plan = source._plan_fork(2, name="exp", parallel=1, boot_timeout=30)
-    generation = SimpleNamespace(
+    generation: Any = SimpleNamespace(
         artifacts=SimpleNamespace(disk_path=world.tmp_path / "capture"), created_at=None
     )
     source._create_fork_child(plan, generation, "exp-1")
