@@ -88,7 +88,7 @@ The default address is loopback (`127.0.0.1`). For a server behind an HTTPS reve
 celesto mcp serve --host 0.0.0.0 --port 8000 --allowed-host mcp.example.com
 ```
 
-The reverse proxy should forward requests to `/mcp` and terminate HTTPS. Configure the MCP client with the resulting `https://mcp.example.com/mcp` URL and an `Authorization: Bearer <Celesto API key>` header. Use a private user-level secret store, not a checked-in project config. `--allowed-origin` can be repeated for browser clients that send an `Origin` header.
+The reverse proxy should forward requests to `/mcp` and terminate HTTPS. Configure the MCP client with the resulting `https://mcp.example.com/mcp` URL and an `Authorization: Bearer <Celesto API key>` header. Use a private user-level secret store, not a checked-in project config. `--allowed-origin` can be repeated for browser clients that send an `Origin` header. For a nonstandard public port, allow both `mcp.example.com` and `mcp.example.com:8443`; the server also expands a hostname-only entry to match host ports.
 
 The HTTP gateway is self-hostable, but this release does not deploy a public Celesto endpoint or provide OAuth sign-in. Remote clients must support Streamable HTTP and custom headers; enter the API key in a private client secret setting, not a checked-in config. A Celesto-managed endpoint and OAuth flow require deployment and identity-provider configuration in the Cloud service.
 

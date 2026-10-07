@@ -21,6 +21,7 @@ Let an MCP client connect to a Celesto endpoint over the internet and manage Clo
 - The remote server registers only `cloud_computer_*` tools. It never exposes local VM, host file, browser, or desktop operations.
 - Authentication runs at the HTTP boundary. Missing or invalid API keys receive `401`; keys are validated against the Cloud user-info endpoint before MCP messages are handled.
 - The gateway forwards the validated caller key only to the configured Celesto Cloud API origin. It does not read a server-wide `CELESTO_API_KEY` for remote requests.
+- Cloud-create tools require a caller-provided idempotency key and reuse it when retrying the same request, preventing duplicate persistent allocations after a lost response.
 - The existing stdio server remains the local integration path. It continues to use `celesto auth login` credentials on the user's machine.
 - The implemented remote auth option is static API-key bearer auth. Clients must support custom HTTP headers for this mode. A Celesto OAuth authorization flow is required before calling this universally compatible across remote clients.
 

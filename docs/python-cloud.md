@@ -194,9 +194,9 @@ Pass `api_key=` to override `CELESTO_API_KEY`, and `organization_id=` to select 
 
 Cloud creation accepts `vcpus`, `ram_mb`, `disk_size_mb`, `image`, `template_id`, `template_version`, and `external_volume_enabled`. Local options such as `mounts` and `data_dir` are not cloud options and are rejected. `startup_timeout` and `cleanup_timeout` default to 120 seconds and bound polling; individual network timeout limits are not a guarantee against every stalled or trickling response.
 
-HTTP failures raise `CloudAPIError` with a `status_code`. Missing computers raise `VMNotFoundError`. Transport failures raise `CelestoError`: creation or command execution may have succeeded even when its response was lost. No creation or command request is automatically replayed. Inspect the cloud dashboard before retrying an operation with an unknown outcome.
+HTTP failures raise `CloudAPIError` with a `status_code`. Missing computers raise `VMNotFoundError`. Transport failures raise `CelestoError`: creation or command execution may have succeeded even when its response was lost. Requests are never automatically replayed.
 
-Cloud creation supplies a unique idempotency key, as required by the pool API.
+Each `CloudComputer` normally gets a unique idempotency key at construction. To retry a creation after an unknown outcome, construct the new `CloudComputer` with the same `idempotency_key`; use a new key for a new intended computer. MCP's `cloud_computer_create` tool requires this key for the same reason.
 The Scratch template uses its advertised disk default when `disk_size_mb` is omitted.
 
 ## Live smoke test

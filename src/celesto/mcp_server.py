@@ -17,6 +17,38 @@ def _info(vm: Any) -> dict[str, str]:
     return {"name": info.vm_id, "state": info.status.value}
 
 
+def _expand_allowed_host_patterns(hosts: list[str]) -> list[str]:
+    """Keep configured Host values and add the SDK's explicit wildcard-port pattern."""
+    expanded: list[str] = []
+    for configured in hosts:
+        if configured not in expanded:
+            expanded.append(configured)
+        if configured.endswith(":*"):
+            continue
+
+        hostname: str | None = None
+        if configured.startswith("[") and "]:" in configured:
+            bracket, _, port = configured.partition("]:")
+            if port.isdigit():
+                hostname = f"{bracket}]"
+        elif configured.startswith("[") and configured.endswith("]"):
+            if f"{configured}:*" not in expanded:
+                expanded.append(f"{configured}:*")
+            continue
+        elif configured.count(":") == 1:
+            host_part, _, port = configured.rpartition(":")
+            if port.isdigit():
+                hostname = host_part
+
+        if hostname is not None:
+            if hostname not in expanded:
+                expanded.append(hostname)
+        elif ":" not in configured and f"{configured}:*" not in expanded:
+            expanded.append(f"{configured}:*")
+
+    return expanded
+
+
 def _tool_error(name: str, exc: Exception, action: str) -> Exception:
     from mcp.server.mcpserver.exceptions import ToolError
 
@@ -288,7 +320,7 @@ def create_cloud_http_app(
     from celesto.mcp_server_extra import register_extra_tools
 
     if allowed_hosts:
-        host_allowlist = allowed_hosts
+        host_allowlist = _expand_allowed_host_patterns(allowed_hosts)
     elif host in {"127.0.0.1", "localhost", "::1"}:
         host_allowlist = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
     else:

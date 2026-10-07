@@ -34,6 +34,7 @@ class LocalOptions(TypedDict, total=False):
 class CloudOptions(TypedDict, total=False):
     api_key: str | None
     base_url: str
+    idempotency_key: str | None
     organization_id: str | None
     startup_timeout: float
     cleanup_timeout: float

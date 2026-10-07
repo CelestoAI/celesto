@@ -108,6 +108,7 @@ class _CloudComputer:
         organization_id: str | None = None,
         startup_timeout: float = 120,
         cleanup_timeout: float = 120,
+        idempotency_key: str | None = None,
         vcpus: int | None = None,
         ram_mb: int | None = None,
         disk_size_mb: int | None = None,
@@ -133,6 +134,12 @@ class _CloudComputer:
                 "Set CELESTO_API_KEY, pass api_key=, or run "
                 "'celesto auth login' to use a cloud computer."
             )
+        if idempotency_key is not None and (
+            not isinstance(idempotency_key, str)
+            or not idempotency_key.strip()
+            or len(idempotency_key) > 255
+        ):
+            raise ValueError("idempotency_key must be a nonempty string of at most 255 characters.")
         url = urlsplit(base_url)
         local_http = url.scheme == "http" and url.hostname in {"localhost", "127.0.0.1", "::1"}
         if (
@@ -176,6 +183,7 @@ class _CloudComputer:
         )
         self._startup_timeout = startup_timeout
         self._cleanup_timeout = cleanup_timeout
+        self._idempotency_key = idempotency_key or uuid.uuid4().hex
         self.vm_id: str | None = None
 
     def _call(
@@ -248,7 +256,7 @@ class _CloudComputer:
             create.sync_detailed,
             ComputerResponse,
             body=self._body,
-            idempotency_key=uuid.uuid4().hex,
+            idempotency_key=self._idempotency_key,
         )
         self.vm_id = computer.id
         deadline = time.monotonic() + self._startup_timeout

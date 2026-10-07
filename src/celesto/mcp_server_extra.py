@@ -272,9 +272,20 @@ def register_extra_tools(server: Any, service: Any, annotations: Any, tool_error
         }
 
     @tool(annotations=annotations(destructive_hint=False, open_world_hint=True))
-    def cloud_computer_create(ctx: Context) -> dict[str, str]:
-        """Create a persistent Celesto Cloud computer using the signed-in account."""
-        with closing(CloudComputer(lifetime="persistent", api_key=cloud_api_key(ctx))) as computer:
+    def cloud_computer_create(idempotency_key: str, ctx: Context) -> dict[str, str]:
+        """Create a persistent Cloud computer.
+
+        Use a new key per computer and reuse it on retries.
+        """
+        if not idempotency_key.strip() or len(idempotency_key) > 255:
+            raise tool_error("idempotency_key must be 1 to 255 characters.")
+        with closing(
+            CloudComputer(
+                lifetime="persistent",
+                api_key=cloud_api_key(ctx),
+                idempotency_key=idempotency_key,
+            )
+        ) as computer:
             computer.start()
             return {"name": str(computer.id), "provider": "cloud", "state": "running"}
 
