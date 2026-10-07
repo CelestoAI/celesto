@@ -496,6 +496,7 @@ export class ActionBroker {
         const storefront = await this.ready();
         this.assertAgentControl(controlEpoch);
         await dispatch();
+        this.assertAgentControl(controlEpoch);
         await storefront.navigate("/review");
         this.assertAgentControl(controlEpoch);
       }
