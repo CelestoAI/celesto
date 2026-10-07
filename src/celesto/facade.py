@@ -1124,6 +1124,7 @@ class _ForkPlan:
 
     source: VMInfo
     identity: VMIdentity
+    shared_base: Path | None
     names: list[str]
     boot_timeout: float
 
@@ -4525,11 +4526,18 @@ modprobe 9pnet_virtio""".strip()
         # are claimed again under the fork names lock (_claim_fork_names).
         names = self._fork_child_names(count, name)
 
-        # Raises when the base image the children would share is missing.
-        self._sdk._shared_base_image(source)
-        self._sdk._ensure_fork_disk_space(source, count)
+        # Keep this path: the source may be deleted after capture but before
+        # child copies begin. Each child must keep using this same base image.
+        shared_base = self._sdk._shared_base_image(source)
+        self._sdk._ensure_fork_disk_space(source, count, shared_base=shared_base)
         self._sdk._ensure_fork_ports(source, count)
-        return _ForkPlan(source=source, identity=identity, names=names, boot_timeout=boot_timeout)
+        return _ForkPlan(
+            source=source,
+            identity=identity,
+            shared_base=shared_base,
+            names=names,
+            boot_timeout=boot_timeout,
+        )
 
     def _fork_child_names(self, count: int, name: str | None) -> list[str]:
         """Pick child names against the sandboxes and saved disks there are now."""
@@ -4710,6 +4718,7 @@ modprobe 9pnet_virtio""".strip()
                 generation.artifacts.disk_path,
                 name,
                 forked_at=generation.created_at,
+                shared_base=plan.shared_base,
             )
         except Exception as exc:  # noqa: BLE001 - one child's failure never stops the rest
             return self._fork_child_failed(plan, name, exc, created=False, child=None)
@@ -4727,6 +4736,7 @@ modprobe 9pnet_virtio""".strip()
                 generation.artifacts.disk_path,
                 name,
                 forked_at=generation.created_at,
+                shared_base=plan.shared_base,
             )
         except Exception as exc:  # noqa: BLE001 - one child's failure never stops the rest
             return await asyncio.to_thread(
