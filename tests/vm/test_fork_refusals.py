@@ -54,6 +54,12 @@ from typing import Any
 
 import pytest
 
+from celesto._fork import (
+    child_failed_message,
+    count_message,
+    disk_space_message,
+    identity_not_confirmed_message,
+)
 from celesto.cli import main as cli_main
 from celesto.cli.main import main
 from celesto.comm.rust_http_vsock_channel import RustHttpVsockChannel
@@ -201,12 +207,32 @@ def test_a_count_outside_one_to_ten_is_refused(
     )
 
 
+def test_count_retry_keeps_the_requested_name() -> None:
+    assert count_message("demo", 11, "exp") == (
+        "You can fork 1 to 10 sandboxes at a time; you asked for 11. "
+        "Run 'celesto sandbox fork demo --name exp --count 10'."
+    )
+
+
+def test_retry_messages_include_exact_commands_and_count() -> None:
+    assert identity_not_confirmed_message("exp-1", "demo").endswith(
+        "Run 'celesto sandbox fork demo --name exp-1'."
+    )
+    assert child_failed_message("exp-1", "demo").endswith(
+        "Run 'celesto sandbox fork demo --name exp-1'."
+    )
+    assert disk_space_message("demo", 11, 12_000_000_000, 1_000_000_000).endswith(
+        "Free up space, then run 'celesto sandbox fork demo --count 5'."
+    )
+
+
 def test_a_libkrun_source_is_refused(world: _World) -> None:  # noqa: F811
     source = _source(world, backend="libkrun")
 
     assert _refused(world, source) == (
-        "Sandbox 'src' runs on libkrun, which can't be forked yet. "
-        "Create a sandbox with '--backend qemu' to fork it."
+        "Sandbox 'src' uses an engine that can't be forked yet. "
+        "Run 'celesto sandbox create --name src-qemu --backend qemu', then "
+        "run 'celesto sandbox fork src-qemu'."
     )
 
 
@@ -229,7 +255,9 @@ def test_a_libkrun_source_is_refused(world: _World) -> None:  # noqa: F811
                     guest_version="26.0",
                 ),
             },
-            "macOS sandboxes can't be forked yet.",
+            "Sandbox 'src' runs macOS and can't be forked yet. "
+            "Create 'celesto sandbox create --name src-linux --os linux', then "
+            "run 'celesto sandbox fork src-linux'.",
         ),
         (
             {
@@ -238,7 +266,9 @@ def test_a_libkrun_source_is_refused(world: _World) -> None:  # noqa: F811
                 "boot_mode": "firmware",
                 "kernel_path": None,
             },
-            "Windows sandboxes can't be forked yet.",
+            "Sandbox 'src' runs Windows and can't be forked yet. "
+            "Create 'celesto sandbox create --name src-linux --os linux', then "
+            "run 'celesto sandbox fork src-linux'.",
         ),
     ],
     ids=["macos", "windows"],
@@ -287,12 +317,12 @@ _Usage = namedtuple("_Usage", "total used free")
         (
             3,
             "Forking 'src' 3 times needs about 10.4 GB, but only 3.1 GB is free. "
-            "Free up space or use a smaller '--count'.",
+            "Free up space, then run 'celesto sandbox fork src --count 1'.",
         ),
         (
             1,
             "Forking 'src' once needs about 5.2 GB, but only 3.1 GB is free. "
-            "Free up space or use a smaller '--count'.",
+            "Free up space, then run 'celesto sandbox fork src --count 1'.",
         ),
     ],
 )
@@ -400,20 +430,23 @@ def test_a_generation_that_cannot_be_deleted_is_a_warning_with_the_command(
         (
             {},
             ["--count", "25"],
-            "You can fork 1 to 10 sandboxes at a time; you asked for 25. "
+            "Invalid value for --count: You can fork 1 to 10 sandboxes at a time; "
+            "you asked for 25. "
             "Run 'celesto sandbox fork src --count 10'.",
         ),
         (
             {},
             ["--count", "0"],
-            "You can fork 1 to 10 sandboxes at a time; you asked for 0. "
+            "Invalid value for --count: You can fork 1 to 10 sandboxes at a time; "
+            "you asked for 0. "
             "Run 'celesto sandbox fork src --count 1'.",
         ),
         (
             {"backend": "libkrun"},
             [],
-            "Sandbox 'src' runs on libkrun, which can't be forked yet. "
-            "Create a sandbox with '--backend qemu' to fork it.",
+            "Sandbox 'src' uses an engine that can't be forked yet. "
+            "Run 'celesto sandbox create --name src-qemu --backend qemu', then "
+            "run 'celesto sandbox fork src-qemu'.",
         ),
     ],
     ids=["count-25", "count-0", "libkrun"],
@@ -433,7 +466,7 @@ def test_cli_json_reports_the_refusal_and_exits_1(
 
     out, _err = capsys.readouterr()
     envelope = json.loads(out)
-    assert code == 1
+    assert code == (2 if "--count" in args else 1)
     assert envelope["ok"] is False
     assert envelope["error"]["message"] == message
     assert world.created == []

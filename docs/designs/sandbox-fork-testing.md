@@ -210,7 +210,7 @@ For each case, check that the message is one or two plain sentences, names the r
 1. **Shared folder.** `uv run celesto sandbox create --name shared --os alpine --mount "$PWD"`, then fork `shared`.
 2. **libkrun engine.** On a Mac without QEMU in `PATH` (or with `--backend libkrun`), create a sandbox and fork it. Expect a message suggesting `--backend qemu`.
 3. **Older image.** Create a sandbox from a published Ubuntu image (`--os ubuntu`) before the new images are released, and fork it. Expect the message that suggests `celesto image pull --all`.
-4. **macOS sandbox** (Mac host only). Fork a macOS sandbox. Expect `macOS sandboxes can't be forked yet.`
+4. **macOS sandbox** (Mac host only). Fork a macOS sandbox. Expect a message naming the sandbox and the command to create and fork a Linux sandbox.
 5. **Cloud.** `uv run celesto sandbox fork demo --cloud`. Expect the message suggesting `celesto sandbox create --local`.
 6. **Missing source.** `uv run celesto sandbox fork does-not-exist`. Expect a "not found" style error, with nothing created.
 7. **Bad name.** `uv run celesto sandbox fork demo --name "Bad Name"`. Expect a name error before any waiting or copying.

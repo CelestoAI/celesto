@@ -194,3 +194,60 @@ def test_cloud_sandboxes_are_refused_before_anything_runs(
     else:
         # The error panel wraps long lines inside a border.
         assert cloud_message() in " ".join(err.replace("│", " ").split())
+
+
+def test_child_not_found_is_not_reported_as_missing_source(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from celesto.exceptions import VMNotFoundError
+
+    source = _Source(ForkBatch(children=(), warnings=(), source_state=VMState.STOPPED))
+
+    def fail_child(*args: Any, **kwargs: Any) -> Any:
+        raise VMNotFoundError("captured-child")
+
+    source._fork_many = fail_child  # type: ignore[method-assign]
+    monkeypatch.setattr(cli_main, "_cli_vm_from_id", lambda vm_id, **_: source)
+
+    code = main(["sandbox", "fork", _SOURCE, "--json"])
+
+    out, _ = capsys.readouterr()
+    assert code == 1
+    message = json.loads(out)["error"]["message"]
+    assert message == "VM 'captured-child' not found"
+    assert _SOURCE not in message
+
+
+@pytest.mark.parametrize(
+    ("option", "value"),
+    [("--count", "0"), ("--count", "11"), ("--parallel", "0"), ("--parallel", "11")],
+)
+def test_fork_ranges_are_validated_before_source_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    option: str,
+    value: str,
+) -> None:
+    def unexpected(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("invalid fork options must be rejected before source lookup")
+
+    monkeypatch.setattr(cli_main, "_cli_vm_from_id", unexpected)
+    code = main(["sandbox", "fork", "missing", option, value])
+    out, err = capsys.readouterr()
+    assert code == 2
+    assert "Invalid value" in err
+    assert "not found" not in out + err
+
+
+def test_invalid_count_retry_keeps_the_requested_name(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        cli_main,
+        "_cli_vm_from_id",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("lookup must not run")),
+    )
+    code = main(["sandbox", "fork", "demo", "--name", "exp", "--count", "11"])
+    _, err = capsys.readouterr()
+    assert code == 2
+    assert "celesto sandbox fork demo --name exp --count 10" in " ".join(err.split())

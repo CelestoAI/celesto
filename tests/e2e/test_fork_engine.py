@@ -408,7 +408,8 @@ def test_forks_that_cannot_work_are_refused_before_anything_is_copied(
         report["cases"]["shared-folder"] = {"error": str(caught.value)}
         assert str(caught.value) == (
             f"Sandbox '{shared_name}' uses a shared folder or extra drive, which forks can't "
-            "copy. Create a sandbox without '--mount' to fork it."
+            f"copy. Run 'celesto sandbox create --name {shared_name}-copy' without --mount, "
+            f"then run 'celesto sandbox fork {shared_name}-copy'."
         )
         assert everything() == before
         report["result"] = "passed"

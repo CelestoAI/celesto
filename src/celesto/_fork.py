@@ -105,7 +105,10 @@ def error_state_message(source: str) -> str:
 
 
 def older_image_message(source: str) -> str:
-    """3. The source was created from an image without instance IDs (D17)."""
+    """3. The source was created from an image without instance IDs (D17).
+
+    Keep the pull guidance aligned with the published image release before shipping (R1).
+    """
     return (
         f"Sandbox '{source}' was created from an older image and can't be forked. "
         "Run 'celesto image pull --all', then create a new sandbox with "
@@ -121,12 +124,13 @@ def cloud_message() -> str:
     )
 
 
-def count_message(source: str, count: int) -> str:
+def count_message(source: str, count: int, name: str | None = None) -> str:
     """8. The child count is outside 1 to 10 (D23)."""
     suggested = 1 if count < 1 else MAX_FORK_COUNT
+    name_option = f" --name {name}" if name else ""
     return (
         f"You can fork 1 to {MAX_FORK_COUNT} sandboxes at a time; you asked for {count}. "
-        f"Run 'celesto sandbox fork {source} --count {suggested}'."
+        f"Run 'celesto sandbox fork {source}{name_option} --count {suggested}'."
     )
 
 
@@ -143,7 +147,8 @@ def disk_space_message(source: str, count: int, needed_bytes: int, free_bytes: i
     times = "once" if count == 1 else f"{count} times"
     return (
         f"Forking '{source}' {times} needs about {_gigabytes(needed_bytes)}, but only "
-        f"{_gigabytes(free_bytes)} is free. Free up space or use a smaller '--count'."
+        f"{_gigabytes(free_bytes)} is free. Free up space, then run "
+        f"'celesto sandbox fork {source} --count {max(1, count // 2)}'."
     )
 
 
@@ -172,17 +177,20 @@ def boot_timeout_message(child: str, boot_timeout: float) -> str:
     )
 
 
-def identity_not_confirmed_message(child: str) -> str:
+def identity_not_confirmed_message(child: str, source: str | None = None) -> str:
     """14. A child could not confirm its own identity; it was removed (D18)."""
     return (
         f"Sandbox '{child}' couldn't confirm it has its own identity and was removed. "
-        "Run the fork again."
+        f"Run 'celesto sandbox fork {source or child} --name {child}'."
     )
 
 
-def child_failed_message(child: str) -> str:
+def child_failed_message(child: str, source: str | None = None) -> str:
     """A child failed for another reason; it was removed."""
-    return f"Sandbox '{child}' couldn't be created and was removed. Run the fork again."
+    return (
+        f"Sandbox '{child}' couldn't be created and was removed. "
+        f"Run 'celesto sandbox fork {source or child} --name {child}'."
+    )
 
 
 def stayed_paused_message(source: str) -> str:

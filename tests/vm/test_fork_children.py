@@ -296,7 +296,7 @@ def test_a_child_that_cannot_prove_its_own_identity_is_removed(
     assert not children["src-1"].ok
     assert children["src-1"].error == (
         "Sandbox 'src-1' couldn't confirm it has its own identity and was removed. "
-        "Run the fork again."
+        "Run 'celesto sandbox fork src-1 --name src-1'."
     )
     assert children["src-2"].ok
     assert world.deleted == ["src-1"]
