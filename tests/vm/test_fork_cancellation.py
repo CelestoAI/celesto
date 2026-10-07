@@ -290,7 +290,11 @@ def test_cancelling_during_child_start_waits_for_start_to_finish() -> None:
         name="src-1", ok=True, sandbox=child
     )
     plan = _ForkPlan(
-        source=cast(Any, object()), identity=cast(Any, object()), names=["src-1"], boot_timeout=30
+        source=cast(Any, object()),
+        identity=cast(Any, object()),
+        shared_base=None,
+        names=["src-1"],
+        boot_timeout=30,
     )
 
     returned_early = asyncio.run(_cancel_while(hold, facade._async_start_fork_child(plan, "src-1")))
@@ -318,7 +322,11 @@ def test_cancelling_during_child_handle_creation_closes_handle_after_thread_fini
     facade: Any = Celesto.__new__(Celesto)
     facade._fork_child_handle = held_handle
     plan = _ForkPlan(
-        source=cast(Any, object()), identity=cast(Any, object()), names=["src-1"], boot_timeout=30
+        source=cast(Any, object()),
+        identity=cast(Any, object()),
+        shared_base=None,
+        names=["src-1"],
+        boot_timeout=30,
     )
 
     returned_early = asyncio.run(_cancel_while(hold, facade._async_start_fork_child(plan, "src-1")))
@@ -362,7 +370,11 @@ def test_sync_fork_deletes_generation_if_snapshot_lock_exit_is_interrupted(
     sandbox._vm_id = "src"
     sandbox._sdk = SDK()
     plan = _ForkPlan(
-        source=cast(Any, object()), identity=cast(Any, object()), names=["src-1"], boot_timeout=30
+        source=cast(Any, object()),
+        identity=cast(Any, object()),
+        shared_base=None,
+        names=["src-1"],
+        boot_timeout=30,
     )
     sandbox._plan_fork = lambda *_args, **_kwargs: plan
     sandbox._claim_fork_names = lambda current, _name: current
