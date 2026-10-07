@@ -1596,7 +1596,7 @@ def run_image_build(
             dockerfile=dockerfile_text,
             context=context,
             rootfs_size_mb=size_mb,
-            cache_dir=resolve_image_dir(image_dir),
+            cache_dir=image_dir,
             build_args=parsed_args,
             ssh_capable=False,
         )
