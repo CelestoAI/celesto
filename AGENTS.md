@@ -115,21 +115,23 @@ Shared folder is missing on your machine:
 
 ## Skill routing
 
-Use the matching skill whenever a request fits one of these categories. When
-in doubt, use the skill.
+Choose a skill from the current session's available catalog when it matches
+this task. Invoke it through the agent's skill interface when provided;
+otherwise read its listed `SKILL.md` and follow the applicable instructions.
+Do not assume a slash command or a skill from another installation is available.
 
-| Request | Skill |
-| --- | --- |
-| Product ideas or brainstorming | `/office-hours` |
-| Strategy or scope | `/plan-ceo-review` |
-| Architecture | `/plan-eng-review` |
-| Design system or plan review | `/design-consultation` or `/plan-design-review` |
-| Full review pipeline | `/autoplan` |
-| Bugs or errors | `/investigate` |
-| Site behavior QA or testing | `/qa` or `/qa-only` |
-| Code or diff review | `/review` |
-| Visual polish | `/design-review` |
-| Ship, deploy, or pull request | `/ship` or `/land-and-deploy` |
-| Save progress | `/context-save` |
-| Resume context | `/context-restore` |
-| Backlog-ready specification or issue | `/spec` |
+- Product ideas/brainstorming → `office-hours`
+- Strategy/scope → `plan-ceo-review`
+- Architecture → `plan-eng-review`
+- Design system/plan review → `design-consultation`; use `plan-design-review` when available
+- Full review pipeline → `autoplan` when available; otherwise apply the relevant available planning and review skills
+- Bugs/errors → `investigate`
+- QA/testing site behavior → `qa` or `qa-only`
+- Code review/diff check → `review`
+- Visual polish → `design-review`
+- Ship/deploy/PR → `ship` or `land-and-deploy`
+- Save/resume progress → `context-save` / `context-restore` when available; otherwise use a concise handoff and read that handoff when resuming
+- Backlog-ready spec/issue → `spec`
+
+If a listed skill is unavailable, use the repository's documented workflow
+within the user's scope. Do not install or modify gstack as an implicit fallback.
