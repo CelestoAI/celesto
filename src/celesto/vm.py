@@ -182,11 +182,13 @@ def _qemu_system_package_for_host() -> str:
     return "qemu-system-x86"
 
 
-def _disk_copy_failed_message(vm_id: str) -> str:
+def _disk_copy_failed_message(source: str, name: str | None = None, count: int = 1) -> str:
     """A saved disk couldn't be copied for a fork; paths go in the details."""
+    name_option = f" --name {name}" if name else ""
+    count_option = f" --count {count}" if count > 1 else ""
     return (
-        f"The disk for sandbox '{vm_id}' couldn't be copied. "
-        f"Run 'celesto sandbox fork {vm_id} --name {vm_id}-retry'."
+        f"The disk for sandbox '{source}' couldn't be copied. "
+        f"Run 'celesto sandbox fork {source}{name_option}{count_option}'."
     )
 
 
@@ -2862,14 +2864,14 @@ class CelestoManager:
         if config.guest_os is GuestOS.MACOS:
             raise CelestoError(
                 f"Sandbox '{vm_id}' runs macOS and can't be forked yet. "
-                f"Create 'celesto sandbox create --name {vm_id}-linux --os linux', then "
+                f"Run 'celesto sandbox create --name {vm_id}-linux --os ubuntu', then "
                 f"run 'celesto sandbox fork {vm_id}-linux'.",
                 {"vm_id": vm_id},
             )
         if config.guest_os is GuestOS.WINDOWS:
             raise CelestoError(
                 f"Sandbox '{vm_id}' runs Windows and can't be forked yet. "
-                f"Create 'celesto sandbox create --name {vm_id}-linux --os linux', then "
+                f"Run 'celesto sandbox create --name {vm_id}-linux --os ubuntu', then "
                 f"run 'celesto sandbox fork {vm_id}-linux'.",
                 {"vm_id": vm_id},
             )
@@ -3057,7 +3059,7 @@ class CelestoManager:
         blocks = getattr(stat, "st_blocks", None)
         return blocks * 512 if blocks is not None else stat.st_size
 
-    def _ensure_fork_disk_space(self, source: VMInfo, count: int) -> None:
+    def _ensure_fork_disk_space(self, source: VMInfo, count: int, name: str | None = None) -> None:
         """Refuse a fork whose generation and children won't fit (D23).
 
         The estimate is conservative: it ignores reflink clones, which cost
@@ -3092,7 +3094,7 @@ class CelestoManager:
             free = shutil.disk_usage(directory).free
             if needed > free:
                 raise CelestoError(
-                    disk_space_message(source.vm_id, count, needed, free),
+                    disk_space_message(source.vm_id, count, needed, free, name),
                     {"vm_id": source.vm_id, "needed_bytes": needed, "free_bytes": free},
                 )
 

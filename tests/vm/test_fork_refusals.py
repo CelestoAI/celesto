@@ -48,25 +48,30 @@ locks and generation are real.
 from __future__ import annotations
 
 import json
+import re
+import shlex
 from collections import namedtuple
 from pathlib import Path
 from typing import Any
 
 import pytest
+from click.testing import CliRunner
 
 from celesto._fork import (
     child_failed_message,
     count_message,
     disk_space_message,
     identity_not_confirmed_message,
+    older_image_message,
 )
 from celesto.cli import main as cli_main
+from celesto.cli.commands.app import build_cli
 from celesto.cli.main import main
 from celesto.comm.rust_http_vsock_channel import RustHttpVsockChannel
 from celesto.exceptions import CelestoError
 from celesto.facade import Celesto
 from celesto.types import GuestOS, MacOSMachineConfig, NetworkConfig, VMIdentity, VMState
-from celesto.vm import CelestoManager
+from celesto.vm import CelestoManager, _disk_copy_failed_message
 from tests.vm.test_fork_children import (  # noqa: F401 - fixture
     _SOURCE_FINGERPRINT,
     _SOURCE_MACHINE_ID,
@@ -215,15 +220,58 @@ def test_count_retry_keeps_the_requested_name() -> None:
 
 
 def test_retry_messages_include_exact_commands_and_count() -> None:
-    assert identity_not_confirmed_message("exp-1", "demo").endswith(
+    assert identity_not_confirmed_message("demo", "exp-1").endswith(
         "Run 'celesto sandbox fork demo --name exp-1'."
     )
-    assert child_failed_message("exp-1", "demo").endswith(
+    assert child_failed_message("demo", "exp-1").endswith(
         "Run 'celesto sandbox fork demo --name exp-1'."
     )
-    assert disk_space_message("demo", 11, 12_000_000_000, 1_000_000_000).endswith(
-        "Free up space, then run 'celesto sandbox fork demo --count 5'."
+    assert disk_space_message("demo", 11, 12_000_000_000, 1_000_000_000, "exp").endswith(
+        "Free up space, then run 'celesto sandbox fork demo --name exp --count 5'."
     )
+    assert _disk_copy_failed_message("demo", "exp", 3).endswith(
+        "Run 'celesto sandbox fork demo --name exp --count 3'."
+    )
+
+
+def test_recovery_commands_in_fork_messages_parse_with_the_cli() -> None:
+    messages = [
+        count_message("demo", 11, "exp"),
+        disk_space_message("demo", 11, 12_000_000_000, 1_000_000_000, "exp"),
+        identity_not_confirmed_message("demo", "exp-1"),
+        child_failed_message("demo", "exp-1"),
+        _disk_copy_failed_message("demo", "exp", 3),
+        older_image_message("demo"),
+        "Sandbox 'demo' runs macOS and can't be forked yet. Run "
+        "'celesto sandbox create --name demo-linux --os ubuntu', then "
+        "run 'celesto sandbox fork demo-linux'.",
+        "Sandbox 'demo' runs Windows and can't be forked yet. Run "
+        "'celesto sandbox create --name demo-linux --os ubuntu', then "
+        "run 'celesto sandbox fork demo-linux'.",
+        "Sandbox 'demo' uses an engine that can't be forked yet. Run "
+        "'celesto sandbox create --name demo-qemu --backend qemu', then "
+        "run 'celesto sandbox fork demo-qemu'.",
+        "Sandbox 'demo' uses a shared folder or extra drive, which forks can't copy. "
+        "Run 'celesto sandbox create --name demo-copy' without --mount, then "
+        "run 'celesto sandbox fork demo-copy'.",
+        "Sandbox 'demo' writes directly to its image, so forks can't copy it. "
+        "Run 'celesto sandbox create --name demo-copy', then "
+        "run 'celesto sandbox fork demo-copy'.",
+        "Sandbox 'demo' can't be copied because its image is missing. "
+        "Run 'celesto image pull --all', then create a new sandbox with "
+        "'celesto sandbox create --name demo-copy' and fork that one.",
+    ]
+    commands = sorted(
+        {command for message in messages for command in re.findall(r"'(celesto [^']+)'", message)}
+    )
+    assert commands
+    runner = CliRunner()
+    cli = build_cli()
+    for command in commands:
+        parts = shlex.split(command)
+        assert parts[0] == "celesto"
+        result = runner.invoke(cli, [*parts[1:], "--help"])
+        assert result.exit_code == 0, f"{command}: {result.output}"
 
 
 def test_a_libkrun_source_is_refused(world: _World) -> None:  # noqa: F811
@@ -256,7 +304,7 @@ def test_a_libkrun_source_is_refused(world: _World) -> None:  # noqa: F811
                 ),
             },
             "Sandbox 'src' runs macOS and can't be forked yet. "
-            "Create 'celesto sandbox create --name src-linux --os linux', then "
+            "Run 'celesto sandbox create --name src-linux --os ubuntu', then "
             "run 'celesto sandbox fork src-linux'.",
         ),
         (
@@ -267,7 +315,7 @@ def test_a_libkrun_source_is_refused(world: _World) -> None:  # noqa: F811
                 "kernel_path": None,
             },
             "Sandbox 'src' runs Windows and can't be forked yet. "
-            "Create 'celesto sandbox create --name src-linux --os linux', then "
+            "Run 'celesto sandbox create --name src-linux --os ubuntu', then "
             "run 'celesto sandbox fork src-linux'.",
         ),
     ],

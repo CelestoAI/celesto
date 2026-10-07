@@ -706,10 +706,8 @@ def sandbox_fork(
     if count < 1 or count > 10:
         raise click.BadParameter(count_message(vm_id, count, name), param_hint="--count")
     if parallel < 1 or parallel > 10:
-        raise click.BadParameter(
-            f"Choose a value from 1 to 10; for example, run "
-            f"'celesto sandbox fork {vm_id} --parallel 10'.",
-            param_hint="--parallel",
+        raise click.UsageError(
+            f"'--parallel' must be from 1 to 10. Run 'celesto sandbox fork {vm_id} --parallel 10'."
         )
     _before_command(json_output=json_output)
     return _handlers()._run_fork(

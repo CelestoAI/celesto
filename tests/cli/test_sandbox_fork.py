@@ -105,6 +105,7 @@ def partial(monkeypatch: pytest.MonkeyPatch) -> tuple[_Source, _Child]:
         ),
         warnings=(_WARNING,),
         source_state=VMState.PAUSED,
+        source=_SOURCE,
     )
     source = _Source(batch)
     monkeypatch.setattr(cli_main, "_cli_vm_from_id", lambda vm_id, **_: source)
@@ -201,7 +202,9 @@ def test_child_not_found_is_not_reported_as_missing_source(
 ) -> None:
     from celesto.exceptions import VMNotFoundError
 
-    source = _Source(ForkBatch(children=(), warnings=(), source_state=VMState.STOPPED))
+    source = _Source(
+        ForkBatch(children=(), warnings=(), source_state=VMState.STOPPED, source=_SOURCE)
+    )
 
     def fail_child(*args: Any, **kwargs: Any) -> Any:
         raise VMNotFoundError("captured-child")
@@ -235,7 +238,12 @@ def test_fork_ranges_are_validated_before_source_lookup(
     code = main(["sandbox", "fork", "missing", option, value])
     out, err = capsys.readouterr()
     assert code == 2
-    assert "Invalid value" in err
+    if option == "--count":
+        assert "Invalid value" in err
+    else:
+        assert (
+            "'--parallel' must be from 1 to 10. Run 'celesto sandbox fork missing --parallel 10'."
+        ) in " ".join(err.split())
     assert "not found" not in out + err
 
 

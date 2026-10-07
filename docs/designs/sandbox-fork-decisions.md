@@ -172,7 +172,7 @@ Full research notes: the Claude Code session that produced them, and the local E
       3. Older image (D17): "Sandbox 'sbx-einstein' was created from an older image and can't be forked. Run 'celesto image pull --all', then create a new sandbox with 'celesto sandbox create' and fork that one."
       4. Shared folder or extra drive (D21): "Sandbox 'sbx-einstein' uses a shared folder or extra drive, which forks can't copy. Run 'celesto sandbox create --name sbx-einstein-copy' without --mount, then run 'celesto sandbox fork sbx-einstein-copy'."
       5. libkrun (D29): "Sandbox 'sbx-einstein' uses an engine that can't be forked yet. Run 'celesto sandbox create --name sbx-einstein-qemu --backend qemu', then run 'celesto sandbox fork sbx-einstein-qemu'."
-      6. macOS or Windows guest (D29): name the sandbox and give the command to create and fork a Linux sandbox.
+      6. macOS or Windows guest (D29): "Sandbox 'sbx-einstein' runs macOS and can't be forked yet. Run 'celesto sandbox create --name sbx-einstein-linux --os ubuntu', then run 'celesto sandbox fork sbx-einstein-linux'." Use the matching guest OS in the first sentence for Windows.
       7. Cloud sandbox (D4): "Fork works only on sandboxes on this machine for now. Run 'celesto sandbox create --local' to create one."
       8. Count out of range (D23): "You can fork 1 to 10 sandboxes at a time; you asked for 25. Run 'celesto sandbox fork sbx-einstein --count 10'." When fewer than 1 is asked for, it suggests '--count 1' instead.
       9. Name taken (D23, D26): "A sandbox named 'exp-1' already exists. Choose another name with '--name', or run 'celesto sandbox delete exp-1'."
@@ -188,7 +188,7 @@ Full research notes: the Claude Code session that produced them, and the local E
       24. Stopped source has no disk of its own (D7; added in PR 5): "Sandbox 'sbx-einstein' has no disk of its own to copy. Create a new sandbox with 'celesto sandbox create' and fork that one."
       25. Source not found (D26; added in PR 6): "Sandbox 'sbx-einstein' was not found; run 'celesto sandbox list' to choose one."
       26. Base image missing (D10; added in PR 4): "Sandbox 'sbx-einstein' can't be copied because its image is missing. Run 'celesto image pull --all', then create a new sandbox with 'celesto sandbox create --name sbx-einstein-copy' and fork that one."
-      27. The stopped source's disk couldn't be copied (D7; added in review): "The disk for sandbox 'sbx-einstein' couldn't be copied. Run 'celesto sandbox fork sbx-einstein --name sbx-einstein-retry'." File paths and `qemu-img` output stay in the error details, not in the message.
+      27. The stopped source's disk couldn't be copied (D7; added in review): "The disk for sandbox 'sbx-einstein' couldn't be copied. Run 'celesto sandbox fork sbx-einstein --name exp --count 3'." Include the requested `--name` and `--count` when supplied. File paths and `qemu-img` output stay in the error details, not in the message.
     - **Per child (that child fails; the others continue, D24):**
       13. Boot timeout: "Sandbox 'sbx-einstein-2' didn't start within 60 seconds and was removed. Run the fork again with '--boot-timeout 120'."
       14. Reset not confirmed (D18): "Sandbox 'sbx-einstein-2' couldn't confirm it has its own identity and was removed. Run 'celesto sandbox fork sbx-einstein --name sbx-einstein-2'."

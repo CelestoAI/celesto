@@ -89,6 +89,28 @@ def test_fork_raises_the_childs_message_when_it_fails(
     assert world.deleted == ["exp"]
 
 
+def test_single_fork_fallback_uses_the_batch_source(
+    world: _World,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = world.add_source("firecracker", VMState.STOPPED)
+    batch = ForkBatch(
+        children=(ForkResult(name="demo-1", ok=False),),
+        warnings=(),
+        source_state=VMState.STOPPED,
+        source="demo",
+    )
+    monkeypatch.setattr(Celesto, "_fork_many", lambda *args, **kwargs: batch)
+
+    with pytest.raises(CelestoError) as caught:
+        source.fork("demo-1")
+
+    assert str(caught.value) == (
+        "Sandbox 'demo-1' couldn't be created and was removed. "
+        "Run 'celesto sandbox fork demo --name demo-1'."
+    )
+
+
 @pytest.mark.parametrize("use_async", [False, True], ids=["sync", "async"])
 def test_fork_many_returns_a_failed_child_instead_of_raising(
     world: _World,  # noqa: F811
@@ -120,6 +142,7 @@ def test_fork_emits_batch_warnings_as_celesto_warnings_at_the_callers_line(
         children=(ForkResult(name="exp", ok=True, sandbox=child),),
         warnings=(_PAUSED_WARNING,),
         source_state=VMState.PAUSED,
+        source="src",
     )
 
     def fake(*args: Any, **kwargs: Any) -> ForkBatch:

@@ -50,7 +50,7 @@ _REAL_DELETE_UNLOCKED = CelestoManager._delete_unlocked
 
 _FAILED = (
     "Sandbox 'src-1' couldn't be created and was removed. "
-    "Run 'celesto sandbox fork src-1 --name src-1'."
+    "Run 'celesto sandbox fork src --name src-1'."
 )
 
 # A stand-in for qemu-img. Every disk is a qcow2 layer on the base image.

@@ -163,7 +163,7 @@ from celesto.types import (
     VsockConfig,
     WorkspaceMount,
 )
-from celesto.vm import CelestoManager
+from celesto.vm import CelestoManager, _disk_copy_failed_message
 
 logger = logging.getLogger(__name__)
 
@@ -1004,7 +1004,8 @@ def _single_fork_child(batch: ForkBatch, *, stacklevel: int) -> Celesto:
     (result,) = batch.children
     if not result.ok or result.sandbox is None:
         raise CelestoError(
-            result.error or child_failed_message(result.name), {"vm_id": result.name}
+            result.error or child_failed_message(batch.source, result.name),
+            {"vm_id": result.name},
         )
     return result.sandbox
 
@@ -4340,7 +4341,7 @@ modprobe 9pnet_virtio""".strip()
                 plan = self._claim_fork_names(plan, name)
                 with self._sdk._vm_snapshot_lock(self._vm_id, on_wait=wait_notice):
                     (generation, warnings), interrupted = _finish_despite_interrupt(
-                        lambda: self._capture_fork_generation(notify)
+                        lambda: self._capture_fork_generation(notify, name=name, count=count)
                     )
                 try:
                     if interrupted:
@@ -4363,7 +4364,10 @@ modprobe 9pnet_virtio""".strip()
                 _finish_despite_interrupt(lambda: self._remove_fork_children(unstarted))
             raise
         return ForkBatch(
-            children=tuple(children), warnings=warnings, source_state=self._fork_source_state()
+            children=tuple(children),
+            warnings=warnings,
+            source_state=self._fork_source_state(),
+            source=self._vm_id,
         )
 
     def _fork_source_state(self) -> VMState | None:
@@ -4449,7 +4453,9 @@ modprobe 9pnet_virtio""".strip()
                 try:
                     async with self._sdk._async_vm_snapshot_lock(self._vm_id, on_wait=wait_notice):
                         (capture,), cancelled = await _finish_despite_cancel(
-                            asyncio.to_thread(self._capture_fork_generation, notify)
+                            asyncio.to_thread(
+                                self._capture_fork_generation, notify, name=name, count=count
+                            )
                         )
                         if cancelled:
                             if capture.exception() is None:
@@ -4492,7 +4498,12 @@ modprobe 9pnet_virtio""".strip()
                     asyncio.to_thread(self._remove_fork_children, unstarted)
                 )
             raise
-        return ForkBatch(children=tuple(children), warnings=warnings, source_state=source_state)
+        return ForkBatch(
+            children=tuple(children),
+            warnings=warnings,
+            source_state=source_state,
+            source=self._vm_id,
+        )
 
     def _plan_fork(
         self, count: int, *, name: str | None, parallel: int, boot_timeout: float
@@ -4518,7 +4529,7 @@ modprobe 9pnet_virtio""".strip()
 
         # Raises when the base image the children would share is missing.
         self._sdk._shared_base_image(source)
-        self._sdk._ensure_fork_disk_space(source, count)
+        self._sdk._ensure_fork_disk_space(source, count, name)
         self._sdk._ensure_fork_ports(source, count)
         return _ForkPlan(source=source, identity=identity, names=names, boot_timeout=boot_timeout)
 
@@ -4619,7 +4630,7 @@ modprobe 9pnet_virtio""".strip()
         )
 
     def _capture_fork_generation(
-        self, notify: Callable[[str], None]
+        self, notify: Callable[[str], None], *, name: str | None, count: int
     ) -> tuple[SnapshotInfo, tuple[str, ...]]:
         """Save the generation; the caller holds this sandbox's snapshot lock.
 
@@ -4631,12 +4642,21 @@ modprobe 9pnet_virtio""".strip()
         self._refresh_info()
         self._ensure_fork_state(self._info)
         generation_id = self._sdk._fork_generation_id(vm_id)
+
+        def capture(policy: SnapshotCapturePolicy) -> SnapshotInfo:
+            try:
+                return self._sdk._capture_fork_generation(
+                    vm_id, generation_id, capture_policy=policy
+                )
+            except DiskCopyError as exc:
+                raise DiskCopyError(
+                    _disk_copy_failed_message(vm_id, name, count), exc.details
+                ) from exc
+
         was_running = self._info.status == VMState.RUNNING
         if not was_running:
             # Shutdown already wrote everything to disk: no flush, no pause.
-            generation = self._sdk._capture_fork_generation(
-                vm_id, generation_id, capture_policy=SnapshotCapturePolicy.ALLOW_PAUSE
-            )
+            generation = capture(SnapshotCapturePolicy.ALLOW_PAUSE)
             return generation, ()
 
         try:
@@ -4647,16 +4667,12 @@ modprobe 9pnet_virtio""".strip()
             if self._sdk._backend_for_vm(self._info) == BACKEND_QEMU:
                 # Never fall back to a pause: the source must keep running.
                 try:
-                    generation = self._sdk._capture_fork_generation(
-                        vm_id, generation_id, capture_policy=SnapshotCapturePolicy.LIVE_ONLY
-                    )
+                    generation = capture(SnapshotCapturePolicy.LIVE_ONLY)
                 except Exception as exc:
                     raise CelestoError(live_copy_failed_message(vm_id), {"vm_id": vm_id}) from exc
             else:
                 notify(pausing_notice(vm_id))
-                generation = self._sdk._capture_fork_generation(
-                    vm_id, generation_id, capture_policy=SnapshotCapturePolicy.ALLOW_PAUSE
-                )
+                generation = capture(SnapshotCapturePolicy.ALLOW_PAUSE)
         finally:
             self._refresh_info()
             self._reset_runtime_state()
@@ -4818,7 +4834,7 @@ modprobe 9pnet_virtio""".strip()
         if isinstance(exc, (OperationTimeoutError, TimeoutError)):
             error = boot_timeout_message(name, plan.boot_timeout)
         elif isinstance(exc, _ForkIdentityError):
-            error = identity_not_confirmed_message(name)
+            error = identity_not_confirmed_message(self._vm_id, name)
         elif isinstance(exc, VMAlreadyExistsError):
             error = name_taken_message(name)
         elif isinstance(exc, CelestoError) and not created and not isinstance(exc, DiskCopyError):
@@ -4826,7 +4842,7 @@ modprobe 9pnet_virtio""".strip()
             # way); its message says why. A failed disk copy is message 20.
             error = str(exc)
         else:
-            error = child_failed_message(name)
+            error = child_failed_message(self._vm_id, name)
         return ForkResult(name=name, ok=False, error=error)
 
     def _wait_for_ssh_over_network(self, timeout: float, *, as_control: bool = False) -> None:

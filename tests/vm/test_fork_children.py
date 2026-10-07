@@ -57,7 +57,7 @@ from typing import Any
 import pytest
 
 from celesto.comm.rust_http_vsock_channel import RustHttpVsockChannel
-from celesto.exceptions import CelestoError, OperationTimeoutError
+from celesto.exceptions import CelestoError, DiskCopyError, OperationTimeoutError
 from celesto.facade import Celesto
 from celesto.guest_identity import ssh_host_key_fingerprint
 from celesto.storage._memory import MemoryStateManager
@@ -296,7 +296,7 @@ def test_a_child_that_cannot_prove_its_own_identity_is_removed(
     assert not children["src-1"].ok
     assert children["src-1"].error == (
         "Sandbox 'src-1' couldn't confirm it has its own identity and was removed. "
-        "Run 'celesto sandbox fork src-1 --name src-1'."
+        "Run 'celesto sandbox fork src --name src-1'."
     )
     assert children["src-2"].ok
     assert world.deleted == ["src-1"]
@@ -318,6 +318,25 @@ def test_a_failed_qemu_live_copy_fails_the_fork_without_pausing(world: _World) -
     assert world.created == []
     assert world.generations() == []
     assert world.state.get_vm(_SOURCE).status == VMState.RUNNING
+
+
+def test_a_generation_copy_error_retries_with_source_and_requested_name(
+    world: _World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = world.add_source("qemu", VMState.STOPPED)
+
+    def fail_capture(*args: Any, **kwargs: Any) -> Any:
+        raise DiskCopyError("internal copy detail", {"vm_id": "src"})
+
+    monkeypatch.setattr(CelestoManager, "_capture_fork_generation", fail_capture)
+
+    with pytest.raises(DiskCopyError) as caught:
+        source._fork_many(3, name="exp", boot_timeout=30)
+
+    assert str(caught.value) == (
+        "The disk for sandbox 'src' couldn't be copied. "
+        "Run 'celesto sandbox fork src --name exp --count 3'."
+    )
 
 
 def _names_of(batch: Any) -> list[str]:

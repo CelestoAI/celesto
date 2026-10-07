@@ -79,11 +79,13 @@ class ForkBatch:
             staying paused (D8).
         source_state: The source's state after the fork, or None if the source
             was deleted while the fork finished.
+        source: Name of the source sandbox, used to build recovery commands.
     """
 
     children: tuple[ForkResult, ...]
     warnings: tuple[str, ...]
     source_state: VMState | None
+    source: str
 
 
 # ----------------------------------------------------------------------
@@ -142,13 +144,16 @@ def name_taken_message(name: str) -> str:
     )
 
 
-def disk_space_message(source: str, count: int, needed_bytes: int, free_bytes: int) -> str:
+def disk_space_message(
+    source: str, count: int, needed_bytes: int, free_bytes: int, name: str | None = None
+) -> str:
     """10. Not enough disk space for the generation and every child (D23)."""
     times = "once" if count == 1 else f"{count} times"
+    name_option = f" --name {name}" if name else ""
     return (
         f"Forking '{source}' {times} needs about {_gigabytes(needed_bytes)}, but only "
         f"{_gigabytes(free_bytes)} is free. Free up space, then run "
-        f"'celesto sandbox fork {source} --count {max(1, count // 2)}'."
+        f"'celesto sandbox fork {source}{name_option} --count {max(1, count // 2)}'."
     )
 
 
@@ -177,19 +182,19 @@ def boot_timeout_message(child: str, boot_timeout: float) -> str:
     )
 
 
-def identity_not_confirmed_message(child: str, source: str | None = None) -> str:
+def identity_not_confirmed_message(source: str, child: str) -> str:
     """14. A child could not confirm its own identity; it was removed (D18)."""
     return (
         f"Sandbox '{child}' couldn't confirm it has its own identity and was removed. "
-        f"Run 'celesto sandbox fork {source or child} --name {child}'."
+        f"Run 'celesto sandbox fork {source} --name {child}'."
     )
 
 
-def child_failed_message(child: str, source: str | None = None) -> str:
+def child_failed_message(source: str, child: str) -> str:
     """A child failed for another reason; it was removed."""
     return (
         f"Sandbox '{child}' couldn't be created and was removed. "
-        f"Run 'celesto sandbox fork {source or child} --name {child}'."
+        f"Run 'celesto sandbox fork {source} --name {child}'."
     )
 
 
