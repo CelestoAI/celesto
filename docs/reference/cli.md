@@ -74,7 +74,7 @@ For Claude Code, register the local server and then run `/mcp` in Claude Code to
 claude mcp add celesto -- celesto mcp start
 ```
 
-Computer tools cover lifecycle, details, logs, commands, file upload and download, environment variables, localhost port forwarding, and snapshots. `computer_doctor` checks local setup and `computer_templates` lists built-in templates. Command results include the exit code, elapsed time, timeout, and up to 16,384 characters each of standard output and standard error, with flags when output was shortened. `browser_*` tools manage local browser sessions; `desktop_*` tools manage visible desktops. Computer creation starts Ubuntu; first use may download its image.
+Local computer tools cover lifecycle, details, logs, commands, file upload and download, environment variables, localhost port forwarding, and snapshots. `computer_doctor` checks local setup and `computer_templates` lists built-in templates. `cloud_computer_*` tools create, list, inspect, run commands on, start, stop, and delete Cloud computers, and publish or list their public ports. Run `celesto auth login` to save the credentials the MCP server uses for Cloud calls. Command results include the exit code, elapsed time, timeout, and up to 16,384 characters each of standard output and standard error, with flags when output was shortened. `browser_*` tools manage local browser sessions; `desktop_*` tools manage visible desktops. Local computer creation starts Ubuntu; first use may download its image.
 
 ## Start a prepared agent
 

@@ -15,9 +15,13 @@ def register_extra_tools(
     server: Any, service: CLIService, annotations: Any, tool_error: Any
 ) -> None:
     """Register local operations beyond the core computer lifecycle."""
+    from celesto import CloudComputer
+    from celesto._providers.cloud import get_cloud_computer, list_cloud_computers
     from celesto.browser import _BrowserSandbox, _DesktopSandbox
     from celesto.host.doctor import generate_doctor_report
     from celesto.types import BrowserSessionConfig
+
+    cloud_output_cap = 16_384
 
     def tool(*, annotations: Any) -> Any:
         def register(function: Any) -> Any:
@@ -29,14 +33,22 @@ def register_extra_tools(
                     raise
                 except Exception as exc:
                     subject = kwargs.get("name") or kwargs.get("session_id") or "resource"
-                    if function.__name__.startswith("browser_") or function.__name__.startswith(
+                    function_name = function.__name__
+                    if function_name.startswith("cloud_computer_"):
+                        recovery = "celesto computer list --cloud"
+                        if isinstance(exc, ValueError) and "CELESTO_API_KEY" in str(exc):
+                            raise tool_error(
+                                "Cloud access is not configured. Run 'celesto auth login', "
+                                "then restart the MCP connection."
+                            ) from exc
+                    elif function_name.startswith("browser_") or function_name.startswith(
                         "desktop_"
                     ):
                         recovery = "celesto browser list"
                     else:
                         recovery = "celesto computer list --all"
                     raise tool_error(
-                        f"Could not complete {function.__name__.replace('_', ' ')} for "
+                        f"Could not complete {function_name.replace('_', ' ')} for "
                         f"'{subject}'. Run '{recovery}' to check its state."
                     ) from exc
 
@@ -242,6 +254,120 @@ def register_extra_tools(
             "failures": len(report.failures),
             "warnings": len(report.warnings),
         }
+
+    @tool(annotations=annotations(destructive_hint=False, open_world_hint=True))
+    def cloud_computer_create() -> dict[str, str]:
+        """Create a persistent Celesto Cloud computer using the signed-in account."""
+        computer = CloudComputer(lifetime="persistent")
+        try:
+            computer.start()
+            return {"name": str(computer.id), "provider": "cloud", "state": "running"}
+        finally:
+            computer.close()
+
+    @tool(annotations=annotations(read_only_hint=True, open_world_hint=True))
+    def cloud_computer_list(limit: int = 50) -> dict[str, Any]:
+        """List Celesto Cloud computers visible to the signed-in account."""
+        if not 1 <= limit <= 100:
+            raise tool_error("Cloud computer list limit must be between 1 and 100.")
+        computers, possibly_truncated = list_cloud_computers(limit=limit)
+        return {
+            "provider": "cloud",
+            "computers": computers,
+            "limit": limit,
+            "possibly_truncated": possibly_truncated,
+        }
+
+    @tool(annotations=annotations(read_only_hint=True, open_world_hint=True))
+    def cloud_computer_info(name: str) -> dict[str, Any]:
+        """Inspect a Celesto Cloud computer's state and resource configuration."""
+        info = get_cloud_computer(name)
+        return {"provider": "cloud", **info}
+
+    @tool(annotations=annotations(destructive_hint=True, open_world_hint=True))
+    def cloud_computer_exec(name: str, command: str, timeout: int = 30) -> dict[str, Any]:
+        """Run a command in a Celesto Cloud computer and return its output and exit code."""
+        if not 1 <= timeout <= 300:
+            raise tool_error(f"Timeout must be between 1 and 300 seconds for '{name}'.")
+        computer = CloudComputer.get(name)
+        try:
+            result = computer.run(command, timeout=timeout)
+            return {
+                "name": name,
+                "provider": "cloud",
+                "exit_code": result.exit_code,
+                "stdout": result.stdout[:cloud_output_cap],
+                "stderr": result.stderr[:cloud_output_cap],
+                "stdout_truncated": len(result.stdout) > cloud_output_cap,
+                "stderr_truncated": len(result.stderr) > cloud_output_cap,
+                "timeout_seconds": timeout,
+            }
+        finally:
+            computer.close()
+
+    @tool(annotations=annotations(destructive_hint=False, open_world_hint=True))
+    def cloud_computer_start(name: str) -> dict[str, str]:
+        """Resume a stopped Celesto Cloud computer."""
+        computer = CloudComputer.get(name)
+        try:
+            computer.resume()
+            return {"name": name, "provider": "cloud", "state": "running"}
+        finally:
+            computer.close()
+
+    @tool(annotations=annotations(destructive_hint=False, open_world_hint=True))
+    def cloud_computer_stop(name: str) -> dict[str, str]:
+        """Stop a Celesto Cloud computer while retaining its files."""
+        computer = CloudComputer.get(name)
+        try:
+            computer.stop()
+            return {"name": name, "provider": "cloud", "state": "stopped"}
+        finally:
+            computer.close()
+
+    @tool(annotations=annotations(destructive_hint=True, open_world_hint=True))
+    def cloud_computer_delete(name: str) -> dict[str, str]:
+        """Permanently delete a Celesto Cloud computer and its files."""
+        computer = CloudComputer.get(name)
+        try:
+            computer.delete()
+            return {"name": name, "provider": "cloud", "state": "deleted"}
+        finally:
+            computer.close()
+
+    @tool(annotations=annotations(destructive_hint=True, open_world_hint=True))
+    def cloud_computer_port_publish(name: str, port: int) -> dict[str, Any]:
+        """Publish an HTTP port on a Celesto Cloud computer and return its public URL."""
+        computer = CloudComputer.get(name)
+        try:
+            published = computer.publish_port(port)
+            return {"name": name, "provider": "cloud", **published.model_dump(mode="json")}
+        finally:
+            computer.close()
+
+    @tool(annotations=annotations(read_only_hint=True, open_world_hint=True))
+    def cloud_computer_port_list(name: str) -> dict[str, Any]:
+        """List public ports for a Celesto Cloud computer."""
+        computer = CloudComputer.get(name)
+        try:
+            ports = computer.published_ports()
+            return {
+                "name": name,
+                "provider": "cloud",
+                "ports": [port.model_dump(mode="json") for port in ports],
+            }
+        finally:
+            computer.close()
+
+    @tool(annotations=annotations(destructive_hint=True, open_world_hint=True))
+    def cloud_computer_port_unpublish(name: str, port: int) -> dict[str, Any]:
+        """Remove a public port from a Celesto Cloud computer."""
+        computer = CloudComputer.get(name)
+        try:
+            published = computer.unpublish_port(port)
+            return {"name": name, "provider": "cloud", **published.model_dump(mode="json")}
+        finally:
+            computer.close()
 
     @tool(annotations=annotations(destructive_hint=False, open_world_hint=True))
     def browser_create(live: bool = False, timeout_minutes: int = 30) -> dict[str, Any]:

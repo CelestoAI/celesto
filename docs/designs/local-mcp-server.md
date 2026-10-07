@@ -10,7 +10,7 @@ Let an AI agent use a Celesto computer on the user's machine through MCP tools. 
 ## What we know
 
 - Today's workflow uses the CLI to create a sandbox and run commands.
-- The first target is the user's own machine, not Celesto Cloud.
+- The server runs as a local process and can manage both local computers and Cloud computers.
 - The first implementation also exposes local file, snapshot, environment, port-forwarding, browser-session, and desktop lifecycle operations through MCP.
 - Demand for the MCP integration has not yet been validated with an external user's observed workflow.
 
@@ -24,9 +24,10 @@ Let an AI agent use a Celesto computer on the user's machine through MCP tools. 
 
 ## Product boundaries
 
-- Local execution only. No Cloud credentials, remote MCP endpoint, host folder sharing, or arbitrary VM configuration.
+- The local stdio server reads saved Celesto credentials for Cloud operations. A hosted remote MCP endpoint remains separate work.
 - Creation starts a published Ubuntu image, so local image building does not require Docker. The first tool accepts a name and no VM tuning options.
 - The server uses the persistent local inventory shared by the CLI. It calls Celesto's Python service and facade directly; it does not shell out to `celesto` or create a second inventory.
+- Cloud tools call the Cloud API through `CloudComputer` and existing cloud-provider methods; Cloud credentials are never returned to tool results.
 - Tool results distinguish a command that exits nonzero from a tool failure. Command execution is limited to 300 seconds. Each output stream is retained up to 16,384 characters, with truncation flags, the selected timeout, and elapsed time in the result.
 - No sandbox should be deleted merely because an MCP client disconnects or retries. Deletion is an explicit, clearly described tool action.
 - The first transport is stdio. Keep protocol output clean; diagnostics go to stderr.
