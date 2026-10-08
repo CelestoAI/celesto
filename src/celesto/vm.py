@@ -761,7 +761,7 @@ class CelestoManager:
 
     @staticmethod
     def _vm_snapshot_lock_name(vm_id: str) -> str:
-        """Name of the per-VM lock held by snapshots, stop, and delete.
+        """Name of the per-VM lock held by snapshots, start, stop, and delete.
 
         Raises:
             VMNotFoundError: If *vm_id* can't be a sandbox name, so no
@@ -3300,6 +3300,8 @@ class CelestoManager:
     ) -> VMInfo:
         """Start a microVM.
 
+        Waits for snapshot or fork capture to finish before starting the VM.
+
         Args:
             vm_id: The VM identifier.
             boot_timeout: Maximum seconds to wait for boot.
@@ -3315,6 +3317,11 @@ class CelestoManager:
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
 
+        with self._vm_snapshot_lock(vm_id):
+            return self._start_unlocked(vm_id, boot_timeout)
+
+    def _start_unlocked(self, vm_id: str, boot_timeout: float) -> VMInfo:
+        """Start a VM; the caller must hold its snapshot lock."""
         logger.info("Starting VM: %s", vm_id)
 
         # Get current state
@@ -5584,10 +5591,31 @@ class CelestoManager:
         vm_id: str,
         boot_timeout: float = 30.0,
     ) -> VMInfo:
-        """Async version of :meth:`start`."""
+        """Async version of :meth:`start`.
+
+        If cancelled during launch, finishes runtime bookkeeping before
+        releasing the snapshot lock and raising ``CancelledError``.
+        """
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
 
+        async with self._async_vm_snapshot_lock(vm_id):
+            # A cancellation cannot stop the runtime's worker thread. Keep
+            # the lock until launch, bookkeeping and failure handling finish.
+            starting = asyncio.create_task(self._async_start_unlocked(vm_id, boot_timeout))
+            cancelled = False
+            while not starting.done():
+                try:
+                    await asyncio.shield(starting)
+                except asyncio.CancelledError:
+                    cancelled = True
+            info = starting.result()
+            if cancelled:
+                raise asyncio.CancelledError
+            return info
+
+    async def _async_start_unlocked(self, vm_id: str, boot_timeout: float) -> VMInfo:
+        """Async start while the caller owns the VM's snapshot lock."""
         logger.info("Starting VM (async): %s", vm_id)
 
         vm_info = self.state.get_vm(vm_id)

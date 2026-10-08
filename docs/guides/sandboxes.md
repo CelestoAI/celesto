@@ -105,7 +105,7 @@ Each copy starts with the original's files and settings: CPU, memory, disk size,
 
 Each copy gets its own name, network address, SSH port, SSH host keys, and machine ID. Programs that were running in the original are not running in the copy; it starts fresh from the copied disk.
 
-The original keeps running while it is copied. With the Firecracker engine (the default on Linux), Celesto pauses it for the moment its files are copied and prints `Pausing demo while its files are copied…`. You can also fork a stopped sandbox.
+The original keeps running while it is copied. With the Firecracker engine (the default on Linux), Celesto pauses it for the moment its files are copied and prints `Pausing demo while its files are copied…`. You can also fork a stopped sandbox. Starting that sandbox waits until its files have been copied.
 
 `celesto computer info demo-1` shows where a copy came from, in the `Forked From` and `Forked At` rows.
 
@@ -184,6 +184,8 @@ print(copy.run("ls /root").stdout)
 ```
 
 Use `fork_many()` for several copies. It returns a `ForkBatch`: `children` holds one `ForkResult` per copy (`name`, `ok`, `sandbox` when it worked, `error` when it didn't), plus `warnings` and `source_state`. It raises only when the fork is refused before any copy is made.
+
+The count must be a whole number from 1 to 10; fractional counts and booleans are refused before capture. If a failed copy cannot be removed automatically, its error preserves the failure reason and gives the exact command to finish deleting it.
 
 ```python
 batch = source.fork_many(3, name="exp")

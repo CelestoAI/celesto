@@ -57,8 +57,9 @@ class ForkResult:
         name: The child's sandbox name.
         ok: Whether the child was created, started and confirmed its own
             identity.
-        sandbox: The started child when ``ok``; ``None`` otherwise. A failed
-            child is removed.
+        sandbox: The started child when ``ok``; ``None`` otherwise. Celesto
+            attempts to remove failed children; ``error`` says when cleanup
+            needs a retry.
         error: Why the child failed, in the words the CLI shows; ``None``
             when ``ok``.
     """
@@ -136,6 +137,15 @@ def count_message(source: str, count: int, name: str | None = None) -> str:
     )
 
 
+def count_type_message(source: str, name: str | None = None) -> str:
+    """The requested count is not a whole number."""
+    name_option = f" --name {name}" if name else ""
+    return (
+        f"Fork count must be a whole number from 1 to {MAX_FORK_COUNT}. "
+        f"Run 'celesto sandbox fork {source}{name_option} --count 1'."
+    )
+
+
 def name_taken_message(name: str) -> str:
     """9. A child name is taken (D23, D26)."""
     return (
@@ -174,24 +184,40 @@ def flush_failed_message(source: str) -> str:
     )
 
 
-def boot_timeout_message(child: str, boot_timeout: float) -> str:
-    """13. A child did not start in time; it was removed."""
+def _cleanup_failed_message(child: str, reason: str) -> str:
+    """A failed child's deletion did not finish; give manual recovery."""
+    return (
+        f"Sandbox '{child}' {reason}, and Celesto couldn't finish removing it. "
+        f"Run 'celesto sandbox delete {child}' to finish cleanup."
+    )
+
+
+def boot_timeout_message(child: str, boot_timeout: float, *, cleanup_failed: bool = False) -> str:
+    """13. A child did not start in time; describe removal or manual cleanup."""
+    if cleanup_failed:
+        return _cleanup_failed_message(
+            child, f"didn't start within {_seconds(boot_timeout)} seconds"
+        )
     return (
         f"Sandbox '{child}' didn't start within {_seconds(boot_timeout)} seconds and was "
         f"removed. Run the fork again with '--boot-timeout {_seconds(boot_timeout * 2)}'."
     )
 
 
-def identity_not_confirmed_message(source: str, child: str) -> str:
-    """14. A child could not confirm its own identity; it was removed (D18)."""
+def identity_not_confirmed_message(source: str, child: str, *, cleanup_failed: bool = False) -> str:
+    """14. Identity failed; describe removal or manual cleanup (D18)."""
+    if cleanup_failed:
+        return _cleanup_failed_message(child, "couldn't confirm it has its own identity")
     return (
         f"Sandbox '{child}' couldn't confirm it has its own identity and was removed. "
         f"Run 'celesto sandbox fork {source} --name {child}'."
     )
 
 
-def child_failed_message(source: str, child: str) -> str:
-    """A child failed for another reason; it was removed."""
+def child_failed_message(source: str, child: str, *, cleanup_failed: bool = False) -> str:
+    """A child failed for another reason; describe removal or manual cleanup."""
+    if cleanup_failed:
+        return _cleanup_failed_message(child, "couldn't be created")
     return (
         f"Sandbox '{child}' couldn't be created and was removed. "
         f"Run 'celesto sandbox fork {source} --name {child}'."

@@ -62,6 +62,7 @@ from celesto._fork import (
     child_failed_message,
     child_names,
     count_message,
+    count_type_message,
     error_state_message,
     first_start_message,
     flush_failed_message,
@@ -4173,7 +4174,8 @@ modprobe 9pnet_virtio""".strip()
 
         Raises:
             CelestoError: If the fork is refused or the child fails. A child
-                that fails is removed. The message says how to recover.
+                that fails is cleaned up when possible. The message says how
+                to recover if cleanup could not finish.
 
         Warns:
             CelestoWarning: If the fork succeeded but something needs your
@@ -4201,8 +4203,8 @@ modprobe 9pnet_virtio""".strip()
         """Copy this sandbox into several new, independent sandboxes.
 
         Works like :meth:`fork`, but each child succeeds or fails on its own:
-        a child that fails is removed and reported in the result, and the
-        others are kept.
+        a child that fails is reported in the result and cleanup is attempted.
+        Its error says how to recover if cleanup fails; the others are kept.
 
         Args:
             count: How many children, 1 to 10.
@@ -4223,7 +4225,8 @@ modprobe 9pnet_virtio""".strip()
             CelestoError: If the fork is refused before any child is made,
                 for example because this sandbox is paused or a name is
                 taken. Nothing is created then.
-            ValueError: If *parallel* or *boot_timeout* is not positive.
+            ValueError: If *count* is not a whole number, or *parallel* or
+                *boot_timeout* is not positive.
         """
         return self._fork_many(count, name=name, parallel=parallel, boot_timeout=boot_timeout)
 
@@ -4256,7 +4259,8 @@ modprobe 9pnet_virtio""".strip()
         is saved: a running sandbox is flushed first, QEMU copies it live and
         Firecracker pauses it for the copy; a stopped sandbox is copied as it
         is. Each child gets its own copy of the generation, boots, and must
-        prove it has its own identity (D18); a child that fails is removed.
+        prove it has its own identity (D18); cleanup is attempted for a child
+        that fails, and its error says how to recover if cleanup fails.
         The generation is deleted once every child's copy has been made.
 
         Ctrl+C (``KeyboardInterrupt``) can't stop the disk copies and starts
@@ -4286,7 +4290,8 @@ modprobe 9pnet_virtio""".strip()
         Raises:
             CelestoError: If a check, the lock or the copy fails. Nothing is
                 created then.
-            ValueError: If *parallel* or *boot_timeout* is not positive.
+            ValueError: If *count* is not a whole number, or *parallel* or
+                *boot_timeout* is not positive.
         """
         notify = on_notice or _ignore_notice
         wait_notice = _notify_once(notify, waiting_notice(self._vm_id))
@@ -4520,12 +4525,14 @@ modprobe 9pnet_virtio""".strip()
     ) -> _ForkPlan:
         """Run every fork check that needs no lock, and pick the child names."""
         vm_id = self._vm_id
+        if isinstance(count, bool) or not isinstance(count, int):
+            raise ValueError(count_type_message(vm_id, name))
         if isinstance(parallel, bool) or not isinstance(parallel, int) or parallel < 1:
             raise ValueError(f"parallel must be a whole number of at least 1; got {parallel!r}")
         if not math.isfinite(boot_timeout) or boot_timeout <= 0:
             raise ValueError("boot_timeout must be a finite number greater than zero")
         if count < 1 or count > MAX_FORK_COUNT:
-            raise CelestoError(count_message(vm_id, count), {"vm_id": vm_id, "count": count})
+            raise CelestoError(count_message(vm_id, count, name), {"vm_id": vm_id, "count": count})
         self._refresh_info()
         source = self._info
         # What can never be forked is refused before the source's state.
@@ -4856,23 +4863,25 @@ modprobe 9pnet_virtio""".strip()
         if child is not None:
             with suppress(Exception):
                 child.close()
+        cleanup_failed = False
         if created:
             try:
                 self._sdk.delete(name)
             except Exception:  # noqa: BLE001 - still report the child's own failure
+                cleanup_failed = True
                 logger.warning("Could not remove failed fork child %s", name, exc_info=True)
         if isinstance(exc, (OperationTimeoutError, TimeoutError)):
-            error = boot_timeout_message(name, plan.boot_timeout)
+            error = boot_timeout_message(name, plan.boot_timeout, cleanup_failed=cleanup_failed)
         elif isinstance(exc, _ForkIdentityError):
-            error = identity_not_confirmed_message(self._vm_id, name)
-        elif isinstance(exc, VMAlreadyExistsError):
+            error = identity_not_confirmed_message(self._vm_id, name, cleanup_failed=cleanup_failed)
+        elif isinstance(exc, VMAlreadyExistsError) and not cleanup_failed:
             error = name_taken_message(name)
         elif isinstance(exc, CelestoError) and not created and not isinstance(exc, DiskCopyError):
             # Refused before the child existed (such as a saved disk in the
             # way); its message says why. A failed disk copy is message 20.
             error = str(exc)
         else:
-            error = child_failed_message(self._vm_id, name)
+            error = child_failed_message(self._vm_id, name, cleanup_failed=cleanup_failed)
         return ForkResult(name=name, ok=False, error=error)
 
     def _wait_for_ssh_over_network(self, timeout: float, *, as_control: bool = False) -> None:
