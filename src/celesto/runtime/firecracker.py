@@ -146,6 +146,14 @@ class FirecrackerRuntimeAdapter(RuntimeAdapter):
 
         if vm_info.pid and self._context.is_process_running(vm_info.pid):
             self._context.kill_process(vm_info.pid)
+            self._context.wait_for_process(vm_info.pid, min(timeout, 5.0))
+
+        if vm_info.pid and self._context.is_process_running(vm_info.pid):
+            raise CelestoError(
+                f"Sandbox '{vm_info.vm_id}' couldn't be stopped. "
+                f"Run 'celesto sandbox stop {vm_info.vm_id}' to try again.",
+                {"vm_id": vm_info.vm_id, "pid": vm_info.pid},
+            )
 
         if vm_info.control_socket_path and vm_info.control_socket_path.exists():
             self._context.unlink_socket(vm_info.control_socket_path)
