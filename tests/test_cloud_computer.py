@@ -158,7 +158,14 @@ def test_cloud_inventory_uses_generated_transport_without_creation(cloud):
     requests, replies = cloud
     replies.append((200, {"computers": [computer()], "count": 1}))
     assert list_cloud_computers(limit=1) == (
-        [{"computer_id": "cloud-test", "status": "running"}],
+        [
+            {
+                "computer_id": "cloud-test",
+                "status": "running",
+                "vcpus": 2,
+                "ram_mb": 2048,
+            }
+        ],
         True,
     )
     assert len(requests) == 1
