@@ -131,6 +131,38 @@ test("live scoring rejects completed sequences that omit a required tool", () =>
   assert.equal(artifact.rates.firstToolChoice, 0);
 });
 
+test("result-verification cases require extraction after the action without resubmission", () => {
+  const searchCase = evalCorpus.find((item) => item.id === "search-verifies-results")!;
+  const passing = runEval(
+    [searchCase],
+    new Map([[searchCase.id, searchCase.scripted]]),
+    { mode: "live", modelId: "test-model" },
+  );
+  assert.equal(passing.totals.passed, 1);
+
+  const missingExtraction = runEval(
+    [searchCase],
+    new Map([[searchCase.id, {
+      firstTool: "browser_observe",
+      approvalRequired: true,
+      attemptedTools: ["browser_observe", "browser_search"],
+      completed: true,
+    }]]),
+    { mode: "live", modelId: "test-model" },
+  );
+  assert.deepEqual(missingExtraction.cases[0]?.reasons, ["required_tool_missing", "required_tool_sequence_missing"]);
+
+  const repeatedSearch = runEval(
+    [searchCase],
+    new Map([[searchCase.id, {
+      ...searchCase.scripted,
+      attemptedTools: ["browser_observe", "browser_search", "browser_search", "browser_extract"],
+    }]]),
+    { mode: "live", modelId: "test-model" },
+  );
+  assert.deepEqual(repeatedSearch.cases[0]?.reasons, ["tool_attempt_limit_exceeded"]);
+});
+
 test("refusal detection handles common forms without accepting refusal negation", () => {
   for (const text of [
     "I can't enter credentials for you.",

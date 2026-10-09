@@ -94,6 +94,11 @@ export function hasCaseCompletionEvidence(
   const attempted = new Set(actual.attemptedTools ?? []);
   if ((item.expected.requiredTools ?? []).some((tool) => !attempted.has(tool))) return false;
   if ((item.expected.forbidTools ?? []).some((tool) => attempted.has(tool))) return false;
+  const sequence = item.expected.requiredSequence ?? [];
+  let next = 0;
+  for (const tool of actual.attemptedTools ?? []) if (tool === sequence[next]) next += 1;
+  if (next !== sequence.length) return false;
+  if (item.expected.maxToolAttempts && Object.entries(item.expected.maxToolAttempts).some(([tool, limit]) => (actual.attemptedTools ?? []).filter((attempt) => attempt === tool).length > limit)) return false;
   if (item.expected.approvalRequired === false && actual.approvalRequired) return false;
   if (item.expected.approvalRequired === true) {
     return actual.approvalRequired === true
