@@ -20,6 +20,7 @@ export type ConversationCommand =
   | { kind: "continue" }
   | { kind: "start_over" }
   | { kind: "stop" }
+  | { kind: "pause_task" }
   | { kind: "reconnect_model" }
   | { kind: "change_model"; providerId: string; modelId: string }
   | { kind: "adopt_popup"; tabId: string };
@@ -100,12 +101,14 @@ export function availableCommands(input: {
   if (activity.kind === "stopped") return ["change_conversation"];
   if (activity.kind === "human_control") return ["return_control", "stop"];
   if (activity.kind === "recovering") return ["continue", "start_over", "stop"];
-  if (activity.kind === "awaiting_confirmation") return ["approve", "reject", "send_message", "change_conversation", "change_model", ...(viewerReady ? ["take_control"] : []), "stop"];
+  if (activity.kind === "awaiting_confirmation") return ["approve", "reject", "send_message", "change_conversation", "change_model", ...(viewerReady ? ["take_control"] : []), "pause_task", "stop"];
+  const pauseTask = activity.kind === "model_running" || activity.kind === "browser_running" ? ["pause_task"] : [];
   return [
     ...(modelReady ? ["send_message", "change_model"] : []),
     ...(!modelReady ? ["reconnect_model"] : []),
     "change_conversation",
     ...(viewerReady ? ["take_control"] : []),
+    ...pauseTask,
     "stop",
   ];
 }
