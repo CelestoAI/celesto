@@ -280,6 +280,49 @@ test("computer commands reject empty argv and invalid timeouts before transport"
   await client.close();
 });
 
+test("computer creation rejects a disk size below the supported minimum before transport", async () => {
+  const transport = new FakeTransport();
+  const client = new Celesto({ transport });
+  const callsBefore = transport.calls.length;
+
+  await assert.rejects(
+    () => client.computers.create({ resources: { diskMiB: 4096 } }),
+    /diskMiB/,
+  );
+  await assert.rejects(
+    () => client.computers.create({ resources: { diskMiB: 2048 } }),
+    /8192 MiB/,
+  );
+  assert.equal(transport.calls.length, callsBefore);
+
+  const atFloor = await client.computers.create({ name: "computer-test", resources: { diskMiB: 8192 } });
+  const aboveFloor = await client.computers.create({ name: "computer-test", resources: { diskMiB: 12288 } });
+  assert.equal(atFloor.status, "ready");
+  assert.equal(aboveFloor.status, "ready");
+  const sizes = transport.calls
+    .filter((call) => call.path === "/computers")
+    .map((call) => JSON.parse(String(call.init?.body)).resources.disk_mib);
+  assert.deepEqual(sizes, [8192, 12288]);
+  await client.close();
+});
+
+test("browser creation rejects recordVideo unless the browser runs live", async () => {
+  const transport = new FakeTransport();
+  const client = new Celesto({ transport });
+
+  await assert.rejects(() => client.browsers.create({ recordVideo: true }), /recordVideo/);
+  await assert.rejects(
+    () => client.browsers.create({ recordVideo: true, mode: "headless" }),
+    /recordVideo/,
+  );
+  assert.equal(transport.calls.some((call) => call.path === "/browser-sessions"), false);
+
+  const browser = await client.browsers.create({ recordVideo: true, mode: "live" });
+  assert.equal(browser.status, "ready");
+  assert.equal(transport.calls.some((call) => call.path === "/browser-sessions"), true);
+  await client.close();
+});
+
 test("computer timeout records server-confirmed deletion", async () => {
   class ComputerTimeoutTransport extends FakeTransport {
     override async request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -422,6 +465,73 @@ test("browser timeout records the server-confirmed session deletion", async () =
   );
 });
 
+test("aborting an in-flight browser command reports an aborted CelestoError and issues no cancel request", async () => {
+  let markStarted!: () => void;
+  const started = new Promise<void>((resolve) => { markStarted = resolve; });
+  class InFlightBrowserAbortTransport extends FakeTransport {
+    override async request<T>(path: string, init?: RequestInit): Promise<T> {
+      if (path === "/browser-sessions/browser-test/exec") {
+        this.calls.push({ path, init });
+        markStarted();
+        return await new Promise<T>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      }
+      return super.request(path, init);
+    }
+  }
+  const transport = new InFlightBrowserAbortTransport();
+  const events: string[] = [];
+  const client = new Celesto({ transport, onEvent: (event) => events.push(event.type) });
+  const browser = await client.browsers.create();
+  const controller = new AbortController();
+
+  const command = browser.exec("sleep 60", { signal: controller.signal });
+  await started;
+  controller.abort();
+
+  let caught: unknown;
+  await assert.rejects(command, (error: unknown) => {
+    caught = error;
+    return true;
+  });
+  assert.ok(
+    caught instanceof CelestoError,
+    `expected a CelestoError, received ${String(caught)}`,
+  );
+  assert.equal((caught as DOMException).name, "CelestoError");
+  assert.equal((caught as CelestoError).code, "command_aborted");
+  assert.equal((caught as CelestoError).actual?.sandboxDeleted, false);
+  assert.equal((caught as CelestoError).actual?.sessionClosed, false);
+  assert.equal(transport.calls.some((call) => call.path.includes("/cancel")), false);
+  assert.equal(browser.status, "ready");
+  assert.deepEqual(events, ["browser.starting", "browser.ready", "command.started"]);
+
+  class BrowserDeletedTimeoutTransport extends FakeTransport {
+    override async request<T>(path: string, init?: RequestInit): Promise<T> {
+      if (path.includes("/browser-sessions/") && path.endsWith("/exec")) {
+        throw new CelestoError("command_timeout", "timed out and deleted", {
+          operation: "browser.exec",
+          actual: { sandboxDeleted: true },
+        });
+      }
+      return super.request(path, init);
+    }
+  }
+  const guardClient = new Celesto({ transport: new BrowserDeletedTimeoutTransport() });
+  const guardBrowser = await guardClient.browsers.create();
+
+  await assert.rejects(
+    () => guardBrowser.exec("sleep 60"),
+    (error: unknown) => error instanceof CelestoError && error.code === "command_timeout",
+  );
+  assert.equal(guardBrowser.status, "deleted");
+});
+
 test("browser sessions require browser runtime capabilities without breaking sandboxes", async () => {
   class SandboxOnlyTransport extends FakeTransport {
     override async request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -478,6 +588,44 @@ test("process transport preserves computer error codes from the runtime", async 
       () => transport.request("/computers", { method: "POST" }),
       (error: unknown) => error instanceof CelestoError
         && error.code === "computer_already_exists",
+    );
+  } finally {
+    await transport.close();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("process transport reports computer create failures without a wire error code", async () => {
+  const server = createServer((_request, response) => {
+    response.statusCode = 422;
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({
+      detail: [{
+        loc: ["body", "resources", "memory_mib"],
+        msg: "Input should be less than or equal to 16384",
+      }],
+    }));
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  assert(address && typeof address === "object");
+  const transport = new ProcessTransport("unused", 1_000, 1_000, 1_000, false, () => {});
+  Object.assign(transport, {
+    startPromise: Promise.resolve(),
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    token: "test-token",
+  });
+
+  try {
+    await assert.rejects(
+      () => transport.request("/computers", { method: "POST" }),
+      (error: unknown) => error instanceof CelestoError
+        && error.code === "computer_create_failed"
+        && error.message.includes("Input should be less than or equal to 16384"),
     );
   } finally {
     await transport.close();
@@ -629,6 +777,33 @@ for (const selection of ["option", "environment", "path"] as const) {
     }
   });
 }
+
+test("an already-aborted sandbox command does not start or delete the sandbox", async () => {
+  class PreAbortedTransport extends FakeTransport {
+    override async request<T>(path: string, init?: RequestInit): Promise<T> {
+      if (init?.signal?.aborted) throw new DOMException("aborted", "AbortError");
+      return super.request(path, init);
+    }
+  }
+  const transport = new PreAbortedTransport();
+  const events: string[] = [];
+  const client = new Celesto({ transport, onEvent: (event) => events.push(event.type) });
+  const sandbox = await client.sandboxes.create();
+  const controller = new AbortController();
+  controller.abort();
+
+  await assert.rejects(
+    () => sandbox.exec("sleep 60", { signal: controller.signal }),
+    (error: unknown) => error instanceof CelestoError
+      && error.code === "command_aborted"
+      && error.actual?.sandboxDeleted === false
+      && error.actual?.sessionClosed === false,
+  );
+  assert.equal(sandbox.status, "running");
+  assert.equal(transport.calls.some((call) => call.path.endsWith("/exec")), false);
+  assert.equal(transport.calls.some((call) => call.path.endsWith("/cancel")), false);
+  assert.deepEqual(events, ["sandbox.starting", "sandbox.ready"]);
+});
 
 test("abort confirms sandbox deletion before rejecting", async () => {
   class AbortTransport extends FakeTransport {

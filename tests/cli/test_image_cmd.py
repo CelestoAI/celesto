@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 from datetime import UTC
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -26,7 +27,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from celesto import __version__
-from celesto.cli.image import _IMAGE_DIR_NAME_RE, _KERNEL_DIR_NAME_RE
+from celesto.cli.image import (
+    _IMAGE_DIR_NAME_RE,
+    _KERNEL_DIR_NAME_RE,
+    _non_default_dir_warnings,
+)
 from celesto.cli.main import main
 from celesto.cli.prune import _format_bytes, _total_size, find_stale_caches
 from celesto.images.manager import IMAGE_DIR_ENV, ImageManager, resolve_image_dir
@@ -80,6 +85,38 @@ class TestResolveImageDir:
         assert resolve_image_dir("   ") == Path.home() / ".celesto" / "images"
         monkeypatch.setenv(IMAGE_DIR_ENV, str(tmp_path / "env"))
         assert resolve_image_dir("") == tmp_path / "env"
+
+    def test_blank_path_arg_falls_through(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`Path("")` is what `Path($UNSET_VAR)` produces, and `ImageManager`
+        takes a `Path | None`, so it must honour the same guarantee as a
+        blank str (regression: the Path branch used to be checked before any
+        emptiness test, silently caching images into the cwd)."""
+        monkeypatch.delenv(IMAGE_DIR_ENV, raising=False)
+        assert resolve_image_dir(Path("")) == Path.home() / ".celesto" / "images"
+        assert resolve_image_dir(Path("   ")) == Path.home() / ".celesto" / "images"
+        monkeypatch.setenv(IMAGE_DIR_ENV, str(tmp_path / "env"))
+        assert resolve_image_dir(Path("")) == tmp_path / "env"
+        assert resolve_image_dir(Path("   ")) == tmp_path / "env"
+
+    def test_dot_string_arg_is_explicit(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The CLI passes --image-dir as a string, so '.' selects the cwd."""
+        monkeypatch.setenv(IMAGE_DIR_ENV, str(tmp_path / "env"))
+        assert resolve_image_dir(".") == Path(".")
+        assert resolve_image_dir("  .  ") == Path(".")
+
+    def test_padded_path_arg_still_resolves(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Only a path that is empty or entirely whitespace is unset; a real
+        directory written with padding around it must still expand."""
+        monkeypatch.delenv(IMAGE_DIR_ENV, raising=False)
+        assert resolve_image_dir(Path("  ~/images  ")) == Path.home() / "images"
+        padded = tmp_path / "explicit"
+        assert resolve_image_dir(Path(f"  {padded}  ")) == padded
 
     def test_unknown_user_tilde_does_not_crash(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """expanduser failures fall back to the path as written (regression:
@@ -1009,6 +1046,25 @@ class TestPullAllRecovery:
         recovery = payload["error"]["recovery"]
         assert "celesto image pull --all" in recovery
         assert "--os" not in recovery
+
+
+class TestNonDefaultDirWarning:
+    def test_warning_command_exports_the_variable(self, tmp_path: Path) -> None:
+        """The recovery command must export the variable, not merely assign it:
+        a bare assignment typed into a shell stays local, so no sandbox the
+        user launches afterwards ever sees the download."""
+        [warning] = _non_default_dir_warnings(tmp_path)
+
+        assert "export CELESTO_IMAGE_DIR=" in warning
+        assert shlex.quote(str(tmp_path)) in warning
+
+    def test_warning_still_names_the_directories(self, tmp_path: Path) -> None:
+        """The export must not cost the user the paths or the opening
+        sentence."""
+        [warning] = _non_default_dir_warnings(tmp_path)
+
+        assert warning.startswith(f"Sandboxes look for images in '{resolve_image_dir(None)}'. ")
+        assert shlex.quote(str(tmp_path)) in warning
 
 
 class TestUpstreamReviewRegressions:

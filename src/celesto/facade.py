@@ -2699,6 +2699,8 @@ class Celesto:
             )
         if guest_port < 1 or guest_port > 65535:
             raise ValueError("guest_port must be 1-65535")
+        if host_port is not None and (host_port < 1 or host_port > 65535):
+            raise ValueError("host_port must be 1-65535")
 
         self._sdk.ensure_network_connectivity(self._info)
 

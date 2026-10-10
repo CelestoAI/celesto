@@ -164,6 +164,29 @@ def _check_qemu_version(qemu_path: Path) -> DoctorCheck:
     )
 
 
+def _check_ext4_tools() -> DoctorCheck:
+    """Growing a sandbox disk needs e2fsck and resize2fs from e2fsprogs."""
+    import sys
+
+    from celesto.vm import CelestoManager
+
+    missing = [
+        tool for tool in ("e2fsck", "resize2fs") if CelestoManager._find_ext4_tool(tool) is None
+    ]
+    if not missing:
+        return DoctorCheck(
+            name="e2fsprogs",
+            status="pass",
+            detail="e2fsck and resize2fs found",
+        )
+    return DoctorCheck(
+        name="e2fsprogs",
+        status="warn",
+        detail=f"{', '.join(missing)} not found; needed to grow sandbox disks",
+        fix="brew install e2fsprogs" if sys.platform == "darwin" else "Install e2fsprogs",
+    )
+
+
 def _check_gvproxy() -> DoctorCheck:
     """libkrun on macOS uses gvproxy for guest networking (vfkit protocol)."""
     from celesto.runtime._libkrun_launcher import _find_gvproxy
@@ -636,6 +659,7 @@ def generate_doctor_report(backend: str | None = None) -> DoctorReport:
         checks.append(_check_command("ip", "iproute2"))
         checks.append(_check_command("nft", "nftables"))
         checks.append(_check_command("ssh", "openssh-client"))
+        checks.append(_check_ext4_tools())
 
         net_errors = check_network_prerequisites()
         if net_errors:
@@ -734,6 +758,7 @@ def generate_doctor_report(backend: str | None = None) -> DoctorReport:
 
         checks.append(_check_command("qemu-img", "qemu"))
         checks.append(_check_command("ssh", "openssh-client"))
+        checks.append(_check_ext4_tools())
     elif resolved == BACKEND_VZ:
         from celesto.host.lume import (
             LUME_VERSION,

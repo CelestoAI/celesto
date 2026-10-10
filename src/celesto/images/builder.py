@@ -322,6 +322,11 @@ def _safe_cache_name(name: str) -> str:
     stripped = name.strip()
     if not stripped:
         raise ValueError("image name must not be empty")
+    if stripped in {".", ".."}:
+        raise ValueError(
+            f"image name must not be a relative path segment: {stripped!r}. "
+            "Choose a name such as 'my-image' instead."
+        )
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", stripped):
         raise ValueError("image name must contain only letters, numbers, '.', '_', and '-'")
     return stripped
@@ -2353,7 +2358,7 @@ class DockerRootfsBuilder:
         dockerfile: str,
         context: dict[str, DockerContextValue] | None = None,
         rootfs_size_mb: int = 512,
-        cache_dir: Path | None = None,
+        cache_dir: Path | str | None = None,
         fingerprint_inputs: dict[str, typing.Any] | None = None,
         build_args: dict[str, str] | None = None,
         docker_platform: str | None = None,

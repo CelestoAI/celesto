@@ -8,6 +8,7 @@ import pytest
 from click.testing import CliRunner
 
 from celesto.cli.commands.app import build_cli
+from celesto.cli.commands.options import complete_browser_session_names
 from celesto.cli.main import main
 from celesto.types import CommandResult, VMState
 
@@ -473,3 +474,54 @@ def test_cloud_run_json_reports_remote_exit_code(monkeypatch, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["data"]["exit_code"] == 1
     assert payload["data"]["stderr"] == "boom\n"
+
+
+CLOUD_COMPUTER_ARGUMENT_PATHS = [
+    ("get",),
+    ("run",),
+    ("open",),
+    ("port", "publish"),
+    ("port", "unpublish"),
+]
+
+BROWSER_SESSION_COMPLETER_PATHS = [
+    ("stop",),
+    ("open",),
+    ("logs",),
+]
+
+
+def _command_at(root: click.Group, *path: str) -> click.Command:
+    """Walk a chain of command names down the Click tree."""
+    command: click.Command = root
+    for name in path:
+        assert isinstance(command, click.Group), path
+        command = command.commands[name]
+    return command
+
+
+def _shell_completer(command: click.Command, param_name: str):
+    """Return the custom shell completer wired to a parameter, if any."""
+    (param,) = [candidate for candidate in command.params if candidate.name == param_name]
+    return getattr(param, "_custom_shell_complete", None)
+
+
+@pytest.mark.parametrize("noun", ["computer", "sandbox"])
+@pytest.mark.parametrize("path", CLOUD_COMPUTER_ARGUMENT_PATHS, ids=lambda path: "-".join(path))
+def test_cloud_computer_ids_are_not_completed_as_browser_sessions(noun, path):
+    """Cloud computer ids live in a namespace the local browser table never holds."""
+    command = _command_at(build_cli(), noun, *path)
+    assert _shell_completer(command, "computer_id") is None
+
+
+@pytest.mark.parametrize("noun", ["computer", "sandbox"])
+def test_computer_terminal_id_remains_uncompleted(noun):
+    """The sibling that never had a completer must not gain one."""
+    assert _shell_completer(_command_at(build_cli(), noun, "terminal"), "computer_id") is None
+
+
+@pytest.mark.parametrize("path", BROWSER_SESSION_COMPLETER_PATHS, ids=lambda path: "-".join(path))
+def test_browser_session_ids_keep_their_completer(path):
+    """Browser commands own this completer, so removing the computer uses keeps it wired."""
+    command = _command_at(build_cli(), "browser", *path)
+    assert _shell_completer(command, "session_id") is complete_browser_session_names

@@ -398,7 +398,7 @@ def create_app(*, auth_token: str | None = None) -> FastAPI:
         if declared_size > _MAX_FILE_BYTES:
             raise _sdk_error(
                 413,
-                "transport_failed",
+                "file_too_large",
                 f"File for {resource_kind} '{resource_id}' exceeds the 16 MiB SDK limit; "
                 "retry files.write() with a smaller file.",
             )
@@ -412,7 +412,7 @@ def create_app(*, auth_token: str | None = None) -> FastAPI:
                     if received > _MAX_FILE_BYTES:
                         raise _sdk_error(
                             413,
-                            "transport_failed",
+                            "file_too_large",
                             f"File for {resource_kind} '{resource_id}' exceeds the 16 MiB SDK "
                             "limit; retry files.write() with a smaller file.",
                         )
@@ -463,7 +463,7 @@ def create_app(*, auth_token: str | None = None) -> FastAPI:
             if guest_size > _MAX_FILE_BYTES:
                 raise _sdk_error(
                     413,
-                    "transport_failed",
+                    "file_too_large",
                     f"File in {resource_kind} '{resource_id}' exceeds the 16 MiB SDK limit; "
                     "choose a smaller file and retry files.read().",
                 )
@@ -480,7 +480,7 @@ def create_app(*, auth_token: str | None = None) -> FastAPI:
             if temporary.stat().st_size > _MAX_FILE_BYTES:
                 raise _sdk_error(
                     413,
-                    "transport_failed",
+                    "file_too_large",
                     f"File in {resource_kind} '{resource_id}' exceeds the 16 MiB SDK limit; "
                     "choose a smaller file and retry files.read().",
                 )

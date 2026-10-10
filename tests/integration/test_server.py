@@ -1192,7 +1192,59 @@ async def test_file_download_rejects_oversized_guest_file_before_transfer(app: F
         await read(created.id, "/workspace/too-large.bin")
 
     assert exc_info.value.status_code == 413
+    assert exc_info.value.headers == {"X-Celesto-Error-Code": "file_too_large"}
     assert FakeCelesto.downloaded_files == []
+
+
+@pytest.mark.asyncio
+async def test_file_upload_rejects_oversized_content_before_transfer(app: FastAPI) -> None:
+    create = _handler(app, "/sandboxes", "POST")
+    write = _handler(app, "/sandboxes/{sandbox_id}/files", "PUT")
+    created = create(CreateSandboxRequest())
+
+    async def declared_receive() -> dict[str, object]:
+        return {"type": "http.request", "body": b"x", "more_body": False}
+
+    declared = Request(
+        {
+            "type": "http",
+            "method": "PUT",
+            "path": "/sandboxes/sbx-test/files",
+            "headers": [(b"content-length", b"16777217")],
+        },
+        declared_receive,
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        await write(created.id, "/workspace/too-large.bin", declared)
+
+    assert exc_info.value.status_code == 413
+    assert exc_info.value.headers == {"X-Celesto-Error-Code": "file_too_large"}
+
+    chunks = iter(
+        [
+            {"type": "http.request", "body": b"x" * (16 * 1024 * 1024), "more_body": True},
+            {"type": "http.request", "body": b"y", "more_body": False},
+        ]
+    )
+
+    async def streamed_receive() -> dict[str, object]:
+        return next(chunks)
+
+    streamed = Request(
+        {
+            "type": "http",
+            "method": "PUT",
+            "path": "/sandboxes/sbx-test/files",
+            "headers": [(b"transfer-encoding", b"chunked")],
+        },
+        streamed_receive,
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        await write(created.id, "/workspace/too-large.bin", streamed)
+
+    assert exc_info.value.status_code == 413
+    assert exc_info.value.headers == {"X-Celesto-Error-Code": "file_too_large"}
+    assert FakeCelesto.uploaded_files == {}
 
 
 def test_exec_unknown_sandbox_returns_404(app: FastAPI) -> None:

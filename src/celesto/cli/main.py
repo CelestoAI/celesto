@@ -411,15 +411,13 @@ def _emit_cli_error(
 ) -> int:
     """Emit a CLI error in JSON or Rich form."""
     if json_output:
-        emit_json(
-            command,
-            exit_code,
-            data=None,
-            error={
-                "message": str(exc),
-                "type": _error_type(exc),
-            },
-        )
+        error: dict[str, Any] = {
+            "message": str(exc),
+            "type": _error_type(exc),
+        }
+        if hint is not None:
+            error["recovery"] = hint
+        emit_json(command, exit_code, data=None, error=error)
     else:
         render_error(f"Error: {exc}", hint=hint)
     return exit_code
@@ -3361,28 +3359,32 @@ def _run_port_list(args: SimpleNamespace) -> int:
     """Handle ``celesto sandbox port list``."""
     json_output: bool = args.json
     command_name = getattr(args, "command_name", "sandbox.port.list")
-    forwards = _load_port_forwards(args.vm_id)
 
-    if json_output:
-        emit_json(command_name, 0, data={"sandbox": args.vm_id, "forwards": forwards})
-    else:
-        console = console_stdout()
-        if not forwards:
-            render_empty("Port Forwards", f"No active port forwards for '{args.vm_id}'.")
+    try:
+        forwards = _load_port_forwards(args.vm_id)
+
+        if json_output:
+            emit_json(command_name, 0, data={"sandbox": args.vm_id, "forwards": forwards})
         else:
-            from rich.table import Table
+            console = console_stdout()
+            if not forwards:
+                render_empty("Port Forwards", f"No active port forwards for '{args.vm_id}'.")
+            else:
+                from rich.table import Table
 
-            table = Table(title=f"Port Forwards — {args.vm_id}")
-            table.add_column("Host port", justify="right")
-            table.add_column("Sandbox port", justify="right")
-            table.add_column("Transport")
-            for f in forwards:
-                table.add_row(
-                    str(f["host_port"]),
-                    str(f["guest_port"]),
-                    f.get("transport", "unknown"),
-                )
-            console.print(table)
+                table = Table(title=f"Port Forwards — {args.vm_id}")
+                table.add_column("Host port", justify="right")
+                table.add_column("Sandbox port", justify="right")
+                table.add_column("Transport")
+                for f in forwards:
+                    table.add_row(
+                        str(f["host_port"]),
+                        str(f["guest_port"]),
+                        f.get("transport", "unknown"),
+                    )
+                console.print(table)
+    except Exception as exc:
+        return _emit_cli_error(command_name, 1, exc, json_output=json_output)
 
     return 0
 

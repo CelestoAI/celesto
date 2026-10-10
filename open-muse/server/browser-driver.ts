@@ -158,19 +158,14 @@ export async function executeBrowserOperation(
       case "keypress":
         await page.keyboard.press(operation.key);
         if (operation.key === "Enter") {
+          // Give delayed rendering a short chance to settle; this does not prove results are complete.
+          await delay(500);
           try {
-            // Give delayed rendering a short chance to settle; this does not prove results are complete.
-            await delay(500);
             await page.waitForLoadState("domcontentloaded", { timeout: 3_000 });
-            return {
-              pressed: operation.key,
-              observation: await observe(page),
-              verification: {
-                status: "observed",
-                message: "Read the resulting observation before answering. If results are still loading, extract the page before answering; do not repeat the action.",
-              },
-            };
-          } catch {
+          } catch (error) {
+            // Preserve closed-page/disconnection errors even if the wait timed out.
+            assertPageReady(page);
+            if (!(error instanceof Error) || error.name !== "TimeoutError") throw error;
             return {
               pressed: operation.key,
               verification: {
@@ -179,6 +174,14 @@ export async function executeBrowserOperation(
               },
             };
           }
+          return {
+            pressed: operation.key,
+            observation: await observe(page),
+            verification: {
+              status: "observed",
+              message: "Read the resulting observation before answering. If results are still loading, extract the page before answering; do not repeat the action.",
+            },
+          };
         }
         return { pressed: operation.key };
     }
