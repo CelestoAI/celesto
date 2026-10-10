@@ -113,6 +113,29 @@ function harness(
   return { broker, context, programs, webOperations, expectedPages, events, eventPayloads, browserDriver };
 }
 
+// Cancellation during dispatch persistence must prevent both executors from
+// reaching the browser, even though the durable dispatch marker was written.
+test("cancellation during dispatch persistence fences both executors", async () => {
+  for (const kind of ["structured", "program"]) {
+    let current = true;
+    const h = harness(async () => {
+      if (h.context.operationJournal.some((operation) => operation.state === "dispatched")) current = false;
+    }, undefined, undefined, {
+      currentExecution: () => undefined,
+      isCurrentExecution: () => current,
+      approvalRequested: () => undefined,
+      revealCurrentStepInput: () => undefined,
+    });
+    if (kind === "structured") await h.broker.runWebOperation({ kind: "click", ref: "e1" });
+    else await h.broker.runProgram("return {};", true, "Test action");
+    const pending = h.context.pendingApproval!;
+    await h.broker.resolveApproval(pending.approvalId, pending.actionDigest, true);
+    assert.equal(h.webOperations.length, 0, kind);
+    assert.equal(h.programs.length, 0, kind);
+    assert.equal(h.context.recovery?.kind, "outcome_unknown");
+  }
+});
+
 test("read-only browser programs wait for one-time approval", async () => {
   const { broker, programs, events } = harness();
 

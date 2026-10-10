@@ -157,6 +157,7 @@ export class ConversationManager {
       case "continue": return this.continueInterrupted(id);
       case "start_over": return this.startOver(id);
       case "stop": await this.stop(id); return { accepted: true };
+      case "pause_task": await this.pauseTask(id); return { accepted: true };
       case "reconnect_model": return this.reconnectProvider(id);
       case "change_model": return this.switchModel(id, { providerId: command.providerId, modelId: command.modelId });
       case "adopt_popup": return this.adoptPopup(id, command.tabId);
@@ -561,6 +562,9 @@ export class ConversationManager {
   private async stopUnlocked(id: string): Promise<void> {
     const context = this.require(id);
     if (context.runState === "stopped") return;
+    if (context.runState === "stopping") {
+      throw Object.assign(new Error("The current task transition is still in progress. Wait, then stop the conversation again."), { status: 409, code: "conversation_transition_busy" });
+    }
     context.runState = "stopping";
     context.stateVersion += 1;
     this.invalidateViewerSessions(context.id);
@@ -580,6 +584,42 @@ export class ConversationManager {
     context.stateVersion += 1;
     this.emit("conversation.stopped", { summary: "Disposable computer deleted" }, false);
     await this.checkpoint();
+  }
+
+  async pauseTask(id: string): Promise<void> {
+    this.assertConversationStable();
+    const context = this.require(id);
+    if (["stopped", "stopping", "interrupted", "idle", "failed"].includes(context.runState)) throw Object.assign(new Error("There is no active task to stop."), { status: 409 });
+    const execution = this.currentExecution;
+    const turn = this.turnQueue;
+    context.runState = "stopping";
+    context.stateVersion += 1;
+    this.emit("conversation.pausing", { summary: "Stopping the current task" }, false);
+    context.agent?.abort();
+    this.cancelCurrentExecution("cancelled");
+    this.confirmations.interrupt("The current task was stopped. The browser session remains available.");
+    delete context.pendingApproval;
+    let checkpointError: unknown;
+    let checkpointFailed = false;
+    try {
+      await this.checkpoint();
+    } catch (error) {
+      checkpointFailed = true;
+      checkpointError = error;
+    }
+    await this.activeAction?.catch(() => undefined);
+    await turn.catch(() => undefined);
+    if (this.context !== context || (execution && this.currentExecution?.turnId === execution.turnId)) return;
+    context.runState = "idle";
+    context.stateVersion += 1;
+    this.emit("conversation.paused", { summary: "Current task stopped; browser session kept" }, false);
+    try {
+      await this.checkpoint();
+    } catch (error) {
+      checkpointFailed = true;
+      checkpointError ??= error;
+    }
+    if (checkpointFailed) throw checkpointError;
   }
 
   issueViewerNonce(id: string): { viewerPath: string; expiresAt: string } {

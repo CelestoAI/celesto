@@ -5,3 +5,23 @@
 .screen-empty button{border:1px solid #d7d9d4;background:transparent;color:#d7d9d4;padding:9px 13px;font-weight:700;cursor:pointer}
 
 .provider-picker{border:1px solid #c3c2bb;background:#fbfaf7;padding:28px 30px;box-shadow:5px 6px 0 #deddd6;max-width:560px}.picker-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px}.picker-field label{display:block;font-size:12px;font-weight:700;margin-bottom:8px}.picker-field select{width:100%;border:1px solid #aaa9a2;background:white;padding:11px 12px;font:14px "DM Sans";cursor:pointer}.picker-status-row{margin-bottom:18px}.not-connected{font:10px "DM Mono";color:#8a6a3a;background:#fdf3e3;padding:6px 8px}.provider-actions{display:flex;flex-direction:column;align-items:flex-start;gap:10px;margin-top:4px}.env-disconnect-note{margin:0;font-size:12px;color:#777a73;line-height:1.5}.env-disconnect-note code{font:11px "DM Mono",monospace;background:#eeece5;border:1px solid #d8d5cc;padding:1px 4px}@media(max-width:600px){.picker-row{grid-template-columns:1fr}}
+.composer .composer-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.composer .composer-action svg {
+  display: block;
+  pointer-events: none;
+}
+
+.composer .composer-action:focus-visible {
+  outline: 2px solid #536a57;
+  outline-offset: 3px;
+}
+
+.composer .composer-action:disabled {
+  cursor: not-allowed;
+}

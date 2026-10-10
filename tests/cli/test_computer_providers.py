@@ -180,12 +180,48 @@ def test_cloud_list_avoids_local_inventory(monkeypatch, capsys):
     monkeypatch.setattr("celesto.cli.main._cli_state_manager", Mock(side_effect=AssertionError))
     monkeypatch.setattr(
         "celesto._providers.cloud.list_cloud_computers",
-        lambda limit: ([{"computer_id": "cloud-demo", "status": "running"}], False),
+        lambda limit: (
+            [
+                {
+                    "computer_id": "cloud-demo",
+                    "status": "running",
+                    "vcpus": 2,
+                    "ram_mb": 2048,
+                }
+            ],
+            False,
+        ),
     )
     assert main(["computer", "list", "--cloud", "--json"]) == 0
-    assert (
-        json.loads(capsys.readouterr().out)["data"]["computers"][0]["computer_id"] == "cloud-demo"
+    assert json.loads(capsys.readouterr().out)["data"]["computers"] == [
+        {
+            "computer_id": "cloud-demo",
+            "status": "running",
+            "vcpus": 2,
+            "ram_mb": 2048,
+        }
+    ]
+
+
+def test_cloud_list_shows_cpu_and_ram(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "celesto._providers.cloud.list_cloud_computers",
+        lambda limit: (
+            [
+                {
+                    "computer_id": "cloud-demo",
+                    "status": "running",
+                    "vcpus": 2,
+                    "ram_mb": 2048,
+                }
+            ],
+            False,
+        ),
     )
+
+    assert main(["computer", "list", "--cloud"]) == 0
+
+    assert capsys.readouterr().out == "cloud-demo\trunning\t2 vCPUs\t2048 MiB RAM\n"
 
 
 def test_cloud_list_reports_possible_truncation(monkeypatch, capsys):
@@ -204,12 +240,14 @@ def test_cloud_list_provider_marks_full_page_as_uncertain(monkeypatch):
     from celesto._providers.cloud import list_cloud_computers
 
     provider = Mock()
-    provider._call.return_value = Mock(computers=[Mock(id="cloud-demo", status="running")], count=1)
+    provider._call.return_value = Mock(
+        computers=[Mock(id="cloud-demo", status="running", vcpus=2, ram_mb=2048)], count=1
+    )
     monkeypatch.setattr("celesto._providers.cloud.CloudProvider", Mock(return_value=provider))
 
     rows, possibly_truncated = list_cloud_computers(limit=1)
 
-    assert rows == [{"computer_id": "cloud-demo", "status": "running"}]
+    assert rows == [{"computer_id": "cloud-demo", "status": "running", "vcpus": 2, "ram_mb": 2048}]
     assert possibly_truncated is True
     assert provider._call.call_args.kwargs["limit"] == 1
     provider.close.assert_called_once()
@@ -219,12 +257,14 @@ def test_cloud_list_provider_marks_matching_count_as_uncertain(monkeypatch):
     from celesto._providers.cloud import list_cloud_computers
 
     provider = Mock()
-    provider._call.return_value = Mock(computers=[Mock(id="cloud-demo", status="running")], count=1)
+    provider._call.return_value = Mock(
+        computers=[Mock(id="cloud-demo", status="running", vcpus=2, ram_mb=2048)], count=1
+    )
     monkeypatch.setattr("celesto._providers.cloud.CloudProvider", Mock(return_value=provider))
 
     rows, possibly_truncated = list_cloud_computers(limit=50)
 
-    assert rows == [{"computer_id": "cloud-demo", "status": "running"}]
+    assert rows == [{"computer_id": "cloud-demo", "status": "running", "vcpus": 2, "ram_mb": 2048}]
     assert possibly_truncated is True
     provider.close.assert_called_once()
 
