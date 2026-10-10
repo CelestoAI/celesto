@@ -113,6 +113,37 @@ function harness(
   return { broker, context, programs, webOperations, expectedPages, events, eventPayloads, browserDriver };
 }
 
+// Recovery must preserve useful closed codes, omit arbitrary diagnostics,
+// and never retry an approved action whose execution failed.
+test("approved failures expose only allowlisted recovery diagnostics without replay", async () => {
+  for (const code of ["SEARCH_FORM_UNSUPPORTED", "SEARCH_FIELD_UNAVAILABLE", "OPERATION_TIMEOUT", "PRIVATE_DIAGNOSTIC", "constructor"]) {
+    const { broker, context, browserDriver } = harness(undefined, undefined, undefined, {
+      currentExecution: () => undefined,
+      isCurrentExecution: () => true,
+      approvalRequested: () => undefined,
+      waitForApproval: async () => true,
+      revealCurrentStepInput: () => undefined,
+    });
+    let executions = 0;
+    browserDriver.execute = async () => {
+      executions += 1;
+      throw new BrowserDriverError(code as ConstructorParameters<typeof BrowserDriverError>[0], "private-test-payload");
+    };
+    const allowed = ["SEARCH_FORM_UNSUPPORTED", "SEARCH_FIELD_UNAVAILABLE", "OPERATION_TIMEOUT"].includes(code);
+    await assert.rejects(broker.runWebOperation({ kind: "click", ref: "e1" }), (error: unknown) => {
+      assert.equal((error as { code: string }).code, "browser_recovery_required");
+      const message = (error as Error).message;
+      assert.doesNotMatch(message, /private-test-payload|PRIVATE_DIAGNOSTIC|constructor/);
+      if (allowed) assert.ok(message.includes(code));
+      assert.match(message, /unconfirmed/);
+      return true;
+    });
+    assert.equal(executions, 1);
+    assert.equal(context.recovery?.kind, "outcome_unknown");
+    assert.equal(context.operationJournal.at(-1)?.errorCode, allowed ? code : "EXECUTION_FAILED");
+  }
+});
+
 test("read-only browser programs wait for one-time approval", async () => {
   const { broker, programs, events } = harness();
 

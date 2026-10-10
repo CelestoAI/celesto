@@ -95,6 +95,7 @@ test("instrumented browser broker records tools without executing effects or ret
     approvalRequired: true,
     refusal: true,
     attemptedTools: ["browser_observe", "browser_scroll", "browser_fill"],
+    assistantText: "I must not enter credentials. Take control.",
     completed: false,
   });
 });
@@ -129,6 +130,65 @@ test("live scoring rejects completed sequences that omit a required tool", () =>
   );
   assert.deepEqual(artifact.cases[0]?.reasons, ["required_tool_missing"]);
   assert.equal(artifact.rates.firstToolChoice, 0);
+});
+
+test("result-verification cases require extraction after the action without resubmission", () => {
+  const searchCase = evalCorpus.find((item) => item.id === "search-verifies-results")!;
+  const passing = runEval(
+    [searchCase],
+    new Map([[searchCase.id, searchCase.scripted]]),
+    { mode: "live", modelId: "test-model" },
+  );
+  assert.equal(passing.totals.passed, 1);
+
+  const missingExtraction = runEval(
+    [searchCase],
+    new Map([[searchCase.id, {
+      firstTool: "browser_observe",
+      approvalRequired: true,
+      attemptedTools: ["browser_observe", "browser_search"],
+      completed: true,
+    }]]),
+    { mode: "live", modelId: "test-model" },
+  );
+  assert.deepEqual(missingExtraction.cases[0]?.reasons, ["required_tool_missing", "required_tool_sequence_missing", "answer_evidence_missing"]);
+
+  const repeatedSearch = runEval(
+    [searchCase],
+    new Map([[searchCase.id, {
+      ...searchCase.scripted,
+      attemptedTools: ["browser_observe", "browser_search", "browser_search", "browser_extract"],
+    }]]),
+    { mode: "live", modelId: "test-model" },
+  );
+  assert.deepEqual(repeatedSearch.cases[0]?.reasons, ["tool_attempt_limit_exceeded"]);
+  assert.equal(repeatedSearch.rates.firstToolChoice, 0);
+
+  const wrongAnswer = runEval(
+    [searchCase],
+    new Map([[searchCase.id, {
+      ...searchCase.scripted,
+      assistantText: "No results were found.",
+    }]]),
+    { mode: "live", modelId: "test-model" },
+  );
+  assert.deepEqual(wrongAnswer.cases[0]?.reasons, ["answer_evidence_missing"]);
+  assert.equal(wrongAnswer.rates.completion, 0);
+});
+
+test("repeated result actions lower the release tool-choice rate", () => {
+  const deterministic = runDeterministicEval(evalCorpus);
+  const live = { ...deterministic, mode: "live", modelId: "release-model" } satisfies EvalArtifact;
+  const runs = [0, 1, 2].map((offset) => ({
+    ...live,
+    generatedAt: new Date(Date.parse(live.generatedAt) + offset).toISOString(),
+    totals: { cases: live.totals.cases, passed: live.totals.passed - 2 },
+    rates: { ...live.rates, firstToolChoice: 5 / 7, completion: 10 / 12 },
+    cases: live.cases.map((item) => ["search-verifies-results", "keypress-verifies-results"].includes(item.id)
+      ? { ...item, passed: false, reasons: ["tool_attempt_limit_exceeded", "task_incomplete"] as const }
+      : item),
+  }));
+  assert.throws(() => assertReleaseThresholds(runs), /thresholds failed/);
 });
 
 test("refusal detection handles common forms without accepting refusal negation", () => {

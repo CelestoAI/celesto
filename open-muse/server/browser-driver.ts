@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import type { Locator, Page } from "playwright-core";
 import { validatePublicBrowserUrl, type BrowserTarget, type ExecutableBrowserOperation } from "./browser-operations.js";
 import { isSearchFieldCandidate, UNSAFE_SEARCH_AUTOCOMPLETE } from "./search-fields.js";
@@ -14,7 +15,9 @@ export type BrowserFailureCode =
   | "OPERATION_TIMEOUT"
   | "ACCESSIBILITY_CAPTURE_FAILED"
   | "TEXT_EXTRACTION_FAILED"
-  | "BROWSER_OPERATION_FAILED";
+  | "BROWSER_OPERATION_FAILED"
+  | "SEARCH_FIELD_UNAVAILABLE"
+  | "SEARCH_FORM_UNSUPPORTED";
 
 export class BrowserDriverError extends Error {
   constructor(readonly code: BrowserFailureCode, message: string, options?: ErrorOptions) {
@@ -67,11 +70,11 @@ export async function executeBrowserOperation(
       }
       case "search": {
         if (!isSearchFieldCandidate(operation.target)) {
-          throw new Error(
-            "This field is not recognised as a public search input. Observe the page again and choose a labelled search field, or use Take control.",
+          throw new BrowserDriverError(
+            "SEARCH_FIELD_UNAVAILABLE",
+            "The search field is unavailable. Use Take control to inspect the page.",
           );
         }
-
         const target = await resolveTarget(page, operation.target);
 
         if (
@@ -79,12 +82,13 @@ export async function executeBrowserOperation(
           !(await target.isEnabled()) ||
           !(await target.isEditable())
         ) {
-          throw new Error(
-            "This search field is not available. Observe the page again, or use Take control.",
+          throw new BrowserDriverError(
+            "SEARCH_FIELD_UNAVAILABLE",
+            "The search field is unavailable. Use Take control to inspect the page.",
           );
         }
 
-        const form = await target.evaluate((node) => {
+        const form = await target.evaluate((node, unsafePattern) => {
           if (!(node instanceof HTMLInputElement)) return null;
 
           // Reject email, password, phone and other non-search input types.
@@ -92,7 +96,7 @@ export async function executeBrowserOperation(
 
           const autocomplete = node.autocomplete.toLowerCase();
           if (
-            UNSAFE_SEARCH_AUTOCOMPLETE.test(autocomplete)
+            new RegExp(unsafePattern.source, unsafePattern.flags).test(autocomplete)
           ) {
             return null;
           }
@@ -106,10 +110,14 @@ export async function executeBrowserOperation(
             action: owner.action,
             name: node.name,
           };
+        }, {
+          source: UNSAFE_SEARCH_AUTOCOMPLETE.source,
+          flags: UNSAFE_SEARCH_AUTOCOMPLETE.flags,
         });
 
         if (!form) {
-          throw new Error(
+          throw new BrowserDriverError(
+            "SEARCH_FORM_UNSUPPORTED",
             "Use Take control to search here because this is not a public GET form.",
           );
         }
@@ -149,6 +157,32 @@ export async function executeBrowserOperation(
       }
       case "keypress":
         await page.keyboard.press(operation.key);
+        if (operation.key === "Enter") {
+          // Give delayed rendering a short chance to settle; this does not prove results are complete.
+          await delay(500);
+          try {
+            await page.waitForLoadState("domcontentloaded", { timeout: 3_000 });
+          } catch (error) {
+            // Preserve closed-page/disconnection errors even if the wait timed out.
+            assertPageReady(page);
+            if (!(error instanceof Error) || error.name !== "TimeoutError") throw error;
+            return {
+              pressed: operation.key,
+              verification: {
+                status: "unavailable",
+                message: "The key was pressed, but the resulting page could not be read. Observe or extract the page before answering; do not repeat the action.",
+              },
+            };
+          }
+          return {
+            pressed: operation.key,
+            observation: await observe(page),
+            verification: {
+              status: "observed",
+              message: "Read the resulting observation before answering. If results are still loading, extract the page before answering; do not repeat the action.",
+            },
+          };
+        }
         return { pressed: operation.key };
     }
   } catch (error) {
