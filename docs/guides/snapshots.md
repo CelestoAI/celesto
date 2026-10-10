@@ -2,6 +2,8 @@
 
 A snapshot saves a supported sandbox so you can bring it back later. Create the sandbox without workspace mounts or extra drives when you know you will need a snapshot.
 
+To make new, separate sandboxes from one you already have, fork it instead. See [Fork a sandbox](sandboxes.md#fork-a-sandbox).
+
 ## Create a snapshot
 
 Create a named snapshot from a sandbox:

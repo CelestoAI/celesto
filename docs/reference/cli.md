@@ -46,6 +46,7 @@ Run these in the order you need them:
 | `celesto computer logs` | Show a sandbox's boot and console logs. Add `--follow` to keep printing new lines. |
 | `celesto computer start` / `stop` | Start or stop a sandbox. |
 | `celesto computer pause` / `resume` | Temporarily freeze and continue a running sandbox. |
+| `celesto computer fork` | Copy a local sandbox into new, separate sandboxes. Add `--name NAME` to choose the name (safe to retry), `--count N` for up to 10 copies, `--parallel N` to change how many start at once (4 by default), or `--json` for one result per copy. Exits 1 if any copy failed. See [Fork a sandbox](../guides/sandboxes.md#fork-a-sandbox). |
 | `celesto computer delete` | Remove one or more local computers. Add `--desktop` for a managed Linux desktop ID, or `--cloud` for a cloud computer. |
 | `celesto computer prune` | Delete disks and logs left behind by sandboxes that no longer exist. Add `--dry-run` to list those files without deleting them. Disks you asked Celesto to save are kept unless you add `--include-saved`. |
 

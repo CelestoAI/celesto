@@ -99,6 +99,23 @@ def _attach_mock_network(manager: CelestoManager) -> MagicMock:
 class TestCelestoCreate:
     """Tests for VM creation."""
 
+    def test_create_rejects_user_instance_id_boot_argument(
+        self, smol_vm: CelestoManager, sample_config: VMConfig
+    ) -> None:
+        config = sample_config.model_copy(
+            update={
+                "boot_args": "console=ttyS0 celesto.instance_id=22222222222222222222222222222222"
+            }
+        )
+
+        with pytest.raises(CelestoError) as caught:
+            smol_vm._create(config)
+
+        assert str(caught.value) == (
+            "Sandbox 'vm001' can't set 'celesto.instance_id' in its boot arguments; "
+            "Celesto sets it for you. Remove it from boot_args and create the sandbox again."
+        )
+
     @patch("celesto.vm.NetworkManager")
     def test_create_vm_allocates_resources(
         self,
@@ -1451,11 +1468,12 @@ class TestCelestoBootArgsAndSSHCommands:
             boot_args="console=ttyS0 ip=10.0.0.2::10.0.0.1:255.255.255.0::eth0:off",
         )
 
-        smol_vm.create(config)
+        created = smol_vm.create(config)
         smol_vm.start("vm002")
 
         boot_args = mock_client.set_boot_source.call_args[0][1]
-        assert boot_args == config.boot_args
+        # The caller's ip= is kept as-is; only the sandbox's instance ID is added.
+        assert boot_args == (f"{config.boot_args} celesto.instance_id={created.config.instance_id}")
 
     @patch("celesto.runtime.firecracker.FirecrackerClient")
     @patch.object(CelestoManager, "_start_firecracker")

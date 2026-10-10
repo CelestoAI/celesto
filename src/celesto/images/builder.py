@@ -410,6 +410,87 @@ def _exclusive_file_lock(lock_path: Path) -> typing.Iterator[None]:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
+# Shell block shared by every Celesto startup script. It is copied verbatim
+# into scripts/ci/preset-init.sh; tests/images/test_identity_reset.py checks
+# that both copies match and runs it against a temporary root.
+_IDENTITY_RESET_SCRIPT = r"""# >>> Celesto identity reset
+# Keep this block identical in src/celesto/images/builder.py
+# (_IDENTITY_RESET_SCRIPT) and scripts/ci/preset-init.sh; a test checks it.
+#
+# Celesto passes each sandbox's instance ID on the kernel command line as
+# celesto.instance_id=<32 hex>. A restart or restore of the same sandbox
+# passes the same ID. A different ID means this disk is booting as a new
+# machine, so it gets new SSH host keys and a new machine ID before the guest
+# agent or sshd can read the old ones. The ID is saved last, so a reset cut
+# short is redone on the next boot. Without an ID, keys and machine ID are
+# left alone.
+#
+# Arguments: the kernel command line file, and the root to change ("" for /).
+celesto_new_machine_id() {
+    NEW_ID=$(tr -d '-' < /proc/sys/kernel/random/uuid 2>/dev/null)
+    case "$NEW_ID" in
+        *[!0-9a-f]*) NEW_ID="" ;;
+    esac
+    if [ "${#NEW_ID}" -ne 32 ]; then
+        NEW_ID=$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
+    fi
+    echo "$NEW_ID"
+}
+
+celesto_reset_identity() {
+    ID_CMDLINE="$1"
+    ID_ROOT="$2"
+    # Tells Celesto that this startup script understands instance IDs.
+    mkdir -p "$ID_ROOT/etc/celesto/features"
+    [ -e "$ID_ROOT/etc/celesto/features/instance-id" ] \
+        || : > "$ID_ROOT/etc/celesto/features/instance-id"
+
+    INSTANCE_ID=$(tr ' ' '\n' < "$ID_CMDLINE" | grep '^celesto\.instance_id=' | head -1 \
+        | cut -d= -f2-)
+    [ -n "$INSTANCE_ID" ] || return 0
+    case "$INSTANCE_ID" in
+        *[!0-9a-f]*) INSTANCE_ID="" ;;
+    esac
+    if [ "${#INSTANCE_ID}" -ne 32 ]; then
+        echo "Celesto init: ignoring malformed celesto.instance_id" >&2
+        return 0
+    fi
+    if [ "$(cat "$ID_ROOT/etc/celesto/instance-id" 2>/dev/null)" = "$INSTANCE_ID" ]; then
+        return 0
+    fi
+
+    echo "Celesto init: new instance ID; creating new SSH host keys and machine ID"
+    rm -f "$ID_ROOT"/etc/ssh/ssh_host_*_key "$ID_ROOT"/etc/ssh/ssh_host_*_key.pub
+    MACHINE_ID=$(celesto_new_machine_id)
+    if [ "${#MACHINE_ID}" -ne 32 ]; then
+        echo "Celesto init: could not create a machine ID" >&2
+        return 1
+    fi
+    rm -f "$ID_ROOT/etc/machine-id"
+    printf '%s\n' "$MACHINE_ID" > "$ID_ROOT/etc/machine-id"
+    chmod 0444 "$ID_ROOT/etc/machine-id"
+    # dbus keeps its own copy, often as a symlink to /etc/machine-id. A
+    # symlink already follows the new file; a plain copy is rewritten.
+    DBUS_MACHINE_ID="$ID_ROOT/var/lib/dbus/machine-id"
+    if [ ! -L "$DBUS_MACHINE_ID" ] && [ -d "$ID_ROOT/var/lib/dbus" ]; then
+        rm -f "$DBUS_MACHINE_ID"
+        printf '%s\n' "$MACHINE_ID" > "$DBUS_MACHINE_ID"
+    fi
+    mkdir -p "$ID_ROOT/etc/ssh"
+    if ! ssh-keygen -t ed25519 -f "$ID_ROOT/etc/ssh/ssh_host_ed25519_key" -N "" -q \
+        2>/dev/null; then
+        echo "Celesto init: could not create SSH host keys" >&2
+        return 1
+    fi
+    sync
+    mkdir -p "$ID_ROOT/etc/celesto"
+    printf '%s\n' "$INSTANCE_ID" > "$ID_ROOT/etc/celesto/instance-id.tmp"
+    mv -f "$ID_ROOT/etc/celesto/instance-id.tmp" "$ID_ROOT/etc/celesto/instance-id"
+    sync
+}
+# <<< Celesto identity reset"""
+
+
 class ImageBuilder:
     """Builds custom VM images with SSH pre-configured.
 
@@ -1665,6 +1746,7 @@ RUN chmod +x /init
             custom_hostname: Hostname to set (default: celesto).
             custom_commands: Additional shell commands to inject before the PID 1 sleep loop.
         """
+        identity_reset = _IDENTITY_RESET_SCRIPT
         return f"""#!/bin/sh
 # Celesto custom init - runs as PID 1 inside Firecracker VM
 
@@ -1741,6 +1823,15 @@ mkdir -p /run/sshd /var/log /tmp
 chmod 1777 /tmp
 
 log_ts "root-ready"
+
+# ── Sandbox identity ────────────────────────────────────────
+# Runs before the guest agent and sshd so neither ever serves another
+# machine's SSH host keys or machine ID.
+{identity_reset}
+
+log_ts "identity-check-start"
+celesto_reset_identity /proc/cmdline ""
+log_ts "identity-check-done"
 
 # ── Guest agent (vsock control plane) ───────────────────────
 # Started before networking and sshd, so explicit-vsock sandboxes can become

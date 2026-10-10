@@ -28,6 +28,7 @@ interface::
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import math
@@ -36,11 +37,14 @@ import platform
 import shlex
 import socket
 import subprocess
+import threading
 import time
 import uuid
-from collections.abc import Callable, Iterator
+import warnings
+from collections.abc import Awaitable, Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal, TypeVar
 from urllib.parse import urlparse
@@ -48,6 +52,30 @@ from urllib.parse import urlparse
 from pydantic import TypeAdapter
 from pydantic import ValidationError as PydanticValidationError
 
+from celesto._fork import (
+    DEFAULT_FORK_PARALLEL,
+    MAX_FORK_COUNT,
+    ForkBatch,
+    ForkNameError,
+    ForkResult,
+    boot_timeout_message,
+    child_failed_message,
+    child_names,
+    count_message,
+    count_type_message,
+    error_state_message,
+    first_start_message,
+    flush_failed_message,
+    identity_confirmed,
+    identity_not_confirmed_message,
+    live_copy_failed_message,
+    name_taken_message,
+    older_image_message,
+    paused_message,
+    pausing_notice,
+    stayed_paused_message,
+    waiting_notice,
+)
 from celesto._naming import generate_sandbox_name
 from celesto._network_policy import parse_network_policy, validate_network_policy_options
 from celesto._telemetry import begin_local_use, observe_sdk_operation, record_success
@@ -68,10 +96,19 @@ from celesto.env_windows import (
 )
 from celesto.exceptions import (
     CelestoError,
+    CelestoWarning,
     CommandExecutionUnavailableError,
+    DiskCopyError,
     NetworkError,
     OperationTimeoutError,
     ValidationError,
+    VMAlreadyExistsError,
+    VMNotFoundError,
+)
+from celesto.guest_identity import (
+    GUEST_IDENTITY_COMMAND,
+    GuestIdentityReport,
+    parse_guest_identity,
 )
 from celesto.images.boot import BootImage
 from celesto.images.cloud_init import (
@@ -121,16 +158,24 @@ from celesto.types import (
     SnapshotInfo,
     SnapshotType,
     VMConfig,
+    VMIdentity,
     VMInfo,
     VMState,
     VsockConfig,
     WorkspaceMount,
 )
-from celesto.vm import CelestoManager
+from celesto.vm import CelestoManager, _disk_copy_failed_message
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_RUN_READY_TIMEOUT = 30.0
+# The identity read is a few ``cat`` calls; a guest that cannot answer this
+# fast is left unrecorded rather than slowing down readiness.
+_IDENTITY_READ_TIMEOUT = 5
+# Same default as ``celesto sandbox create --boot-timeout``.
+_DEFAULT_FORK_BOOT_TIMEOUT = 30.0
+# How long a fork waits for a running source's guest agent before giving up.
+_FORK_GUEST_TIMEOUT = 10.0
 # Display sandboxes need more than the VM-only 30s timeout because startup
 # includes X11/Wayland-style display services, VNC/noVNC, a window manager, and
 # sometimes Chromium plus GPU/driver initialization. 90s was chosen
@@ -142,6 +187,7 @@ _LOCAL_FORWARD_PROBE_INTERVAL = 0.2
 _LOCAL_TUNNEL_START_TIMEOUT = 10.0
 _QEMU_MACHINE_ADAPTER = TypeAdapter(QemuMachine)
 _DisplaySandboxT = TypeVar("_DisplaySandboxT", bound=DisplaySandboxProtocol)
+_ResultT = TypeVar("_ResultT")
 _LOCAL_FORWARD_MAX_PORT_ATTEMPTS = 10
 _AUTO_CONFIG_DEFAULT_MEM_SIZE_MIB = {
     GuestOS.ALPINE: 512,
@@ -942,6 +988,151 @@ def _validate_display_sandbox_limits(
     _validate_int_range("disk_size_mb", disk_size_mb, minimum=2048, maximum=16384)
     _validate_int_range("timeout_minutes", timeout_minutes, minimum=1, maximum=240)
     return _validate_timeout_range("boot_timeout", boot_timeout, maximum=3600.0)
+
+
+def _ignore_notice(_notice: str) -> None:
+    return None
+
+
+def _single_fork_child(batch: ForkBatch, *, stacklevel: int) -> Celesto:
+    """Return the one child of *batch*, raising its error if it failed.
+
+    Warnings in the batch are emitted as :class:`CelestoWarning`, pointing at
+    the caller's line (*stacklevel* counts from this function).
+    """
+    for message in batch.warnings:
+        warnings.warn(message, CelestoWarning, stacklevel=stacklevel)
+    (result,) = batch.children
+    if not result.ok or result.sandbox is None:
+        raise CelestoError(
+            result.error or child_failed_message(batch.source, result.name),
+            {"vm_id": result.name},
+        )
+    return result.sandbox
+
+
+def _notify_once(notify: Callable[[str], None], notice: str) -> Callable[[], None]:
+    """Return a callback that sends *notice* the first time it is called."""
+    sent = threading.Event()
+
+    def send() -> None:
+        if not sent.is_set():
+            sent.set()
+            notify(notice)
+
+    return send
+
+
+async def _finish_despite_cancel(
+    *steps: Awaitable[Any], on_cancel: Callable[[], None] | None = None
+) -> tuple[list[Any], bool]:
+    """Run *steps* to the end even if the caller is cancelled meanwhile.
+
+    A disk copy runs in a worker thread that a cancellation can't stop, so
+    a fork must not let go of its lock, or delete what the copy reads, until
+    the copy is done. Returns the finished tasks and whether a cancellation
+    arrived; the caller cleans up and then raises ``CancelledError`` itself.
+    *on_cancel* runs once, when the first cancellation arrives.
+    """
+    import asyncio
+
+    tasks = [asyncio.ensure_future(step) for step in steps]
+    pending = set(tasks)
+    cancelled = False
+    while pending:
+        try:
+            _, pending = await asyncio.wait(pending)
+        except asyncio.CancelledError:
+            if not cancelled and on_cancel is not None:
+                on_cancel()
+            cancelled = True
+    return tasks, cancelled
+
+
+async def _thread_despite_cancel(step: Callable[..., _ResultT], *args: Any) -> _ResultT:
+    """Run *step* in a worker thread; if cancelled, wait for it, then raise."""
+    import asyncio
+
+    (task,), cancelled = await _finish_despite_cancel(asyncio.to_thread(step, *args))
+    if cancelled:
+        raise asyncio.CancelledError
+    return task.result()
+
+
+def _finish_despite_interrupt(step: Callable[[], _ResultT]) -> tuple[_ResultT, bool]:
+    """Run *step* to the end even if Ctrl+C arrives meanwhile.
+
+    Ctrl+C raises ``KeyboardInterrupt`` only in the main thread, so *step*
+    runs in a worker thread it can't cut short, and the main thread waits
+    for it. Further Ctrl+C presses are absorbed until *step* ends, so a
+    cleanup is never abandoned halfway. Returns *step*'s result and whether
+    an interrupt arrived. If *step* fails, its error is raised, chained to a
+    ``KeyboardInterrupt`` when one arrived.
+    """
+    outcome: dict[str, Any] = {}
+
+    def run() -> None:
+        try:
+            outcome["result"] = step()
+        except BaseException as exc:  # noqa: BLE001 - raised again in the caller's thread
+            outcome["error"] = exc
+
+    worker = threading.Thread(target=run, name="celesto-fork-finish")
+    worker.start()
+    interrupted = False
+    while worker.is_alive():
+        try:
+            worker.join()
+        except KeyboardInterrupt:
+            interrupted = True
+    if "error" in outcome:
+        if interrupted:
+            raise KeyboardInterrupt from outcome["error"]
+        raise outcome["error"]
+    return outcome["result"], interrupted
+
+
+def _run_fork_steps(
+    step: Callable[[Any], _ResultT],
+    items: Iterator[Any] | list[Any],
+    workers: int,
+    stopping: threading.Event,
+) -> list[_ResultT]:
+    """Run *step* for each item on *workers* threads, in order.
+
+    On any interruption *stopping* is set, steps that haven't begun are
+    dropped, and the steps already running are waited for (Ctrl+C can't
+    stop a worker thread) before the interruption is raised again.
+    """
+    pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="celesto-fork")
+    futures = [pool.submit(step, item) for item in items]
+    try:
+        return [future.result() for future in futures]
+    except BaseException:
+        stopping.set()
+        raise
+    finally:
+        _, interrupted = _finish_despite_interrupt(
+            lambda: pool.shutdown(wait=True, cancel_futures=stopping.is_set())
+        )
+        if interrupted:
+            stopping.set()
+            raise KeyboardInterrupt
+
+
+@dataclass(frozen=True, slots=True)
+class _ForkPlan:
+    """What a fork checked before taking the lock (see ``Celesto._plan_fork``)."""
+
+    source: VMInfo
+    identity: VMIdentity
+    shared_base: Path | None
+    names: list[str]
+    boot_timeout: float
+
+
+class _ForkIdentityError(Exception):
+    """A fork child could not prove it has its own identity (D18)."""
 
 
 @dataclass(slots=True)
@@ -1824,17 +2015,26 @@ class Celesto:
 
         return self
 
-    def stop(self, timeout: float = 3.0) -> Celesto:
+    def stop(
+        self,
+        timeout: float = 3.0,
+        *,
+        on_snapshot_wait: Callable[[], None] | None = None,
+    ) -> Celesto:
         """Stop the VM.
+
+        Waits for an in-progress snapshot of this VM to finish first.
 
         Args:
             timeout: Seconds to wait for graceful shutdown.
+            on_snapshot_wait: Called once, before waiting, if a snapshot of
+                this VM is in progress.
 
         Returns:
             ``self`` for method chaining.
         """
         self._cleanup_local_forwards()
-        self._info = self._sdk.stop(self._vm_id, timeout=timeout)
+        self._info = self._sdk.stop(self._vm_id, timeout=timeout, on_snapshot_wait=on_snapshot_wait)
         self._reset_runtime_state()
         logger.info("VM %s stopped", self._vm_id)
         return self
@@ -1987,10 +2187,14 @@ class Celesto:
                 f"{self._vm_id} --snapshot-type disk'."
             ) from exc
 
-    def delete(self) -> None:
-        """Delete the VM and release all resources."""
+    def delete(self, *, on_snapshot_wait: Callable[[], None] | None = None) -> None:
+        """Delete the VM and release all resources.
+
+        Waits for an in-progress snapshot of this VM to finish first.
+        ``on_snapshot_wait`` is called once, before waiting, if it has to wait.
+        """
         self._cleanup_local_forwards()
-        self._sdk.delete(self._vm_id)
+        self._sdk.delete(self._vm_id, on_snapshot_wait=on_snapshot_wait)
         self._reset_runtime_state()
         logger.info("VM %s deleted", self._vm_id)
 
@@ -2464,6 +2668,7 @@ class Celesto:
         if on_progress is not None and not self._ssh_ready:
             on_progress("Waiting for SSH...")
         self._wait_for_ssh_over_network(timeout=timeout)
+        self._record_identity_if_missing()
         return self
 
     def wait_for_guest_tcp_ports(
@@ -3100,17 +3305,24 @@ class Celesto:
 
         return self
 
-    async def async_stop(self, timeout: float = 3.0) -> Celesto:
+    async def async_stop(
+        self,
+        timeout: float = 3.0,
+        *,
+        on_snapshot_wait: Callable[[], None] | None = None,
+    ) -> Celesto:
         """Async version of :meth:`stop`."""
         self._cleanup_local_forwards()
-        self._info = await self._sdk.async_stop(self._vm_id, timeout=timeout)
+        self._info = await self._sdk.async_stop(
+            self._vm_id, timeout=timeout, on_snapshot_wait=on_snapshot_wait
+        )
         self._reset_runtime_state()
         return self
 
-    async def async_delete(self) -> None:
+    async def async_delete(self, *, on_snapshot_wait: Callable[[], None] | None = None) -> None:
         """Async version of :meth:`delete`."""
         self._cleanup_local_forwards()
-        await self._sdk.async_delete(self._vm_id)
+        await self._sdk.async_delete(self._vm_id, on_snapshot_wait=on_snapshot_wait)
         self._reset_runtime_state()
 
     async def async_run(
@@ -3822,10 +4034,16 @@ modprobe 9pnet_virtio""".strip()
 
         It tries vsock when that is the resolved channel. Current Celesto images
         are required to include the Rust guest agent, so a missing agent is a
-        readiness failure instead of an SSH fallback trigger.
+        readiness failure instead of an SSH fallback trigger. Once ready, the
+        sandbox's identity is recorded if Celesto has none for it yet.
         """
         if self._control_ready:
             return
+        self._wait_for_control_channel(timeout)
+        self._record_identity_if_missing()
+
+    def _wait_for_control_channel(self, timeout: float) -> None:
+        """Connect the resolved control channel (see :meth:`_wait_for_ready`)."""
         resolution = self._resolve_channel()
         if resolution.kind == "vsock":
             if self._try_vsock_ready(timeout):
@@ -3838,6 +4056,833 @@ modprobe 9pnet_virtio""".strip()
                 timeout,
             )
         self._wait_for_ssh_over_network(timeout, as_control=True)
+
+    # ------------------------------------------------------------------
+    # Sandbox identity (used by fork to tell sandboxes apart)
+    # ------------------------------------------------------------------
+
+    def _recorded_identity(self) -> VMIdentity | None:
+        """Return the identity Celesto recorded for this sandbox, if any.
+
+        It is the identity the sandbox reported the first time it was ready
+        after its startup script gave it a new one, and it is available while
+        the sandbox is stopped. ``instance_id`` is ``None`` when the sandbox's
+        startup script predates instance IDs.
+        """
+        return self._sdk.state.get_vm_identity(self._vm_id)
+
+    def _read_guest_identity(
+        self, *, timeout: int = _IDENTITY_READ_TIMEOUT
+    ) -> GuestIdentityReport | None:
+        """Ask the running guest for its identity over a channel that is ready.
+
+        Uses the control channel, or SSH when only SSH is ready, and never
+        waits for one. Bypasses ``run()`` so user ``on_pre_run`` callbacks
+        neither see nor block this internal command. Returns ``None`` when no
+        channel is ready.
+
+        Raises:
+            Exception: Whatever the channel raises (timeouts, transport errors).
+        """
+        self._ensure_control_cache_attrs()
+        channel: CommChannel | SSHClient | None = None
+        if self._control_ready and self._control_channel is not None:
+            channel = self._control_channel
+        elif getattr(self, "_ssh_ready", False) and getattr(self, "_ssh", None) is not None:
+            channel = self._ssh
+        if channel is None:
+            return None
+        result = channel.run(GUEST_IDENTITY_COMMAND, timeout=timeout, shell="raw")
+        if result.exit_code != 0:
+            return None
+        return parse_guest_identity(result.stdout)
+
+    def _record_identity_if_missing(self) -> None:
+        """Record this sandbox's identity once, after its startup script set it.
+
+        Best effort and cheap: a local lookup when a record already exists, and
+        one short guest command otherwise. Failures are logged and never raised,
+        so readiness (and ``create``/``start``) is unaffected.
+        """
+        try:
+            config = self._info.config
+            instance_id = config.instance_id
+            if (
+                instance_id is None
+                or config.backend not in {BACKEND_FIRECRACKER, BACKEND_QEMU}
+                or config.guest_os in {GuestOS.WINDOWS, GuestOS.MACOS}
+            ):
+                return
+            existing = self._recorded_identity()
+            # A record without an instance ID means the startup script predates
+            # instance IDs; it is copied into the sandbox at create time and
+            # never changes, so there is nothing new to read.
+            if existing is not None and existing.instance_id in (None, instance_id):
+                return
+            report = self._read_guest_identity()
+            if report is None:
+                return
+            if report.supports_instance_id and (
+                report.instance_id != instance_id
+                or report.machine_id is None
+                or report.ssh_host_key_fingerprint is None
+            ):
+                # The reset has not finished or failed; try again next time.
+                logger.debug(
+                    "Sandbox %s identity is not ready to record (guest reports %s)",
+                    self._vm_id,
+                    report.instance_id,
+                )
+                return
+            self._sdk.state.record_vm_identity(
+                self._vm_id,
+                VMIdentity(
+                    instance_id=report.instance_id if report.supports_instance_id else None,
+                    ssh_host_key_fingerprint=report.ssh_host_key_fingerprint,
+                    machine_id=report.machine_id,
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001 - recording must never break readiness
+            logger.debug("Could not record identity for sandbox %s: %s", self._vm_id, exc)
+
+    # ------------------------------------------------------------------
+    # Fork
+    # ------------------------------------------------------------------
+
+    @observe_sdk_operation("snapshot")
+    def fork(
+        self, name: str | None = None, *, boot_timeout: float = _DEFAULT_FORK_BOOT_TIMEOUT
+    ) -> Celesto:
+        """Copy this sandbox into one new, independent sandbox and start it.
+
+        The new sandbox (the child) starts with a copy of this sandbox's
+        files and settings, including its environment variables, but gets
+        its own name, address, SSH host keys and machine ID. This sandbox
+        keeps running; on Firecracker it pauses briefly while its files are
+        copied. A stopped sandbox can be forked too; a paused one can't.
+
+        Args:
+            name: The child's name. Without it, the child continues the
+                numbering after this sandbox's name (``sbx-einstein-1``,
+                then ``-2`` on the next fork). Pass a name to make a retry
+                safe: a name that already exists is refused before anything
+                is copied.
+            boot_timeout: Seconds the child has to start and become ready.
+
+        Returns:
+            The started child.
+
+        Raises:
+            CelestoError: If the fork is refused or the child fails. A child
+                that fails is cleaned up when possible. The message says how
+                to recover if cleanup could not finish.
+
+        Warns:
+            CelestoWarning: If the fork succeeded but something needs your
+                attention, for example this sandbox stayed paused.
+        """
+        batch = self._fork_many(1, name=name, boot_timeout=boot_timeout)
+        return _single_fork_child(batch, stacklevel=4)
+
+    async def async_fork(
+        self, name: str | None = None, *, boot_timeout: float = _DEFAULT_FORK_BOOT_TIMEOUT
+    ) -> Celesto:
+        """Async version of :meth:`fork`."""
+        batch = await self._async_fork_many(1, name=name, boot_timeout=boot_timeout)
+        return _single_fork_child(batch, stacklevel=3)
+
+    @observe_sdk_operation("snapshot")
+    def fork_many(
+        self,
+        count: int,
+        *,
+        name: str | None = None,
+        parallel: int = DEFAULT_FORK_PARALLEL,
+        boot_timeout: float = _DEFAULT_FORK_BOOT_TIMEOUT,
+    ) -> ForkBatch:
+        """Copy this sandbox into several new, independent sandboxes.
+
+        Works like :meth:`fork`, but each child succeeds or fails on its own:
+        a child that fails is reported in the result and cleanup is attempted.
+        Its error says how to recover if cleanup fails; the others are kept.
+
+        Args:
+            count: How many children, 1 to 10.
+            name: Without it, children continue the numbering after this
+                sandbox's name. With it, children are named ``name-1`` to
+                ``name-N`` (or exactly *name* when *count* is 1), and a name
+                that already exists is refused, so a retry can't make extra
+                children.
+            parallel: How many children are created and started at once.
+            boot_timeout: Seconds each child has to start and become ready.
+
+        Returns:
+            A :class:`~celesto.ForkBatch` with one result per child, any
+            warnings (such as this sandbox staying paused) and this
+            sandbox's state afterwards.
+
+        Raises:
+            CelestoError: If the fork is refused before any child is made,
+                for example because this sandbox is paused or a name is
+                taken. Nothing is created then.
+            ValueError: If *count* is not a whole number, or *parallel* or
+                *boot_timeout* is not positive.
+        """
+        return self._fork_many(count, name=name, parallel=parallel, boot_timeout=boot_timeout)
+
+    async def async_fork_many(
+        self,
+        count: int,
+        *,
+        name: str | None = None,
+        parallel: int = DEFAULT_FORK_PARALLEL,
+        boot_timeout: float = _DEFAULT_FORK_BOOT_TIMEOUT,
+    ) -> ForkBatch:
+        """Async version of :meth:`fork_many`."""
+        return await self._async_fork_many(
+            count, name=name, parallel=parallel, boot_timeout=boot_timeout
+        )
+
+    def _fork_many(
+        self,
+        count: int,
+        *,
+        name: str | None = None,
+        parallel: int = DEFAULT_FORK_PARALLEL,
+        boot_timeout: float = _DEFAULT_FORK_BOOT_TIMEOUT,
+        on_notice: Callable[[str], None] | None = None,
+    ) -> ForkBatch:
+        """Fork this sandbox into *count* new, independent sandboxes.
+
+        Every check runs before anything is paused or copied. Then, holding
+        this sandbox's snapshot lock, one copy of its disk (the generation)
+        is saved: a running sandbox is flushed first, QEMU copies it live and
+        Firecracker pauses it for the copy; a stopped sandbox is copied as it
+        is. Each child gets its own copy of the generation, boots, and must
+        prove it has its own identity (D18); cleanup is attempted for a child
+        that fails, and its error says how to recover if cleanup fails.
+        The generation is deleted once every child's copy has been made.
+
+        Ctrl+C (``KeyboardInterrupt``) can't stop the disk copies and starts
+        running in worker threads, so an interrupted fork first waits for
+        them; copies and starts that hadn't begun are skipped. If the source
+        was being copied, its snapshot lock is held until that copy ends.
+        Then the generation is deleted, and every child that hadn't started
+        and passed its check before the interrupt is removed. Children that
+        had are kept. Then ``KeyboardInterrupt`` is raised. Further Ctrl+C
+        presses are ignored until that cleanup ends.
+
+        Args:
+            count: How many children, 1 to 10.
+            name: Without it, children continue the numbering after this
+                sandbox's name (``sbx-einstein-1``, ``-2``...). With it, one
+                child is named exactly *name* and several are ``name-1`` to
+                ``name-N``.
+            parallel: How many children are created and started at once.
+            boot_timeout: Seconds each child has to start and become ready.
+            on_notice: Called with a short notice while the fork waits for
+                another snapshot of this sandbox, or pauses it for the copy.
+
+        Returns:
+            One result per child (failures included), warnings such as this
+            sandbox staying paused, and this sandbox's final state.
+
+        Raises:
+            CelestoError: If a check, the lock or the copy fails. Nothing is
+                created then.
+            ValueError: If *count* is not a whole number, or *parallel* or
+                *boot_timeout* is not positive.
+        """
+        notify = on_notice or _ignore_notice
+        wait_notice = _notify_once(notify, waiting_notice(self._vm_id))
+        plan = self._plan_fork(count, name=name, parallel=parallel, boot_timeout=boot_timeout)
+        workers = min(parallel, len(plan.names))
+        # Children whose record this fork may have made and not yet handed
+        # back, and those that started and passed their check. Worker
+        # threads add and discard names; set updates are atomic.
+        made: set[str] = set()
+        verified: set[str] = set()
+        stopping = threading.Event()
+
+        def copy(child: str) -> ForkResult | None:
+            if stopping.is_set():
+                return ForkResult(name=child, ok=False)  # never reported: the fork raises
+            made.add(child)
+            try:
+                failed = self._create_fork_child(plan, generation, child)
+            except BaseException:
+                stopping.set()
+                raise
+            if failed is not None:
+                made.discard(child)  # a failed copy removes itself
+            return failed
+
+        def start(pair: tuple[str, ForkResult | None]) -> ForkResult:
+            child, failed = pair
+            if failed is not None:
+                return failed
+            if stopping.is_set():
+                return ForkResult(name=child, ok=False)  # never reported: the fork raises
+            try:
+                result = self._start_fork_child(plan, child)
+            except BaseException:
+                stopping.set()
+                raise
+            if not result.ok:
+                made.discard(child)  # a failed start removes the child itself
+            elif stopping.is_set():
+                # Passed its check after the interrupt: it is removed with the rest.
+                assert result.sandbox is not None
+                with suppress(Exception):
+                    result.sandbox.close()
+            else:
+                verified.add(child)
+            return result
+
+        try:
+            # The names lock serializes forks of this source from choosing
+            # names until every child's record exists; the snapshot lock is
+            # held only for the capture, so stop and delete of the source
+            # wait no longer.
+            with self._sdk._fork_names_lock(self._vm_id, on_wait=wait_notice):
+                plan = self._claim_fork_names(plan, name)
+                generation: SnapshotInfo | None = None
+                warnings: tuple[str, ...] = ()
+                try:
+                    with self._sdk._vm_snapshot_lock(self._vm_id, on_wait=wait_notice):
+                        (generation, warnings), interrupted = _finish_despite_interrupt(
+                            lambda: self._capture_fork_generation(notify, name=name, count=count)
+                        )
+                    if interrupted:
+                        raise KeyboardInterrupt
+                    assert generation is not None
+                    copies = _run_fork_steps(copy, plan.names, workers, stopping)
+                finally:
+                    if generation is not None:
+                        deleted, interrupted = _finish_despite_interrupt(
+                            lambda: self._delete_fork_generation(generation)
+                        )
+                        warnings += deleted
+                        if interrupted:
+                            raise KeyboardInterrupt
+            children = _run_fork_steps(
+                start, list(zip(plan.names, copies, strict=True)), workers, stopping
+            )
+        except BaseException:
+            stopping.set()
+            unstarted = sorted(made - verified)
+            if unstarted:
+                _finish_despite_interrupt(lambda: self._remove_fork_children(unstarted))
+            raise
+        return ForkBatch(
+            children=tuple(children),
+            warnings=warnings,
+            source_state=self._fork_source_state(),
+            source=self._vm_id,
+        )
+
+    def _fork_source_state(self) -> VMState | None:
+        """Return this sandbox's state after a fork, or None if it was deleted.
+
+        D6 lets ``delete`` of the source go ahead once its copy is saved, so the
+        source may be gone by the time the children are ready. The children
+        still belong to the caller and must be reported.
+        """
+        try:
+            self._refresh_info()
+        except VMNotFoundError:
+            return None
+        return self._info.status
+
+    async def _async_fork_many(
+        self,
+        count: int,
+        *,
+        name: str | None = None,
+        parallel: int = DEFAULT_FORK_PARALLEL,
+        boot_timeout: float = _DEFAULT_FORK_BOOT_TIMEOUT,
+        on_notice: Callable[[str], None] | None = None,
+    ) -> ForkBatch:
+        """Async version of :meth:`_fork_many`.
+
+        ``on_notice`` runs in a worker thread, not on the event loop.
+
+        Disk copies run in worker threads that a cancellation can't stop, so
+        a cancelled call first waits for the copies already running; copies
+        that hadn't begun are skipped. If the source was being copied, its
+        snapshot lock is held until that copy ends, and the lock is always
+        released. Then the generation is deleted, and every child that hadn't
+        started and passed its check before the cancellation is removed,
+        including children waiting their turn to start and a child cancelled
+        while it started. Children that had are kept. Then
+        ``CancelledError`` is raised. Further cancellations are absorbed
+        until that cleanup ends.
+        """
+        import asyncio
+
+        notify = on_notice or _ignore_notice
+        wait_notice = _notify_once(notify, waiting_notice(self._vm_id))
+        plan = await asyncio.to_thread(
+            self._plan_fork, count, name=name, parallel=parallel, boot_timeout=boot_timeout
+        )
+        limit = asyncio.Semaphore(parallel)
+        # Children whose record this fork may have made and not yet handed
+        # back, and those that started and passed their check.
+        made: set[str] = set()
+        verified: set[str] = set()
+        stopping = asyncio.Event()
+
+        async def copy_one(child: str) -> ForkResult | None:
+            async with limit:
+                if stopping.is_set():
+                    # Cancelled before this copy began: nothing to undo.
+                    return ForkResult(name=child, ok=False)
+                made.add(child)
+                failed = await self._async_create_fork_child(plan, generation, child)
+                if failed is not None:
+                    made.discard(child)  # a failed copy removes itself
+                return failed
+
+        async def start_one(child: str, failed: ForkResult | None) -> ForkResult:
+            if failed is not None:
+                return failed
+            async with limit:
+                result = await self._async_start_fork_child(plan, child)
+            if not result.ok:
+                made.discard(child)  # a failed start removes the child itself
+            elif not stopping.is_set():
+                verified.add(child)
+            elif result.sandbox is not None:
+                # It finished after cancellation, so the fork won't return its handle.
+                with suppress(Exception):
+                    result.sandbox.close()
+            return result
+
+        try:
+            async with self._sdk._async_fork_names_lock(self._vm_id, on_wait=wait_notice):
+                plan = await asyncio.to_thread(self._claim_fork_names, plan, name)
+                generation: SnapshotInfo | None = None
+                warnings: tuple[str, ...] = ()
+                # The generation's cleanup covers the snapshot lock's release,
+                # which a cancellation can interrupt too.
+                try:
+                    async with self._sdk._async_vm_snapshot_lock(self._vm_id, on_wait=wait_notice):
+                        (capture,), cancelled = await _finish_despite_cancel(
+                            asyncio.to_thread(
+                                self._capture_fork_generation, notify, name=name, count=count
+                            )
+                        )
+                        if cancelled:
+                            if capture.exception() is None:
+                                generation, warnings = capture.result()
+                            raise asyncio.CancelledError
+                        generation, warnings = capture.result()
+                    tasks, cancelled = await _finish_despite_cancel(
+                        *(copy_one(child) for child in plan.names), on_cancel=stopping.set
+                    )
+                    if cancelled:
+                        raise asyncio.CancelledError
+                    copies = [task.result() for task in tasks]
+                finally:
+                    if generation is not None:
+                        (deleting,), cancelled = await _finish_despite_cancel(
+                            asyncio.to_thread(self._delete_fork_generation, generation)
+                        )
+                        warnings += deleting.result()
+                        if cancelled:
+                            raise asyncio.CancelledError
+            starts = [
+                asyncio.ensure_future(start_one(child, failed))
+                for child, failed in zip(plan.names, copies, strict=True)
+            ]
+            try:
+                children = await asyncio.gather(*starts)
+            except BaseException:
+                # Stop every start, then wait until each has wound down.
+                stopping.set()
+                for task in starts:
+                    task.cancel()
+                await _finish_despite_cancel(*starts)
+                raise
+            source_state = await asyncio.to_thread(self._fork_source_state)
+        except BaseException:
+            stopping.set()
+            unstarted = sorted(made - verified)
+            if unstarted:
+                await _finish_despite_cancel(
+                    asyncio.to_thread(self._remove_fork_children, unstarted)
+                )
+            raise
+        return ForkBatch(
+            children=tuple(children),
+            warnings=warnings,
+            source_state=source_state,
+            source=self._vm_id,
+        )
+
+    def _plan_fork(
+        self, count: int, *, name: str | None, parallel: int, boot_timeout: float
+    ) -> _ForkPlan:
+        """Run every fork check that needs no lock, and pick the child names."""
+        vm_id = self._vm_id
+        if isinstance(count, bool) or not isinstance(count, int):
+            raise ValueError(count_type_message(vm_id, name))
+        if isinstance(parallel, bool) or not isinstance(parallel, int) or parallel < 1:
+            raise ValueError(f"parallel must be a whole number of at least 1; got {parallel!r}")
+        if not math.isfinite(boot_timeout) or boot_timeout <= 0:
+            raise ValueError("boot_timeout must be a finite number greater than zero")
+        if count < 1 or count > MAX_FORK_COUNT:
+            raise CelestoError(count_message(vm_id, count, name), {"vm_id": vm_id, "count": count})
+        self._refresh_info()
+        source = self._info
+        # What can never be forked is refused before the source's state.
+        self._sdk._ensure_disk_can_be_copied(source)
+        self._ensure_fork_state(source)
+        identity = self._fork_source_identity(source)
+
+        # A cheap first pass so a taken name fails before any wait; the names
+        # are claimed again under the fork names lock (_claim_fork_names).
+        names = self._fork_child_names(count, name)
+
+        # Keep this path: the source may be deleted after capture but before
+        # child copies begin. Each child must keep using this same base image.
+        shared_base = self._sdk._shared_base_image(source)
+        self._sdk._ensure_fork_disk_space(source, count, name, shared_base=shared_base)
+        self._sdk._ensure_fork_ports(source, count)
+        return _ForkPlan(
+            source=source,
+            identity=identity,
+            shared_base=shared_base,
+            names=names,
+            boot_timeout=boot_timeout,
+        )
+
+    def _fork_child_names(self, count: int, name: str | None) -> list[str]:
+        """Pick child names against the sandboxes and saved disks there are now."""
+        sandboxes, saved_disks = self._sdk._fork_taken_names()
+        try:
+            names = child_names(
+                self._vm_id,
+                count,
+                name,
+                sandboxes if name is not None else sandboxes | saved_disks,
+            )
+        except ForkNameError as exc:
+            raise CelestoError(str(exc), {"vm_id": self._vm_id, "name": name}) from None
+        if name is not None:
+            for child in names:
+                self._sdk._ensure_no_saved_disk(child)
+        return names
+
+    def _claim_fork_names(self, plan: _ForkPlan, name: str | None) -> _ForkPlan:
+        """Choose the names again; the caller holds the fork names lock.
+
+        Another fork of this source may have created children while this one
+        waited. Default names then continue after them; a requested name
+        taken meanwhile refuses the whole fork before anything is copied.
+        """
+        return replace(plan, names=self._fork_child_names(len(plan.names), name))
+
+    def _ensure_fork_state(self, source: VMInfo) -> None:
+        """Refuse a source whose current state can't be copied.
+
+        Checked when the fork is planned and again under the snapshot lock,
+        since the source may be paused or started while the fork waits.
+        Paused and error states are refused (D7). QEMU copies a running raw
+        disk into a qcow2 file, which a raw child can't use, so a running
+        raw QEMU source is refused too; a stopped raw disk is copied as it is.
+        """
+        vm_id = source.vm_id
+        if source.status == VMState.PAUSED:
+            raise CelestoError(paused_message(vm_id), {"vm_id": vm_id})
+        if source.status == VMState.ERROR:
+            raise CelestoError(error_state_message(vm_id), {"vm_id": vm_id})
+        if (
+            source.status == VMState.RUNNING
+            and self._sdk._backend_for_vm(source) == BACKEND_QEMU
+            and source.config.effective_rootfs_format != "qcow2"
+        ):
+            raise CelestoError(live_copy_failed_message(vm_id), {"vm_id": vm_id})
+
+    def _fork_source_identity(self, source: VMInfo) -> VMIdentity:
+        """Return the source's recorded identity, recording it now if needed.
+
+        Children are compared with this record, never with a live read taken
+        during the fork (D18). A sandbox whose startup script predates
+        instance IDs can't give its children new identities, so it is
+        refused (D17). A running sandbox from a current image that has no
+        record yet is read and recorded here.
+        """
+        vm_id = source.vm_id
+        instance_id = source.config.instance_id
+        if instance_id is None:
+            raise CelestoError(older_image_message(vm_id), {"vm_id": vm_id})
+        recorded = self._recorded_identity()
+        if recorded is not None and recorded.instance_id is None:
+            raise CelestoError(older_image_message(vm_id), {"vm_id": vm_id})
+        if (
+            recorded is not None
+            and recorded.instance_id == instance_id
+            and recorded.ssh_host_key_fingerprint is not None
+            and recorded.machine_id is not None
+        ):
+            return recorded
+        if source.status != VMState.RUNNING:
+            raise CelestoError(first_start_message(vm_id), {"vm_id": vm_id})
+        try:
+            self._wait_for_ready(timeout=_FORK_GUEST_TIMEOUT)
+            report = self._read_guest_identity()
+        except Exception as exc:
+            raise CelestoError(flush_failed_message(vm_id), {"vm_id": vm_id}) from exc
+        if report is None:
+            raise CelestoError(flush_failed_message(vm_id), {"vm_id": vm_id})
+        if not report.supports_instance_id:
+            raise CelestoError(older_image_message(vm_id), {"vm_id": vm_id})
+        if (
+            report.instance_id != instance_id
+            or report.ssh_host_key_fingerprint is None
+            or report.machine_id is None
+        ):
+            raise CelestoError(first_start_message(vm_id), {"vm_id": vm_id})
+        return self._sdk.state.record_vm_identity(
+            vm_id,
+            VMIdentity(
+                instance_id=report.instance_id,
+                ssh_host_key_fingerprint=report.ssh_host_key_fingerprint,
+                machine_id=report.machine_id,
+            ),
+        )
+
+    def _capture_fork_generation(
+        self, notify: Callable[[str], None], *, name: str | None, count: int
+    ) -> tuple[SnapshotInfo, tuple[str, ...]]:
+        """Save the generation; the caller holds this sandbox's snapshot lock.
+
+        The state is checked again because it may have changed while the
+        fork waited for the lock. Returns the generation and any warning
+        about this sandbox (D8).
+        """
+        vm_id = self._vm_id
+        self._refresh_info()
+        self._ensure_fork_state(self._info)
+        generation_id = self._sdk._fork_generation_id(vm_id)
+
+        def capture(policy: SnapshotCapturePolicy) -> SnapshotInfo:
+            try:
+                return self._sdk._capture_fork_generation(
+                    vm_id, generation_id, capture_policy=policy
+                )
+            except DiskCopyError as exc:
+                raise DiskCopyError(
+                    _disk_copy_failed_message(vm_id, name, count), exc.details
+                ) from exc
+
+        was_running = self._info.status == VMState.RUNNING
+        if not was_running:
+            # Shutdown already wrote everything to disk: no flush, no pause.
+            generation = capture(SnapshotCapturePolicy.ALLOW_PAUSE)
+            return generation, ()
+
+        try:
+            self._sync_guest_for_disk_snapshot()
+        except Exception as exc:
+            raise CelestoError(flush_failed_message(vm_id), {"vm_id": vm_id}) from exc
+        try:
+            if self._sdk._backend_for_vm(self._info) == BACKEND_QEMU:
+                # Never fall back to a pause: the source must keep running.
+                try:
+                    generation = capture(SnapshotCapturePolicy.LIVE_ONLY)
+                except Exception as exc:
+                    raise CelestoError(live_copy_failed_message(vm_id), {"vm_id": vm_id}) from exc
+            else:
+                notify(pausing_notice(vm_id))
+                generation = capture(SnapshotCapturePolicy.ALLOW_PAUSE)
+        finally:
+            self._refresh_info()
+            self._reset_runtime_state()
+        stayed_paused = bool(generation.warnings) or self._info.status == VMState.PAUSED
+        return generation, (stayed_paused_message(vm_id),) if stayed_paused else ()
+
+    def _delete_fork_generation(self, generation: SnapshotInfo) -> tuple[str, ...]:
+        """Delete the generation; return a warning if it is left behind (D12)."""
+        try:
+            self._sdk.delete_snapshot(generation.snapshot_id)
+        except Exception:  # noqa: BLE001 - the children exist; report, don't fail
+            logger.warning(
+                "Could not delete fork generation %s", generation.snapshot_id, exc_info=True
+            )
+            return (
+                f"The fork of '{self._vm_id}' left a saved copy behind. Run 'celesto sandbox "
+                f"snapshot delete {generation.snapshot_id}' to remove it.",
+            )
+        return ()
+
+    def _remove_fork_children(self, names: list[str]) -> None:
+        """Remove children an interrupted fork made but never started.
+
+        A child whose copy was interrupted may have no record yet; it is
+        skipped.
+        """
+        for name in names:
+            try:
+                self._sdk.delete(name)
+            except VMNotFoundError:
+                continue
+            except Exception:  # noqa: BLE001 - remove the rest; the fork is ending anyway
+                logger.warning("Could not remove fork child %s", name, exc_info=True)
+
+    def _create_fork_child(
+        self, plan: _ForkPlan, generation: SnapshotInfo, name: str
+    ) -> ForkResult | None:
+        """Copy the generation into a new child; return its failure, if any."""
+        try:
+            self._sdk._create_from_disk(
+                plan.source,
+                generation.artifacts.disk_path,
+                name,
+                forked_at=generation.created_at,
+                shared_base=plan.shared_base,
+            )
+        except Exception as exc:  # noqa: BLE001 - one child's failure never stops the rest
+            return self._fork_child_failed(plan, name, exc, created=False, child=None)
+        return None
+
+    async def _async_create_fork_child(
+        self, plan: _ForkPlan, generation: SnapshotInfo, name: str
+    ) -> ForkResult | None:
+        """Async version of :meth:`_create_fork_child`."""
+        import asyncio
+
+        try:
+            await self._sdk._async_create_from_disk(
+                plan.source,
+                generation.artifacts.disk_path,
+                name,
+                forked_at=generation.created_at,
+                shared_base=plan.shared_base,
+            )
+        except Exception as exc:  # noqa: BLE001 - one child's failure never stops the rest
+            return await asyncio.to_thread(
+                self._fork_child_failed, plan, name, exc, created=False, child=None
+            )
+        return None
+
+    def _start_fork_child(self, plan: _ForkPlan, name: str) -> ForkResult:
+        """Start a created child and verify it; never raises."""
+        child: Celesto | None = None
+        try:
+            child = self._fork_child_handle(plan, name)
+            deadline = time.monotonic() + plan.boot_timeout
+            child.start(boot_timeout=plan.boot_timeout)
+            return self._confirm_fork_child(plan, child, deadline)
+        except Exception as exc:  # noqa: BLE001 - one child's failure never stops the rest
+            return self._fork_child_failed(plan, name, exc, created=True, child=child)
+
+    async def _async_start_fork_child(self, plan: _ForkPlan, name: str) -> ForkResult:
+        """Async version of :meth:`_start_fork_child`."""
+
+        # The worker-thread steps finish before a cancellation is raised, so
+        # the fork never removes a child while one of them still uses it.
+        child: Celesto | None = None
+        opened: list[Celesto] = []
+        try:
+
+            def open_child() -> Celesto:
+                result = self._fork_child_handle(plan, name)
+                opened.append(result)
+                return result
+
+            child = await _thread_despite_cancel(open_child)
+            deadline = time.monotonic() + plan.boot_timeout
+            await _thread_despite_cancel(
+                functools.partial(child.start, boot_timeout=plan.boot_timeout)
+            )
+            return await _thread_despite_cancel(self._confirm_fork_child, plan, child, deadline)
+        except Exception as exc:  # noqa: BLE001 - one child's failure never stops the rest
+            return await _thread_despite_cancel(
+                functools.partial(
+                    self._fork_child_failed, plan, name, exc, created=True, child=child
+                )
+            )
+        except BaseException:
+            # Cancelled: the fork removes this child; only the handle is ours.
+            if child is None and opened:
+                child = opened[0]
+            if child is not None:
+                with suppress(Exception):
+                    child.close()
+            raise
+
+    def _fork_child_handle(self, plan: _ForkPlan, name: str) -> Celesto:
+        """Open a child the way this sandbox was opened (same login, inventory)."""
+        return Celesto.from_id(
+            name,
+            data_dir=self._sdk.data_dir,
+            socket_dir=self._sdk.socket_dir,
+            backend=plan.source.config.backend,
+            ssh_user=self._ssh_user,
+            ssh_key_path=self._ssh_key_path,
+            ssh_password=self._ssh_password,
+            comm_channel=self._comm_channel_request,
+            state_manager=self._sdk.state,
+        )
+
+    def _confirm_fork_child(self, plan: _ForkPlan, child: Celesto, deadline: float) -> ForkResult:
+        """Wait for a started child and confirm it has its own identity (D18)."""
+        child.wait_for_ready(timeout=max(deadline - time.monotonic(), 1.0))
+        try:
+            report = child._read_guest_identity()
+        except Exception as exc:
+            raise _ForkIdentityError from exc
+        instance_id = child.info.config.instance_id
+        if report is None or not identity_confirmed(
+            report, instance_id=instance_id, source=plan.identity
+        ):
+            raise _ForkIdentityError
+        self._sdk.state.record_vm_identity(
+            child.vm_id,
+            VMIdentity(
+                instance_id=report.instance_id,
+                ssh_host_key_fingerprint=report.ssh_host_key_fingerprint,
+                machine_id=report.machine_id,
+            ),
+        )
+        return ForkResult(name=child.vm_id, ok=True, sandbox=child)
+
+    def _fork_child_failed(
+        self,
+        plan: _ForkPlan,
+        name: str,
+        exc: Exception,
+        *,
+        created: bool,
+        child: Celesto | None,
+    ) -> ForkResult:
+        """Remove a failed child and describe why it failed."""
+        logger.info("Fork child %s of %s failed: %s", name, self._vm_id, exc, exc_info=exc)
+        if child is not None:
+            with suppress(Exception):
+                child.close()
+        cleanup_failed = False
+        if created:
+            try:
+                self._sdk.delete(name)
+            except Exception:  # noqa: BLE001 - still report the child's own failure
+                cleanup_failed = True
+                logger.warning("Could not remove failed fork child %s", name, exc_info=True)
+        if isinstance(exc, (OperationTimeoutError, TimeoutError)):
+            error = boot_timeout_message(name, plan.boot_timeout, cleanup_failed=cleanup_failed)
+        elif isinstance(exc, _ForkIdentityError):
+            error = identity_not_confirmed_message(self._vm_id, name, cleanup_failed=cleanup_failed)
+        elif isinstance(exc, VMAlreadyExistsError) and not cleanup_failed:
+            error = name_taken_message(name)
+        elif isinstance(exc, CelestoError) and not created and not isinstance(exc, DiskCopyError):
+            # Refused before the child existed (such as a saved disk in the
+            # way); its message says why. A failed disk copy is message 20.
+            error = str(exc)
+        else:
+            error = child_failed_message(self._vm_id, name, cleanup_failed=cleanup_failed)
+        return ForkResult(name=name, ok=False, error=error)
 
     def _wait_for_ssh_over_network(self, timeout: float, *, as_control: bool = False) -> None:
         """Wait for SSH across available network endpoints."""

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Added
+
+- Fork a sandbox into up to 10 new, separate sandboxes with `celesto sandbox fork SOURCE`, or `fork()` and `fork_many()` in Python. Each copy starts with the source's files and settings, including environment variables, and gets its own name, address, SSH host keys and machine ID. `celesto sandbox info` shows where a copy came from. Forking works on local QEMU and Firecracker sandboxes created with this release's image. See [Fork a sandbox](docs/guides/sandboxes.md#fork-a-sandbox).
+- `celesto.CelestoWarning` reports problems that don't fail a call, such as a forked sandbox staying paused.
+
+### Fixed
+
+- Give every new sandbox its own machine ID and SSH host keys, kept across restarts and snapshot restores. Sandboxes need an image built with this release; existing sandboxes keep their current identity.
+
 ## 0.1.4 — 2026-10-06
 
 ### Added

@@ -19,6 +19,7 @@ Celesto gives an AI agent a disposable computer for running code, using a browse
 - [Browser sandboxes](guides/browser.md) — run Chromium and connect with a browser or Playwright.
 - [Linux computers](guides/computers.md) — run a visible desktop with Chromium, a terminal, files, and a text editor.
 - [Snapshots](guides/snapshots.md) — save and restore supported sandbox state.
+- [Fork a sandbox](guides/sandboxes.md#fork-a-sandbox) — copy a sandbox into new, separate sandboxes from the CLI or Python.
 - [Networking](guides/networking.md) — share a local port, limit outbound domains, or connect a sandbox to an existing bridge.
 - [macOS desktops](guides/macos.md) — open a disposable Mac desktop on Apple Silicon.
 - [Windows guests](guides/windows.md) — build and use a Windows image.

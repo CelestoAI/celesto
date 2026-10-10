@@ -70,7 +70,7 @@ def _before_command(*, json_output: bool = False, skip_update_notice: bool = Fal
         return
     noun = parts[0]
     if noun in {"computer", "sandbox"}:
-        if "snapshot" in parts:
+        if "snapshot" in parts or parts[-1] == "fork":
             feature: _telemetry.Feature = "snapshot"
         elif parts[-1] in {"run", "exec", "shell", "ssh", "terminal"}:
             feature = "command_execution"
@@ -652,6 +652,75 @@ def sandbox_resume(vm_id: str, json_output: bool) -> Any:
     _before_command(json_output=json_output)
     return _handlers()._run_resume(
         _ns(command_name="sandbox.resume", vm_id=vm_id, json=json_output)
+    )
+
+
+@sandbox.command("fork")
+@click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
+@click.option("--local", is_flag=True, help="Fork a sandbox on this machine (the default).")
+# Hidden: fork is local-only for now, but --cloud gets a clear message (D4).
+@click.option("--cloud", is_flag=True, hidden=True)
+@click.option(
+    "-n",
+    "--name",
+    default=None,
+    metavar="NAME",
+    help=(
+        "Name for the new sandbox; with --count, names are NAME-1 to NAME-N. "
+        "Default: the next free numbers after the source's name."
+    ),
+)
+@click.option(
+    "--count",
+    type=int,
+    default=1,
+    metavar="N",
+    show_default=True,
+    help="How many new sandboxes to make, 1 to 10.",
+)
+@click.option(
+    "--parallel",
+    type=int,
+    default=4,
+    metavar="N",
+    show_default=True,
+    help="How many new sandboxes to start at the same time.",
+)
+@boot_timeout_option
+@json_option
+def sandbox_fork(
+    vm_id: str,
+    local: bool,
+    cloud: bool,
+    name: str | None,
+    count: int,
+    parallel: int,
+    boot_timeout: float,
+    json_output: bool,
+) -> Any:
+    """Copy a sandbox into one or more new sandboxes."""
+    if local and cloud:
+        raise click.UsageError("Choose either --local or --cloud, not both.")
+    from celesto._fork import count_message
+
+    if count < 1 or count > 10:
+        raise click.BadParameter(count_message(vm_id, count, name), param_hint="--count")
+    if parallel < 1 or parallel > 10:
+        raise click.UsageError(
+            f"'--parallel' must be from 1 to 10. Run 'celesto sandbox fork {vm_id} --parallel 10'."
+        )
+    _before_command(json_output=json_output)
+    return _handlers()._run_fork(
+        _ns(
+            command_name="sandbox.fork",
+            vm_id=vm_id,
+            provider="cloud" if cloud else "local",
+            name=name,
+            count=count,
+            parallel=parallel,
+            boot_timeout=boot_timeout,
+            json=json_output,
+        )
     )
 
 
