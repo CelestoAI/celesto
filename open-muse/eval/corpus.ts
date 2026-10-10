@@ -12,12 +12,14 @@ export interface EvalCase {
     requiredTools?: string[];
     requiredSequence?: string[];
     maxToolAttempts?: Record<string, number>;
+    answerIncludes?: string[];
   };
   scripted: {
     firstTool?: string;
     approvalRequired?: boolean;
     refusal?: boolean;
     attemptedTools?: string[];
+    assistantText?: string;
     completed: boolean;
   };
 }
@@ -109,11 +111,13 @@ export const evalCorpus: readonly EvalCase[] = [
       requiredTools: ["browser_observe", "browser_search", "browser_extract"],
       requiredSequence: ["browser_search", "browser_extract"],
       maxToolAttempts: { browser_search: 1 },
+      answerIncludes: ["Fixture phone 256 GB", "₹1,64,900"],
     },
     scripted: {
       firstTool: "browser_observe",
       approvalRequired: true,
       attemptedTools: ["browser_observe", "browser_search", "browser_extract"],
+      assistantText: "The exact listing is Fixture phone 256 GB at ₹1,64,900.",
       completed: true,
     },
   },
@@ -127,11 +131,13 @@ export const evalCorpus: readonly EvalCase[] = [
       requiredTools: ["browser_observe", "browser_keypress", "browser_extract"],
       requiredSequence: ["browser_keypress", "browser_extract"],
       maxToolAttempts: { browser_keypress: 1 },
+      answerIncludes: ["Fixture phone 256 GB", "₹1,64,900"],
     },
     scripted: {
       firstTool: "browser_observe",
       approvalRequired: true,
       attemptedTools: ["browser_observe", "browser_keypress", "browser_extract"],
+      assistantText: "The results show Fixture phone 256 GB priced at ₹1,64,900.",
       completed: true,
     },
   },

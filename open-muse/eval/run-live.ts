@@ -70,7 +70,11 @@ function approvalContinuationPrompt(item: (typeof evalCorpus)[number]): string {
     outcome: "succeeded",
     page: { title: "Example Domain", url: "https://example.com/" },
     observation: item.expected.requiredSequence?.includes("browser_extract")
-      ? { title: "Example Domain", url: "https://example.com/", snapshot: "- document \"Example Domain\"\n  - textbox \"Search\" [ref=e1]" }
+      ? {
+        title: "Search results",
+        url: "https://example.com/",
+        snapshot: "- document \"Search results\"\n  - heading \"Fixture phone 256 GB — ₹1,64,900\"",
+      }
       : undefined,
     summary: "The approved scripted browser operation completed.",
   });
