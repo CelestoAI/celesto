@@ -39,7 +39,10 @@ def run_cloud_computer(args: SimpleNamespace) -> int:
                 )
             else:
                 for row in rows:
-                    print(f"{row['computer_id']}\t{row['status']}")
+                    print(
+                        f"{row['computer_id']}\t{row['status']}\t{row['vcpus']} vCPUs"
+                        f"\t{row['ram_mb']} MiB RAM"
+                    )
                 if not rows:
                     print("No cloud computers found.")
                 if possibly_truncated:
