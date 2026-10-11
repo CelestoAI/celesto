@@ -80,7 +80,7 @@ def start_cloud_computer(computer_id: str) -> dict[str, str]:
         provider.close()
 
 
-def list_cloud_computers(limit: int = 50) -> tuple[list[dict[str, str]], bool]:
+def list_cloud_computers(limit: int = 50) -> tuple[list[dict[str, str | int]], bool]:
     """Return public CLI fields and flag a potentially incomplete list."""
     from _celesto_cloud_api.api.computers import list_computers_v1_computers_get
     from _celesto_cloud_api.models.computer_list_response import ComputerListResponse
@@ -90,8 +90,13 @@ def list_cloud_computers(limit: int = 50) -> tuple[list[dict[str, str]], bool]:
         response = provider._call(
             list_computers_v1_computers_get.sync_detailed, ComputerListResponse, limit=limit
         )
-        rows = [
-            {"computer_id": computer.id, "status": computer.status}
+        rows: list[dict[str, str | int]] = [
+            {
+                "computer_id": computer.id,
+                "status": computer.status,
+                "vcpus": computer.vcpus,
+                "ram_mb": computer.ram_mb,
+            }
             for computer in response.computers
         ]
         # The API exposes a limit but no offset or cursor. A full page may
