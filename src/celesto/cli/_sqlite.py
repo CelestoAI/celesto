@@ -57,7 +57,9 @@ from celesto.types import (
     NetworkConfig,
     SnapshotInfo,
     VMConfig,
+    VMIdentity,
     VMInfo,
+    VMLineage,
     VMState,
 )
 
@@ -205,6 +207,22 @@ class SQLiteStateManager:
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_snapshots_vm_id ON snapshots(vm_id);
+
+                CREATE TABLE IF NOT EXISTS vm_identities (
+                    vm_id TEXT PRIMARY KEY,
+                    instance_id TEXT,
+                    ssh_host_key_fingerprint TEXT,
+                    machine_id TEXT,
+                    recorded_at TEXT NOT NULL,
+                    FOREIGN KEY (vm_id) REFERENCES vms(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS vm_lineage (
+                    vm_id TEXT PRIMARY KEY,
+                    forked_from TEXT NOT NULL,
+                    forked_at TEXT NOT NULL,
+                    FOREIGN KEY (vm_id) REFERENCES vms(id) ON DELETE CASCADE
+                );
             """
             )
             vm_columns = {row["name"] for row in conn.execute("PRAGMA table_info(vms)").fetchall()}
@@ -359,6 +377,89 @@ class SQLiteStateManager:
             conn.execute("DELETE FROM vms WHERE id = ?", (vm_id,))
 
         logger.info("Deleted VM: %s", vm_id)
+
+    def get_vm_identity(self, vm_id: str) -> VMIdentity | None:
+        if not vm_id:
+            raise ValueError("vm_id cannot be empty")
+
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT * FROM vm_identities WHERE vm_id = ?", (vm_id,)).fetchone()
+
+        if not row:
+            return None
+        return VMIdentity(
+            instance_id=row["instance_id"],
+            ssh_host_key_fingerprint=row["ssh_host_key_fingerprint"],
+            machine_id=row["machine_id"],
+            recorded_at=datetime.fromisoformat(row["recorded_at"]),
+        )
+
+    def record_vm_identity(self, vm_id: str, identity: VMIdentity) -> VMIdentity:
+        if not vm_id:
+            raise ValueError("vm_id cannot be empty")
+
+        with self._get_connection(exclusive=True) as conn:
+            existing = conn.execute("SELECT id FROM vms WHERE id = ?", (vm_id,)).fetchone()
+            if not existing:
+                raise VMNotFoundError(vm_id)
+            conn.execute(
+                """
+                INSERT INTO vm_identities
+                    (vm_id, instance_id, ssh_host_key_fingerprint, machine_id, recorded_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(vm_id) DO UPDATE SET
+                    instance_id = excluded.instance_id,
+                    ssh_host_key_fingerprint = excluded.ssh_host_key_fingerprint,
+                    machine_id = excluded.machine_id,
+                    recorded_at = excluded.recorded_at
+                """,
+                (
+                    vm_id,
+                    identity.instance_id,
+                    identity.ssh_host_key_fingerprint,
+                    identity.machine_id,
+                    identity.recorded_at.isoformat(),
+                ),
+            )
+
+        logger.info("Recorded identity for VM %s", vm_id)
+        return identity
+
+    def get_vm_lineage(self, vm_id: str) -> VMLineage | None:
+        if not vm_id:
+            raise ValueError("vm_id cannot be empty")
+
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT * FROM vm_lineage WHERE vm_id = ?", (vm_id,)).fetchone()
+
+        if not row:
+            return None
+        return VMLineage(
+            forked_from=row["forked_from"],
+            forked_at=datetime.fromisoformat(row["forked_at"]),
+        )
+
+    def record_vm_lineage(self, vm_id: str, lineage: VMLineage) -> VMLineage:
+        if not vm_id:
+            raise ValueError("vm_id cannot be empty")
+
+        with self._get_connection(exclusive=True) as conn:
+            existing = conn.execute("SELECT id FROM vms WHERE id = ?", (vm_id,)).fetchone()
+            if not existing:
+                raise VMNotFoundError(vm_id)
+            conn.execute(
+                """
+                INSERT INTO vm_lineage (vm_id, forked_from, forked_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(vm_id) DO UPDATE SET
+                    forked_from = excluded.forked_from,
+                    forked_at = excluded.forked_at
+                """,
+                (vm_id, lineage.forked_from, lineage.forked_at.isoformat()),
+            )
+
+        logger.info("Recorded lineage for VM %s (from %s)", vm_id, lineage.forked_from)
+        return lineage
 
     def list_vms(self, status: VMState | None = None) -> list[VMInfo]:
         with self._get_connection() as conn:

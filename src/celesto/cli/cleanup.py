@@ -32,6 +32,7 @@ from celesto.cli.output import (
     emit_json,
     render_empty,
     render_error,
+    snapshot_wait_notice,
     status_style,
 )
 from celesto.cli.service import CLIService
@@ -202,7 +203,7 @@ def _delete_one(sdk: CelestoManager, vm_id: str) -> None:
 
     leftovers = sdk.leftover_paths_for_vm(vm_id)
     try:
-        sdk.delete(vm_id)
+        sdk.delete(vm_id, on_snapshot_wait=snapshot_wait_notice(vm_id))
     except VMNotFoundError:
         if not leftovers or any(path.exists() for path in leftovers):
             raise

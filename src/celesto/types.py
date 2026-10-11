@@ -16,7 +16,7 @@
 
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from ipaddress import IPv4Network, collapse_addresses
 from pathlib import Path
@@ -244,6 +244,11 @@ class GuestFlushPolicy(str, Enum):
 def _generate_vm_id() -> str:
     """Generate a VM identifier compatible with VMConfig validation."""
     return generate_sandbox_name()
+
+
+def generate_instance_id() -> str:
+    """Generate a sandbox instance ID: 32 lowercase hex characters."""
+    return uuid4().hex
 
 
 def _generate_browser_session_id() -> str:
@@ -679,6 +684,13 @@ class VMConfig(BaseModel):
             ``celesto.network=guest`` and can configure its own interface.
             Required for bridge mode so older cached or custom images cannot
             silently boot without usable networking.
+        instance_id: Identifies this sandbox as one machine. Celesto sets it
+            when the sandbox is created and keeps it across restarts and
+            snapshot restores. It is passed on the kernel command line as
+            ``celesto.instance_id=<id>``; when it differs from the ID saved in
+            the guest, ``/init`` creates new SSH host keys and a new machine ID
+            before SSH starts. ``None`` for sandboxes created before Celesto
+            assigned instance IDs; those boot exactly as before.
     """
 
     vm_id: Annotated[
@@ -718,6 +730,7 @@ class VMConfig(BaseModel):
     ssh_public_key: str | None = None
     guest_managed_networking: bool = False
     network_attachment: NetworkAttachmentConfig = Field(default_factory=NetworkAttachmentConfig)
+    instance_id: Annotated[str, Field(pattern=r"^[0-9a-f]{32}$")] | None = None
 
     @property
     def effective_rootfs_format(self) -> RootfsFormat:
@@ -1145,6 +1158,47 @@ class VMInfo(BaseModel):
     model_config = {"frozen": True}
 
 
+class VMIdentity(BaseModel):
+    """A sandbox's identity, as the sandbox itself reported it.
+
+    Celesto records this the first time a sandbox is ready after its startup
+    script gave it a new identity, so it can later be compared with other
+    sandboxes even while this one is stopped.
+
+    Attributes:
+        instance_id: The instance ID the guest saved at boot. ``None`` when the
+            sandbox's startup script predates instance IDs.
+        ssh_host_key_fingerprint: OpenSSH ``SHA256:...`` fingerprint of the
+            guest's Ed25519 SSH host key, as ``ssh-keygen -l`` prints it.
+        machine_id: Contents of the guest's ``/etc/machine-id``.
+        recorded_at: When Celesto recorded this identity (UTC).
+    """
+
+    instance_id: str | None = None
+    ssh_host_key_fingerprint: str | None = None
+    machine_id: str | None = None
+    recorded_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    model_config = {"frozen": True}
+
+
+class VMLineage(BaseModel):
+    """Where a sandbox was copied from.
+
+    Stored as plain text, not a link: deleting the source never changes this
+    record, so a copy keeps showing where it came from.
+
+    Attributes:
+        forked_from: Name of the sandbox whose disk this sandbox started from.
+        forked_at: When the copy was made (UTC).
+    """
+
+    forked_from: str
+    forked_at: datetime
+
+    model_config = {"frozen": True}
+
+
 class SnapshotArtifacts(BaseModel):
     """Filesystem artifacts associated with a persisted VM snapshot."""
 
@@ -1177,6 +1231,9 @@ class SnapshotInfo(BaseModel):
     bitmap_name: str | None = None
     restored: bool = False
     restored_vm_id: str | None = None
+    # Problems that did not fail the snapshot, such as the source staying
+    # paused. Only set on the value returned by create_snapshot; never saved.
+    warnings: tuple[str, ...] = ()
 
     model_config = {"frozen": True}
 

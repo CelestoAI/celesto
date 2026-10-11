@@ -21,10 +21,12 @@ sandboxed environment.
 from importlib.metadata import version as _pkg_version
 
 from celesto._compat import apply_legacy_environment_aliases
+from celesto._fork import ForkBatch, ForkResult
 from celesto._terminal import TerminalConnection
 from celesto.callbacks import Callback, CommandBlockedError, RunContext
 from celesto.exceptions import (
     CelestoError,
+    CelestoWarning,
     CloudAPIError,
     CommandExecutionUnavailableError,
     FirecrackerAPIError,
@@ -135,6 +137,8 @@ __all__ = [
     "SnapshotCapturePolicy",
     "SnapshotInfo",
     "SnapshotType",
+    "ForkBatch",
+    "ForkResult",
     "GuestFlushPolicy",
     "CommandResult",
     "PublishedPort",
@@ -152,6 +156,7 @@ __all__ = [
     "MacOSMachineConfig",
     # Exceptions
     "CelestoError",
+    "CelestoWarning",
     "CloudAPIError",
     "CommandExecutionUnavailableError",
     "SnapshotAlreadyExistsError",

@@ -1,0 +1,217 @@
+# Copyright 2026 Celesto AI
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Async stop and delete wait for a snapshot without stalling the event loop.
+
+The end-to-end suite (``tests/e2e/test_snapshot_locks.py``) drives the sync
+CLI path only. These isolated tests cover the async SDK path, which it cannot
+reach. Ways the async locking can fail:
+
+1. ``async_delete`` of a running sandbox takes the snapshot lock, then calls a
+   stop that takes it again, so it hangs forever.
+2. ``async_stop`` or ``async_delete`` skip the lock and run mid-snapshot.
+3. The blocking ``flock`` runs on the event loop thread, freezing every other
+   coroutine until the snapshot finishes.
+4. The wait notice never fires while waiting, or fires when nothing waits.
+
+Cancellation while waiting is not covered: it matches the existing create
+lock, whose worker thread keeps the lock until its file is garbage collected.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import fcntl
+import threading
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from celesto.exceptions import VMNotFoundError
+from celesto.types import VMConfig, VMState
+from celesto.vm import CelestoManager
+
+VM_ID = "sbx-einstein"
+
+
+@pytest.fixture
+def manager(tmp_path: Path) -> CelestoManager:
+    """A manager with one running QEMU sandbox and a stubbed runtime."""
+    kernel = tmp_path / "vmlinux"
+    rootfs = tmp_path / "rootfs.ext4"
+    kernel.touch()
+    rootfs.touch()
+    vm_manager = CelestoManager(data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets")
+    vm_manager.state.create_vm(
+        VMConfig(vm_id=VM_ID, kernel_path=kernel, rootfs_path=rootfs, backend="qemu")
+    )
+    vm_manager.state.update_vm(VM_ID, status=VMState.RUNNING, pid=99999)
+
+    adapter = MagicMock()
+    adapter.async_stop = AsyncMock()
+    vm_manager._runtime_adapter_for_backend = MagicMock(return_value=adapter)  # type: ignore[method-assign]
+    vm_manager._async_cleanup_resources = AsyncMock()  # type: ignore[method-assign]
+    return vm_manager
+
+
+def _hold_snapshot_lock(manager: CelestoManager) -> tuple[threading.Event, threading.Event]:
+    """Hold the sandbox's snapshot lock from another thread, like a snapshot would."""
+    acquired = threading.Event()
+    release = threading.Event()
+    lock_path = manager.data_dir / "locks" / f"{VM_ID}.snapshot.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def hold() -> None:
+        with lock_path.open("w") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            acquired.set()
+            release.wait()
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    threading.Thread(target=hold, daemon=True).start()
+    assert acquired.wait(5)
+    return acquired, release
+
+
+@pytest.mark.asyncio
+async def test_async_delete_of_running_sandbox_does_not_deadlock(
+    manager: CelestoManager,
+) -> None:
+    notices: list[str] = []
+
+    await asyncio.wait_for(
+        manager.async_delete(VM_ID, on_snapshot_wait=lambda: notices.append("waiting")),
+        timeout=5,
+    )
+
+    with pytest.raises(VMNotFoundError):
+        manager.state.get_vm(VM_ID)
+    assert notices == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["async_stop", "async_delete"])
+async def test_async_action_waits_for_snapshot_without_blocking_event_loop(
+    manager: CelestoManager,
+    action: str,
+) -> None:
+    notices: list[str] = []
+    noticed = threading.Event()
+    acquired, release = _hold_snapshot_lock(manager)
+    assert acquired.wait(5)
+
+    def on_wait() -> None:
+        notices.append("waiting")
+        noticed.set()
+
+    task = asyncio.create_task(getattr(manager, action)(VM_ID, on_snapshot_wait=on_wait))
+    try:
+        assert await asyncio.to_thread(noticed.wait, 5), "the wait notice did not fire"
+        assert notices == ["waiting"]
+        assert not task.done(), f"{action} ran while the snapshot still held the lock"
+    finally:
+        release.set()
+    await asyncio.wait_for(task, timeout=5)
+    if action == "async_stop":
+        assert manager.state.get_vm(VM_ID).status == VMState.STOPPED
+    else:
+        with pytest.raises(VMNotFoundError):
+            manager.state.get_vm(VM_ID)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("lock_method", "lock_name"),
+    [
+        ("_async_vm_snapshot_lock", f"{VM_ID}.snapshot.lock"),
+        ("_async_fork_names_lock", f"{VM_ID}.fork-names.lock"),
+    ],
+)
+async def test_cancelled_snapshot_lock_waiter_releases_lock_before_returning(
+    manager: CelestoManager,
+    lock_method: str,
+    lock_name: str,
+) -> None:
+    """A cancelled waiter must not acquire and strand the file lock later.
+
+    Failure modes covered: cancellation drops the awaiting thread but leaves
+    its eventual lock open, or cancellation after acquisition fails to release.
+    """
+    lock_path = manager.data_dir / "locks" / lock_name
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    owner = lock_path.open("w")
+    fcntl.flock(owner.fileno(), fcntl.LOCK_EX)
+    waiting = threading.Event()
+    notices: list[str] = []
+
+    def record_wait() -> None:
+        waiting.set()
+        notices.append("waiting")
+
+    task = asyncio.create_task(_enter_and_hold(manager, lock_method, record_wait))
+    assert await asyncio.to_thread(waiting.wait, 5)
+    task.cancel()
+    await asyncio.sleep(0)
+    fcntl.flock(owner.fileno(), fcntl.LOCK_UN)
+    owner.close()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=5)
+
+    # A second nonblocking acquisition proves the cancelled worker released
+    # the lock it obtained after the original holder let go.
+    probe = lock_path.open("w")
+    try:
+        fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    finally:
+        fcntl.flock(probe.fileno(), fcntl.LOCK_UN)
+        probe.close()
+    assert notices == ["waiting"]
+
+
+async def _enter_and_hold(manager: CelestoManager, lock_method: str, on_wait: object) -> None:
+    async with getattr(manager, lock_method)(VM_ID, on_wait=on_wait):
+        await asyncio.Event().wait()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("lock_method", ["_async_vm_snapshot_lock", "_async_fork_names_lock"])
+async def test_cancelled_lock_wait_does_not_send_a_late_notice(
+    manager: CelestoManager,
+    monkeypatch: pytest.MonkeyPatch,
+    lock_method: str,
+) -> None:
+    worker_started = threading.Event()
+    continue_worker = threading.Event()
+    notices: list[str] = []
+
+    def acquire(_lock_name: str, *, on_wait: object = None) -> tuple[None, None]:
+        worker_started.set()
+        assert continue_worker.wait(5)
+        if on_wait is not None:
+            on_wait()  # type: ignore[operator]
+        return None, None
+
+    monkeypatch.setattr(manager, "_acquire_operation_lock", acquire)
+    task = asyncio.create_task(
+        _enter_and_hold(manager, lock_method, lambda: notices.append("waiting"))
+    )
+    assert await asyncio.to_thread(worker_started.wait, 5)
+    task.cancel()
+    await asyncio.sleep(0)
+    continue_worker.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=5)
+    assert notices == []

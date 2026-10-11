@@ -17,11 +17,14 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
+
+from celesto._fork import waiting_notice
 
 
 def console_stdout() -> Console:
@@ -32,6 +35,20 @@ def console_stdout() -> Console:
 def console_stderr() -> Console:
     """Return the Rich console configured for standard error."""
     return Console(stderr=True)
+
+
+def snapshot_wait_notice(sandbox: str) -> Callable[[], None]:
+    """Return a callback that says a command is waiting on a snapshot or fork.
+
+    The lock it waits for is held by snapshots and forks alike, so it uses
+    the fork's wording. The notice goes to stderr so ``--json`` output on
+    stdout stays parseable.
+    """
+
+    def notice() -> None:
+        console_stderr().print(waiting_notice(sandbox), markup=False, highlight=False)
+
+    return notice
 
 
 def emit_json(
