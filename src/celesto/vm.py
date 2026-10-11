@@ -2507,6 +2507,17 @@ class CelestoManager:
         """
         return self._create(config)
 
+    @staticmethod
+    def _reject_instance_id_boot_arg(config: VMConfig) -> None:
+        """Keep the instance ID in boot arguments consistent with stored config."""
+        if any(part.startswith(f"{_INSTANCE_ID_BOOT_PARAM}=") for part in config.boot_args.split()):
+            raise CelestoError(
+                f"Sandbox '{config.vm_id}' can't set 'celesto.instance_id' in its boot "
+                "arguments; Celesto sets it for you. Remove it from boot_args and create "
+                "the sandbox again.",
+                {"vm_id": config.vm_id},
+            )
+
     def _create(
         self,
         config: VMConfig,
@@ -2532,13 +2543,7 @@ class CelestoManager:
         """
         if config is None:
             raise ValueError("config cannot be None")
-        if any(part.startswith(f"{_INSTANCE_ID_BOOT_PARAM}=") for part in config.boot_args.split()):
-            raise CelestoError(
-                f"Sandbox '{config.vm_id}' can't set 'celesto.instance_id' in its boot "
-                "arguments; Celesto sets it for you. Remove it from boot_args and create "
-                "the sandbox again.",
-                {"vm_id": config.vm_id},
-            )
+        self._reject_instance_id_boot_arg(config)
 
         backend = self._backend_for_config(config)
         effective_config = config
@@ -5329,6 +5334,7 @@ class CelestoManager:
         """Async version of :meth:`_create`."""
         if config is None:
             raise ValueError("config cannot be None")
+        self._reject_instance_id_boot_arg(config)
 
         backend = self._backend_for_config(config)
         effective_config = config

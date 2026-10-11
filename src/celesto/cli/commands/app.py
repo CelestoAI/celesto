@@ -703,6 +703,20 @@ def sandbox_fork(
         raise click.UsageError("Choose either --local or --cloud, not both.")
     from celesto._fork import count_message
 
+    request = _ns(
+        command_name="sandbox.fork",
+        vm_id=vm_id,
+        provider="cloud" if cloud else "local",
+        name=name,
+        count=count,
+        parallel=parallel,
+        boot_timeout=boot_timeout,
+        json=json_output,
+    )
+    if cloud:
+        _before_command(json_output=json_output)
+        return _handlers()._run_fork(request)
+
     if count < 1 or count > 10:
         raise click.BadParameter(count_message(vm_id, count, name), param_hint="--count")
     if parallel < 1 or parallel > 10:
@@ -710,18 +724,7 @@ def sandbox_fork(
             f"'--parallel' must be from 1 to 10. Run 'celesto sandbox fork {vm_id} --parallel 10'."
         )
     _before_command(json_output=json_output)
-    return _handlers()._run_fork(
-        _ns(
-            command_name="sandbox.fork",
-            vm_id=vm_id,
-            provider="cloud" if cloud else "local",
-            name=name,
-            count=count,
-            parallel=parallel,
-            boot_timeout=boot_timeout,
-            json=json_output,
-        )
-    )
+    return _handlers()._run_fork(request)
 
 
 @sandbox.command("shell")

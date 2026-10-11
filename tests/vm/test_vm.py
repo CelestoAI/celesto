@@ -116,6 +116,19 @@ class TestCelestoCreate:
             "Celesto sets it for you. Remove it from boot_args and create the sandbox again."
         )
 
+    @pytest.mark.asyncio
+    async def test_async_create_rejects_user_instance_id_boot_argument(
+        self, smol_vm: CelestoManager, sample_config: VMConfig
+    ) -> None:
+        config = sample_config.model_copy(
+            update={
+                "boot_args": "console=ttyS0 celesto.instance_id=22222222222222222222222222222222"
+            }
+        )
+
+        with pytest.raises(CelestoError, match="Remove it from boot_args and create"):
+            await smol_vm.async_create(config)
+
     @patch("celesto.vm.NetworkManager")
     def test_create_vm_allocates_resources(
         self,

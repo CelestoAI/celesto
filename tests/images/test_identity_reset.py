@@ -319,3 +319,26 @@ def test_both_startup_scripts_share_one_reset_that_runs_before_services() -> Non
         call = script.index('celesto_reset_identity /proc/cmdline ""')
         assert call < script.index("celesto-guest-agent --listen"), name
         assert call < script.index("/usr/sbin/sshd"), name
+
+
+@pytest.mark.parametrize("name", ["base-init", "preset-init"])
+def test_failed_identity_reset_stops_before_guest_agent(name: str) -> None:
+    script = _scripts()[name]
+    start = script.index('celesto_reset_identity /proc/cmdline ""')
+    end = script.index('log_ts "guest-agent-start"', start)
+    startup = script[start:end]
+    result = subprocess.run(
+        [
+            "/bin/sh",
+            "-c",
+            "celesto_reset_identity() { return 1; }\n"
+            'log_ts() { printf "%s\\n" "$1"; }\n'
+            f"{startup}\n"
+            'log_ts "guest-agent-start"',
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert "guest-agent-start" not in result.stdout

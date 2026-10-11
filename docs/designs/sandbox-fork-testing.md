@@ -28,10 +28,16 @@ uv run pytest -m e2e -v --e2e-backend firecracker \
   tests/e2e/test_snapshot_locks.py tests/e2e/test_sandbox_identity.py \
   tests/e2e/test_create_from_disk.py tests/e2e/test_fork_engine.py \
   tests/e2e/test_sandbox_fork_cli.py tests/e2e/test_lifecycle.py
-uv run pytest -m e2e -v --e2e-backend qemu  <same files>
+uv run pytest -m e2e -v --e2e-backend qemu \
+  tests/e2e/test_snapshot_locks.py tests/e2e/test_sandbox_identity.py \
+  tests/e2e/test_create_from_disk.py tests/e2e/test_fork_engine.py \
+  tests/e2e/test_sandbox_fork_cli.py tests/e2e/test_lifecycle.py
 
 # macOS: QEMU only
-uv run pytest -m e2e -v --e2e-backend qemu  <same files>
+uv run pytest -m e2e -v --e2e-backend qemu \
+  tests/e2e/test_snapshot_locks.py tests/e2e/test_sandbox_identity.py \
+  tests/e2e/test_create_from_disk.py tests/e2e/test_fork_engine.py \
+  tests/e2e/test_sandbox_fork_cli.py tests/e2e/test_lifecycle.py
 ```
 
 Then run the rest of the suite to check that nothing else broke:
@@ -123,7 +129,12 @@ Repeat this section on each engine. On Linux, pass `--backend firecracker` or `-
    uv run celesto sandbox exec demo-1 -- cat /root/marker.txt
    ```
 
-   Expect `changed`: deleting the source doesn't affect the copy. Recreate `demo` (step 1 of this section) before moving on.
+   Expect `changed`: deleting the source doesn't affect the copy. Recreate `demo` before M2, then put the marker back:
+
+   ```bash
+   uv run celesto sandbox create --name demo --os alpine
+   uv run celesto sandbox exec demo -- sh -c 'echo original > /root/marker.txt'
+   ```
 
 8. Check no fork snapshot was left behind (D12):
 

@@ -169,7 +169,7 @@ celesto_reset_identity() {
 # <<< Celesto identity reset
 
 log_ts "identity-check-start"
-celesto_reset_identity /proc/cmdline ""
+celesto_reset_identity /proc/cmdline "" || exit 1
 log_ts "identity-check-done"
 
 # ── Guest agent (vsock control plane) ────────────────────────

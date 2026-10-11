@@ -338,7 +338,7 @@ def test_delete_of_running_sandbox_without_snapshot_does_not_wait(
         timeline.details["delete_stderr"] = result.stderr
         assert result.returncode == 0, result.stdout + result.stderr
         assert json.loads(result.stdout)["ok"]
-        assert "Waiting for the snapshot" not in result.stderr
+        assert "Waiting for the current snapshot or fork of" not in result.stderr
 
         info = _cli("sandbox", "info", sandbox, "--json")
         assert json.loads(info.stdout)["ok"] is False, "sandbox should be gone"

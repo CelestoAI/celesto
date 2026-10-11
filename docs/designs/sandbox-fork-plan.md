@@ -101,7 +101,7 @@ The [testing plan](sandbox-fork-testing.md) lists the full end-to-end run and th
 
 1. Create a source, add a port forward, write a marker file and stop it.
 2. Use the internal path to create two sandboxes from a copy of its disk.
-3. Check that both boot, contain the marker file, and have different names, IP addresses, SSH ports and port-forward host ports from each other and from the source.
+3. Check that both boot, contain the marker file, and have different names and port-forward host ports from each other and from the source. Check distinct guest IP addresses and network devices for TAP networking; default QEMU user-mode guests share a fixed guest IP. Check distinct host SSH ports where the backend assigns them, and verify independent access to each child.
 4. Delete the source and check that both new sandboxes keep working and still record `forked_from`.
 
 **Artifact:** a JSON summary of each sandbox's name, IP, ports, lineage and marker check.

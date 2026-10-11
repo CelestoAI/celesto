@@ -178,15 +178,25 @@ def test_human_output_has_one_line_per_child_then_warnings(
 
 
 @pytest.mark.parametrize("json_output", [True, False], ids=["json", "human"])
+@pytest.mark.parametrize(
+    "invalid_args",
+    [[], ["--count", "11"], ["--parallel", "11"]],
+    ids=["valid", "count", "parallel"],
+)
 def test_cloud_sandboxes_are_refused_before_anything_runs(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], json_output: bool
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    json_output: bool,
+    invalid_args: list[str],
 ) -> None:
     def unexpected(*args: Any, **kwargs: Any) -> None:
         raise AssertionError("a cloud fork must not reach the local engine")
 
     monkeypatch.setattr(cli_main, "_cli_vm_from_id", unexpected)
 
-    code = main(["sandbox", "fork", _SOURCE, "--cloud", *(["--json"] if json_output else [])])
+    code = main(
+        ["sandbox", "fork", _SOURCE, "--cloud", *invalid_args, *(["--json"] if json_output else [])]
+    )
 
     out, err = capsys.readouterr()
     assert code == 1
