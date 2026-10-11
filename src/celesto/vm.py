@@ -1839,12 +1839,18 @@ class CelestoManager:
             return
 
         user = os.environ.get("USER", "root")
-        self.network.prepare_tap_device(
-            network.tap_device,
-            user=user,
-            host_ip=network.gateway_ip,
-            netmask="32",
-        )
+        try:
+            socket.if_nametoindex(network.tap_device)
+        except OSError:
+            self.network.prepare_tap_device(
+                network.tap_device,
+                user=user,
+                host_ip=network.gateway_ip,
+                netmask="32",
+            )
+        else:
+            # A stopped sandbox keeps its TAP. Creating it again returns EBUSY.
+            self.network.configure_tap(network.tap_device, host_ip=network.gateway_ip, netmask="32")
         self.network.add_route(network.guest_ip, network.tap_device)
         if vm_config is None:
             self.network.apply_network_policy(network.tap_device, None)
