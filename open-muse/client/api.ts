@@ -26,7 +26,7 @@ type ConversationCommand =
   | { kind: "approve" | "reject"; approvalId: string; actionDigest: string }
   | { kind: "take_control" }
   | { kind: "return_control"; controlEpoch: string }
-  | { kind: "continue" | "start_over" | "stop" }
+  | { kind: "continue" | "start_over" | "stop" | "pause_task" }
   | { kind: "reconnect_model" }
   | { kind: "change_model"; providerId: string; modelId: string }
   | { kind: "adopt_popup"; tabId: string };
@@ -100,6 +100,7 @@ export const reconnectConversation = (id: string) => command<Conversation>(id, {
 export const switchConversationModel = (id: string, selection: ModelSelection) => command<Conversation>(id, { kind: "change_model", ...selection });
 export const sendMessage = (id: string, text: string) => command<{ accepted: true; stateVersion: number }>(id, { kind: "send_message", text });
 export const stopConversation = (id: string) => command<{ accepted: true }>(id, { kind: "stop" });
+export const pauseTask = (id: string) => command<{ accepted: true }>(id, { kind: "pause_task" });
 export const takeOver = (id: string) => command<{ controlEpoch: string }>(id, { kind: "take_control" });
 export const adoptPopup = (id: string, tabId: string) => command<Conversation>(id, { kind: "adopt_popup", tabId });
 export const resume = (id: string, controlEpoch: string) => command<Conversation>(id, { kind: "return_control", controlEpoch });
