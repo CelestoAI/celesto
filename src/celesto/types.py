@@ -463,7 +463,8 @@ class InternetSettings(BaseModel):
         forbidden = (IPv4Network("172.16.0.0/16"), IPv4Network("169.254.0.0/16"))
         if any(network.overlaps(block) for network in networks for block in forbidden):
             raise ValueError(
-                "Sandbox and link-local addresses cannot be allowed; remove those ranges."
+                "Celesto's internal 172.16.0.0/16 network and link-local addresses cannot be "
+                "allowed; remove those ranges."
             )
         return tuple(str(network) for network in collapse_addresses(networks))
 
@@ -813,7 +814,7 @@ class VMConfig(BaseModel):
             # boot manager; there is no direct-kernel path. The firmware-mode
             # invariants above then also pin backend='qemu' and kernel_path=None.
             raise ValueError(
-                f"VM {self.vm_id!r}: guest_os='windows' requires "
+                f"Computer {self.vm_id!r}: guest_os='windows' requires "
                 "boot_mode='firmware' (Windows has no direct-kernel boot path)."
             )
         return self
@@ -853,7 +854,7 @@ class VMConfig(BaseModel):
         if self.port_forwards:
             raise ValueError(
                 "Port forwards are not supported with bridge mode; "
-                "the VM is directly reachable on the bridged network."
+                "the computer is directly reachable on the bridged network."
             )
         if self.internet_settings is not None and not self.internet_settings.is_allow_all_domains:
             raise ValueError(
@@ -1000,7 +1001,7 @@ class BrowserSessionConfig(BaseModel):
             raise ValueError("profile_id is required when profile_mode='persistent'")
 
         if self.record_video and self.mode == "headless":
-            raise ValueError("record_video requires a visible browser or desktop sandbox")
+            raise ValueError("record_video requires a visible browser or desktop computer")
 
         if self.network_policy_id is not None and not self.network_policy_id.strip():
             raise ValueError("network_policy_id cannot be empty")
@@ -1103,7 +1104,7 @@ class NetworkConfig(BaseModel):
             if self.ssh_host_port is not None:
                 raise ValueError(
                     "mode='bridge' must not set ssh_host_port; "
-                    "use vsock (celesto sandbox shell) instead"
+                    "use vsock (celesto computer shell) instead"
                 )
             if self.egress_proxy_host_port is not None:
                 raise ValueError("mode='bridge' must not set egress_proxy_host_port")

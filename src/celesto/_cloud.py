@@ -193,7 +193,9 @@ class _CloudComputer:
             )
         except UnexpectedStatus as exc:
             if exc.status_code == 404 and self.vm_id is not None:
-                raise VMNotFoundError(self.vm_id) from None
+                raise VMNotFoundError(
+                    self.vm_id, list_command="celesto computer list --cloud"
+                ) from None
             raise self._api_error(
                 exc.status_code, exc.content if retain_error_detail else b""
             ) from None
@@ -517,7 +519,7 @@ class _CloudComputer:
         try:
             computer = self._get()
             if computer.status == "deleted":
-                raise VMNotFoundError(computer_id)
+                raise VMNotFoundError(computer_id, list_command="celesto computer list --cloud")
         except BaseException:
             self.close()
             raise

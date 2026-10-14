@@ -86,7 +86,7 @@ def comm_channel_option(fn: F) -> F:
         "--comm-channel",
         type=click.Choice(COMM_CHANNELS),
         default=None,
-        help="Host-to-guest control channel.",
+        help="How Celesto sends commands to the computer.",
     )(fn)
 
 
@@ -97,7 +97,7 @@ def boot_timeout_option(fn: F) -> F:
         callback=_positive_number,
         default=30.0,
         show_default=True,
-        help="Seconds to wait for the sandbox to be ready.",
+        help="Seconds to wait for the computer to be ready.",
     )(fn)
 
 

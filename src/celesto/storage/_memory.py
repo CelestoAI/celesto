@@ -187,7 +187,8 @@ class MemoryStateManager:
             if existing is not None:
                 if requested_ip is not None and requested_ip != existing[0]:
                     raise NetworkError(
-                        f"VM {vm_id} already has IP {existing[0]}, cannot reserve {requested_ip}"
+                        f"Computer {vm_id} already has IP {existing[0]}, cannot reserve "
+                        f"{requested_ip}"
                     )
                 return existing[0]
 
@@ -249,7 +250,7 @@ class MemoryStateManager:
             if existing is not None:
                 if host_port is not None and host_port != existing:
                     raise NetworkError(
-                        f"VM {vm_id} already has SSH host port {existing}, "
+                        f"Computer {vm_id} already has SSH host port {existing}, "
                         f"cannot reserve {host_port}"
                     )
                 return existing
@@ -284,7 +285,8 @@ class MemoryStateManager:
             if existing is not None:
                 if guest_cid is not None and guest_cid != existing:
                     raise NetworkError(
-                        f"VM {vm_id} already has vsock CID {existing}, cannot reserve {guest_cid}"
+                        f"Computer {vm_id} already has vsock CID {existing}, cannot reserve "
+                        f"{guest_cid}"
                     )
                 return existing
             used = set(self._vsock_cids.values())
@@ -328,7 +330,7 @@ class MemoryStateManager:
                     or existing_bridge != bridge_name
                     or (requested_tap is not None and requested_tap != tap)
                 ):
-                    raise NetworkError(f"Sandbox '{vm_id}' already reserves TAP '{tap}'.")
+                    raise NetworkError(f"Computer '{vm_id}' already reserves TAP '{tap}'.")
                 return tap
             used = {allocation[0] for allocation in self._tap_allocations.values()}
             used |= self._host_interface_names()

@@ -438,7 +438,7 @@ def _vm_warnings(vm: VMInfo) -> list[str]:
             warnings.append(
                 f"Shared folder is missing on your machine: "
                 f"'{mount.host_path}'. Restore it, or run "
-                f"'celesto sandbox delete {vm.vm_id}' to remove the sandbox."
+                f"'celesto computer delete {vm.vm_id}' to remove the computer."
             )
     return warnings
 
@@ -467,7 +467,7 @@ def _render_list(rows: list[VmRow], *, show_preset_column: bool = True) -> None:
     """Render the human-facing VM list."""
     from celesto.presets import public_preset_name
 
-    table = Table(title="Celesto Instances")
+    table = Table(title="Celesto Computers")
     table.add_column("Name")
     if show_preset_column:
         table.add_column("Preset")
@@ -492,7 +492,7 @@ def _render_list(rows: list[VmRow], *, show_preset_column: bool = True) -> None:
 
     console = console_stdout()
     console.print(table)
-    console.print(f"Total: {len(rows)} VM(s).")
+    console.print(f"Total: {len(rows)} computer(s).")
 
     flagged = [row for row in rows if row["warnings"]]
     if flagged:
@@ -549,16 +549,16 @@ def _run_setup(
                 ensure_backend_available(BACKEND_VZ)
                 if binary is None or lume_version(binary) != LUME_VERSION:
                     raise RuntimeError(
-                        "The tested macOS sandbox runtime is missing; run "
+                        "The tested macOS desktop runtime is missing; run "
                         "'celesto setup --macos' to install it."
                     )
                 console_stdout().print(
-                    f"macOS sandbox runtime {LUME_VERSION} is ready at '{binary}'."
+                    f"macOS desktop runtime {LUME_VERSION} is ready at '{binary}'."
                 )
                 return 0
             installed = install_pinned_lume()
             console_stdout().print(
-                f"Installed macOS sandbox runtime {LUME_VERSION} at '{installed}'."
+                f"Installed macOS desktop runtime {LUME_VERSION} at '{installed}'."
             )
             return 0
         except Exception as exc:
@@ -599,7 +599,7 @@ def _run_setup(
     if options.for_bake:
         console_stdout().print(
             "[yellow]ℹ️  --for-bake skips KVM and runtime self-tests. "
-            "Run 'celesto doctor' on the runtime host before booting VMs.[/yellow]"
+            "Run 'celesto doctor' on the machine that will run computers.[/yellow]"
         )
 
     try:
@@ -669,31 +669,31 @@ def _run_list(
 
                     public_name = public_preset_name(preset_filter)
                     if status_filter:
-                        message = f"No '{public_name}' sandboxes with status '{status_filter}'."
+                        message = f"No '{public_name}' computers with status '{status_filter}'."
                     elif include_all:
-                        message = f"No '{public_name}' sandboxes found."
+                        message = f"No '{public_name}' computers found."
                     else:
-                        message = f"No running '{public_name}' sandboxes found."
+                        message = f"No running '{public_name}' computers found."
                     if include_all:
                         message += (
-                            "\nTo include older or manually prepared sandboxes, run"
-                            "\n'celesto sandbox list --all'; to create one, run "
+                            "\nTo include older or manually prepared computers, run"
+                            "\n'celesto computer list --all'; to create one, run "
                             f"'celesto {public_name} start'."
                         )
                     else:
                         filtered_list_command = (
                             f"celesto {public_name} list"
                             if command_name == f"{public_name}.list"
-                            else f"celesto sandbox list --preset {public_name}"
+                            else f"celesto computer list --preset {public_name}"
                         )
                         message += f"\nOther states: '{filtered_list_command} --all'."
                 elif status_filter:
-                    message = f"No VMs found with status '{status_filter}'."
+                    message = f"No computers found with status '{status_filter}'."
                 elif include_all:
-                    message = "No VMs found."
+                    message = "No computers found."
                 else:
-                    message = "No running VMs found."
-                render_empty("Celesto Instances", message)
+                    message = "No running computers found."
+                render_empty("Celesto Computers", message)
                 return 0
 
             _render_list(rows, show_preset_column=show_preset_column)
@@ -860,7 +860,7 @@ def _render_info_result(data: InfoPayload) -> None:
 
     disk_str = f"{vm_data['disk_size']} MiB" if vm_data["disk_size"] is not None else "-"
 
-    details = Table(title="VM Details", show_header=False)
+    details = Table(title="Computer Details", show_header=False)
     details.add_column("Field")
     details.add_column("Value")
     details.add_row("Name", str(vm_data["name"]))
@@ -874,7 +874,7 @@ def _render_info_result(data: InfoPayload) -> None:
     if vm_data["bridge"]:
         details.add_row("Bridge", str(vm_data["bridge"]))
     ip_value = (
-        "Managed inside guest"
+        "Managed inside the computer"
         if vm_data["network_mode"] == "bridge"
         else str(vm_data["ip_address"] or "-")
     )
@@ -930,13 +930,13 @@ def _render_create_result(data: CreatePayload) -> None:
 
     console.print(
         Panel.fit(
-            f"Created VM '{vm_data['name']}'.",
-            title="VM Created",
+            f"Created computer '{vm_data['name']}'.",
+            title="Computer Created",
             border_style="green",
         )
     )
 
-    details = Table(title="VM Details", show_header=False)
+    details = Table(title="Computer Details", show_header=False)
     details.add_column("Field")
     details.add_column("Value")
     details.add_row("Name", str(vm_data["name"]))
@@ -962,7 +962,7 @@ def _build_and_boot_with_progress(
     console: object,
     build_fn: object,
     boot_timeout: int,
-    prepare_message: str = "Preparing sandbox image...",
+    prepare_message: str = "Preparing image...",
     comm_channel: str | None = None,
     wait_for_control_channel: bool = False,
     mounts: list[str] | None = None,
@@ -1012,7 +1012,7 @@ def _build_and_boot_with_progress(
         # Phases come from start() and the selected readiness wait, so the
         # spinner reflects what's actually slow rather than parking on
         # "Starting VM..." for the full duration.
-        boot_task = progress.add_task("Booting sandbox...", total=None)
+        boot_task = progress.add_task("Starting computer...", total=None)
 
         def on_phase(phase: str) -> None:
             progress.update(boot_task, description=phase)
@@ -1194,7 +1194,7 @@ def _run_create(args: SimpleNamespace) -> int:
                 image_manager.get(MACOS_DEFAULT_IMAGE)
             except ImageError as exc:
                 vm_name = args.name or "test-mac"
-                retry = f"celesto sandbox create --os macos --name {shlex.quote(vm_name)} --yes"
+                retry = f"celesto computer create --os macos --name {shlex.quote(vm_name)} --yes"
                 cached_ipsw = image_manager.find_cached_latest_ipsw()
                 existing_bundle = image_manager.bundle_path(MACOS_DEFAULT_IMAGE).is_dir()
                 if existing_bundle:
@@ -1217,7 +1217,7 @@ def _run_create(args: SimpleNamespace) -> int:
                     approval_reason = "approve the one-time Apple download"
                 if args.json and not getattr(args, "yes", False):
                     raise ValueError(
-                        "A local macOS image must be prepared before this sandbox; "
+                        "A local macOS image must be prepared before this computer; "
                         f"run '{retry}' to {approval_reason}."
                     ) from exc
                 approved = getattr(args, "yes", False) or click.confirm(
@@ -1446,17 +1446,17 @@ def _run_create(args: SimpleNamespace) -> int:
                 "started_at": datetime.now(UTC).isoformat(),
             },
             "next": {
-                "shell_command": (None if is_macos else f"celesto sandbox shell {vm.vm_id}"),
+                "shell_command": (None if is_macos else f"celesto computer shell {vm.vm_id}"),
                 "ssh_command": (
-                    None if is_bridge or is_macos else f"celesto sandbox ssh {vm.vm_id}"
+                    None if is_bridge or is_macos else f"celesto computer ssh {vm.vm_id}"
                 ),
-                "desktop_command": (f"celesto sandbox desktop {vm.vm_id}" if is_macos else None),
-                "info_command": f"celesto sandbox info {vm.vm_id}",
+                "desktop_command": (f"celesto computer desktop {vm.vm_id}" if is_macos else None),
+                "info_command": f"celesto computer info {vm.vm_id}",
             },
             "warnings": (
                 [
-                    f"The guest manages its own network address; if it did not receive one, "
-                    f"run 'celesto sandbox shell {vm.vm_id}' to configure it."
+                    f"The computer manages its own network address; if it did not receive one, "
+                    f"run 'celesto computer shell {vm.vm_id}' to configure it."
                 ]
                 if is_bridge
                 else []
@@ -1485,12 +1485,12 @@ def _render_start_result(data: StartPayload) -> None:
     console.print(
         Panel.fit(
             f"Started '{vm_data['name']}' with [bold]{preset['name']}[/bold] preinstalled.",
-            title="Sandbox Ready",
+            title="Computer Ready",
             border_style="green",
         )
     )
 
-    details = Table(title="Sandbox Details", show_header=False)
+    details = Table(title="Computer Details", show_header=False)
     details.add_column("Field")
     details.add_column("Value")
     details.add_row("Name", str(vm_data["name"]))
@@ -1583,7 +1583,10 @@ def _vmm_for_host() -> Vmm:
         return "firecracker"
     if system == "Darwin":
         return "qemu"
-    raise RuntimeError(f"Unsupported host OS for published images: {system!r}.")
+    raise RuntimeError(
+        f"Agent presets need Linux or macOS; your machine runs {system!r}. "
+        "Run this command on a Linux or macOS machine."
+    )
 
 
 def _host_arch_for_published() -> Arch:
@@ -1593,7 +1596,10 @@ def _host_arch_for_published() -> Arch:
         return "arm64"
     if machine in {"x86_64", "amd64"}:
         return "amd64"
-    raise RuntimeError(f"Unsupported host architecture for published images: {machine!r}.")
+    raise RuntimeError(
+        f"Agent presets need an amd64 or arm64 processor; your machine has {machine!r}. "
+        "Run this command on an amd64 or arm64 machine."
+    )
 
 
 def _run_start_with_published_image(args: SimpleNamespace, preset: object) -> int:
@@ -1725,10 +1731,10 @@ def _run_start_with_published_image(args: SimpleNamespace, preset: object) -> in
                     "no_env_hint": _preset.no_env_hint,
                 },
                 "next": {
-                    "shell_command": f"celesto sandbox shell {vm.vm_id}",
-                    "ssh_command": f"celesto sandbox ssh {vm.vm_id}",
+                    "shell_command": f"celesto computer shell {vm.vm_id}",
+                    "ssh_command": f"celesto computer ssh {vm.vm_id}",
                     "desktop_command": None,
-                    "info_command": f"celesto sandbox info {vm.vm_id}",
+                    "info_command": f"celesto computer info {vm.vm_id}",
                 },
             }
             if args.json:
@@ -1912,10 +1918,10 @@ def _run_start(args: SimpleNamespace) -> int:
                 "no_env_hint": preset.no_env_hint,
             },
             "next": {
-                "shell_command": f"celesto sandbox shell {vm.vm_id}",
-                "ssh_command": f"celesto sandbox ssh {vm.vm_id}",
+                "shell_command": f"celesto computer shell {vm.vm_id}",
+                "ssh_command": f"celesto computer ssh {vm.vm_id}",
                 "desktop_command": None,
-                "info_command": f"celesto sandbox info {vm.vm_id}",
+                "info_command": f"celesto computer info {vm.vm_id}",
             },
         }
         if args.json:
@@ -2083,7 +2089,7 @@ def _render_vm_lifecycle_result(
         )
     )
 
-    details = Table(title="VM Details", show_header=False)
+    details = Table(title="Computer Details", show_header=False)
     details.add_column("Field")
     details.add_column("Value")
     details.add_row("Name", str(vm_data["name"]))
@@ -2130,11 +2136,11 @@ def _render_snapshot_list(rows: list[SnapshotRow]) -> None:
     """Render the human-facing snapshot list."""
     table = Table(title="Celesto Snapshots")
     table.add_column("Snapshot")
-    table.add_column("VM")
+    table.add_column("Computer")
     table.add_column("Backend")
     table.add_column("Type")
     table.add_column("Restored")
-    table.add_column("Restored VM")
+    table.add_column("Restored Computer")
     for row in rows:
         table.add_row(
             row["snapshot_id"],
@@ -2155,7 +2161,7 @@ def _render_snapshot_create(snapshot: SnapshotRow) -> None:
     console = console_stdout()
     console.print(
         Panel.fit(
-            f"Created snapshot '{snapshot['snapshot_id']}' from VM '{snapshot['vm_id']}'.",
+            f"Created snapshot '{snapshot['snapshot_id']}' from computer '{snapshot['vm_id']}'.",
             title="Snapshot Created",
             border_style="cyan",
         )
@@ -2169,7 +2175,7 @@ def _render_snapshot_restore(data: SnapshotRestorePayload) -> None:
     vm_data = data["vm"]
     console.print(
         Panel.fit(
-            f"Restored snapshot '{snapshot['snapshot_id']}' into VM '{vm_data['name']}'.",
+            f"Restored snapshot '{snapshot['snapshot_id']}' into computer '{vm_data['name']}'.",
             title="Snapshot Restored",
             border_style="green",
         )
@@ -2178,7 +2184,7 @@ def _render_snapshot_restore(data: SnapshotRestorePayload) -> None:
     details = Table(title="Restore Details", show_header=False)
     details.add_column("Field")
     details.add_column("Value")
-    details.add_row("VM", vm_data["name"])
+    details.add_row("Computer", vm_data["name"])
     details.add_row("Status", Text(vm_data["status"], style=status_style(vm_data["status"])))
     details.add_row("IP Address", str(vm_data["ip_address"] or "-"))
     details.add_row(
@@ -2205,8 +2211,8 @@ def _run_stop(args: SimpleNamespace) -> int:
         else:
             _render_vm_lifecycle_result(
                 data,
-                message=f"Stopped VM '{vm.vm_id}'.",
-                title="VM Stopped",
+                message=f"Stopped computer '{vm.vm_id}'.",
+                title="Computer Stopped",
                 border_style="yellow",
             )
         return 0
@@ -2233,8 +2239,8 @@ def _run_pause(args: SimpleNamespace) -> int:
         else:
             _render_vm_lifecycle_result(
                 data,
-                message=f"Paused VM '{vm.vm_id}'.",
-                title="VM Paused",
+                message=f"Paused computer '{vm.vm_id}'.",
+                title="Computer Paused",
                 border_style="blue",
             )
         return 0
@@ -2261,8 +2267,8 @@ def _run_resume(args: SimpleNamespace) -> int:
         else:
             _render_vm_lifecycle_result(
                 data,
-                message=f"Resumed VM '{vm.vm_id}'.",
-                title="VM Resumed",
+                message=f"Resumed computer '{vm.vm_id}'.",
+                title="Computer Resumed",
                 border_style="green",
             )
         return 0
@@ -2289,8 +2295,8 @@ def _run_vm_start(args: SimpleNamespace) -> int:
         else:
             _render_vm_lifecycle_result(
                 data,
-                message=f"Started VM '{vm.vm_id}'.",
-                title="VM Started",
+                message=f"Started computer '{vm.vm_id}'.",
+                title="Computer Started",
                 border_style="green",
             )
         return 0
@@ -2316,14 +2322,14 @@ def _run_desktop(args: SimpleNamespace) -> int:
         endpoint = vm.desktop_endpoint
         if vm.status is not VMState.RUNNING:
             raise CelestoError(
-                f"Sandbox '{vm.vm_id}' is {vm.status.value}; run "
-                f"'celesto sandbox start {vm.vm_id}', then "
-                f"'celesto sandbox desktop {vm.vm_id}'."
+                f"Computer '{vm.vm_id}' is {vm.status.value}; run "
+                f"'celesto computer start {vm.vm_id}', then "
+                f"'celesto computer desktop {vm.vm_id}'."
             )
         if endpoint is None:
             raise CelestoError(
-                f"Sandbox '{vm.vm_id}' has no desktop; run "
-                f"'celesto sandbox shell {vm.vm_id}' to use its terminal."
+                f"Computer '{vm.vm_id}' has no desktop; run "
+                f"'celesto computer shell {vm.vm_id}' to use its terminal."
             )
 
         data = {
@@ -2339,7 +2345,7 @@ def _run_desktop(args: SimpleNamespace) -> int:
             emit_json(command_name, 0, data=data)
         else:
             vm.open_desktop()
-            print(f"Opened the desktop for sandbox '{vm.vm_id}'.")
+            print(f"Opened the desktop for computer '{vm.vm_id}'.")
         return 0
     except Exception as exc:
         return _emit_cli_error(command_name, 1, exc, json_output=args.json)
@@ -2359,8 +2365,8 @@ def _run_snapshot(args: SimpleNamespace) -> int:
 
     if args.snapshot_action is None:
         render_error(
-            "Usage: celesto sandbox snapshot {create,restore,delete,list} ... "
-            "Run 'celesto sandbox snapshot --help' for usage."
+            "Usage: celesto computer snapshot {create,restore,delete,list} ... "
+            "Run 'celesto computer snapshot --help' for usage."
         )
         return 2
 
@@ -2475,7 +2481,9 @@ def _run_snapshot(args: SimpleNamespace) -> int:
 
         if not rows:
             if args.vm_id:
-                render_empty("Celesto Snapshots", f"No snapshots found for VM '{args.vm_id}'.")
+                render_empty(
+                    "Celesto Snapshots", f"No snapshots found for computer '{args.vm_id}'."
+                )
             else:
                 render_empty("Celesto Snapshots", "No snapshots found.")
             return 0
@@ -2537,8 +2545,8 @@ def _run_env(args: SimpleNamespace) -> int:
 
     if args.env_action is None:
         render_error(
-            "Usage: celesto sandbox env {set,unset,list} <vm_id> ... "
-            "Run 'celesto sandbox env --help' for usage."
+            "Usage: celesto computer env {set,unset,list} <computer> ... "
+            "Run 'celesto computer env --help' for usage."
         )
         return 2
 
@@ -2675,8 +2683,8 @@ def _run_file(args: SimpleNamespace) -> int:
 
     if args.file_action is None:
         render_error(
-            "Usage: celesto sandbox file {upload,download} ... "
-            "Run 'celesto sandbox file --help' for usage."
+            "Usage: celesto computer file {upload,download} ... "
+            "Run 'celesto computer file --help' for usage."
         )
         return 2
 
@@ -2726,8 +2734,8 @@ def _run_file(args: SimpleNamespace) -> int:
             return 0
 
         render_error(
-            "Usage: celesto sandbox file {upload,download} ... "
-            "Run 'celesto sandbox file --help' for usage."
+            "Usage: celesto computer file {upload,download} ... "
+            "Run 'celesto computer file --help' for usage."
         )
         return 2
     except Exception as exc:
@@ -2854,14 +2862,14 @@ def _bring_sandbox_up(
     stdout can direct it to stderr.
     """
     if vm.status in {VMState.CREATED, VMState.STOPPED}:
-        with status_console.status(f"Starting sandbox '{vm.vm_id}'...", spinner="dots") as spinner:
+        with status_console.status(f"Starting computer '{vm.vm_id}'...", spinner="dots") as spinner:
             vm.start(boot_timeout=boot_timeout)
             if wait is not None:
                 if ready_message:
                     spinner.update(ready_message)
                 wait()
     elif vm.status == VMState.PAUSED:
-        with status_console.status(f"Resuming sandbox '{vm.vm_id}'...", spinner="dots") as spinner:
+        with status_console.status(f"Resuming computer '{vm.vm_id}'...", spinner="dots") as spinner:
             vm.resume()
             if wait is not None:
                 if ready_message:
@@ -2869,10 +2877,10 @@ def _bring_sandbox_up(
                 wait()
     elif vm.status == VMState.ERROR:
         raise RuntimeError(
-            f"Sandbox '{vm.vm_id}' is in error state; inspect its logs with "
-            f"'celesto sandbox logs {vm.vm_id}', or run "
-            f"'celesto sandbox delete {vm.vm_id}' then "
-            f"'celesto sandbox create --name {vm.vm_id}' to recreate it."
+            f"Computer '{vm.vm_id}' is in error state; inspect its logs with "
+            f"'celesto computer logs {vm.vm_id}', or run "
+            f"'celesto computer delete {vm.vm_id}' then "
+            f"'celesto computer create --name {vm.vm_id}' to recreate it."
         )
     elif wait is not None:
         with status_console.status(ready_message or "Connecting...", spinner="dots"):
@@ -2936,10 +2944,10 @@ def _run_exec(args: SimpleNamespace) -> int:
             _bring_sandbox_up(vm, args.boot_timeout, status_console=console_stderr())
         elif vm.status != VMState.RUNNING:
             recovery = (
-                f"Run 'celesto sandbox start {args.vm_id}' first, or add --start to "
+                f"Run 'celesto computer start {args.vm_id}' first, or add --start to "
                 "start it automatically."
             )
-            message = f"Sandbox '{args.vm_id}' is not running ({vm.status.value}). {recovery}"
+            message = f"Computer '{args.vm_id}' is not running ({vm.status.value}). {recovery}"
             if json_output:
                 return emit_error(command_name, "not_running", message, recovery=recovery)
             render_error(message)
@@ -2954,7 +2962,8 @@ def _run_exec(args: SimpleNamespace) -> int:
             command_name,
             1,
             ValueError(
-                f"Sandbox '{args.vm_id}' was not found; run 'celesto sandbox list' to choose one."
+                f"Computer '{args.vm_id}' was not found; run 'celesto computer list --all' "
+                "to choose one."
             ),
             json_output=json_output,
         )
@@ -2981,8 +2990,8 @@ def _run_logs(args: SimpleNamespace) -> int:
         log_path = vm.data_dir / f"{args.vm_id}.log"
 
         if not log_path.exists():
-            recovery = f"Start it with 'celesto sandbox start {args.vm_id}' to generate logs."
-            message = f"No logs found for sandbox '{args.vm_id}'. {recovery}"
+            recovery = f"Start it with 'celesto computer start {args.vm_id}' to generate logs."
+            message = f"No logs found for computer '{args.vm_id}'. {recovery}"
             if json_output:
                 return emit_error(command_name, "not_found", message, recovery=recovery)
             render_error(message)
@@ -2996,8 +3005,8 @@ def _run_logs(args: SimpleNamespace) -> int:
                     command_name,
                     "invalid_input",
                     "Cannot combine --follow with --json. Run "
-                    f"'celesto sandbox logs {args.vm_id} --json' without --follow.",
-                    recovery=f"Run 'celesto sandbox logs {args.vm_id} --json' without --follow.",
+                    f"'celesto computer logs {args.vm_id} --json' without --follow.",
+                    recovery=f"Run 'celesto computer logs {args.vm_id} --json' without --follow.",
                 )
             try:
                 emit_json(
@@ -3066,7 +3075,7 @@ def _port_forwards_path(vm_id: str) -> Path:
     state_dir.mkdir(parents=True, exist_ok=True)
     target = (state_dir / f"{vm_id}.json").resolve()
     if not str(target).startswith(str(state_dir) + "/"):
-        raise ValueError(f"Invalid sandbox name: {vm_id!r}")
+        raise ValueError(f"Invalid computer name: {vm_id!r}")
     return target
 
 
@@ -3210,10 +3219,10 @@ def _run_port_expose(args: SimpleNamespace) -> int:
             1,
             ValueError(
                 f"Invalid mapping {args.mapping!r}. "
-                f"Run 'celesto sandbox port expose {args.vm_id} 8080:3000'"
-                f" to forward host port 8080 to sandbox port 3000, "
-                f"or 'celesto sandbox port expose {args.vm_id} 3000' "
-                "to auto-select a host port."
+                f"Run 'celesto computer port expose {args.vm_id} 8080:3000'"
+                f" to forward local port 8080 to computer port 3000, "
+                f"or 'celesto computer port expose {args.vm_id} 3000' "
+                "to auto-select a local port."
             ),
             json_output=json_output,
         )
@@ -3243,11 +3252,11 @@ def _run_port_expose(args: SimpleNamespace) -> int:
         else:
             console = console_stdout()
             console.print(
-                f"Exposed [bold]localhost:{host_port}[/bold] → guest:[bold]{guest_port}[/bold]"
+                f"Exposed [bold]localhost:{host_port}[/bold] → computer:[bold]{guest_port}[/bold]"
             )
             console.print(f"Connect to [bold]localhost:{host_port}[/bold]")
             console.print(
-                f"Stop with: [bold]celesto sandbox port close "
+                f"Stop with: [bold]celesto computer port close "
                 f"{args.vm_id} {host_port}:{guest_port}[/bold]"
             )
     except Exception as exc:
@@ -3278,8 +3287,8 @@ def _run_port_close(args: SimpleNamespace) -> int:
         host_port, guest_port = _parse_port_mapping(args.mapping)
         if host_port is None:
             raise ValueError(
-                f"Use 'host-port:sandbox-port' format. "
-                f"Run 'celesto sandbox port list {args.vm_id}' to see active forwards."
+                f"Use 'local-port:computer-port' format. "
+                f"Run 'celesto computer port list {args.vm_id}' to see active forwards."
             )
     except ValueError as exc:
         return _emit_cli_error(command_name, 1, exc, json_output=json_output)
@@ -3343,7 +3352,7 @@ def _run_port_close(args: SimpleNamespace) -> int:
             )
         else:
             console_stdout().print(
-                f"Closed [bold]localhost:{host_port}[/bold] → guest:[bold]{guest_port}[/bold]"
+                f"Closed [bold]localhost:{host_port}[/bold] → computer:[bold]{guest_port}[/bold]"
             )
 
     except Exception as exc:
@@ -3373,8 +3382,8 @@ def _run_port_list(args: SimpleNamespace) -> int:
                 from rich.table import Table
 
                 table = Table(title=f"Port Forwards — {args.vm_id}")
-                table.add_column("Host port", justify="right")
-                table.add_column("Sandbox port", justify="right")
+                table.add_column("Local port", justify="right")
+                table.add_column("Computer port", justify="right")
                 table.add_column("Transport")
                 for f in forwards:
                     table.add_row(
@@ -3423,9 +3432,9 @@ def _start_openclaw_gateway(vm: FacadeVM, vm_id: str) -> None:
     installed = vm.run("openclaw --version", timeout=10)
     if not installed.ok:
         raise RuntimeError(
-            f"OpenClaw is not installed in sandbox '{vm_id}'. Before replacing it, run "
-            f"'celesto sandbox snapshot create {vm_id} --snapshot-id "
-            f"{vm_id}-before-openclaw-upgrade', then 'celesto sandbox delete {vm_id}' and "
+            f"OpenClaw is not installed in computer '{vm_id}'. Before replacing it, run "
+            f"'celesto computer snapshot create {vm_id} --snapshot-id "
+            f"{vm_id}-before-openclaw-upgrade', then 'celesto computer delete {vm_id}' and "
             f"'celesto openclaw start --name {vm_id} --no-attach'."
         )
     version_output = "\n".join((installed.stdout, installed.stderr))
@@ -3433,10 +3442,10 @@ def _start_openclaw_gateway(vm: FacadeVM, vm_id: str) -> None:
     if version_match is None or version_match.group(0) != OPENCLAW_VERSION:
         found_version = version_match.group(0) if version_match is not None else "unknown"
         raise RuntimeError(
-            f"Sandbox '{vm_id}' has OpenClaw {found_version}, but this command requires "
-            f"OpenClaw {OPENCLAW_VERSION}. Before replacing it, run 'celesto sandbox "
+            f"Computer '{vm_id}' has OpenClaw {found_version}, but this command requires "
+            f"OpenClaw {OPENCLAW_VERSION}. Before replacing it, run 'celesto computer "
             f"snapshot create {vm_id} --snapshot-id {vm_id}-before-openclaw-upgrade', then "
-            f"'celesto sandbox delete {vm_id}' and 'celesto openclaw start --name {vm_id} "
+            f"'celesto computer delete {vm_id}' and 'celesto openclaw start --name {vm_id} "
             "--no-attach'."
         )
 
@@ -3474,8 +3483,8 @@ exit 1
     started = vm.run(command, timeout=45, shell="raw")
     if not started.ok:
         raise RuntimeError(
-            f"OpenClaw did not become ready in sandbox '{vm_id}'; run "
-            f"'celesto sandbox shell {vm_id}', then "
+            f"OpenClaw did not become ready in computer '{vm_id}'; run "
+            f"'celesto computer shell {vm_id}', then "
             "'openclaw doctor' to inspect it."
         )
 
@@ -3504,32 +3513,32 @@ def _run_openclaw_open_ui(args: SimpleNamespace) -> int:
         )
         if not dashboard.ok:
             raise RuntimeError(
-                f"OpenClaw could not create a dashboard link for sandbox '{args.vm_id}'; "
-                f"run 'celesto sandbox shell {args.vm_id}', then 'openclaw dashboard'."
+                f"OpenClaw could not create a dashboard link for computer '{args.vm_id}'; "
+                f"run 'celesto computer shell {args.vm_id}', then 'openclaw dashboard'."
             )
         try:
             dashboard_data = json.loads(dashboard.output)
         except (TypeError, json.JSONDecodeError) as exc:
             raise RuntimeError(
-                f"OpenClaw returned an unreadable dashboard link for sandbox '{args.vm_id}'; "
-                f"run 'celesto sandbox shell {args.vm_id}', then 'openclaw dashboard'."
+                f"OpenClaw returned an unreadable dashboard link for computer '{args.vm_id}'; "
+                f"run 'celesto computer shell {args.vm_id}', then 'openclaw dashboard'."
             ) from exc
         if not isinstance(dashboard_data, dict):
             raise RuntimeError(
-                f"OpenClaw returned an unreadable dashboard link for sandbox '{args.vm_id}'; "
-                f"run 'celesto sandbox shell {args.vm_id}', then 'openclaw dashboard'."
+                f"OpenClaw returned an unreadable dashboard link for computer '{args.vm_id}'; "
+                f"run 'celesto computer shell {args.vm_id}', then 'openclaw dashboard'."
             )
         if dashboard_data.get("ok") is False:
             raise RuntimeError(
-                f"OpenClaw could not create a dashboard link for sandbox '{args.vm_id}'; "
-                f"run 'celesto sandbox shell {args.vm_id}', then 'openclaw dashboard'."
+                f"OpenClaw could not create a dashboard link for computer '{args.vm_id}'; "
+                f"run 'celesto computer shell {args.vm_id}', then 'openclaw dashboard'."
             )
 
         raw_browser_url = dashboard_data.get("browserUrl") or dashboard_data.get("url")
         if not isinstance(raw_browser_url, str) or not raw_browser_url:
             raise RuntimeError(
-                f"OpenClaw did not return a dashboard link for sandbox '{args.vm_id}'; "
-                f"run 'celesto sandbox shell {args.vm_id}', then 'openclaw dashboard'."
+                f"OpenClaw did not return a dashboard link for computer '{args.vm_id}'; "
+                f"run 'celesto computer shell {args.vm_id}', then 'openclaw dashboard'."
             )
 
         raw_http_url = dashboard_data.get("httpUrl")
@@ -3545,8 +3554,8 @@ def _run_openclaw_open_ui(args: SimpleNamespace) -> int:
                 _rewrite_openclaw_url(raw_ws_url, OPENCLAW_DASHBOARD_PORT)
         except ValueError as exc:
             raise RuntimeError(
-                f"OpenClaw returned an unexpected dashboard address for sandbox "
-                f"'{args.vm_id}'; run 'celesto sandbox shell {args.vm_id}', then "
+                f"OpenClaw returned an unexpected dashboard address for computer "
+                f"'{args.vm_id}'; run 'celesto computer shell {args.vm_id}', then "
                 "'openclaw dashboard'."
             ) from exc
 
@@ -3586,7 +3595,7 @@ def _run_openclaw_open_ui(args: SimpleNamespace) -> int:
             with suppress(Exception):
                 opened = bool(webbrowser.open(browser_url))
         close_command = (
-            f"celesto sandbox port close {args.vm_id} {host_port}:{OPENCLAW_DASHBOARD_PORT}"
+            f"celesto computer port close {args.vm_id} {host_port}:{OPENCLAW_DASHBOARD_PORT}"
         )
         data: OpenClawOpenUiPayload = {
             "sandbox": args.vm_id,
@@ -3613,7 +3622,7 @@ def _run_openclaw_open_ui(args: SimpleNamespace) -> int:
     except Exception as exc:
         if isinstance(exc, VMNotFoundError):
             exc = RuntimeError(
-                f"Sandbox '{args.vm_id}' was not found; run 'celesto sandbox list --all' "
+                f"Computer '{args.vm_id}' was not found; run 'celesto computer list --all' "
                 f"to choose one, or 'celesto openclaw start --name {args.vm_id} "
                 "--no-attach' to create it."
             )
@@ -3641,8 +3650,8 @@ def _run_port(args: SimpleNamespace) -> int:
         return _run_port_list(args)
 
     render_error(
-        "Usage: celesto sandbox port {expose,close,list} ... "
-        "Run 'celesto sandbox port --help' for usage."
+        "Usage: celesto computer port {expose,close,list} ... "
+        "Run 'celesto computer port --help' for usage."
     )
     return 2
 
@@ -3826,14 +3835,14 @@ def _computer_rows(sessions: Sequence[BrowserSessionInfo]) -> list[ComputerRow]:
 def _render_browser_list(
     rows: list[BrowserRow],
     *,
-    title: str = "Celesto Browser Sandboxes",
-    resource_label: str = "Sandbox",
+    title: str = "Celesto Browser Sessions",
+    resource_label: str = "Session",
 ) -> None:
     """Render a human-facing graphical-session list."""
     table = Table(title=title)
     table.add_column(resource_label)
     table.add_column("Status")
-    table.add_column("VM")
+    table.add_column("Computer")
     table.add_column("Viewer URL")
     table.add_column("Display URL")
     for row in rows:
@@ -3852,10 +3861,10 @@ def _render_browser_list(
 
 def _render_computer_list(rows: list[ComputerRow]) -> None:
     """Render computer rows using the computer identifier contract."""
-    table = Table(title="Celesto Computers")
+    table = Table(title="Celesto Desktop Computers")
     table.add_column("Computer")
     table.add_column("Status")
-    table.add_column("Sandbox")
+    table.add_column("Internal ID")
     table.add_column("Viewer URL")
     table.add_column("Display URL")
     for row in rows:
@@ -3890,10 +3899,14 @@ def _display_sessions_for_mode(state: Any, mode: str) -> list[BrowserSessionInfo
 def _require_display_session_mode(state: Any, session_id: str, mode: str) -> None:
     actual = state.get_browser_session_config(session_id).mode
     if actual != mode:
-        noun = "computer" if mode == "computer" else "browser session"
-        command = "computer" if mode == "computer" else "browser"
+        if mode == "computer":
+            raise ValueError(
+                f"'{session_id}' is a browser session, not a desktop computer; run "
+                "'celesto computer list --desktop' to choose one."
+            )
         raise ValueError(
-            f"'{session_id}' is not a {noun}; run 'celesto {command} list' to choose one."
+            f"'{session_id}' is a desktop computer, not a browser session; run "
+            "'celesto browser list' to choose one."
         )
 
 
@@ -3951,7 +3964,7 @@ def _run_windows_build_image(args: SimpleNamespace) -> int:
                 f"Boot it from Python with:\n"
                 f'  [bold]Celesto(os="windows", image="{output}", '
                 f'ssh_user={username_literal}, ssh_password="<hidden>")[/bold]\n\n'
-                "The sandbox CLI does not accept Windows login credentials yet.",
+                "The Celesto CLI does not accept Windows login credentials yet.",
                 title="Windows image ready",
                 border_style="green",
             )
@@ -4006,8 +4019,8 @@ def _run_browser(args: SimpleNamespace) -> int:
             if json_output:
                 emit_json(command_name, 0, data=data)
             else:
-                print(f"Started browser sandbox '{session.session_id}'.")
-                print(f"  VM: {session.vm_id}")
+                print(f"Started browser session '{session.session_id}'.")
+                print(f"  Computer: {session.vm_id}")
                 print(f"  Mode: {config.mode}")
                 print(f"  CDP URL: {session.cdp_url}")
                 if session.viewer_url:
@@ -4032,7 +4045,7 @@ def _run_browser(args: SimpleNamespace) -> int:
                 return _emit_cli_error(command_name, 1, exc, json_output=False)
 
             if not sessions:
-                render_empty("Celesto Browser Sandboxes", "No browser sandboxes found.")
+                render_empty("Celesto Browser Sessions", "No browser sessions found.")
                 return 0
 
             failures: list[str] = []
@@ -4055,13 +4068,13 @@ def _run_browser(args: SimpleNamespace) -> int:
                     f"`celesto browser stop {session_id}`" for session_id in failed_ids
                 )
                 render_error(
-                    "Failed to stop browser sandbox"
-                    f"{'es' if len(failed_ids) != 1 else ''} "
+                    "Failed to stop browser session"
+                    f"{'s' if len(failed_ids) != 1 else ''} "
                     f"{', '.join(failed_ids)}; to fix, run: {commands}."
                 )
                 return 1
 
-            print(f"Stopped {len(stopped_session_ids)} browser sandbox(es).")
+            print(f"Stopped {len(stopped_session_ids)} browser session(s).")
             return 0
 
         session: _BrowserSandbox | None = None
@@ -4071,18 +4084,18 @@ def _run_browser(args: SimpleNamespace) -> int:
             session = _BrowserSandbox.from_id(args.session_id, state_manager=state)
             if session._session_config.mode == "computer":
                 raise ValueError(
-                    f"'{args.session_id}' is a computer; run "
-                    f"'celesto computer delete {args.session_id}' instead."
+                    f"'{args.session_id}' is a desktop computer; run "
+                    f"'celesto computer delete {args.session_id} --desktop' instead."
                 )
             session.stop()
-            print(f"Stopped browser sandbox '{args.session_id}'.")
+            print(f"Stopped browser session '{args.session_id}'.")
             return 0
         except Exception as exc:
             if isinstance(exc, ValueError):
                 reported_error = exc
             else:
                 reported_error = RuntimeError(
-                    f"Browser sandbox '{args.session_id}' could not be stopped; run "
+                    f"Browser session '{args.session_id}' could not be stopped; run "
                     f"'celesto browser stop {args.session_id}' to try again."
                 )
             return _emit_cli_error(command_name, 1, reported_error, json_output=json_output)
@@ -4096,12 +4109,13 @@ def _run_browser(args: SimpleNamespace) -> int:
             session = _BrowserSandbox.from_id(args.session_id, state_manager=_cli_state_manager())
             if session._session_config.mode == "computer":
                 raise ValueError(
-                    f"'{args.session_id}' is a computer; run "
+                    f"'{args.session_id}' is a desktop computer; run "
                     f"'celesto computer open {args.session_id}' instead."
                 )
             if session.viewer_url is None:
                 raise RuntimeError(
-                    f"Browser sandbox '{args.session_id}' does not have a viewer_url."
+                    f"Browser session '{args.session_id}' has no live view; run "
+                    "'celesto browser start --live' to start one that does."
                 )
             opened = session.open_viewer()
             if not opened:
@@ -4121,8 +4135,8 @@ def _run_browser(args: SimpleNamespace) -> int:
             session = _BrowserSandbox.from_id(args.session_id, state_manager=_cli_state_manager())
             if session._session_config.mode == "computer":
                 raise ValueError(
-                    f"'{args.session_id}' is a computer; run "
-                    f"'celesto computer logs {args.session_id}' instead."
+                    f"'{args.session_id}' is a desktop computer; run "
+                    f"'celesto computer logs {session.vm_id}' instead."
                 )
             output = session.logs(tail=args.tail)
             if output:
@@ -4154,7 +4168,7 @@ def _run_browser(args: SimpleNamespace) -> int:
             return 0
 
         if not sessions:
-            render_empty("Celesto Browser Sandboxes", "No browser sandboxes found.")
+            render_empty("Celesto Browser Sessions", "No browser sessions found.")
             return 0
 
         _render_browser_list(rows)
@@ -4246,7 +4260,7 @@ def _run_computer(args: SimpleNamespace) -> int:
             if json_output:
                 emit_json(command_name, 0, data={"computers": rows})
             elif not rows:
-                render_empty("Celesto Computers", "No computers found.")
+                render_empty("Celesto Desktop Computers", "No desktop computers found.")
             else:
                 _render_computer_list(rows)
             return 0
@@ -4259,8 +4273,8 @@ def _run_computer(args: SimpleNamespace) -> int:
             _require_display_session_mode(state, args.computer_id, "computer")
         except BrowserSessionNotFoundError:
             raise ValueError(
-                f"Computer '{args.computer_id}' was not found; "
-                "run 'celesto computer list' to choose one."
+                f"Desktop computer '{args.computer_id}' was not found; "
+                "run 'celesto computer list --desktop' to choose one."
             ) from None
         computer = _ComputerSandbox.from_id(args.computer_id, state_manager=state)
         if action in {"terminal", "exec"}:
@@ -4348,10 +4362,10 @@ def _command_name_from_argv(args: Sequence[str]) -> str:
 
 def _recovery_from_argv(args: Sequence[str]) -> str:
     tokens = [arg for arg in args if not arg.startswith("-")]
-    if tokens and tokens[0] == "computer":
-        # Both spellings are one command tree. Keep the established recovery
-        # contract identical for scripts using either spelling.
-        tokens[0] = "sandbox"
+    if tokens and tokens[0] == "sandbox":
+        # Both spellings are one command tree. Recovery text always uses the
+        # public noun so either spelling gets the same guidance.
+        tokens[0] = "computer"
     if (
         len(tokens) >= 3
         and tokens[0] in {"sandbox", "computer"}

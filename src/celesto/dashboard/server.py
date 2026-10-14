@@ -538,7 +538,7 @@ async def get_vm(vm_id: str) -> dict[str, Any]:
     try:
         vm = await asyncio.to_thread(sm.get_vm, vm_id)
     except VMNotFoundError:
-        raise HTTPException(status_code=404, detail=f"VM not found: {vm_id}") from None
+        raise HTTPException(status_code=404, detail=f"Computer not found: {vm_id}") from None
 
     return _vm_info_to_dict(vm)
 
@@ -554,16 +554,16 @@ async def get_vm_processes(vm_id: str) -> dict[str, Any]:
     try:
         vm_info = await asyncio.to_thread(sm.get_vm, vm_id)
     except VMNotFoundError:
-        raise HTTPException(status_code=404, detail=f"VM not found: {vm_id}") from None
+        raise HTTPException(status_code=404, detail=f"Computer not found: {vm_id}") from None
 
     if vm_info.status != VMState.RUNNING:
         raise HTTPException(
             status_code=409,
-            detail=f"VM is not running (status: {vm_info.status.value})",
+            detail=f"Computer is not running (status: {vm_info.status.value})",
         )
 
     if vm_info.network is None:
-        raise HTTPException(status_code=409, detail="VM has no network configuration")
+        raise HTTPException(status_code=409, detail="Computer has no network configuration")
 
     network = vm_info.network  # capture for the thread closure
 
@@ -617,7 +617,7 @@ async def get_vm_processes(vm_id: str) -> dict[str, Any]:
         logger.warning("Failed to fetch processes for VM %s: %s", vm_id, e)
         raise HTTPException(
             status_code=502,
-            detail=f"Failed to retrieve processes from VM: {e}",
+            detail=f"Failed to retrieve processes from computer: {e}",
         ) from None
 
     return {"vm_id": vm_id, "processes": processes}
@@ -633,16 +633,16 @@ async def open_vm_desktop(vm_id: str) -> dict[str, str]:
         raise HTTPException(
             status_code=404,
             detail=(
-                f"Sandbox '{vm_id}' was not found; run 'celesto sandbox list --all' to choose "
-                "an existing sandbox."
+                f"Computer '{vm_id}' was not found; run 'celesto computer list --all' to choose "
+                "an existing computer."
             ),
         ) from None
     if vm.display is None or vm.config.macos_machine is None:
         raise HTTPException(
             status_code=409,
             detail=(
-                f"Sandbox '{vm_id}' has no running desktop; run "
-                f"'celesto sandbox start {vm_id}', then retry."
+                f"Computer '{vm_id}' has no running desktop; run "
+                f"'celesto computer start {vm_id}', then retry."
             ),
         )
     password_path = vm.config.macos_machine.bundle_path / ".celesto-vnc-password"
@@ -657,8 +657,8 @@ async def open_vm_desktop(vm_id: str) -> dict[str, str]:
         raise HTTPException(
             status_code=409,
             detail=(
-                f"Sandbox '{vm_id}' desktop could not open; run "
-                f"'celesto sandbox desktop {vm_id}' to retry."
+                f"Computer '{vm_id}' desktop could not open; run "
+                f"'celesto computer desktop {vm_id}' to retry."
             ),
         ) from exc
     return {"status": "opened", "vm_id": vm_id}
@@ -671,7 +671,7 @@ async def delete_vm(vm_id: str) -> dict[str, str]:
     try:
         await asyncio.to_thread(sdk.delete, vm_id)
     except VMNotFoundError:
-        raise HTTPException(status_code=404, detail=f"VM not found: {vm_id}") from None
+        raise HTTPException(status_code=404, detail=f"Computer not found: {vm_id}") from None
 
     return {"status": "deleted", "vm_id": vm_id}
 
@@ -683,7 +683,7 @@ async def stop_vm(vm_id: str) -> dict[str, Any]:
     try:
         info = await asyncio.to_thread(sdk.stop, vm_id)
     except VMNotFoundError:
-        raise HTTPException(status_code=404, detail=f"VM not found: {vm_id}") from None
+        raise HTTPException(status_code=404, detail=f"Computer not found: {vm_id}") from None
 
     return _vm_info_to_dict(info)
 
@@ -694,11 +694,11 @@ async def stop_vm(vm_id: str) -> dict[str, Any]:
     responses={
         400: {
             "model": CommandErrorResponse,
-            "description": "The text was not a command, or named an unknown sandbox status.",
+            "description": "The text was not a command, or named an unknown computer status.",
         },
         404: {
             "model": CommandErrorResponse,
-            "description": "The command named a sandbox that does not exist.",
+            "description": "The command named a computer that does not exist.",
         },
         409: {
             "model": CommandErrorResponse,
@@ -706,7 +706,7 @@ async def stop_vm(vm_id: str) -> dict[str, Any]:
         },
         500: {
             "model": CommandErrorResponse,
-            "description": "Every sandbox the command named failed, so nothing happened.",
+            "description": "Every computer the command named failed, so nothing happened.",
         },
     },
 )
@@ -731,14 +731,14 @@ async def execute_command(request: CommandRequest) -> CommandResponse | JSONResp
                     status_code=400,
                     content={
                         "error": (
-                            f"'{parsed.target}' is not a sandbox status. "
+                            f"'{parsed.target}' is not a computer status. "
                             f"Try 'list' on its own, or 'list' with one of: {statuses}."
                         )
                     },
                 )
         vms = await asyncio.to_thread(sm.list_vms, filter_state)
         affected = [vm.vm_id for vm in vms]
-        result_msg = f"Found {len(affected)} VMs."
+        result_msg = f"Found {len(affected)} computers."
 
     elif parsed.action == CommandAction.DELETE:
         vms = await asyncio.to_thread(sm.list_vms)
@@ -806,7 +806,7 @@ async def execute_command(request: CommandRequest) -> CommandResponse | JSONResp
         try:
             vm = await asyncio.to_thread(sm.get_vm, parsed.target)
             affected = [vm.vm_id]
-            result_msg = f"VM {vm.vm_id}: {vm.status.value}"
+            result_msg = f"Computer {vm.vm_id}: {vm.status.value}"
         except VMNotFoundError:
             # A lookup that found nothing is a failed command, not a result.
             # Returning it as a success would render it in the result area and
@@ -819,7 +819,7 @@ async def execute_command(request: CommandRequest) -> CommandResponse | JSONResp
             content={
                 "error": (
                     f"'{request.text}' is not a command. Try 'list', "
-                    "'info <sandbox>', 'stop <sandbox>', or 'delete <sandbox>'."
+                    "'info <computer>', 'stop <computer>', or 'delete <computer>'."
                 )
             },
         )
@@ -853,7 +853,7 @@ def _no_such_sandbox(name: str) -> JSONResponse:
     """The one 404 body used wherever a command names a sandbox that is gone."""
     return JSONResponse(
         status_code=404,
-        content={"error": f"No sandbox named '{name}'. Run 'list' to see the ones you have."},
+        content={"error": f"No computer named '{name}'. Run 'list' to see the ones you have."},
     )
 
 
@@ -889,7 +889,7 @@ def _needs_confirmation(target: str, count: int) -> JSONResponse:
         status_code=409,
         content={
             "error": (
-                f"Deleting {count} sandbox{'' if count == 1 else 'es'} cannot be undone. "
+                f"Deleting {count} computer{'' if count == 1 else 's'} cannot be undone. "
                 f"Run 'delete {target} --force' to confirm."
             )
         },
@@ -910,10 +910,10 @@ def _bulk_result(
     otherwise have nothing left to act on.
     """
     if not skipped and not failed:
-        noun = "sandbox" if len(done) == 1 else "sandboxes"
+        noun = "computer" if len(done) == 1 else "computers"
         return f"{past_tense} {len(done)} {noun}."
     total = len(done) + len(skipped) + len(failed)
-    parts = [f"{past_tense} {len(done)} of {total} sandboxes."]
+    parts = [f"{past_tense} {len(done)} of {total} computers."]
     if skipped:
         was_were = "was" if len(skipped) == 1 else "were"
         parts.append(f"{_name_list(skipped)} {was_were} not running.")

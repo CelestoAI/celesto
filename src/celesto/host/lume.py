@@ -93,14 +93,14 @@ def lume_version(binary: Path, *, timeout: float = 5.0) -> str:
             timeout=timeout,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise HostError(f"Could not run the macOS sandbox runtime: {exc}") from exc
+        raise HostError(f"Could not run the macOS desktop runtime: {exc}") from exc
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip() or f"exit code {result.returncode}"
-        raise HostError(f"Could not check the macOS sandbox runtime: {detail}")
+        raise HostError(f"Could not check the macOS desktop runtime: {detail}")
     lines = [line.strip().removeprefix("lume ").strip() for line in result.stdout.splitlines()]
     versions = [line for line in lines if _VERSION_LINE_RE.fullmatch(line)]
     if not versions:
-        raise HostError("The macOS sandbox runtime did not report a readable version.")
+        raise HostError("The macOS desktop runtime did not report a readable version.")
     return versions[-1]
 
 
@@ -202,12 +202,12 @@ def install_pinned_lume(*, destination: Path = LUME_MANAGED_PATH) -> Path:
     capabilities = macos_host_capabilities()
     if not capabilities.is_apple_silicon:
         raise HostError(
-            "macOS sandboxes need an Apple Silicon Mac. Run "
-            "'celesto sandbox create --os alpine' on this machine instead."
+            "macOS computers need an Apple Silicon Mac. Run "
+            "'celesto computer create --os alpine' on this machine instead."
         )
     if not capabilities.supported_version:
         raise HostError(
-            "macOS desktop sandboxes need macOS 14 or newer. Update this Mac, then run "
+            "macOS desktop computers need macOS 14 or newer. Update this Mac, then run "
             "'celesto setup --macos' again."
         )
 
@@ -226,13 +226,13 @@ def install_pinned_lume(*, destination: Path = LUME_MANAGED_PATH) -> Path:
             urllib.request.urlretrieve(LUME_ARCHIVE_URL, archive)  # noqa: S310 - pinned HTTPS URL
         except OSError as exc:
             raise HostError(
-                "Could not download the macOS sandbox runtime. Check your connection, then run "
+                "Could not download the macOS desktop runtime. Check your connection, then run "
                 "'celesto setup --macos' again."
             ) from exc
         actual = _sha256(archive)
         if actual != LUME_ARCHIVE_SHA256:
             raise HostError(
-                "The downloaded macOS sandbox runtime failed its checksum; run "
+                "The downloaded macOS desktop runtime failed its checksum; run "
                 "'celesto setup --macos' to download it again."
             )
         staged.mkdir()
@@ -254,7 +254,7 @@ def install_pinned_lume(*, destination: Path = LUME_MANAGED_PATH) -> Path:
         destination.unlink(missing_ok=True)
         shutil.rmtree(install_root, ignore_errors=True)
         raise HostError(
-            f"The macOS sandbox runtime reported version {installed_version!r}, expected "
+            f"The macOS desktop runtime reported version {installed_version!r}, expected "
             f"{LUME_VERSION!r}; run 'celesto setup --macos' to reinstall it."
         )
     subprocess.run(

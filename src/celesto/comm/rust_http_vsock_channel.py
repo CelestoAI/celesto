@@ -155,13 +155,13 @@ def _feature_required_message(feature: str, sandbox_name: str | None) -> str:
     if sandbox_name:
         sandbox = shlex.quote(sandbox_name)
         return (
-            f"Sandbox {sandbox} was created from an older image and cannot use {feature}; "
-            f"run `celesto sandbox delete {sandbox}`, then run "
-            f"`celesto sandbox create --name {sandbox}` after updating Celesto."
+            f"Computer {sandbox} was created from an older image and cannot use {feature}; "
+            f"run `celesto computer delete {sandbox}`, then run "
+            f"`celesto computer create --name {sandbox}` after updating Celesto."
         )
     return (
-        f"This sandbox was created from an older image and cannot use {feature}; "
-        "run `celesto sandbox list`, then delete and recreate the sandbox after updating Celesto."
+        f"This computer was created from an older image and cannot use {feature}; "
+        "run `celesto computer list`, then delete and recreate the computer after updating Celesto."
     )
 
 
@@ -169,13 +169,13 @@ def _vsock_unavailable_message(sandbox_name: str | None) -> str:
     if sandbox_name:
         sandbox = shlex.quote(sandbox_name)
         return (
-            f"This computer cannot open fast sandbox connections for {sandbox}; "
-            f"run `celesto sandbox delete {sandbox}` and then "
-            f"`celesto sandbox create --name {sandbox} --comm-channel ssh`."
+            f"Your machine cannot open fast connections to computer {sandbox}; "
+            f"run `celesto computer delete {sandbox}` and then "
+            f"`celesto computer create --name {sandbox} --comm-channel ssh`."
         )
     return (
-        "This computer cannot open fast sandbox connections; run "
-        "`celesto sandbox create --comm-channel ssh` to create a sandbox with the compatible path."
+        "Your machine cannot open fast connections to computers; run "
+        "`celesto computer create --comm-channel ssh` to create a computer that uses SSH."
     )
 
 
@@ -865,7 +865,7 @@ class RustHttpVsockChannel:
         if source_stat.st_size > max_stream_size:
             raise CelestoError(
                 f"File '{source}' is {source_stat.st_size} bytes, "
-                f"but this sandbox accepts files up to {max_stream_size} bytes in one upload."
+                f"but this computer accepts files up to {max_stream_size} bytes in one upload."
             )
         query = urllib.parse.urlencode({"path": remote_path, "name": source.name, "mode": mode})
         _resp, data = self._request_bytes(

@@ -347,7 +347,7 @@ def test_start_friendly_error_when_workspace_host_path_missing(
     # user can act on it without reading the source.
     message = str(exc_info.value)
     assert "vm-stale-mount" in message
-    assert "celesto sandbox delete vm-stale-mount" in message
+    assert "celesto computer delete vm-stale-mount" in message
     mock_popen.assert_not_called()
 
 

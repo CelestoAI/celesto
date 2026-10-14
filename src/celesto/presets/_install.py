@@ -581,8 +581,8 @@ def transfer_host_configs(
         if not local.exists():
             if cfg.required:
                 raise CelestoError(
-                    f"The {preset.name} sandbox needs the file '{local}' on your "
-                    "machine, but it isn't there. Restore it and start the sandbox "
+                    f"The {preset.name} computer needs the file '{local}' on your "
+                    "machine, but it isn't there. Restore it and start the computer "
                     "again.",
                     {"preset": preset.name, "host_path": str(local)},
                 )

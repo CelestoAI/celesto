@@ -156,13 +156,13 @@ def test_firecracker_missing_message_interpolates_sandbox_name() -> None:
     # The recovery command must name the sandbox with --name so it is runnable.
     with _env(fc_binary=False), pytest.raises(CelestoError) as excinfo:
         ensure_backend_available(BACKEND_FIRECRACKER, vm_name="sbx-einstein")
-    assert "celesto sandbox create --name sbx-einstein --backend qemu" in str(excinfo.value)
+    assert "celesto computer create --name sbx-einstein --backend qemu" in str(excinfo.value)
 
 
 def test_firecracker_kvm_message_interpolates_sandbox_name() -> None:
     with _env(fc_binary=True, kvm=False), pytest.raises(CelestoError) as excinfo:
         ensure_backend_available(BACKEND_FIRECRACKER, vm_name="sbx-einstein")
-    assert "celesto sandbox create --name sbx-einstein --backend qemu" in str(excinfo.value)
+    assert "celesto computer create --name sbx-einstein --backend qemu" in str(excinfo.value)
 
 
 def test_firecracker_recovery_command_omits_name_when_unknown() -> None:
@@ -170,7 +170,7 @@ def test_firecracker_recovery_command_omits_name_when_unknown() -> None:
         ensure_backend_available(BACKEND_FIRECRACKER)
     message = str(excinfo.value)
     assert "--name" not in message
-    assert "celesto sandbox create --backend qemu" in message
+    assert "celesto computer create --backend qemu" in message
 
 
 def test_ensure_backend_available_raises_for_missing_libkrun() -> None:

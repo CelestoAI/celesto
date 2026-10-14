@@ -36,7 +36,7 @@ from celesto.presets.codex import CODEX_HOST_CONFIGS
 # directory itself need not be copied.
 PI_PRESET = Preset(
     name="pi",
-    summary="Start a sandbox with the Pi coding agent preinstalled.",
+    summary="Start a computer with the Pi coding agent preinstalled.",
     setup_script=NODE20_BOOTSTRAP,
     install_script=npm_install_global("@mariozechner/pi-coding-agent"),
     host_env_vars=("ANTHROPIC_API_KEY", "OPENAI_API_KEY"),

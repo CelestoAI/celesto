@@ -183,7 +183,8 @@ class _ComputerSandbox(_BrowserSandbox):
         if self._session_config.mode != "computer":
             self.close()
             raise ValueError(
-                f"'{self.session_id}' is not a computer; run 'celesto computer list' to choose one."
+                f"'{self.session_id}' is a browser session, not a computer; run "
+                "'celesto computer list --desktop' to choose one."
             )
         self.display = ComputerDisplay(self)
         self.browser = ComputerBrowser(self)

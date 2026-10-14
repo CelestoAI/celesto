@@ -64,15 +64,22 @@ class VMAlreadyExistsError(CelestoError):
     """Raised when attempting to create a VM with an existing ID."""
 
     def __init__(self, vm_id: str) -> None:
-        super().__init__(f"VM '{vm_id}' already exists", {"vm_id": vm_id})
+        super().__init__(
+            f"A computer named '{vm_id}' already exists; choose another name or run "
+            f"'celesto computer delete {vm_id}'.",
+            {"vm_id": vm_id},
+        )
         self.vm_id = vm_id
 
 
 class VMNotFoundError(CelestoError):
     """Raised when a VM is not found."""
 
-    def __init__(self, vm_id: str) -> None:
-        super().__init__(f"VM '{vm_id}' not found", {"vm_id": vm_id})
+    def __init__(self, vm_id: str, *, list_command: str = "celesto computer list --all") -> None:
+        super().__init__(
+            f"Computer '{vm_id}' was not found; run '{list_command}' to choose one.",
+            {"vm_id": vm_id},
+        )
         self.vm_id = vm_id
 
 
@@ -133,7 +140,7 @@ class QemuDirtyBitmapStateError(CelestoError):
             "non-persistent": "is not persistent",
             "inconsistent": "is inconsistent",
         }[reason]
-        message = f"The dirty bitmap '{bitmap_name}' for sandbox '{vm_id}' {description}"
+        message = f"The dirty bitmap '{bitmap_name}' for computer '{vm_id}' {description}"
         if recovery_command is not None:
             message = f"{message}; recover with '{recovery_command}'."
         super().__init__(message, state_details)
@@ -230,7 +237,7 @@ class CommandExecutionUnavailableError(CelestoError):
         reason: str,
         remediation: str | None = None,
     ) -> None:
-        message = f"Cannot run command in VM '{vm_id}': {reason}"
+        message = f"Cannot run commands in computer '{vm_id}': {reason}"
         if remediation:
             message = f"{message}\n{remediation}"
         super().__init__(message, {"vm_id": vm_id, "reason": reason})

@@ -57,7 +57,7 @@ class LumeDriver:
         actual = self.version()
         if actual != LUME_VERSION:
             raise CelestoError(
-                f"The macOS sandbox runtime is version {actual!r}, but this Celesto release "
+                f"The macOS desktop runtime is version {actual!r}, but this Celesto release "
                 f"needs {LUME_VERSION!r}. Run 'celesto setup --macos' "
                 "to install the tested version."
             )
@@ -69,7 +69,7 @@ class LumeDriver:
         sandbox_name: str,
         timeout: float = 60.0,
     ) -> subprocess.CompletedProcess[str]:
-        logs_command = f"celesto sandbox logs {shlex.quote(sandbox_name)}"
+        logs_command = f"celesto computer logs {shlex.quote(sandbox_name)}"
         try:
             result = subprocess.run(
                 [str(self.binary), *arguments],
@@ -81,12 +81,12 @@ class LumeDriver:
             )
         except subprocess.TimeoutExpired as exc:
             raise CelestoError(
-                f"The macOS sandbox runtime did not finish in time; run '{logs_command}' "
+                f"The macOS desktop runtime did not finish in time; run '{logs_command}' "
                 "for details."
             ) from exc
         except OSError as exc:
             raise CelestoError(
-                "The macOS sandbox runtime could not start; run "
+                "The macOS desktop runtime could not start; run "
                 "'celesto doctor --backend vz' to check this Mac."
             ) from exc
         if result.returncode != 0:
@@ -96,7 +96,7 @@ class LumeDriver:
                 detail = f"{detail[:497]}..."
             suffix = f" Runtime detail: {detail}" if detail else ""
             raise CelestoError(
-                f"The macOS sandbox runtime failed; run '{logs_command}' for details, then "
+                f"The macOS desktop runtime failed; run '{logs_command}' for details, then "
                 f"'celesto doctor --backend vz' to check this Mac.{suffix}"
             )
         return result
@@ -288,11 +288,11 @@ class LumeDriver:
         try:
             payload = json.loads(result.stdout)
             if not isinstance(payload, list) or len(payload) != 1:
-                raise ValueError("expected one VM record")
+                raise ValueError("expected one computer record")
             return LumeVMDetails.model_validate(payload[0])
         except (json.JSONDecodeError, TypeError, ValueError, ValidationError) as exc:
             raise CelestoError(
-                "The macOS sandbox runtime returned data Celesto could not read; run "
+                "The macOS desktop runtime returned data Celesto could not read; run "
                 "'celesto setup --macos' to install the tested runtime version."
             ) from exc
 
@@ -325,7 +325,7 @@ class LumeDriver:
             safe_path = value.replace(":", "-")
             writable_option = " --writable-mounts" if writable else ""
             retry = (
-                f"celesto sandbox create --os macos --name {shlex.quote(sandbox_name)} "
+                f"celesto computer create --os macos --name {shlex.quote(sandbox_name)} "
                 f"--mount {shlex.quote(safe_path)}{writable_option}"
             )
             raise CelestoError(
@@ -420,11 +420,11 @@ class LumeDriver:
             ).start()
         except OSError as exc:
             raise CelestoError(
-                "The macOS sandbox runtime could not start; run "
+                "The macOS desktop runtime could not start; run "
                 "'celesto doctor --backend vz' to check this Mac."
             ) from exc
 
-        logs_command = f"celesto sandbox logs {shlex.quote(request.name)}"
+        logs_command = f"celesto computer logs {shlex.quote(request.name)}"
         deadline = time.monotonic() + timeout
         last_inspect_error: CelestoError | None = None
         try:
@@ -432,7 +432,7 @@ class LumeDriver:
                 return_code = process.poll()
                 if return_code is not None:
                     raise CelestoError(
-                        f"The macOS sandbox runtime exited with code {return_code}; run "
+                        f"The macOS desktop runtime exited with code {return_code}; run "
                         f"'{logs_command}' for details."
                     )
                 try:

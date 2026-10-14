@@ -273,10 +273,10 @@ class TestCleanup:
         assert payload["command"] == "sandbox.delete"
         assert payload["exit_code"] == 1
         assert "force" in payload["error"]["message"].lower()
-        assert "celesto sandbox delete --all --force --json" in payload["error"]["message"]
+        assert "celesto computer delete --all --force --json" in payload["error"]["message"]
         assert (
             payload["error"]["recovery"]
-            == "Run 'celesto sandbox delete --all --force --json' to confirm."
+            == "Run 'celesto computer delete --all --force --json' to confirm."
         )
 
     @patch("celesto.cli.cleanup.os.geteuid", return_value=0)
@@ -373,10 +373,10 @@ class TestCleanup:
         assert payload["ok"] is False
         assert payload["command"] == "sandbox.delete"
         assert payload["error"]["code"] == "refused"
-        assert "celesto sandbox delete --all --force --json" in payload["error"]["message"]
+        assert "celesto computer delete --all --force --json" in payload["error"]["message"]
         assert (
             payload["error"]["recovery"]
-            == "Run 'celesto sandbox delete --all --force --json' to confirm."
+            == "Run 'celesto computer delete --all --force --json' to confirm."
         )
         mock_run_cleanup.assert_not_called()
 
@@ -488,7 +488,7 @@ class TestSandboxPrune:
         sdk.prune_leftover_artifacts.assert_not_called()
         payload = json.loads(capsys.readouterr().out)
         assert payload["ok"] is False
-        assert "celesto sandbox prune --force --json" in payload["error"]["message"]
+        assert "celesto computer prune --force --json" in payload["error"]["message"]
 
     def test_prune_json_payload(
         self,

@@ -25,7 +25,7 @@ OPENCLAW_NODE_VERSION = (24, 15, 0)
 OPENCLAW_PRESET = Preset(
     name="openclaw",
     aliases=("claw",),
-    summary="Create and manage OpenClaw sandboxes.",
+    summary="Create and manage OpenClaw computers.",
     setup_script=node_bootstrap(24, minimum_version=OPENCLAW_NODE_VERSION),
     install_script=npm_install_global(
         "openclaw",
@@ -48,6 +48,6 @@ OPENCLAW_PRESET = Preset(
     no_env_hint=(
         "No API key found. Set OPENROUTER_API_KEY, OPENAI_API_KEY, or"
         " OPENCLAW_GATEWAY_TOKEN on your machine, or run 'openclaw onboard'"
-        " inside the sandbox."
+        " inside the computer."
     ),
 )

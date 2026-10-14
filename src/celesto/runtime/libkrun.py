@@ -59,7 +59,7 @@ class LibkrunRuntimeAdapter(RuntimeAdapter):
 
         if vm_info.pid and self._context.is_process_running(vm_info.pid):
             raise CelestoError(
-                f"libkrun process did not exit for VM '{vm_info.vm_id}'",
+                f"libkrun process did not exit for computer '{vm_info.vm_id}'",
                 {"pid": vm_info.pid},
             )
 
@@ -115,8 +115,8 @@ class LibkrunRuntimeAdapter(RuntimeAdapter):
             rc = process.poll()
             if rc is not None:
                 raise CelestoError(
-                    f"VM '{vm_id}' failed to start. "
-                    f"Run 'celesto sandbox delete {vm_id}' to remove it.",
+                    f"Computer '{vm_id}' failed to start. "
+                    f"Run 'celesto computer delete {vm_id}' to remove it.",
                     {"return_code": rc, "pid": process.pid},
                 )
             time.sleep(0.05)
@@ -126,7 +126,8 @@ class LibkrunRuntimeAdapter(RuntimeAdapter):
             with suppress(Exception):
                 self._context.kill_process(process.pid)
             raise CelestoError(
-                f"VM '{vm_id}' failed to start. Run 'celesto sandbox delete {vm_id}' to remove it.",
+                f"Computer '{vm_id}' failed to start. Run 'celesto computer delete {vm_id}' to "
+                "remove it.",
                 {"return_code": rc, "pid": process.pid},
             )
 
@@ -140,8 +141,8 @@ class LibkrunRuntimeAdapter(RuntimeAdapter):
             rc = process.poll() if hasattr(process, "poll") else process.returncode
             if rc is not None:
                 raise CelestoError(
-                    f"VM '{vm_id}' failed to start. "
-                    f"Run 'celesto sandbox delete {vm_id}' to remove it.",
+                    f"Computer '{vm_id}' failed to start. "
+                    f"Run 'celesto computer delete {vm_id}' to remove it.",
                     {"return_code": rc, "pid": process.pid},
                 )
             await asyncio.sleep(0.05)
@@ -151,6 +152,7 @@ class LibkrunRuntimeAdapter(RuntimeAdapter):
             with suppress(Exception):
                 self._context.kill_process(process.pid)
             raise CelestoError(
-                f"VM '{vm_id}' failed to start. Run 'celesto sandbox delete {vm_id}' to remove it.",
+                f"Computer '{vm_id}' failed to start. Run 'celesto computer delete {vm_id}' to "
+                "remove it.",
                 {"return_code": rc, "pid": process.pid},
             )

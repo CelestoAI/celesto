@@ -299,7 +299,7 @@ class TestCelestoCreate:
         # plain English, the sandbox they named, and a command that recovers.
         message = str(excinfo.value)
         assert "'not-a-backend'" in message
-        assert "celesto sandbox create --name sbx-test --backend qemu" in message
+        assert "celesto computer create --name sbx-test --backend qemu" in message
 
     def test_check_prerequisites_libkrun_only_checks_library_and_ssh(self, tmp_path: Path) -> None:
         """libkrun prerequisite checks should not require qemu/qemu-img."""
@@ -577,13 +577,13 @@ class TestCelestoCreate:
 
         assert (
             str(exc_info.value)
-            == "Cannot use vsock for sandbox 'vm-vsock-bad': this backend does not support "
+            == "Cannot use vsock for computer 'vm-vsock-bad': this backend does not support "
             "vsock in this release; create it with SSH by running: "
-            "celesto sandbox create --name vm-vsock-bad --backend libkrun."
+            "celesto computer create --name vm-vsock-bad --backend libkrun."
         )
         assert exc_info.value.details == {
             "vm_id": "vm-vsock-bad",
-            "recovery_command": "celesto sandbox create --name vm-vsock-bad --backend libkrun",
+            "recovery_command": "celesto computer create --name vm-vsock-bad --backend libkrun",
         }
 
     @pytest.mark.asyncio
@@ -1850,7 +1850,7 @@ class TestCrashedVMDetection:
         vm_info = _info(sample_config, VMState.STOPPED, pid=None)
         with (
             patch.object(smol_vm.state, "get_vm", return_value=vm_info),
-            pytest.raises(CelestoError, match="Cannot resume VM in state 'stopped'"),
+            pytest.raises(CelestoError, match="Cannot resume computer in state 'stopped'"),
         ):
             smol_vm.resume(sample_config.vm_id)
 

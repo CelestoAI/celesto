@@ -87,7 +87,8 @@ class LocalProvider:
             config = state.get_browser_session_config(computer_id)
             if config.mode != "computer":
                 raise ValueError(
-                    f"'{computer_id}' is not a computer; run 'celesto computer list' to choose one."
+                    f"'{computer_id}' is a browser session, not a computer; run "
+                    "'celesto computer list' or 'celesto computer list --desktop' to choose one."
                 )
             unsupported = options.keys() - {
                 "data_dir",

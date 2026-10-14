@@ -118,7 +118,7 @@ def _guest(vm: Celesto, args: list[str], deadline: float) -> dict[str, Any]:
     except Exception:
         raise CelestoError(
             f"Computer '{vm.vm_id}' could not prepare a connection; "
-            f"run 'celesto sandbox ssh {vm.vm_id}' to inspect /var/log/celesto-browser."
+            f"run 'celesto computer ssh {vm.vm_id}' to inspect /var/log/celesto-browser."
         ) from None
 
 
@@ -126,7 +126,7 @@ def probe_capabilities(vm: Celesto, kind: str, deadline: float | None = None) ->
     deadline = deadline if deadline is not None else time.monotonic() + _TIMEOUT
     if vm.refresh().status != VMState.RUNNING:
         raise CelestoError(
-            f"Computer '{vm.vm_id}' is not running; run 'celesto sandbox start {vm.vm_id}'."
+            f"Computer '{vm.vm_id}' is not running; run 'celesto computer start {vm.vm_id}'."
         )
     caps = _guest(vm, ["capabilities"], deadline)
     if caps.get("version") != 1 or caps.get(kind) is not True:
@@ -218,7 +218,7 @@ def local_connection(
                 vm.unexpose_local(host_port, port)
         raise CelestoError(
             f"Computer '{vm.vm_id}' could not connect; "
-            f"run 'celesto sandbox ssh {vm.vm_id}' to inspect /var/log/celesto-browser."
+            f"run 'celesto computer ssh {vm.vm_id}' to inspect /var/log/celesto-browser."
         ) from None
     forwards[port] = host_port
     return connection

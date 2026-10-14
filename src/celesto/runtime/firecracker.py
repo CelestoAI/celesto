@@ -75,7 +75,9 @@ class FirecrackerRuntimeAdapter(RuntimeAdapter):
                 drive_id = "data_drive" if index == 0 else f"data_drive_{index}"
                 client.add_drive(drive_id, drive_path, is_root_device=False, is_read_only=False)
             if vm_info.network is None:
-                raise CelestoError("VM has no network configuration", {"vm_id": vm_info.vm_id})
+                raise CelestoError(
+                    "Computer has no network configuration", {"vm_id": vm_info.vm_id}
+                )
             client.add_network_interface(
                 "eth0",
                 vm_info.network.tap_device,
@@ -307,7 +309,7 @@ class FirecrackerRuntimeAdapter(RuntimeAdapter):
     def _require_client(vm_info: VMInfo) -> FirecrackerClient:
         """Build a Firecracker client for a running or paused VM."""
         if vm_info.control_socket_path is None:
-            raise CelestoError("VM has no Firecracker socket path", {"vm_id": vm_info.vm_id})
+            raise CelestoError("Computer has no Firecracker socket path", {"vm_id": vm_info.vm_id})
         if not vm_info.control_socket_path.exists():
             raise CelestoError(
                 "Firecracker socket is not available",

@@ -220,8 +220,8 @@ def _usernet_addresses(backend: str, vm_id: str) -> tuple[str, str, str]:
     except KeyError:
         raise NetworkError(
             f"Celesto does not know what network settings the '{backend}' backend "
-            f"gives a sandbox. Run "
-            f"'celesto sandbox create --name {vm_id} --backend {BACKEND_QEMU}' instead."
+            f"gives a computer. Run "
+            f"'celesto computer create --name {vm_id} --backend {BACKEND_QEMU}' instead."
         ) from None
 
 
@@ -307,14 +307,14 @@ def resolve_data_dir(data_dir: Path | None = None) -> Path:
 def _crashed_message(vm_id: str) -> str:
     """User-facing message for a VM whose process is gone."""
     return (
-        f"VM '{vm_id}' is not running — its process has exited; "
-        f"run 'celesto sandbox delete {vm_id}' to clear it."
+        f"Computer '{vm_id}' is not running — its process has exited; "
+        f"run 'celesto computer delete {vm_id}' to clear it."
     )
 
 
 def _vsock_recovery_command(vm_id: str, backend: str) -> str:
     """Return a CLI recovery command for an explicit-vsock create failure."""
-    return f"celesto sandbox create --name {vm_id} --backend {backend}"
+    return f"celesto computer create --name {vm_id} --backend {backend}"
 
 
 def _vsock_not_supported_message(
@@ -332,9 +332,9 @@ def _vsock_not_supported_message(
             "Firecracker vsock is only available on Linux"
         ),
     }
-    reason = reason_by_code.get(error.code, "vsock is not available for this sandbox")
+    reason = reason_by_code.get(error.code, "vsock is not available for this computer")
     return (
-        f"Cannot use vsock for sandbox '{vm_id}': {reason}; "
+        f"Cannot use vsock for computer '{vm_id}': {reason}; "
         f"create it with SSH by running: {recovery_command}."
     )
 
@@ -835,7 +835,7 @@ class CelestoManager:
     @staticmethod
     def _resize_recovery(vm_id: str) -> str:
         """Return a cleanup command for disk resize errors."""
-        return f"celesto sandbox delete {vm_id}"
+        return f"celesto computer delete {vm_id}"
 
     @staticmethod
     def _ensure_disk_can_be_resized(config: VMConfig) -> None:
@@ -844,7 +844,7 @@ class CelestoManager:
             config.disk_mode == "shared"
         ):
             raise CelestoError(
-                f"Disk resizing needs an isolated disk for sandbox '{config.vm_id}'; set "
+                f"Disk resizing needs an isolated disk for computer '{config.vm_id}'; set "
                 f"disk_mode='isolated', or run '{CelestoManager._resize_recovery(config.vm_id)}'."
             )
 
@@ -857,7 +857,7 @@ class CelestoManager:
         if config.effective_rootfs_format == "qcow2":
             if config.grow_filesystem:
                 raise CelestoError(
-                    f"Filesystem growth for qcow2 disks is not supported for sandbox "
+                    f"Filesystem growth for qcow2 disks is not supported for computer "
                     f"'{config.vm_id}'; omit grow_filesystem, or run "
                     f"'{self._resize_recovery(config.vm_id)}'."
                 )
@@ -888,7 +888,7 @@ class CelestoManager:
             if target_bytes < current_bytes:
                 current_mib = self._ceil_mib(current_bytes)
                 raise CelestoError(
-                    f"Requested disk size is smaller than the current disk for sandbox "
+                    f"Requested disk size is smaller than the current disk for computer "
                     f"'{vm_id}'; choose at least {current_mib} MiB, or run "
                     f"'{self._resize_recovery(vm_id)}'."
                 )
@@ -929,7 +929,7 @@ class CelestoManager:
                 else "install e2fsprogs with your package manager"
             )
             raise CelestoError(
-                f"Disk preparation tools are missing for sandbox '{vm_id}'; "
+                f"Disk preparation tools are missing for computer '{vm_id}'; "
                 f"{install}, or run '{self._resize_recovery(vm_id)}'."
             )
         self._run_resize_tool(
@@ -954,7 +954,7 @@ class CelestoManager:
         if result.returncode not in allowed:
             stderr = result.stderr.strip() or result.stdout.strip() or "no output"
             raise CelestoError(
-                f"{tool_name} failed while resizing the disk for sandbox '{vm_id}'; run "
+                f"{tool_name} failed while resizing the disk for computer '{vm_id}'; run "
                 f"'{self._resize_recovery(vm_id)}'.",
                 {"stderr": stderr, "returncode": result.returncode},
             )
@@ -964,7 +964,7 @@ class CelestoManager:
         qemu_img = self._find_qemu_img_binary()
         if qemu_img is None:
             raise CelestoError(
-                f"qemu-img is needed to resize the disk for sandbox '{vm_id}'; "
+                f"qemu-img is needed to resize the disk for computer '{vm_id}'; "
                 f"{_qemu_install_hint()}"
             )
         result = subprocess.run(
@@ -975,7 +975,7 @@ class CelestoManager:
         )
         if result.returncode != 0:
             raise CelestoError(
-                f"qemu-img could not inspect the disk for sandbox '{vm_id}'; run "
+                f"qemu-img could not inspect the disk for computer '{vm_id}'; run "
                 f"'{self._resize_recovery(vm_id)}'.",
                 {"stderr": result.stderr.strip()},
             )
@@ -984,7 +984,7 @@ class CelestoManager:
             return int(info["virtual-size"])
         except (KeyError, TypeError, ValueError) as exc:
             raise CelestoError(
-                f"qemu-img returned invalid disk info for sandbox '{vm_id}'; run "
+                f"qemu-img returned invalid disk info for computer '{vm_id}'; run "
                 f"'{self._resize_recovery(vm_id)}'."
             ) from exc
 
@@ -993,7 +993,7 @@ class CelestoManager:
         qemu_img = self._find_qemu_img_binary()
         if qemu_img is None:
             raise CelestoError(
-                f"qemu-img is needed to resize the disk for sandbox '{vm_id}'; "
+                f"qemu-img is needed to resize the disk for computer '{vm_id}'; "
                 f"{_qemu_install_hint()}"
             )
         current_bytes = self._qcow2_virtual_size_bytes(disk_path, vm_id)
@@ -1001,7 +1001,7 @@ class CelestoManager:
         if target_bytes < current_bytes:
             current_mib = self._ceil_mib(current_bytes)
             raise CelestoError(
-                f"Requested disk size is smaller than the current disk for sandbox "
+                f"Requested disk size is smaller than the current disk for computer "
                 f"'{vm_id}'; choose at least {current_mib} MiB, or run "
                 f"'{self._resize_recovery(vm_id)}'."
             )
@@ -1015,7 +1015,7 @@ class CelestoManager:
         )
         if result.returncode != 0:
             raise CelestoError(
-                f"qemu-img failed while resizing the disk for sandbox '{vm_id}'; run "
+                f"qemu-img failed while resizing the disk for computer '{vm_id}'; run "
                 f"'{self._resize_recovery(vm_id)}'.",
                 {"stderr": result.stderr.strip()},
             )
@@ -1075,20 +1075,20 @@ class CelestoManager:
             return
         if machine.bundle_path.name != config.vm_id:
             raise CelestoError(
-                f"macOS sandbox bundle must end with '{config.vm_id}'; delete the sandbox with "
-                f"'celesto sandbox delete {config.vm_id}' and create it again."
+                f"macOS computer bundle must end with '{config.vm_id}'; delete the computer with "
+                f"'celesto computer delete {config.vm_id}' and create it again."
             )
         managed_root = (self.data_dir / "macos-vms").resolve()
         if machine.bundle_path.parent.resolve() != managed_root:
             raise CelestoError(
-                f"macOS sandbox files must stay in '{managed_root}'; create sandbox "
+                f"macOS computer files must stay in '{managed_root}'; create computer "
                 f"'{config.vm_id}' again without a custom bundle path."
             )
         machine.bundle_path.parent.mkdir(parents=True, exist_ok=True)
         if machine.bundle_path.is_symlink():
             raise CelestoError(
-                f"macOS sandbox path '{machine.bundle_path}' is a link; remove it, then retry "
-                f"'celesto sandbox create --os macos --name {config.vm_id}'."
+                f"macOS computer path '{machine.bundle_path}' is a link; remove it, then retry "
+                f"'celesto computer create --os macos --name {config.vm_id}'."
             )
         if machine.bundle_path.exists():
             machine.bundle_path.chmod(0o700)
@@ -1101,7 +1101,7 @@ class CelestoManager:
         binary = find_lume_binary()
         if binary is None or not pinned_lume_ready():
             raise CelestoError(
-                "The macOS sandbox runtime isn't installed. Run 'celesto setup --macos', then "
+                "The macOS desktop runtime isn't installed. Run 'celesto setup --macos', then "
                 "'celesto doctor --backend vz' to confirm."
             )
         source_storage = machine.manifest_path.parent.parent
@@ -1118,8 +1118,8 @@ class CelestoManager:
             raise
         if not machine.bundle_path.is_dir():
             raise CelestoError(
-                f"The macOS sandbox runtime did not create '{machine.bundle_path}'; run "
-                f"'celesto sandbox create --name {config.vm_id} --os macos' again."
+                f"The macOS desktop runtime did not create '{machine.bundle_path}'; run "
+                f"'celesto computer create --name {config.vm_id} --os macos' again."
             )
         machine.bundle_path.chmod(0o700)
 
@@ -1130,8 +1130,8 @@ class CelestoManager:
             return
         if machine.bundle_path.is_symlink():
             raise CelestoError(
-                f"macOS sandbox path '{machine.bundle_path}' is a link; remove the link, then "
-                f"retry 'celesto sandbox delete {vm_info.vm_id}'."
+                f"macOS computer path '{machine.bundle_path}' is a link; remove the link, then "
+                f"retry 'celesto computer delete {vm_info.vm_id}'."
             )
         if not machine.bundle_path.exists():
             return
@@ -1141,7 +1141,7 @@ class CelestoManager:
         except ValueError as exc:
             raise CelestoError(
                 f"Refusing to delete macOS files outside '{managed_root}'; remove "
-                f"'{machine.bundle_path}' manually after deleting sandbox '{vm_info.vm_id}'."
+                f"'{machine.bundle_path}' manually after deleting computer '{vm_info.vm_id}'."
             ) from exc
 
         from celesto.host.lume import find_lume_binary, pinned_lume_ready
@@ -1277,8 +1277,8 @@ class CelestoManager:
         if len(running) >= 2:
             first = sorted(running)[0]
             raise CelestoError(
-                f"This Mac already has two running macOS sandboxes; run "
-                f"'celesto sandbox stop {first}', then retry 'celesto sandbox start {vm_id}'.",
+                f"This Mac already has two running macOS computers; run "
+                f"'celesto computer stop {first}', then retry 'celesto computer start {vm_id}'.",
                 {"vm_id": vm_id, "running_macos_sandboxes": sorted(running)},
             )
 
@@ -1302,8 +1302,8 @@ class CelestoManager:
             return
         paths = ", ".join(str(p) for p in bad_paths)
         raise CelestoError(
-            f"Cannot start sandbox '{vm_info.vm_id}': shared folder is missing: "
-            f"{paths}. Restore it, or run 'celesto sandbox delete {vm_info.vm_id}'.",
+            f"Cannot start computer '{vm_info.vm_id}': shared folder is missing: "
+            f"{paths}. Restore it, or run 'celesto computer delete {vm_info.vm_id}'.",
             {
                 "vm_id": vm_info.vm_id,
                 "missing_mounts": [str(p) for p in bad_paths],
@@ -1322,22 +1322,24 @@ class CelestoManager:
                 {"vm_id": vm_info.vm_id},
             )
         if vm_info.config.disk_mode != "isolated":
-            raise CelestoError("Snapshotting currently supports only isolated-disk VMs")
+            raise CelestoError("Snapshotting currently supports only isolated-disk computers")
         if (
             self._backend_for_vm(vm_info) == BACKEND_QEMU
             and vm_info.config.effective_rootfs_format != "qcow2"
         ):
             raise CelestoError(
-                f"Snapshots are not supported for raw QEMU disks in sandbox "
+                f"Snapshots are not supported for raw QEMU disks in computer "
                 f"'{vm_info.vm_id}'; create it without grow_filesystem, or run "
-                f"'celesto sandbox delete {vm_info.vm_id}'."
+                f"'celesto computer delete {vm_info.vm_id}'."
             )
         if vm_info.config.extra_drives:
-            raise CelestoError("Snapshotting currently supports only VMs without extra drives")
+            raise CelestoError(
+                "Snapshotting currently supports only computers without extra drives"
+            )
         if vm_info.config.workspace_mounts:
-            raise CelestoError("Snapshotting is not supported for VMs with workspace mounts")
+            raise CelestoError("Snapshotting is not supported for computers with workspace mounts")
         if vm_info.network is None:
-            raise CelestoError("VM has no network configuration", {"vm_id": vm_info.vm_id})
+            raise CelestoError("Computer has no network configuration", {"vm_id": vm_info.vm_id})
 
     def _warn_low_disk_space_for_snapshot(
         self, vm_info: VMInfo, snapshot_type: SnapshotType = SnapshotType.FULL
@@ -1413,8 +1415,8 @@ class CelestoManager:
         if network.mode == "bridge":
             if vm_config is None:
                 raise CelestoError(
-                    f"Snapshot network settings are incomplete for sandbox '{vm_id}'; run "
-                    f"'celesto sandbox delete {vm_id}' to remove the restore attempt."
+                    f"Snapshot network settings are incomplete for computer '{vm_id}'; run "
+                    f"'celesto computer delete {vm_id}' to remove the restore attempt."
                 )
             self._ensure_bridge_ready(
                 vm_id,
@@ -1659,7 +1661,7 @@ class CelestoManager:
             has_forwards=bool(config.port_forwards),
             network_mode=config.network_attachment.mode,
             qemu_network=config.qemu_network,
-            recovery_command=f"celesto sandbox create --name {config.vm_id} --help",
+            recovery_command=f"celesto computer create --name {config.vm_id} --help",
         )
 
     @staticmethod
@@ -1804,8 +1806,9 @@ class CelestoManager:
             if cid in live_cids:
                 self.state.release_vsock_cid(vm_id)
                 raise NetworkError(
-                    f"Vsock CID {cid} is already in use by another running QEMU VM; "
-                    f"run 'celesto sandbox delete {vm_id}' to remove this sandbox, then create it "
+                    f"Vsock CID {cid} is already in use by another running QEMU computer; "
+                    f"run 'celesto computer delete {vm_id}' to remove this computer, then create "
+                    "it "
                     "again without that explicit CID."
                 )
             return cid
@@ -1886,7 +1889,7 @@ class CelestoManager:
         """Validate every bridge invariant before changing host networking."""
         import platform
 
-        nat_command = f"celesto sandbox create --name {config.vm_id} --network nat"
+        nat_command = f"celesto computer create --name {config.vm_id} --network nat"
         if platform.system() != "Linux":
             raise CelestoError(
                 f"Bridged networking is unavailable on {platform.system()}; run '{nat_command}'.",
@@ -1899,15 +1902,15 @@ class CelestoManager:
             )
         if config.guest_os is GuestOS.WINDOWS:
             raise CelestoError(
-                f"Bridged networking is unavailable for Windows sandbox '{config.vm_id}'; "
+                f"Bridged networking is unavailable for Windows computer '{config.vm_id}'; "
                 f"run '{nat_command}'.",
                 {"vm_id": config.vm_id, "guest_os": config.guest_os.value},
             )
         if not config.guest_managed_networking:
             bridge_name = config.network_attachment.bridge
             raise CelestoError(
-                f"The image for sandbox '{config.vm_id}' cannot configure bridged networking; "
-                f"run 'celesto sandbox create --name {config.vm_id} --os alpine --backend "
+                f"The image for computer '{config.vm_id}' cannot configure bridged networking; "
+                f"run 'celesto computer create --name {config.vm_id} --os alpine --backend "
                 f"{backend} --network bridge --bridge {bridge_name}'.",
                 {"vm_id": config.vm_id, "backend": backend},
             )
@@ -1916,20 +1919,20 @@ class CelestoManager:
         if resolution.kind != "vsock":
             bridge_name = config.network_attachment.bridge
             raise CelestoError(
-                f"Bridged sandbox '{config.vm_id}' needs fast shell support; run "
-                f"'celesto sandbox create --name {config.vm_id} --network bridge "
+                f"Bridged computer '{config.vm_id}' needs fast shell support; run "
+                f"'celesto computer create --name {config.vm_id} --network bridge "
                 f"--bridge {bridge_name} --comm-channel vsock', or run '{nat_command}'.",
                 {"vm_id": config.vm_id, "resolved_channel": resolution.kind},
             )
         if config.workspace_mounts:
             raise CelestoError(
-                f"Bridged sandbox '{config.vm_id}' cannot share host folders yet; run "
+                f"Bridged computer '{config.vm_id}' cannot share host folders yet; run "
                 f"'{nat_command}'.",
                 {"vm_id": config.vm_id},
             )
         if config.port_forwards:
             raise CelestoError(
-                f"Bridged sandbox '{config.vm_id}' cannot use launch-time port forwarding; "
+                f"Bridged computer '{config.vm_id}' cannot use launch-time port forwarding; "
                 f"run '{nat_command}'.",
                 {"vm_id": config.vm_id},
             )
@@ -1938,7 +1941,7 @@ class CelestoManager:
             and not config.internet_settings.is_allow_all_domains
         ):
             raise CelestoError(
-                f"Domain controls do not apply to bridged sandbox '{config.vm_id}'; run "
+                f"Domain controls do not apply to bridged computer '{config.vm_id}'; run "
                 f"'{nat_command}'.",
                 {"vm_id": config.vm_id},
             )
@@ -1946,7 +1949,7 @@ class CelestoManager:
         bridge_name = config.network_attachment.bridge
         if not bridge_name:
             raise CelestoError(
-                f"Bridged sandbox '{config.vm_id}' has no bridge; run '{nat_command}'.",
+                f"Bridged computer '{config.vm_id}' has no bridge; run '{nat_command}'.",
                 {"vm_id": config.vm_id},
             )
         inspection = self.network.inspect_bridge(bridge_name)
@@ -1965,8 +1968,8 @@ class CelestoManager:
         bridge_name = network.bridge or ""
         if bridge_name != config.network_attachment.bridge:
             raise CelestoError(
-                f"Sandbox '{vm_id}' has inconsistent bridge settings; run "
-                f"'celesto sandbox delete {vm_id}' to remove it.",
+                f"Computer '{vm_id}' has inconsistent bridge settings; run "
+                f"'celesto computer delete {vm_id}' to remove it.",
                 {"vm_id": vm_id},
             )
         self._validate_bridge_mode(config, backend)
@@ -2026,7 +2029,7 @@ class CelestoManager:
             excluded_ports.add(port)
 
         raise NetworkError(
-            f"No local SSH port is available for sandbox '{vm_id}'. "
+            f"No local SSH port is available for computer '{vm_id}'. "
             f"Free a port in {SSH_PORT_START}-{SSH_PORT_END}, then retry."
         )
 
@@ -2041,7 +2044,7 @@ class CelestoManager:
         if ssh_port is not None and not self._local_ssh_port_is_available(ssh_port):
             raise CelestoError(
                 f"Local SSH port {ssh_port} is already in use. Free that port, or run "
-                f"'celesto sandbox delete {vm_info.vm_id}' to remove the sandbox.",
+                f"'celesto computer delete {vm_info.vm_id}' to remove the computer.",
                 {"vm_id": vm_info.vm_id, "ssh_host_port": ssh_port},
             )
 
@@ -2050,8 +2053,8 @@ class CelestoManager:
                 continue
             raise CelestoError(
                 f"Local port {forward.host_address}:{forward.host_port} is already in use. "
-                f"Free that port, or run 'celesto sandbox delete {vm_info.vm_id}' "
-                "to remove the sandbox.",
+                f"Free that port, or run 'celesto computer delete {vm_info.vm_id}' "
+                "to remove the computer.",
                 {
                     "vm_id": vm_info.vm_id,
                     "host_address": forward.host_address,
@@ -2093,7 +2096,7 @@ class CelestoManager:
 
         if effective_config.workspace_mounts and backend not in {BACKEND_QEMU, BACKEND_VZ}:
             raise CelestoError(
-                "Shared folders are only supported with the QEMU backend or macOS sandboxes; "
+                "Shared folders are only supported with the QEMU backend or macOS computers; "
                 "re-run without '--backend' so Celesto can select a compatible runtime.",
                 {"vm_id": effective_config.vm_id, "backend": backend},
             )
@@ -2362,13 +2365,13 @@ class CelestoManager:
 
         if vm_info.status not in (VMState.CREATED, VMState.STOPPED):
             raise CelestoError(
-                f"Cannot start VM in state '{vm_info.status.value}'",
+                f"Cannot start computer in state '{vm_info.status.value}'",
                 {"vm_id": vm_id, "current_status": vm_info.status.value},
             )
 
         if vm_info.network is None and vm_info.config.guest_os is not GuestOS.MACOS:
             raise CelestoError(
-                "VM has no network configuration",
+                "Computer has no network configuration",
                 {"vm_id": vm_id},
             )
 
@@ -2533,13 +2536,13 @@ class CelestoManager:
         if not isinstance(adapter, QemuRuntimeAdapter):
             backend = self._backend_for_vm(vm_info)
             raise CelestoError(
-                f"Dirty bitmaps require a QEMU sandbox; '{vm_id}' uses {backend}",
+                f"Dirty bitmaps require a QEMU computer; '{vm_id}' uses {backend}",
                 {"vm_id": vm_id, "backend": backend},
             )
         managed_disk = self._managed_disk_for_vm(vm_info)
         if managed_disk is None or managed_disk.suffix != ".qcow2":
             raise CelestoError(
-                f"Dirty bitmaps require a managed qcow2 root disk for sandbox '{vm_id}'",
+                f"Dirty bitmaps require a managed qcow2 root disk for computer '{vm_id}'",
                 {
                     "vm_id": vm_id,
                     "disk_path": str(managed_disk) if managed_disk else None,
@@ -2569,11 +2572,11 @@ class CelestoManager:
         # the status string itself is the explanation.
         recovery = ""
         if vm_info.status == VMState.ERROR:
-            recovery = f"; run 'celesto sandbox delete {vm_info.vm_id}' to clear it"
+            recovery = f"; run 'celesto computer delete {vm_info.vm_id}' to clear it"
         elif vm_info.status in (VMState.STOPPED, VMState.CREATED):
-            recovery = f"; run 'celesto sandbox start {vm_info.vm_id}' to start it"
+            recovery = f"; run 'celesto computer start {vm_info.vm_id}' to start it"
         raise CelestoError(
-            f"Cannot {action} VM in state '{vm_info.status.value}'{recovery}.",
+            f"Cannot {action} computer in state '{vm_info.status.value}'{recovery}.",
             {"vm_id": vm_info.vm_id, "current_status": vm_info.status.value},
         )
 
@@ -2657,28 +2660,28 @@ class CelestoManager:
         self._ensure_snapshot_supported(vm_info)
         if vm_info.status not in (VMState.RUNNING, VMState.PAUSED):
             raise CelestoError(
-                f"Cannot snapshot VM in state '{vm_info.status.value}'",
+                f"Cannot snapshot computer in state '{vm_info.status.value}'",
                 {"vm_id": vm_id, "current_status": vm_info.status.value},
             )
 
         original_status = vm_info.status
         backend = self._backend_for_vm(vm_info)
         disk_command = (
-            f"celesto sandbox snapshot create {vm_id} --snapshot-id {snapshot_id} "
+            f"celesto computer snapshot create {vm_id} --snapshot-id {snapshot_id} "
             "--snapshot-type disk --resume-source"
         )
         live_command = f"{disk_command} --live-only"
         if capture_policy == SnapshotCapturePolicy.LIVE_ONLY:
             if original_status != VMState.RUNNING:
                 raise CelestoError(
-                    f"Sandbox '{vm_id}' must be running for a live snapshot; run "
-                    f"'celesto sandbox start {vm_id}'.",
+                    f"Computer '{vm_id}' must be running for a live snapshot; run "
+                    f"'celesto computer start {vm_id}'.",
                     {"vm_id": vm_id, "current_status": original_status.value},
                 )
             if backend != BACKEND_QEMU:
                 raise CelestoError(
-                    f"Sandbox '{vm_id}' cannot stay available during this snapshot; run "
-                    f"'celesto sandbox snapshot create {vm_id} --snapshot-id {snapshot_id} "
+                    f"Computer '{vm_id}' cannot stay available during this snapshot; run "
+                    f"'celesto computer snapshot create {vm_id} --snapshot-id {snapshot_id} "
                     "--snapshot-type disk --resume-source' to allow a brief pause.",
                     {
                         "vm_id": vm_id,
@@ -2688,7 +2691,7 @@ class CelestoManager:
                 )
             if snapshot_type != SnapshotType.DISK:
                 raise CelestoError(
-                    f"Live snapshots of sandbox '{vm_id}' save disk state only; run "
+                    f"Live snapshots of computer '{vm_id}' save disk state only; run "
                     f"'{live_command}'.",
                     {
                         "vm_id": vm_id,
@@ -2698,13 +2701,13 @@ class CelestoManager:
                 )
             if not resume_source:
                 raise CelestoError(
-                    f"A live snapshot keeps sandbox '{vm_id}' running; run '{live_command}'.",
+                    f"A live snapshot keeps computer '{vm_id}' running; run '{live_command}'.",
                     {"vm_id": vm_id},
                 )
         if qemu_dirty_bitmap_backup is not None:
             if backend != BACKEND_QEMU:
                 raise CelestoError(
-                    f"Sandbox '{vm_id}' does not use QEMU; run '{disk_command}' "
+                    f"Computer '{vm_id}' does not use QEMU; run '{disk_command}' "
                     "to create a regular disk snapshot.",
                     {
                         "vm_id": vm_id,
@@ -2718,15 +2721,15 @@ class CelestoManager:
                 or capture_policy != SnapshotCapturePolicy.LIVE_ONLY
             ):
                 if original_status != VMState.RUNNING:
-                    start_command = f"celesto sandbox start {vm_id}"
+                    start_command = f"celesto computer start {vm_id}"
                     fact = (
-                        f"Sandbox '{vm_id}' must be running for this disk capture; run "
+                        f"Computer '{vm_id}' must be running for this disk capture; run "
                         f"'{start_command}', then '{live_command}'."
                     )
                     recovery_command = start_command
                 else:
                     fact = (
-                        f"This disk capture for sandbox '{vm_id}' must stay live; run "
+                        f"This disk capture for computer '{vm_id}' must stay live; run "
                         f"'{live_command}'."
                     )
                     recovery_command = live_command
@@ -2742,7 +2745,7 @@ class CelestoManager:
                 )
             if not resume_source:
                 raise CelestoError(
-                    f"This disk capture must leave sandbox '{vm_id}' running; run "
+                    f"This disk capture must leave computer '{vm_id}' running; run "
                     f"'{live_command}'.",
                     {"vm_id": vm_id, "recovery_command": live_command},
                 )
@@ -2754,7 +2757,7 @@ class CelestoManager:
             raise CelestoError("Snapshotting requires a managed isolated disk", {"vm_id": vm_id})
         if qemu_dirty_bitmap_backup is not None and managed_disk_path.suffix != ".qcow2":
             raise CelestoError(
-                f"Sandbox '{vm_id}' does not use a compatible disk file; run "
+                f"Computer '{vm_id}' does not use a compatible disk file; run "
                 f"'{disk_command}' to create a regular disk snapshot.",
                 {
                     "vm_id": vm_id,
@@ -2793,7 +2796,7 @@ class CelestoManager:
                 if manifest_vm_id not in (None, vm_id):
                     raise SnapshotAlreadyExistsError(snapshot_id)
                 raise CelestoError(
-                    f"A previous live snapshot of sandbox '{vm_id}' is still cleaning up; "
+                    f"A previous live snapshot of computer '{vm_id}' is still cleaning up; "
                     f"retry with '{live_command}'.",
                     {
                         "vm_id": vm_id,
@@ -2922,7 +2925,7 @@ class CelestoManager:
                 restored_vm = self.state.get_vm(snapshot.restored_vm_id)
                 if restored_vm.status in (VMState.RUNNING, VMState.PAUSED):
                     raise CelestoError(
-                        "Snapshot is already backing an active restored VM",
+                        "Snapshot is already backing an active restored computer",
                         {
                             "snapshot_id": snapshot_id,
                             "restored_vm_id": snapshot.restored_vm_id,
@@ -2931,7 +2934,7 @@ class CelestoManager:
 
         if existing_vm is not None and existing_vm.config != snapshot.vm_config:
             raise CelestoError(
-                "Snapshot restore requires the original VM identity and config",
+                "Snapshot restore requires the original computer identity and config",
                 {"snapshot_id": snapshot_id, "vm_id": restore_vm_id},
             )
 
@@ -3000,7 +3003,7 @@ class CelestoManager:
             if configured_bridge != restored_bridge:
                 raise CelestoError(
                     f"Snapshot '{snapshot_id}' has inconsistent bridge settings; delete the "
-                    f"snapshot with 'celesto sandbox snapshot delete {snapshot_id}'.",
+                    f"snapshot with 'celesto computer snapshot delete {snapshot_id}'.",
                     {"snapshot_id": snapshot_id, "vm_id": restore_vm_id},
                 )
             resolution = self._resolve_control_channel_for_config(
@@ -3069,7 +3072,7 @@ class CelestoManager:
                 except NetworkError as exc:
                     raise NetworkError(
                         f"Vsock CID {persisted_vm_config.vsock.guest_cid} is already in use; "
-                        f"run 'celesto sandbox delete {restore_vm_id}' "
+                        f"run 'celesto computer delete {restore_vm_id}' "
                         "to remove this restore attempt."
                     ) from exc
             self.state.update_vm(restore_vm_id, network=effective_snapshot.network_config)
@@ -3189,7 +3192,7 @@ class CelestoManager:
                 restored_vm = self.state.get_vm(snapshot.restored_vm_id)
                 if restored_vm.status in (VMState.RUNNING, VMState.PAUSED):
                     raise CelestoError(
-                        "Cannot delete snapshot while restored VM is active",
+                        "Cannot delete snapshot while restored computer is active",
                         {
                             "snapshot_id": snapshot_id,
                             "restored_vm_id": snapshot.restored_vm_id,
@@ -3357,11 +3360,11 @@ class CelestoManager:
 
         vm_info = self.state.get_vm(vm_id)
         if vm_info.network is None:
-            raise CelestoError("VM has no network configuration", {"vm_id": vm_id})
+            raise CelestoError("Computer has no network configuration", {"vm_id": vm_id})
         if vm_info.network.mode == "bridge":
             raise CelestoError(
-                f"The host has no SSH path to bridged sandbox '{vm_id}'; use "
-                f"'celesto sandbox shell {vm_id}', or connect from its bridged network.",
+                f"The host has no SSH path to bridged computer '{vm_id}'; use "
+                f"'celesto computer shell {vm_id}', or connect from its bridged network.",
                 {"vm_id": vm_id, "network_mode": "bridge"},
             )
 
@@ -3486,7 +3489,7 @@ class CelestoManager:
         fc_path = self.host.find_firecracker()
         if fc_path is None:
             raise CelestoError(
-                "Firecracker isn't installed; run 'celesto setup', then start the sandbox again."
+                "Firecracker isn't installed; run 'celesto setup', then start the computer again."
             )
 
         cmd = [str(fc_path), "--api-sock", str(socket_path)]
@@ -3565,9 +3568,9 @@ class CelestoManager:
         """Start a libkrun VM via the in-tree FFI launcher subprocess."""
         if not self._find_libkrun_library():
             raise CelestoError(
-                f"Cannot start sandbox '{vm_info.vm_id}' because libkrun is not ready; "
+                f"Cannot start computer '{vm_info.vm_id}' because libkrun is not ready; "
                 f"run 'celesto doctor --backend libkrun', then run "
-                f"'celesto sandbox start {vm_info.vm_id}'."
+                f"'celesto computer start {vm_info.vm_id}'."
             )
 
         config_path = self._write_libkrun_config(vm_info, self._build_libkrun_config(vm_info))
@@ -4121,8 +4124,8 @@ class CelestoManager:
         in_use = self._running_process_args()
         if in_use is None:
             raise CelestoError(
-                "Cannot check which sandboxes are running right now, so nothing "
-                "was deleted. Retry 'celesto sandbox prune' in a moment."
+                "Cannot check which computers are running right now, so nothing "
+                "was deleted. Retry 'celesto computer prune' in a moment."
             )
 
         leftovers: list[LeftoverArtifact] = []
@@ -4307,7 +4310,7 @@ class CelestoManager:
 
         if effective_config.workspace_mounts and backend not in {BACKEND_QEMU, BACKEND_VZ}:
             raise CelestoError(
-                "Shared folders are only supported with the QEMU backend or macOS sandboxes; "
+                "Shared folders are only supported with the QEMU backend or macOS computers; "
                 "re-run without '--backend' so Celesto can select a compatible runtime.",
                 {"vm_id": effective_config.vm_id, "backend": backend},
             )
@@ -4544,12 +4547,12 @@ class CelestoManager:
 
         if vm_info.status not in (VMState.CREATED, VMState.STOPPED):
             raise CelestoError(
-                f"Cannot start VM in state '{vm_info.status.value}'",
+                f"Cannot start computer in state '{vm_info.status.value}'",
                 {"vm_id": vm_id, "current_status": vm_info.status.value},
             )
 
         if vm_info.network is None and vm_info.config.guest_os is not GuestOS.MACOS:
-            raise CelestoError("VM has no network configuration", {"vm_id": vm_id})
+            raise CelestoError("Computer has no network configuration", {"vm_id": vm_id})
 
         self._check_workspace_mounts(vm_info)
 
@@ -4757,9 +4760,9 @@ class CelestoManager:
         """Async version of :meth:`_start_libkrun`."""
         if not self._find_libkrun_library():
             raise CelestoError(
-                f"Cannot start sandbox '{vm_info.vm_id}' because libkrun is not ready; "
+                f"Cannot start computer '{vm_info.vm_id}' because libkrun is not ready; "
                 f"run 'celesto doctor --backend libkrun', then run "
-                f"'celesto sandbox start {vm_info.vm_id}'."
+                f"'celesto computer start {vm_info.vm_id}'."
             )
 
         config_path = self._write_libkrun_config(vm_info, self._build_libkrun_config(vm_info))

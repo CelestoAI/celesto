@@ -148,7 +148,7 @@ def test_attach_shell_rejects_ssh_channel_without_waiting_for_ssh(
 
     monkeypatch.setattr(Celesto, "_wait_for_ssh_over_network", _fail_ssh)
 
-    with pytest.raises(CelestoError, match="celesto sandbox ssh vm1"):
+    with pytest.raises(CelestoError, match="celesto computer ssh vm1"):
         vm.attach_shell(timeout=5)
 
     assert vm._control_ready is False
@@ -233,8 +233,8 @@ def test_auto_vsock_requires_guest_agent(tmp_path: Path, monkeypatch: pytest.Mon
         vm._wait_for_ready(timeout=30)
 
     assert (
-        "Sandbox 'vm1' did not become ready; run 'celesto sandbox delete vm1' "
-        "and then 'celesto sandbox create --name vm1 --comm-channel ssh'"
+        "Computer 'vm1' did not become ready; run 'celesto computer delete vm1' "
+        "and then 'celesto computer create --name vm1 --comm-channel ssh'"
     ) in str(exc.value)
     assert seen["probe_timeouts"] == [30]
     assert ssh_called == {}

@@ -245,17 +245,17 @@ def test_dirty_bitmap_state_error_preserves_canonical_details_and_recovery() -> 
         "celesto-chain0",
         "missing",
         details={"vm_id": "wrong", "reason": "busy"},
-        recovery_command="celesto sandbox snapshot create vm001 --snapshot-type disk",
+        recovery_command="celesto computer snapshot create vm001 --snapshot-type disk",
     )
 
     assert error.details["vm_id"] == "vm001"
     assert error.details["bitmap_name"] == "celesto-chain0"
     assert error.details["reason"] == "missing"
     assert error.details["recovery_command"] == (
-        "celesto sandbox snapshot create vm001 --snapshot-type disk"
+        "celesto computer snapshot create vm001 --snapshot-type disk"
     )
     assert "celesto-chain0" in str(error)
-    assert "celesto sandbox snapshot create vm001" in str(error)
+    assert "celesto computer snapshot create vm001" in str(error)
 
 
 def test_full_snapshot_copy_preserves_internal_snapshot_on_backed_overlay(
@@ -1116,7 +1116,7 @@ def test_qemu_dirty_bitmap_backup_requires_live_only_capture(
         )
 
     assert exc_info.value.details["recovery_command"] == (
-        "celesto sandbox snapshot create vm001 --snapshot-id snap-bitmap-pausing "
+        "celesto computer snapshot create vm001 --snapshot-id snap-bitmap-pausing "
         "--snapshot-type disk --resume-source --live-only"
     )
 
@@ -1533,7 +1533,7 @@ def test_qemu_live_snapshot_subprocess_timeout_names_fallback_command(
             )
 
     assert exc_info.value.details["recovery_command"] == (
-        "celesto sandbox snapshot create vm001 --snapshot-id snap-prep-timeout "
+        "celesto computer snapshot create vm001 --snapshot-id snap-prep-timeout "
         "--snapshot-type disk --resume-source"
     )
     assert not (qemu_smol_vm.snapshot_dir / "snap-prep-timeout").exists()
@@ -1607,7 +1607,7 @@ def test_qemu_bitmap_reconciliation_preserves_completed_unpublished_capture(
     assert exc_info.value.details["capture_recovery_pending"] is True
     assert exc_info.value.details["artifact_path"] == str(final_path)
     assert exc_info.value.details["recovery_command"] == (
-        "celesto sandbox snapshot delete snap-pending-increment"
+        "celesto computer snapshot delete snap-pending-increment"
     )
     assert "vm001" in str(exc_info.value)
     assert final_path.read_text() == "captured-delta"
@@ -1767,7 +1767,7 @@ def test_qemu_bitmap_recovery_timeout_keeps_pending_artifact(
 
     assert exc_info.value.details["capture_recovery_pending"] is True
     assert "vm001" in str(exc_info.value)
-    assert "celesto sandbox snapshot create vm001" in exc_info.value.details["recovery_command"]
+    assert "celesto computer snapshot create vm001" in exc_info.value.details["recovery_command"]
     assert partial_path.read_text() == "completed-delta"
     assert manifest_path.exists()
 

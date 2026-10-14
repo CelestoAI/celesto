@@ -1167,7 +1167,7 @@ class TestBridgeUnsupportedOperations:
         from celesto.exceptions import CelestoError
 
         vm = self._facade(tmp_path)
-        with pytest.raises(CelestoError, match="sandbox shell"):
+        with pytest.raises(CelestoError, match="computer shell"):
             vm._ssh_endpoints()
 
     def test_port_exposure_rejects_bridge_before_host_mutation(self, tmp_path: Path) -> None:

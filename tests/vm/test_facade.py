@@ -337,9 +337,9 @@ class TestVMInit:
             )
 
         message = str(exc_info.value)
-        assert "Ubuntu needs at least 4096 MiB for sandbox 'project spacex; rm -rf'" in message
+        assert "Ubuntu needs at least 4096 MiB for computer 'project spacex; rm -rf'" in message
         assert (
-            "celesto sandbox create --name 'project spacex; rm -rf' --os ubuntu "
+            "celesto computer create --name 'project spacex; rm -rf' --os ubuntu "
             "--backend qemu --disk-size 4096" in message
         )
 
@@ -475,7 +475,7 @@ class TestVMInit:
         ):
             _build_auto_config(vm_name="sbx-einstein", backend="firecracker")
 
-        assert "celesto sandbox create --name sbx-einstein --backend qemu" in str(excinfo.value)
+        assert "celesto computer create --name sbx-einstein --backend qemu" in str(excinfo.value)
 
     def test_firmware_boot_vmconfig_rejects_non_qemu_backend(
         self,
@@ -755,7 +755,7 @@ class TestSnapshot:
         with pytest.raises(
             CelestoError,
             match=(
-                r"celesto sandbox snapshot create vm001 --snapshot-type disk "
+                r"celesto computer snapshot create vm001 --snapshot-type disk "
                 r"--resume-source --live-only"
             ),
         ):
@@ -816,7 +816,7 @@ class TestSnapshot:
 
         with pytest.raises(
             CelestoError,
-            match=r"celesto sandbox snapshot create vm001 --snapshot-type disk",
+            match=r"celesto computer snapshot create vm001 --snapshot-type disk",
         ):
             vm._sync_guest_for_disk_snapshot()
 
@@ -1024,7 +1024,7 @@ class TestFromBootImage:
             backend="qemu",
         )
 
-        with pytest.raises(ValueError, match="celesto sandbox create --name vm-mismatch --help"):
+        with pytest.raises(ValueError, match="celesto computer create --name vm-mismatch --help"):
             Celesto.from_image(image, vm_id="vm-mismatch", backend="firecracker")
 
     @patch("celesto.facade.CelestoManager")
@@ -1112,7 +1112,7 @@ class TestFromBootImage:
             backend="qemu",
         )
 
-        with pytest.raises(ValueError, match="celesto sandbox port expose vm-tap-ports --help"):
+        with pytest.raises(ValueError, match="celesto computer port expose vm-tap-ports --help"):
             Celesto.from_image(
                 image,
                 vm_id="vm-tap-ports",
@@ -1134,7 +1134,7 @@ class TestFromBootImage:
             backend="qemu",
         )
 
-        with pytest.raises(ValueError, match="celesto sandbox port expose vm-bad-port --help"):
+        with pytest.raises(ValueError, match="celesto computer port expose vm-bad-port --help"):
             Celesto.from_image(
                 image,
                 vm_id="vm-bad-port",
@@ -2439,7 +2439,7 @@ class TestVMRun:
         mock_sdk_cls.return_value = mock_sdk
 
         vm = Celesto(sample_config)
-        with pytest.raises(CelestoError, match="Start sandbox 'vm001'"):
+        with pytest.raises(CelestoError, match="Start computer 'vm001'"):
             vm.run("echo test")
 
 
@@ -2784,7 +2784,7 @@ class TestVMQemuLocalExpose:
         mock_sdk_cls.return_value.network.setup_local_port_forward.assert_not_called()
 
 
-@pytest.mark.skip(reason="Fails in macOS secure sandboxes due to bind restrictions")
+@pytest.mark.skip(reason="Fails in macOS secure computers due to bind restrictions")
 class TestVMLocalExpose:
     """Tests for localhost-only port exposure."""
 
@@ -2875,7 +2875,7 @@ class TestVMLocalExpose:
         mock_sdk_cls.return_value = mock_sdk
 
         vm = Celesto(sample_config)
-        with pytest.raises(CelestoError, match="VM is not running"):
+        with pytest.raises(CelestoError, match="Computer is not running"):
             vm.expose_local(guest_port=8080, host_port=18080)
 
     @patch("celesto.facade.CelestoManager")
@@ -3975,7 +3975,7 @@ def test_from_image_qemu_policy_errors_name_recovery(
                 internet_settings=policy,
                 port_forwards=forwards,
             )
-        assert f"celesto sandbox create --name {explicit_name or 'sbx-generated'} --help" in str(
+        assert f"celesto computer create --name {explicit_name or 'sbx-generated'} --help" in str(
             error.value
         )
         prepare.assert_not_called()

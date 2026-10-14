@@ -92,7 +92,7 @@ if [ "$needs_node" = "1" ]; then
     if command -v apk >/dev/null 2>&1; then
         echo "This Alpine image does not provide a compatible Node.js version:" \
             "{requirement_message}. Run '$CELESTO_NODE_RECOVERY_COMMAND'" \
-            "to create an Ubuntu sandbox." >&2
+            "to create an Ubuntu computer." >&2
         exit 1
     else
         curl -fsSL https://deb.nodesource.com/setup_{major}.x | bash -

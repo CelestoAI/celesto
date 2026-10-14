@@ -90,7 +90,7 @@ CODEX_HOST_CONFIGS: tuple[HostConfigCopy, ...] = (
 
 CODEX_PRESET = Preset(
     name="codex",
-    summary="Start a sandbox with OpenAI's codex CLI preinstalled.",
+    summary="Start a computer with OpenAI's codex CLI preinstalled.",
     setup_script=NODE20_BOOTSTRAP,
     install_script=npm_install_global("@openai/codex"),
     host_env_vars=("OPENAI_API_KEY",),

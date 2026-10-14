@@ -379,7 +379,7 @@ class TestLeftoverSweep:
 
         with (
             patch.object(CelestoManager, "_running_process_args", return_value=None),
-            pytest.raises(CelestoError, match="Cannot check which sandboxes are running"),
+            pytest.raises(CelestoError, match="Cannot check which computers are running"),
         ):
             manager.prune_leftover_artifacts()
 

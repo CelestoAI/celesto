@@ -40,7 +40,7 @@ def test_setup_macos_installs_pinned_runtime(tmp_path) -> None:  # type: ignore[
         result = CliRunner().invoke(build_cli(), ["setup", "--macos"])
 
     assert result.exit_code == 0
-    assert "Installed macOS sandbox runtime" in result.output
+    assert "Installed macOS desktop runtime" in result.output
     install.assert_called_once()
 
 

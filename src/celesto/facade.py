@@ -165,7 +165,7 @@ _WINDOWS_IMAGE_REQUIRED_MESSAGE = (
 def _vsock_not_supported_message(vm_id: str, error: VsockNotSupportedError) -> str:
     """Format a user-facing explicit-vsock failure at the VM boundary."""
     return (
-        f"Cannot use vsock for sandbox '{vm_id}': {error.reason}; "
+        f"Cannot use vsock for computer '{vm_id}': {error.reason}; "
         "create or reconnect with comm_channel='ssh'."
     )
 
@@ -598,8 +598,8 @@ def _build_auto_config(
         ensure_backend_available(resolved_backend, backend_status, vm_name=vm_name)
         if disk_size_mib is not None:
             raise ValueError(
-                "Custom disk sizes are not available for macOS sandboxes in this release; "
-                "remove '--disk-size' and create the sandbox again."
+                "Custom disk sizes are not available for macOS computers in this release; "
+                "remove '--disk-size' and create the computer again."
             )
         from celesto.macos.images import MacOSImageManager
         from celesto.vm import resolve_data_dir
@@ -611,7 +611,7 @@ def _build_auto_config(
         if memory is not None and memory != manifest.memory_mib:
             raise ValueError(
                 f"This macOS image uses {manifest.memory_mib} MiB of memory; remove the custom "
-                "memory setting and create the sandbox again."
+                "memory setting and create the computer again."
             )
         machine = image_manager.machine_config(
             resolved_vm_name,
@@ -673,9 +673,9 @@ def _build_auto_config(
         elif resolved_disk_size_mib < required_disk_size_mib:
             quoted_vm_name = shlex.quote(resolved_vm_name)
             raise ValueError(
-                f"Ubuntu needs at least {required_disk_size_mib} MiB for sandbox "
+                f"Ubuntu needs at least {required_disk_size_mib} MiB for computer "
                 f"'{resolved_vm_name}'; "
-                f"recreate it with: celesto sandbox create --name {quoted_vm_name} --os ubuntu "
+                f"recreate it with: celesto computer create --name {quoted_vm_name} --os ubuntu "
                 f"--backend {resolved_backend} --disk-size {required_disk_size_mib}."
             )
         should_grow_filesystem = (
@@ -765,12 +765,12 @@ def _build_auto_config(
 
 def _from_image_config_help(vm_id: str) -> str:
     """Return the recovery command shown by from_image validation errors."""
-    return f"celesto sandbox create --name {vm_id} --help"
+    return f"celesto computer create --name {vm_id} --help"
 
 
 def _from_image_port_help(vm_id: str) -> str:
     """Return the recovery command shown by port-forward validation errors."""
-    return f"celesto sandbox port expose {vm_id} --help"
+    return f"celesto computer port expose {vm_id} --help"
 
 
 def _normalize_from_image_arch(image: BootImage, arch: str | None, vm_id: str) -> str:
@@ -781,7 +781,7 @@ def _normalize_from_image_arch(image: BootImage, arch: str | None, vm_id: str) -
             requested_arch = to_published_arch(requested_arch)
     except ValueError as exc:
         raise ValueError(
-            f"Unsupported image architecture for sandbox '{vm_id}'; to fix, run "
+            f"Unsupported image architecture for computer '{vm_id}'; to fix, run "
             f"`{_from_image_config_help(vm_id)}`."
         ) from exc
     if image.arch is not None and arch not in {None, "host"} and image.arch != requested_arch:
@@ -801,7 +801,7 @@ def _normalize_from_image_backend(image: BootImage, backend: str | None, vm_id: 
         resolved_backend = resolve_backend(backend or image.backend)
     except ValueError as exc:
         raise ValueError(
-            f"Unsupported backend for sandbox '{vm_id}'; to fix, run "
+            f"Unsupported backend for computer '{vm_id}'; to fix, run "
             f"`{_from_image_config_help(vm_id)}`."
         ) from exc
     if image.backend is not None and backend is not None and image.backend != resolved_backend:
@@ -864,7 +864,7 @@ def _normalize_port_forwards(
                 normalized.append(PortForwardConfig(**forward))
             except PydanticValidationError as exc:
                 raise ValueError(
-                    f"Invalid port-forward entry for sandbox '{vm_id}'; to fix, run "
+                    f"Invalid port-forward entry for computer '{vm_id}'; to fix, run "
                     f"`{_from_image_port_help(vm_id)}`."
                 ) from exc
     return normalized
@@ -1104,7 +1104,7 @@ class Celesto:
         if vm_id is not None and state_manager is None:
             raise ValueError(
                 "Reconnecting by ID requires an explicit inventory; keep the original "
-                "Celesto object, or use the Celesto CLI for persistent sandboxes."
+                "Celesto object, or use the Celesto CLI for persistent computers."
             )
 
         # Phase 1 Windows guest scope locks. Each is intentionally narrow
@@ -1186,7 +1186,7 @@ class Celesto:
         # Normalize and merge mounts into the config
         if mounts is not None:
             if vm_id is not None:
-                raise ValueError("mounts cannot be set when reconnecting to an existing VM.")
+                raise ValueError("mounts cannot be set when reconnecting to an existing computer.")
             workspace_mounts = _parse_mount_specs(mounts, writable=writable_mounts)
             if config is not None:
                 if config.workspace_mounts:
@@ -1720,7 +1720,7 @@ class Celesto:
 
         if requested_backend is not None and restored_backend != requested_backend:
             raise CelestoError(
-                "Requested backend does not match the restored VM backend",
+                "Requested backend does not match the restored computer backend",
                 {
                     "snapshot_id": snapshot_id,
                     "requested_backend": requested_backend,
@@ -1787,7 +1787,7 @@ class Celesto:
         if env_vars:
             if not self.can_run_commands():
                 raise CelestoError(
-                    "Cannot inject environment variables: VM image does not "
+                    "Cannot inject environment variables: the computer image does not "
                     "support guest commands. Use a command-capable image, or "
                     "bake env vars into the rootfs at build time.",
                     {"vm_id": self._vm_id},
@@ -1811,7 +1811,7 @@ class Celesto:
         if workspace_mounts and self._info.config.guest_os is not GuestOS.MACOS:
             if not self.can_run_commands():
                 raise CelestoError(
-                    "Cannot mount workspaces: VM image does not support SSH.",
+                    "Cannot mount workspaces: the computer image does not support SSH.",
                     {"vm_id": self._vm_id},
                 )
             if not self._ssh_ready:
@@ -1927,18 +1927,19 @@ class Celesto:
             raise ValueError("max_bytes_per_second must be greater than zero when set")
         if resolved_capture_policy == SnapshotCapturePolicy.LIVE_ONLY:
             live_command = (
-                f"celesto sandbox snapshot create {self._vm_id} --snapshot-type disk "
+                f"celesto computer snapshot create {self._vm_id} --snapshot-type disk "
                 "--resume-source --live-only"
             )
             if resolved_snapshot_type != SnapshotType.DISK:
                 raise CelestoError(
-                    f"Live snapshots of sandbox '{self._vm_id}' save disk state only; "
+                    f"Live snapshots of computer '{self._vm_id}' save disk state only; "
                     f"run '{live_command}'.",
                     {"vm_id": self._vm_id},
                 )
             if not resume_source:
                 raise CelestoError(
-                    f"A live snapshot keeps sandbox '{self._vm_id}' running; run '{live_command}'.",
+                    f"A live snapshot keeps computer '{self._vm_id}' running; run "
+                    f"'{live_command}'.",
                     {"vm_id": self._vm_id},
                 )
         if (
@@ -1982,8 +1983,8 @@ class Celesto:
             raise
         except Exception as exc:
             raise CelestoError(
-                f"Cannot create disk snapshot for sandbox '{self._vm_id}' because syncing "
-                f"files inside it failed; retry with 'celesto sandbox snapshot create "
+                f"Cannot create disk snapshot for computer '{self._vm_id}' because syncing "
+                f"files inside it failed; retry with 'celesto computer snapshot create "
                 f"{self._vm_id} --snapshot-type disk'."
             ) from exc
 
@@ -2009,8 +2010,8 @@ class Celesto:
 
         if self._info.status != VMState.RUNNING:
             raise CelestoError(
-                f"Start sandbox '{self._vm_id}' before running commands by running "
-                f"'celesto sandbox start {self._vm_id}' "
+                f"Start computer '{self._vm_id}' before running commands by running "
+                f"'celesto computer start {self._vm_id}' "
                 f"(current state: {self._info.status.value}).",
                 {"vm_id": self._vm_id},
             )
@@ -2019,15 +2020,15 @@ class Celesto:
             raise CommandExecutionUnavailableError(
                 vm_id=self._vm_id,
                 reason=(
-                    "VM config does not advertise an SSH-capable boot path, "
+                    "Computer config does not advertise an SSH-capable boot path, "
                     "so guest SSH is not guaranteed to start."
                 ),
                 remediation=self._command_exec_remediation(),
             )
         if resolution.kind == "ssh" and self._info.network is None:
             raise CelestoError(
-                f"Cannot run command in sandbox '{self._vm_id}' over SSH because it has "
-                f"no network; remove it with 'celesto sandbox delete {self._vm_id}' "
+                f"Cannot run command in computer '{self._vm_id}' over SSH because it has "
+                f"no network; remove it with 'celesto computer delete {self._vm_id}' "
                 "and create it again.",
                 {"vm_id": self._vm_id},
             )
@@ -2267,11 +2268,11 @@ class Celesto:
                 f"Not a file: {source}. Pass a path to a single file, not a directory."
             )
         if not guest_path:
-            raise ValueError("Destination path in the sandbox cannot be empty.")
+            raise ValueError("Destination path in the computer cannot be empty.")
         is_windows_path = _is_windows_guest_path(guest_path)
         if not guest_path.startswith("/") and not is_windows_path:
             raise ValueError(
-                f"Destination path in the sandbox must be absolute "
+                f"Destination path in the computer must be absolute "
                 f"(start with '/', or a Windows drive-letter path like "
                 f"'C:\\\\Users\\\\foo'): {guest_path!r}."
             )
@@ -2303,7 +2304,7 @@ class Celesto:
                     if result.exit_code != 0:
                         stderr = result.stderr.strip()
                         raise CelestoError(
-                            f"Could not create directory {parent!r} in the sandbox: {stderr}",
+                            f"Could not create directory {parent!r} in the computer: {stderr}",
                             {"vm_id": self._vm_id, "guest_path": destination},
                         )
             else:
@@ -2317,7 +2318,7 @@ class Celesto:
                     if result.exit_code != 0:
                         stderr = result.stderr.strip()
                         raise CelestoError(
-                            f"Could not create directory {parent!r} in the sandbox: {stderr}",
+                            f"Could not create directory {parent!r} in the computer: {stderr}",
                             {"vm_id": self._vm_id, "guest_path": destination},
                         )
         channel.put_file(source, destination)
@@ -2355,12 +2356,12 @@ class Celesto:
                 file transfer fails.
         """
         if not guest_path:
-            raise ValueError("Source path in the sandbox cannot be empty.")
+            raise ValueError("Source path in the computer cannot be empty.")
         if max_bytes is not None and max_bytes < 1:
             raise ValueError("max_bytes must be a positive integer.")
         if not guest_path.startswith("/") and not _is_windows_guest_path(guest_path):
             raise ValueError(
-                f"Source path in the sandbox must be absolute "
+                f"Source path in the computer must be absolute "
                 f"(start with '/', or a Windows drive-letter path like "
                 f"'C:\\\\Users\\\\foo'): {guest_path!r}."
             )
@@ -2372,7 +2373,9 @@ class Celesto:
             # Strip trailing separator (either kind) then take the basename.
             guest_name = guest_path.rstrip("/\\").rsplit("\\", 1)[-1].rsplit("/", 1)[-1]
             if not guest_name:
-                raise ValueError(f"Cannot derive a filename from the sandbox path: {guest_path!r}.")
+                raise ValueError(
+                    f"Cannot derive a filename from the computer path: {guest_path!r}."
+                )
             destination = destination / guest_name
 
         parent = destination.parent
@@ -2418,21 +2421,21 @@ class Celesto:
 
         if self._info.status != VMState.RUNNING:
             raise CelestoError(
-                f"Start sandbox '{self._vm_id}' before waiting for it by running "
-                f"'celesto sandbox start {self._vm_id}' "
+                f"Start computer '{self._vm_id}' before waiting for it by running "
+                f"'celesto computer start {self._vm_id}' "
                 f"(current state: {self._info.status.value}).",
                 {"vm_id": self._vm_id},
             )
         if self._resolve_channel().kind == "ssh" and self._info.network is None:
             raise CelestoError(
-                f"Cannot wait for sandbox '{self._vm_id}' over SSH because it has no network; "
-                f"remove it with 'celesto sandbox delete {self._vm_id}' and create it again.",
+                f"Cannot wait for computer '{self._vm_id}' over SSH because it has no network; "
+                f"remove it with 'celesto computer delete {self._vm_id}' and create it again.",
                 {"vm_id": self._vm_id},
             )
 
         self._ensure_control_cache_attrs()
         if on_progress is not None and not self._control_ready:
-            on_progress("Waiting for sandbox...")
+            on_progress("Waiting for computer...")
         self._wait_for_ready(timeout=timeout)
         return self
 
@@ -2451,13 +2454,13 @@ class Celesto:
 
         if self._info.status != VMState.RUNNING:
             raise CelestoError(
-                "VM is not running. Start the VM using vm.start() before "
+                "Computer is not running. Start the computer using vm.start() before "
                 f"waiting for SSH (current state: {self._info.status.value})",
                 {"vm_id": self._vm_id},
             )
         if self._info.network is None:
             raise CelestoError(
-                "Cannot wait for SSH: VM has no network configuration",
+                "Cannot wait for SSH: the computer has no network configuration",
                 {"vm_id": self._vm_id},
             )
 
@@ -2531,8 +2534,8 @@ class Celesto:
         self._refresh_info()
         if self._resolve_channel().kind != "vsock":
             raise CelestoError(
-                f"Sandbox '{self._vm_id}' cannot use 'celesto sandbox shell'; "
-                f"run 'celesto sandbox ssh {self._vm_id}' to open an SSH shell.",
+                f"Computer '{self._vm_id}' cannot use 'celesto computer shell'; "
+                f"run 'celesto computer ssh {self._vm_id}' to open an SSH shell.",
                 {"vm_id": self._vm_id},
             )
 
@@ -2547,8 +2550,8 @@ class Celesto:
         attach_terminal = getattr(channel, "attach_terminal", None)
         if not callable(attach_terminal):
             raise CelestoError(
-                f"Sandbox '{self._vm_id}' does not support fast shell access; "
-                f"run 'celesto sandbox ssh {self._vm_id}' to use SSH.",
+                f"Computer '{self._vm_id}' does not support fast shell access; "
+                f"run 'celesto computer ssh {self._vm_id}' to use SSH.",
                 {"vm_id": self._vm_id},
             )
         return channel
@@ -2600,7 +2603,7 @@ class Celesto:
 
         if self._info.network is None:
             raise CelestoError(
-                "Cannot build SSH command: VM has no network configuration",
+                "Cannot build SSH command: the computer has no network configuration",
                 {"vm_id": self._vm_id},
             )
         self._sdk.ensure_network_connectivity(self._info)
@@ -2675,25 +2678,25 @@ class Celesto:
             and self._info.config.backend != BACKEND_QEMU
         ):
             raise CelestoError(
-                f"Sandbox '{self._vm_id}' does not support exposed ports with this network mode; "
-                "create a separate sandbox with mode='open' if you need exposed ports."
+                f"Computer '{self._vm_id}' does not support exposed ports with this network mode; "
+                "create a separate computer with mode='open' if you need exposed ports."
             )
 
         if self._info.status != VMState.RUNNING:
             raise CelestoError(
-                f"Cannot expose port: VM is {self._info.status.value}",
+                f"Cannot expose port: the computer is {self._info.status.value}",
                 {"vm_id": self._vm_id},
             )
         if self._info.network is None:
             raise CelestoError(
-                "Cannot expose port: VM has no network configuration",
+                "Cannot expose port: the computer has no network configuration",
                 {"vm_id": self._vm_id},
             )
         if self._info.network.mode == "bridge":
             raise CelestoError(
-                f"Bridged sandbox '{self._vm_id}' is already connected directly to its "
-                f"network; run 'celesto sandbox delete {self._vm_id}', then "
-                f"'celesto sandbox create --name {self._vm_id} --network nat' to use port "
+                f"Bridged computer '{self._vm_id}' is already connected directly to its "
+                f"network; run 'celesto computer delete {self._vm_id}', then "
+                f"'celesto computer create --name {self._vm_id} --network nat' to use port "
                 "exposure.",
                 {"vm_id": self._vm_id, "network_mode": "bridge"},
             )
@@ -2734,7 +2737,7 @@ class Celesto:
                 return existing.host_port
 
             if any(forward.host_port == candidate for forward in self._local_forwards.values()):
-                attempts.append(f"localhost:{candidate} already exposed by this VM instance")
+                attempts.append(f"localhost:{candidate} already exposed by this computer")
                 continue
 
             nftables_configured = False
@@ -2897,7 +2900,7 @@ class Celesto:
 
         if self._info.network is None:
             raise CelestoError(
-                "Cannot remove local port forward: VM has no network configuration",
+                "Cannot remove local port forward: the computer has no network configuration",
                 {"vm_id": self._vm_id},
             )
 
@@ -2944,15 +2947,15 @@ class Celesto:
         self._refresh_info()
         if self._info.status is not VMState.RUNNING:
             raise CelestoError(
-                f"Sandbox '{self._vm_id}' is {self._info.status.value}; run "
-                f"'celesto sandbox start {self._vm_id}', then "
-                f"'celesto sandbox desktop {self._vm_id}'."
+                f"Computer '{self._vm_id}' is {self._info.status.value}; run "
+                f"'celesto computer start {self._vm_id}', then "
+                f"'celesto computer desktop {self._vm_id}'."
             )
         endpoint = self._info.display
         if endpoint is None:
             raise CelestoError(
-                f"Sandbox '{self._vm_id}' has no desktop; run "
-                f"'celesto sandbox shell {self._vm_id}' to use its terminal."
+                f"Computer '{self._vm_id}' has no desktop; run "
+                f"'celesto computer shell {self._vm_id}' to use its terminal."
             )
 
         password: str | None = None
@@ -2963,8 +2966,8 @@ class Celesto:
                 password = password_path.read_text(encoding="utf-8").strip() or None
             except OSError as exc:
                 raise CelestoError(
-                    f"Sandbox '{self._vm_id}' desktop could not open; run "
-                    f"'celesto sandbox desktop {self._vm_id}' to retry."
+                    f"Computer '{self._vm_id}' desktop could not open; run "
+                    f"'celesto computer desktop {self._vm_id}' to retry."
                 ) from exc
 
         from celesto.macos.desktop import open_desktop
@@ -2982,13 +2985,13 @@ class Celesto:
         self._refresh_info()
         if self._info.network is None:
             raise CelestoError(
-                "VM has no network configuration",
+                "Computer has no network configuration",
                 {"vm_id": self._vm_id},
             )
         if self._info.network.mode == "bridge":
             raise CelestoError(
-                f"Bridged sandbox '{self._vm_id}' has a guest-managed address; "
-                f"use 'celesto sandbox shell {self._vm_id}', or connect to its "
+                f"Bridged computer '{self._vm_id}' has a guest-managed address; "
+                f"use 'celesto computer shell {self._vm_id}', or connect to its "
                 f"address from the bridged network.",
                 {"vm_id": self._vm_id, "network_mode": "bridge"},
             )
@@ -3074,7 +3077,7 @@ class Celesto:
         if env_vars:
             if not self.can_run_commands():
                 raise CelestoError(
-                    "Cannot inject environment variables: VM image does not "
+                    "Cannot inject environment variables: the computer image does not "
                     "support guest commands.",
                     {"vm_id": self._vm_id},
                 )
@@ -3091,7 +3094,7 @@ class Celesto:
         if self._info.config.guest_os is not GuestOS.MACOS and self._info.config.workspace_mounts:
             if not self.can_run_commands():
                 raise CelestoError(
-                    "Cannot mount workspaces: VM image does not support SSH.",
+                    "Cannot mount workspaces: the computer image does not support SSH.",
                     {"vm_id": self._vm_id},
                 )
             if not self._ssh_ready:
@@ -3130,13 +3133,13 @@ class Celesto:
 
         if self._info.status != VMState.RUNNING:
             raise CelestoError(
-                f"Cannot run command: VM is {self._info.status.value}",
+                f"Cannot run command: the computer is {self._info.status.value}",
                 {"vm_id": self._vm_id},
             )
         if not self.can_run_commands():
             raise CommandExecutionUnavailableError(
                 vm_id=self._vm_id,
-                reason="VM config does not advertise a command-capable boot path.",
+                reason="Computer config does not advertise a command-capable boot path.",
                 remediation=self._command_exec_remediation(),
             )
 
@@ -3479,10 +3482,10 @@ modprobe 9pnet_virtio""".strip()
 
     def _managed_env_required_error(self) -> CelestoError:
         """Return the user-facing error for vsock env without managed support."""
-        recovery_command = f"celesto sandbox create --name {self._vm_id} --comm-channel ssh"
+        recovery_command = f"celesto computer create --name {self._vm_id} --comm-channel ssh"
         return CelestoError(
-            f"Managed environment variables are not available for sandbox "
-            f"'{self._vm_id}' over vsock; run 'celesto sandbox delete {self._vm_id}' "
+            f"Managed environment variables are not available for computer "
+            f"'{self._vm_id}' over vsock; run 'celesto computer delete {self._vm_id}' "
             f"and then '{recovery_command}' to use SSH.",
             {
                 "vm_id": self._vm_id,
@@ -3528,9 +3531,9 @@ modprobe 9pnet_virtio""".strip()
 
         if self._info.status != VMState.RUNNING:
             raise CelestoError(
-                f"{prefix} in sandbox '{self._vm_id}' because it is "
+                f"{prefix} in computer '{self._vm_id}' because it is "
                 f"{self._info.status.value}; start it with "
-                f"'celesto sandbox start {self._vm_id}'.",
+                f"'celesto computer start {self._vm_id}'.",
                 {"vm_id": self._vm_id},
             )
         self._ensure_control_cache_attrs()
@@ -3541,13 +3544,13 @@ modprobe 9pnet_virtio""".strip()
         if not self.can_run_commands():
             raise CommandExecutionUnavailableError(
                 vm_id=self._vm_id,
-                reason="VM config does not advertise a command-capable boot path.",
+                reason="Computer config does not advertise a command-capable boot path.",
                 remediation=self._command_exec_remediation(),
             )
         if resolution.kind == "ssh" and self._info.network is None:
             raise CelestoError(
-                f"{prefix} in sandbox '{self._vm_id}' over SSH because it has no network; "
-                f"remove it with 'celesto sandbox delete {self._vm_id}' and create it again.",
+                f"{prefix} in computer '{self._vm_id}' over SSH because it has no network; "
+                f"remove it with 'celesto computer delete {self._vm_id}' and create it again.",
                 {"vm_id": self._vm_id},
             )
 
@@ -3575,21 +3578,21 @@ modprobe 9pnet_virtio""".strip()
 
         if self._info.status != VMState.RUNNING:
             raise CelestoError(
-                f"{prefix}: VM is {self._info.status.value}",
+                f"{prefix}: the computer is {self._info.status.value}",
                 {"vm_id": self._vm_id},
             )
         if not self.can_run_commands():
             raise CommandExecutionUnavailableError(
                 vm_id=self._vm_id,
                 reason=(
-                    "VM config does not advertise an SSH-capable boot path, "
+                    "Computer config does not advertise an SSH-capable boot path, "
                     "so guest SSH is not guaranteed to start."
                 ),
                 remediation=self._command_exec_remediation(),
             )
         if self._info.network is None:
             raise CelestoError(
-                f"{prefix}: VM has no network configuration",
+                f"{prefix}: the computer has no network configuration",
                 {"vm_id": self._vm_id},
             )
 
@@ -3651,13 +3654,13 @@ modprobe 9pnet_virtio""".strip()
         """Return SSH endpoint candidates in preferred order."""
         if self._info.network is None:
             raise CelestoError(
-                "VM has no network configuration",
+                "Computer has no network configuration",
                 {"vm_id": self._vm_id},
             )
         if self._info.network.mode == "bridge":
             raise CelestoError(
-                f"The host has no SSH path to bridged sandbox '{self._vm_id}'; use "
-                f"'celesto sandbox shell {self._vm_id}', or connect from its bridged network.",
+                f"The host has no SSH path to bridged computer '{self._vm_id}'; use "
+                f"'celesto computer shell {self._vm_id}', or connect from its bridged network.",
                 {"vm_id": self._vm_id, "network_mode": "bridge"},
             )
 
@@ -3831,9 +3834,9 @@ modprobe 9pnet_virtio""".strip()
             if self._try_vsock_ready(timeout):
                 return
             raise OperationTimeoutError(
-                f"Sandbox '{self._vm_id}' did not become ready; run "
-                f"'celesto sandbox delete {self._vm_id}' and then "
-                f"'celesto sandbox create --name {self._vm_id} --comm-channel ssh' "
+                f"Computer '{self._vm_id}' did not become ready; run "
+                f"'celesto computer delete {self._vm_id}' and then "
+                f"'celesto computer create --name {self._vm_id} --comm-channel ssh' "
                 "to use the compatible startup path",
                 timeout,
             )
@@ -3953,7 +3956,7 @@ modprobe 9pnet_virtio""".strip()
         control_socket_path = getattr(self._info, "control_socket_path", None)
         if control_socket_path is None:
             raise CelestoError(
-                "Cannot update QEMU hostfwd: VM has no QMP control socket",
+                "Cannot update QEMU hostfwd: the computer has no QMP control socket",
                 {"vm_id": self._vm_id},
             )
 
@@ -4017,7 +4020,7 @@ modprobe 9pnet_virtio""".strip()
         """Start an SSH localhost tunnel from host_port to guest_port."""
         if self._info.network is None:
             raise CelestoError(
-                "Cannot create SSH tunnel: VM has no network configuration",
+                "Cannot create SSH tunnel: the computer has no network configuration",
                 {"vm_id": self._vm_id},
             )
 
