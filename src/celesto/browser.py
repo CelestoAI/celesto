@@ -941,6 +941,7 @@ class _DesktopSandbox(_BrowserSandbox):
     def connect_playwright(self) -> Any:
         """Desktop sandboxes do not expose Playwright automation."""
         raise CelestoError(
-            "Desktop computers do not support Playwright or browser automation; "
-            "use Celesto.browser() when you need a browser connection address."
+            "Desktops created with Celesto.desktop() do not support Playwright or browser "
+            "automation; use Celesto.computer() for a desktop with Chromium, or "
+            "Celesto.browser() for a browser session."
         )
