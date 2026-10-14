@@ -27,8 +27,8 @@ reattachment remain cloud-only. Local folder sharing is not a cloud upload.
 
 `Computer.get(id)` reconnects locally; `CloudComputer.get(id)` reconnects in the
 cloud. Reconnection does not create a replacement computer or take ownership of
-automatic deletion. Local lookup accepts desktop IDs from `celesto computer list`
-and existing VM IDs. Browser-only session IDs are rejected.
+automatic deletion. Local lookup accepts computer names from `celesto computer list`
+and desktop IDs from `celesto computer list --desktop`. Browser session IDs are rejected.
 
 `start()` explicitly provisions a new handle; construction alone does not.
 `close()` releases connections without deleting the computer. Use `delete()` to
@@ -47,7 +47,7 @@ Create a minimal local computer without a cloud account:
 
 ```console
 celesto computer create --name demo
-# Created VM 'demo'.
+# Created computer 'demo'.
 ```
 
 Use its name to open a shell or run a single command:
@@ -69,7 +69,7 @@ Exiting the shell keeps the computer and its files. Remove it when finished:
 celesto computer delete demo
 ```
 
-For a visible Linux desktop, request it explicitly. The create output includes
+For a computer with a desktop, request it explicitly. The create output includes
 the desktop ID used by the next commands:
 
 ```console

@@ -1,18 +1,18 @@
-# Linux computers
+# Run a computer with a desktop
 
-A Linux computer gives an agent a complete visible desktop with Chromium, a terminal, a file manager, and a text editor. Use it when the work spans more than one desktop application or when a person needs to watch and take control.
+A computer with a desktop gives an agent a visible Linux screen with Chromium, a terminal, a file manager, and a text editor. Use it when the work spans more than one desktop application or when a person needs to watch and take control.
 
 ## Choose the right resource
 
-Use the smallest resource that fits the job:
+Use the smallest option that fits the job:
 
 | Need | Use |
 | --- | --- |
-| Run commands or code | A [sandbox](sandboxes.md) |
-| Automate websites through Chromium | A [browser sandbox](browser.md) |
-| Work across a visible desktop and its applications | A Linux computer |
+| Run commands or code | A [minimal computer](sandboxes.md) |
+| Automate websites through Chromium | A [browser session](browser.md) |
+| Work across a visible desktop and its applications | A computer with a desktop |
 
-A computer includes a browser, but a browser sandbox is still the simpler choice for web-only work.
+A computer with a desktop includes Chromium, but a browser session is the simpler choice for web-only work.
 
 Celesto downloads the Linux desktop image on first use and verifies its checksum. Later starts reuse
 the cached image, so applications do not need Docker to create a computer.
@@ -31,7 +31,7 @@ The command prints the computer's viewer URL. Open it later by name:
 celesto computer open assistant
 ```
 
-List available templates and active computers:
+List available templates and your computers with a desktop:
 
 ```bash
 celesto computer templates

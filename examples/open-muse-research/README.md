@@ -56,15 +56,15 @@ Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Prepare the built-in plan, 
 - `sources.json` records each source URL, retrieval time, title, and content hash.
 - `OpenMuse-Research-packet.zip` contains all four files.
 
-OpenMuse Research keeps verified files in server memory after it deletes the VM. Stopping the Node server removes those in-memory results.
+OpenMuse Research keeps verified files in server memory after it deletes the computer. Stopping the Node server removes those in-memory results.
 
 ## Safety boundaries
 
-The Pi agent harness receives only four purpose-built tools: fetch a public page, record a finding, calculate a budget, and write an approved artifact. It never receives a shell tool. Each operation validates its input on the host and runs a fixed script inside the VM with an argument array.
+The Pi agent harness receives only four purpose-built tools: fetch a public page, record a finding, calculate a budget, and write an approved artifact. It never receives a shell tool. Each operation validates its input on your machine and runs a fixed script inside the computer with an argument array.
 
-The OpenAI API key stays in the Node server. The VM receives no host folders, cookies, browser profile, SSH keys, cloud credentials, or model credentials. The server listens on `127.0.0.1` and rejects non-loopback configuration.
+The OpenAI API key stays in the Node server. The computer receives no folders from your machine, cookies, browser profile, SSH keys, cloud credentials, or model credentials. The server listens on `127.0.0.1` and rejects non-loopback configuration.
 
-The VM uses public-web network access for research. Treat the downloaded packet as AI-generated material and verify important prices before booking.
+The computer uses public-web network access for research. Treat the downloaded packet as AI-generated material and verify important prices before booking.
 
 ## Configuration
 
@@ -77,7 +77,7 @@ The VM uses public-web network access for research. Treat the downloaded packet 
 
 ## Verify changes
 
-Run the complete local check without a VM or model request:
+Run the complete local check without a computer or model request:
 
 ```bash
 npm run check
@@ -91,7 +91,7 @@ The tests use structural fake Celesto and workflow implementations. They cover a
 - Results are not persisted after the server stops.
 - A run can fetch at most eight public HTTPS pages and lasts at most eight minutes.
 - Completed artifacts remain available for download for 15 minutes, then the server releases them.
-- Logged-in sites, purchases, forms, messages, host files, and arbitrary commands are unavailable.
-- The real-VM and live-model release smoke tests remain manual because normal CI must not depend on travel websites or paid model calls.
+- Logged-in sites, purchases, forms, messages, files on your machine, and arbitrary commands are unavailable.
+- The real-computer and live-model release smoke tests remain manual because normal CI must not depend on travel websites or paid model calls.
 
 See the [implementation handoff](../../docs/designs/open-muse-research.md) for the product contract, architecture, and remaining release work.

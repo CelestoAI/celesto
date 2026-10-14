@@ -2,19 +2,19 @@
 
 This demo shows an agent using a browser to get reports from an old web app and hand those reports to a normal data pipeline.
 
-The workflow runs in a Celesto browser sandbox. The fake Acme portal starts inside the sandbox, the agent uses the browser, the sandbox checks the files, and the final reports are copied back to your machine for the pipeline.
+The workflow runs in a Celesto browser session, a browser in its own isolated computer. The fake Acme portal starts inside that computer, the agent uses the browser, the files are checked inside the computer, and the final reports are copied back to your machine for the pipeline.
 
 ## What it demonstrates
 
 - An agent can use a legacy web app when there is no API.
 - Celesto gives the agent an isolated computer with a live browser you can watch.
 - The workflow does not trust the agent saying “done”; it checks that the files exist.
-- The sandbox shell can list and recover report files when browser downloads are unreliable.
-- The harness copies verified files from the sandbox to the host before running the pipeline.
+- A shell inside the computer can list and recover report files when browser downloads are unreliable.
+- The harness copies verified files from the computer to your machine before running the pipeline.
 
 ## Run it
 
-This demo needs two host-side Python packages: `openai` for the computer-use model and `playwright` to connect to the sandbox browser over CDP.
+This demo needs two Python packages on your machine: `openai` for the computer-use model and `playwright` to connect to the browser over CDP.
 
 ```bash
 export OPENAI_API_KEY=...
@@ -34,7 +34,7 @@ Optional flags:
 ```bash
 --report-date 2026-05-07   # defaults to yesterday
 --max-steps 24             # max computer-use turns
---boot-timeout 180         # seconds to wait for the sandbox to boot
+--boot-timeout 180         # seconds to wait for the computer to boot
 ```
 
 ## What you should see
@@ -42,11 +42,11 @@ Optional flags:
 The script prints progress as it moves through the workflow:
 
 ```txt
-Starting Celesto browser sandbox...
-Starting Acme legacy portal inside the sandbox...
+Starting Celesto browser session...
+Starting Acme legacy portal inside the browser session...
 Starting OpenAI computer-use browser task...
-Listing sandbox downloads and copying reports to the host...
-Running the existing-pipeline import on the host handoff folder...
+Listing browser session downloads and copying reports to your machine...
+Running the existing-pipeline import on the handoff folder on your machine...
 ```
 
 A successful run ends with pipeline output like:
@@ -76,7 +76,7 @@ examples/cua/legacy_report_fetcher/artifacts/
     02-after-downloads.png
 ```
 
-Browser sandbox logs and video are collected in the Celesto browser artifacts directory printed by the script.
+Browser session logs and video are collected in the Celesto browser artifacts directory printed by the script.
 
 ## Fake portal credentials
 
@@ -88,12 +88,12 @@ password: demo-password
 ## How it works
 
 ```txt
-Host folder mounted into sandbox
+Folder on your machine, shared with the computer
 └── /workspace/legacy_report_fetcher
     ├── portal/      # fake Acme Legacy Reports Portal
-    ├── ops/         # sandbox-side helper scripts
+    ├── ops/         # helper scripts that run inside the computer
     ├── pipeline/    # existing-pipeline stand-in
-    └── artifacts/   # host-side handoff output
+    └── artifacts/   # handoff output on your machine
 ```
 
 The browser opens the portal at:
@@ -102,6 +102,6 @@ The browser opens the portal at:
 http://127.0.0.1:8000
 ```
 
-That server runs inside the Celesto sandbox, not on the host laptop.
+That server runs inside the Celesto computer, not on your machine.
 
-The important reliability step is after the agent finishes. The harness lists the sandbox download folder, recovers files if needed, copies the verified CSVs to the host, writes `manifest.json`, and then runs the pipeline.
+The important reliability step is after the agent finishes. The harness lists the download folder inside the computer, recovers files if needed, copies the verified CSVs to your machine, writes `manifest.json`, and then runs the pipeline.

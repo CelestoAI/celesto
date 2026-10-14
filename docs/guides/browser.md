@@ -1,8 +1,8 @@
-# Browser sandboxes
+# Browser sessions
 
-A browser sandbox runs Chromium in a disposable sandbox. Use it when an agent needs a real browser without using your desktop profile.
+A browser session runs Chromium in its own disposable computer. Use it when an agent needs a real browser without using the browser profile on your machine.
 
-Choose a [sandbox](sandboxes.md) for command-only work. Choose a browser sandbox for web-only automation. Choose a [Linux computer](computers.md) when the agent needs a visible desktop with multiple applications.
+Choose a [minimal computer](sandboxes.md) for command-only work. Choose a browser session for web-only automation. Choose a [computer with a desktop](computers.md) when the agent needs a visible desktop with multiple applications.
 
 ## Start and open a browser
 
@@ -13,7 +13,7 @@ celesto browser open research
 
 The first command starts Chromium and prints connection details. The second opens its browser view on your machine.
 
-List running browser sandboxes when you need to find a session:
+List running browser sessions when you need to find one:
 
 ```bash
 celesto browser list
@@ -27,7 +27,7 @@ celesto browser stop research
 
 ## Keep a browser profile
 
-A normal browser sandbox is temporary. Use a persistent profile when you deliberately want later sessions to reuse browser state:
+A normal browser session is temporary. Use a persistent profile when you deliberately want later sessions to reuse browser state:
 
 ```bash
 celesto browser start --profile-mode persistent --profile-id work
@@ -43,7 +43,7 @@ Install Playwright on your machine before using the Python browser connection:
 pip install playwright
 ```
 
-Then connect to Chromium running inside the sandbox:
+Then connect to Chromium running inside the browser session:
 
 ```python
 from celesto import Celesto
@@ -95,7 +95,7 @@ try {
 }
 ```
 
-The returned browser session also supports commands and file transfer. Use `session.exec()` and `session.files` for work related to the browser. In live mode, `viewerUrl` opens Chromium's graphical display through noVNC, a browser-based remote-display client. `displayUrl` connects a VNC client or visual-control agent directly to that display. This browser view is not a general desktop; use a [Linux computer](computers.md) for a terminal, file manager, and text editor.
+The returned browser session also supports commands and file transfer. Use `session.exec()` and `session.files` for work related to the browser. In live mode, `viewerUrl` opens Chromium's graphical display through noVNC, a browser-based remote-display client. `displayUrl` connects a VNC client or visual-control agent directly to that display. This browser view is not a desktop; use a [computer with a desktop](computers.md) for a terminal, file manager, and text editor.
 
 The automation, viewer, and display endpoints are loopback-only, meaning they accept connections only from the same machine. Keep them in the trusted Node process rather than sending them to browser JavaScript or a remote client.
 
