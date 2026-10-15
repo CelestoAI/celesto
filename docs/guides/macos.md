@@ -19,7 +19,7 @@ The first macOS computer prepares macOS from an Apple restore file. Celesto asks
 
 ```bash
 celesto computer create --os macos --name test-mac
-# Next: celesto sandbox desktop test-mac
+# Next: celesto computer desktop test-mac
 ```
 
 Open the desktop:

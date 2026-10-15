@@ -33,6 +33,13 @@ operate. A computer without one is a **minimal computer**.
 _Avoid_: Linux computer (as a separate kind of resource), desktop sandbox,
 graphical sandbox
 
+**Linux desktop computer**:
+A computer created with `celesto computer create --desktop`. Open its desktop in
+your browser with `celesto computer open`. In the CLI, `--desktop` flags refer
+to this kind of computer. A macOS computer also has a desktop; open it with
+`celesto computer desktop`.
+_Avoid_: desktop computer (when you mean only this kind)
+
 **Browser session**:
 A Chromium browser in its own computer, for web-only automation. Its live view
 is not a desktop.

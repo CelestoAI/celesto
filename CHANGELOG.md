@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Changed
+
+- CLI help, output, and errors call every resource a computer, matching the new [glossary](GLOSSARY.md). `celesto sandbox ...` still works.
+- The `next.*_command` values in `--json` output from `create` and agent preset `start` now print `celesto computer ...` instead of `celesto sandbox ...`. The keys are unchanged.
+- `celesto computer open` and `celesto computer desktop` name the right command when you pass the other kind of computer.
+
+### Fixed
+
+- `celesto browser stop`, `open`, and `logs` say when a browser session does not exist and point to `celesto browser list`, instead of suggesting a retry.
+
 ## 0.1.4 — 2026-10-06
 
 ### Added
