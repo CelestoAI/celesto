@@ -112,14 +112,14 @@ def test_open_desktop_password_read_error_names_recovery(tmp_path: Path) -> None
     assert vm.info.config.macos_machine is not None
     (vm.info.config.macos_machine.bundle_path / ".celesto-vnc-password").unlink()
 
-    with pytest.raises(CelestoError, match="celesto sandbox desktop mac-test"):
+    with pytest.raises(CelestoError, match="celesto computer desktop mac-test"):
         vm.open_desktop()
 
 
 def test_open_desktop_stopped_error_names_recovery(tmp_path: Path) -> None:
     vm = _facade(_info(tmp_path, status=VMState.STOPPED))
 
-    with pytest.raises(CelestoError, match="celesto sandbox start mac-test"):
+    with pytest.raises(CelestoError, match="celesto computer start mac-test"):
         vm.open_desktop()
 
 

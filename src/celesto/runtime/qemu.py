@@ -329,7 +329,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
 
         if vm_info.pid and self._context.is_process_running(vm_info.pid):
             raise CelestoError(
-                f"QEMU process did not exit for VM '{vm_info.vm_id}'",
+                f"QEMU process did not exit for computer '{vm_info.vm_id}'",
                 {"pid": vm_info.pid},
             )
 
@@ -523,7 +523,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
     def _live_backup_fallback_command(request: SnapshotCreateRequest) -> str:
         """Return the complete pause-allowed fallback command for a live backup."""
         return (
-            f"celesto sandbox snapshot create {request.vm_info.vm_id} "
+            f"celesto computer snapshot create {request.vm_info.vm_id} "
             f"--snapshot-id {request.snapshot_id} --snapshot-type disk --resume-source"
         )
 
@@ -531,14 +531,14 @@ class QemuRuntimeAdapter(RuntimeAdapter):
     def _bitmap_snapshot_command(vm_id: str, snapshot_id: str) -> str:
         """Return the exact command used to retry with a fresh disk capture."""
         return (
-            f"celesto sandbox snapshot create {vm_id} --snapshot-id {snapshot_id} "
+            f"celesto computer snapshot create {vm_id} --snapshot-id {snapshot_id} "
             "--snapshot-type disk --resume-source --live-only"
         )
 
     @staticmethod
     def _bitmap_recovery_clear_command(snapshot_id: str) -> str:
         """Return the command that clears an adopted recovered artifact."""
-        return f"celesto sandbox snapshot delete {snapshot_id}"
+        return f"celesto computer snapshot delete {snapshot_id}"
 
     @classmethod
     def _bitmap_recovery_error(
@@ -591,7 +591,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
     ) -> OperationTimeoutError:
         """Return the shared timeout error for the whole live-backup budget."""
         error = OperationTimeoutError(
-            f"Live snapshot for sandbox '{request.vm_info.vm_id}'",
+            f"Live snapshot for computer '{request.vm_info.vm_id}'",
             request.timeout_seconds,
             recovery_command=cls._live_backup_fallback_command(request),
         )
@@ -637,7 +637,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
         except OSError as exc:
             raise cls._live_backup_error(
                 request,
-                f"qemu-img could not run for sandbox '{request.vm_info.vm_id}'",
+                f"qemu-img could not run for computer '{request.vm_info.vm_id}'",
                 {"error": str(exc)},
             ) from exc
 
@@ -654,7 +654,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
         if qemu_img is None:
             raise cls._live_backup_error(
                 request,
-                f"Install qemu-img to snapshot sandbox '{request.vm_info.vm_id}'",
+                f"Install qemu-img to snapshot computer '{request.vm_info.vm_id}'",
             )
         info = cls._run_live_backup_subprocess(
             [str(qemu_img), "info", "-U", "--output=json", str(disk)],
@@ -664,7 +664,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
         if info.returncode != 0:
             raise cls._live_backup_error(
                 request,
-                f"The disk for sandbox '{request.vm_info.vm_id}' could not be inspected",
+                f"The disk for computer '{request.vm_info.vm_id}' could not be inspected",
                 {"disk_path": str(disk), "stderr": info.stderr.strip()},
             )
         try:
@@ -672,7 +672,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
             raise cls._live_backup_error(
                 request,
-                f"The disk size for sandbox '{request.vm_info.vm_id}' could not be read",
+                f"The disk size for computer '{request.vm_info.vm_id}' could not be read",
                 {"disk_path": str(disk)},
             ) from exc
         return Path(qemu_img), virtual_size
@@ -695,7 +695,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
         if check.returncode != 0:
             raise cls._live_backup_error(
                 request,
-                f"The live snapshot for sandbox '{request.vm_info.vm_id}' was invalid",
+                f"The live snapshot for computer '{request.vm_info.vm_id}' was invalid",
                 {"disk_path": str(disk), "stderr": check.stderr.strip()},
             )
         info = cls._run_live_backup_subprocess(
@@ -706,7 +706,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
         if info.returncode != 0:
             raise cls._live_backup_error(
                 request,
-                f"The live snapshot for sandbox '{request.vm_info.vm_id}' could not be verified",
+                f"The live snapshot for computer '{request.vm_info.vm_id}' could not be verified",
                 {"disk_path": str(disk), "stderr": info.stderr.strip()},
             )
         try:
@@ -714,13 +714,13 @@ class QemuRuntimeAdapter(RuntimeAdapter):
         except (AttributeError, TypeError, json.JSONDecodeError) as exc:
             raise cls._live_backup_error(
                 request,
-                f"The live snapshot details for sandbox '{request.vm_info.vm_id}' were invalid",
+                f"The live snapshot details for computer '{request.vm_info.vm_id}' were invalid",
                 {"disk_path": str(disk)},
             ) from exc
         if backing:
             raise cls._live_backup_error(
                 request,
-                f"The live snapshot for sandbox '{request.vm_info.vm_id}' was not self-contained",
+                f"The live snapshot for computer '{request.vm_info.vm_id}' was not self-contained",
                 {"disk_path": str(disk), "backing_file": str(backing)},
             )
 
@@ -753,7 +753,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
             if measure.returncode != 0:
                 raise cls._live_backup_error(
                     request,
-                    f"The live snapshot size for sandbox '{request.vm_info.vm_id}' "
+                    f"The live snapshot size for computer '{request.vm_info.vm_id}' "
                     "could not be estimated",
                     {"disk_path": str(source), "stderr": measure.stderr.strip()},
                 )
@@ -762,7 +762,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
             except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
                 raise cls._live_backup_error(
                     request,
-                    f"The live snapshot size for sandbox '{request.vm_info.vm_id}' was invalid",
+                    f"The live snapshot size for computer '{request.vm_info.vm_id}' was invalid",
                     {"disk_path": str(source)},
                 ) from exc
         else:
@@ -773,13 +773,13 @@ class QemuRuntimeAdapter(RuntimeAdapter):
         except OSError as exc:
             raise cls._live_backup_error(
                 request,
-                f"Free space for sandbox '{request.vm_info.vm_id}' could not be checked",
+                f"Free space for computer '{request.vm_info.vm_id}' could not be checked",
                 {"snapshot_path": str(target_dir), "error": str(exc)},
             ) from exc
         if free < required + headroom:
             raise cls._live_backup_error(
                 request,
-                f"Free local space before snapshotting sandbox '{request.vm_info.vm_id}'",
+                f"Free local space before snapshotting computer '{request.vm_info.vm_id}'",
                 {
                     "disk_path": str(source),
                     "free_bytes": free,
@@ -912,7 +912,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
             raise cls._bitmap_recovery_error(
                 vm_id=vm_id,
                 snapshot_id=snapshot_id,
-                fact=f"The completed disk capture for sandbox '{vm_id}' has no local file.",
+                fact=f"The completed disk capture for computer '{vm_id}' has no local file.",
                 recovery=f"Run '{retry_command}' to create a fresh disk capture.",
                 recovery_command=retry_command,
             )
@@ -921,7 +921,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
             raise cls._bitmap_recovery_error(
                 vm_id=vm_id,
                 snapshot_id=snapshot_id,
-                fact=f"The recovered disk capture for sandbox '{vm_id}' cannot be checked.",
+                fact=f"The recovered disk capture for computer '{vm_id}' cannot be checked.",
                 recovery=_qemu_img_install_hint(),
             )
 
@@ -931,7 +931,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
                 raise cls._bitmap_recovery_error(
                     vm_id=vm_id,
                     snapshot_id=snapshot_id,
-                    fact=f"Checking the recovered disk capture for sandbox '{vm_id}' timed out.",
+                    fact=f"Checking the recovered disk capture for computer '{vm_id}' timed out.",
                     recovery=f"Retry with '{retry_command}'.",
                     recovery_command=retry_command,
                 )
@@ -947,7 +947,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
                 raise cls._bitmap_recovery_error(
                     vm_id=vm_id,
                     snapshot_id=snapshot_id,
-                    fact=f"Checking the recovered disk capture for sandbox '{vm_id}' timed out.",
+                    fact=f"Checking the recovered disk capture for computer '{vm_id}' timed out.",
                     recovery=f"Retry with '{retry_command}'.",
                     recovery_command=retry_command,
                 ) from exc
@@ -955,7 +955,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
                 raise cls._bitmap_recovery_error(
                     vm_id=vm_id,
                     snapshot_id=snapshot_id,
-                    fact=f"The recovered disk capture for sandbox '{vm_id}' could not be checked.",
+                    fact=f"The recovered disk capture for computer '{vm_id}' could not be checked.",
                     recovery=_qemu_img_install_hint(),
                     details={"error": str(exc)},
                 ) from exc
@@ -970,7 +970,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
             raise cls._bitmap_recovery_error(
                 vm_id=vm_id,
                 snapshot_id=snapshot_id,
-                fact=f"The recovered disk capture for sandbox '{vm_id}' is invalid.",
+                fact=f"The recovered disk capture for computer '{vm_id}' is invalid.",
                 recovery=f"Run '{retry_command}' to create a fresh disk capture.",
                 recovery_command=retry_command,
                 details={
@@ -1118,7 +1118,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
                         raise self._bitmap_recovery_error(
                             vm_id=vm_id,
                             snapshot_id=journal_snapshot_id,
-                            fact=f"The last disk capture for sandbox '{vm_id}' may be incomplete.",
+                            fact=f"The last disk capture for computer '{vm_id}' may be incomplete.",
                             recovery=f"Run '{retry_command}' to create a fresh disk capture.",
                             recovery_command=retry_command,
                             details={
@@ -1173,7 +1173,8 @@ class QemuRuntimeAdapter(RuntimeAdapter):
                         vm_id=vm_id,
                         snapshot_id=journal_snapshot_id,
                         fact=(
-                            f"Recovered disk data for sandbox '{vm_id}' is ready at '{final_path}'."
+                            f"Recovered disk data for computer '{vm_id}' is ready at "
+                            f"'{final_path}'."
                         ),
                         recovery=(
                             f"After adopting that file, run '{clear_command}' to clear "
@@ -1240,7 +1241,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
         if request.snapshot_type != SnapshotType.DISK or request.original_status != VMState.RUNNING:
             raise self._live_backup_error(
                 request,
-                f"Sandbox '{request.vm_info.vm_id}' is not ready for a live disk snapshot",
+                f"Computer '{request.vm_info.vm_id}' is not ready for a live disk snapshot",
             )
 
         try:
@@ -1248,7 +1249,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
         except Exception as exc:
             raise self._live_backup_error(
                 request,
-                f"This machine could not prepare a live snapshot of sandbox "
+                f"This machine could not prepare a live snapshot of computer "
                 f"'{request.vm_info.vm_id}'",
                 {
                     "cause": str(exc),
@@ -1263,7 +1264,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
         if missing:
             raise self._live_backup_error(
                 request,
-                f"This machine cannot keep sandbox '{request.vm_info.vm_id}' "
+                f"This machine cannot keep computer '{request.vm_info.vm_id}' "
                 "available during the snapshot",
                 {"missing_qmp_commands": missing},
             )
@@ -1355,7 +1356,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
         if create.returncode != 0:
             raise self._live_backup_error(
                 request,
-                f"The live snapshot file for sandbox '{request.vm_info.vm_id}' "
+                f"The live snapshot file for computer '{request.vm_info.vm_id}' "
                 "could not be prepared",
                 {"disk_path": str(partial_path), "stderr": create.stderr.strip()},
             )
@@ -1387,7 +1388,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
                 partial_path.unlink()
             raise self._live_backup_error(
                 request,
-                f"Recovery state for sandbox '{request.vm_info.vm_id}' could not be saved",
+                f"Recovery state for computer '{request.vm_info.vm_id}' could not be saved",
                 {"error": str(exc)},
             ) from exc
 
@@ -1457,7 +1458,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
                 if created_bitmap is None:
                     raise self._live_backup_error(
                         request,
-                        f"The new dirty bitmap for sandbox '{request.vm_info.vm_id}' is missing",
+                        f"The new dirty bitmap for computer '{request.vm_info.vm_id}' is missing",
                         {"bitmap_name": bitmap_backup.bitmap_name},
                     )
                 bitmap_granularity = created_bitmap.granularity
@@ -1518,7 +1519,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
                         vm_id=request.vm_info.vm_id,
                         snapshot_id=request.snapshot_id,
                         fact=(
-                            f"The completed disk capture for sandbox "
+                            f"The completed disk capture for computer "
                             f"'{request.vm_info.vm_id}' still needs to be published."
                         ),
                         recovery=f"Retry with '{retry_command}'.",
@@ -1537,7 +1538,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
                             vm_id=request.vm_info.vm_id,
                             snapshot_id=request.snapshot_id,
                             fact=(
-                                f"The last disk capture for sandbox "
+                                f"The last disk capture for computer "
                                 f"'{request.vm_info.vm_id}' may be incomplete."
                             ),
                             recovery=(f"Run '{retry_command}' to create a fresh disk capture."),
@@ -1562,7 +1563,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
                             vm_id=request.vm_info.vm_id,
                             snapshot_id=request.snapshot_id,
                             fact=(
-                                f"The completed disk capture for sandbox "
+                                f"The completed disk capture for computer "
                                 f"'{request.vm_info.vm_id}' still needs to be published."
                             ),
                             recovery=f"Retry with '{retry_command}'.",
@@ -1583,7 +1584,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
                             vm_id=request.vm_info.vm_id,
                             snapshot_id=request.snapshot_id,
                             fact=(
-                                f"The last disk capture for sandbox "
+                                f"The last disk capture for computer "
                                 f"'{request.vm_info.vm_id}' may be incomplete."
                             ),
                             recovery=(f"Run '{retry_command}' to create a fresh disk capture."),
@@ -1614,7 +1615,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
                     raise
                 raise self._live_backup_error(
                     request,
-                    f"This machine could not complete a live snapshot of sandbox "
+                    f"This machine could not complete a live snapshot of computer "
                     f"'{request.vm_info.vm_id}'",
                     {
                         "cause": str(original_error),
@@ -1623,7 +1624,8 @@ class QemuRuntimeAdapter(RuntimeAdapter):
                 ) from original_error
             raise self._live_backup_error(
                 request,
-                f"Live snapshot cleanup for sandbox '{request.vm_info.vm_id}' is still in progress",
+                f"Live snapshot cleanup for computer '{request.vm_info.vm_id}' is still in "
+                "progress",
                 {
                     "job_id": job_id,
                     "target_node": target_node,
@@ -1652,7 +1654,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
                 raise CelestoError(
                     "This space-saving snapshot needs its original base image, "
                     f"which is missing: '{backing}'. Restore that file and run "
-                    f"'celesto sandbox snapshot restore {snapshot.snapshot_id}' again, or take "
+                    f"'celesto computer snapshot restore {snapshot.snapshot_id}' again, or take "
                     "a full snapshot next time with '--snapshot-type full'.",
                     {"snapshot_id": snapshot.snapshot_id, "backing_file": str(backing)},
                 )
@@ -1732,7 +1734,8 @@ class QemuRuntimeAdapter(RuntimeAdapter):
             exit_code = process.poll()
             if exit_code is not None:
                 raise CelestoError(
-                    f"QEMU exited early while booting VM '{getattr(process, 'pid', 'unknown')}'",
+                    "QEMU exited early while booting computer "
+                    f"'{getattr(process, 'pid', 'unknown')}'",
                     {"exit_code": exit_code},
                 )
             try:
@@ -1959,7 +1962,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
     def _client(self, control_socket_path: Path | None, timeout: float = 5.0) -> QMPClient:
         """Connect a QMP client for a runtime control socket."""
         if control_socket_path is None:
-            raise CelestoError("VM has no QMP socket path")
+            raise CelestoError("Computer has no QMP socket path")
         client = QMPClient(control_socket_path)
         client.connect(timeout=timeout)
         return client

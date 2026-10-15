@@ -382,7 +382,7 @@ def test_create_qemu_explicit_vsock_cid_rejects_live_qemu_conflict(tmp_path: Pat
         mock_overlay.side_effect = lambda source, target, **_kwargs: target.write_text("overlay")
         sdk.create(config)
 
-    assert "celesto sandbox delete vm-qemu-vsock-conflict" in str(exc_info.value)
+    assert "celesto computer delete vm-qemu-vsock-conflict" in str(exc_info.value)
     assert sdk.state.get_vsock_cid("vm-qemu-vsock-conflict") is None
     with pytest.raises(VMNotFoundError):
         sdk.state.get_vm("vm-qemu-vsock-conflict")

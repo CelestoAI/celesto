@@ -4,7 +4,7 @@ Paste a public GitHub pull request and watch an agent prepare its test environme
 
 ## Run
 
-Requires Python 3.12+, uv, model credentials, and one sandbox backend. For Jev through Vercel, also install Node.js 22+ and run `npm install` in this directory. Copy `.env.example` to `.env` and supply `OPENAI_API_KEY` and `AI_GATEWAY_API_KEY`. The application never sends these keys into repository sandboxes.
+Requires Python 3.12+, uv, model credentials, and either local Celesto or Celesto Cloud. For Jev through Vercel, also install Node.js 22+ and run `npm install` in this directory. Copy `.env.example` to `.env` and supply `OPENAI_API_KEY` and `AI_GATEWAY_API_KEY`. The application never sends these keys into the computers that run repository code.
 
 Jev defaults to Vercel Gateway when `AI_GATEWAY_API_KEY` is present. No separate TypeSafe key is needed. The fixed Node helper uses AI SDK 7's evaluation API, which is separate from Gateway's Chat Completions API. To use TypeSafe directly instead, set `JEV_PROVIDER=typesafe` and `TYPESAFE_API_KEY`. Gateway Choice confidence is preserved when provided in provider metadata; missing confidence is not invented. Reported evaluator wall time includes Node startup; `sdk_seconds` isolates the SDK request.
 
@@ -31,12 +31,12 @@ Set `CELESTO_API_KEY` and, if necessary, `CELESTO_TEMPLATE`. The default templat
 ## What happens
 
 1. Fetch public PR metadata and pin the base and head commits.
-2. A discovery sandbox and investigator LLM inspect repository manifests and CI to produce an installation/test recipe.
-3. Two fresh sandboxes run that recipe against base and head. Installation failures remain distinct from test failures.
-4. The investigator examines the diff and gathers evidence for at most six candidate findings.
-5. Both evaluators receive the same evidence and three questions per candidate: introduced by the PR, supported by evidence, and actionable. Jev receives all questions in one call. The LLM receives the same rubric in one call.
-6. The same writer model summarizes each lane's results. Uncertain candidates remain marked as needing evidence; this version does not automatically reinvestigate them.
-7. Sandboxes are deleted and a JSON report is saved under `artifacts/`. Cleanup errors remain visible.
+1. A discovery computer and investigator LLM inspect repository manifests and CI to produce an installation/test recipe.
+1. Two fresh computers run that recipe against base and head. Installation failures remain distinct from test failures.
+1. The investigator examines the diff and gathers evidence for at most six candidate findings.
+1. Both evaluators receive the same evidence and three questions per candidate: introduced by the PR, supported by evidence, and actionable. Jev receives all questions in one call. The LLM receives the same rubric in one call.
+1. The same writer model summarizes each lane's results. Uncertain candidates remain marked as needing evidence; this version does not automatically reinvestigate them.
+1. The computers are deleted and a JSON report is saved under `artifacts/`. Cleanup errors remain visible.
 
 Evaluator calls run concurrently. The UI separates shared preparation, evaluator latency, and writer latency. Usage and exact returned model names are in the report. It does not claim accuracy, calculate unconfigured dollar prices, or treat probability concentration as proof of correctness. A run with zero candidate findings does not perform a speed comparison.
 
@@ -44,7 +44,7 @@ Evaluator calls run concurrently. The UI separates shared preparation, evaluator
 
 This is a local, single-run demo. It supports public PRs with at most 30 changed files and 3,000 changed lines. Logs are bounded and report truncation. The setup agent gets six commands, the investigator ten, and each command gets 180 seconds. Cancellation waits for an in-flight operation before cleanup. A process crash can leave resources requiring manual cleanup.
 
-Repository and generated commands execute inside disposable sandboxes with internet access and no shared host workspace. Only run repositories you are comfortable executing under that provider's network policy. Reports contain source and test logs. The server listens on loopback and checks browser origins and request tokens; it is not a hosted multi-user service.
+Repository and generated commands execute inside disposable computers with internet access and no folder shared from your machine. Only run repositories you are comfortable executing under that provider's network policy. Reports contain source and test logs. The server listens on loopback and checks browser origins and request tokens; it is not a hosted multi-user service.
 
 The rubric comparison is implemented. CUA browser journeys, labeled benchmark datasets, repeated-trial statistics, and automatic investigation of uncertain findings are follow-up work. A failing PR test with a passing baseline is evidence to investigate, not automatic proof of a regression.
 
@@ -54,4 +54,4 @@ The rubric comparison is implemented. CUA browser journeys, labeled benchmark da
 uv run python -m unittest discover -s tests -v
 ```
 
-Tests use fake sandboxes and model responses. They do not create cloud resources or make paid API calls. TypeSafe integration follows the [System One API](https://docs.typesafe.ai/api) and [Choice primitive](https://docs.typesafe.ai/primitives/choice).
+Tests use fake computers and model responses. They do not create cloud resources or make paid API calls. TypeSafe integration follows the [System One API](https://docs.typesafe.ai/api) and [Choice primitive](https://docs.typesafe.ai/primitives/choice).

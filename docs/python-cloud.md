@@ -1,6 +1,6 @@
 # Python cloud computers
 
-Run commands on a Celesto Cloud computer using the same Python interface as local execution. Your machine does not boot a virtual machine when you use the cloud.
+Run commands on a Celesto Cloud computer using the same Python interface as local execution. Your machine does not need virtualization software when you use the cloud.
 
 Install Celesto from this checkout and set `CELESTO_API_KEY` in your environment.
 These examples use the local-first SDK; earlier published versions may not expose
@@ -100,7 +100,7 @@ Persistence here means retaining the computer resource; it does not enable an ex
 
 `stop()` waits until the cloud computer is stopped. `resume()` starts that same
 computer and waits until it is running. Both work on a reconnected handle and
-preserve the computer ID and its ephemeral disk on the current pool host.
+preserve the computer ID and its ephemeral disk on the cloud server where it runs.
 
 ## Connect to the browser or screen
 

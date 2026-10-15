@@ -291,8 +291,8 @@ def test_cloud_only_errors_are_actionable(monkeypatch, capsys):
 def test_missing_sandbox_exec_has_list_recovery(capsys):
     assert main(["sandbox", "exec", "missing", "--json", "--", "true"]) == 1
     message = json.loads(capsys.readouterr().out)["error"]["message"]
-    assert "Sandbox 'missing'" in message
-    assert "celesto sandbox list" in message
+    assert "Computer 'missing'" in message
+    assert "celesto computer list" in message
 
 
 def test_unsupported_cloud_action_is_hidden_from_help(capsys):
@@ -324,14 +324,15 @@ def test_local_terminal_error_state_has_recovery(monkeypatch, capsys):
     monkeypatch.setattr("celesto.computer._ComputerSandbox.from_id", Mock(return_value=desktop))
     assert main(["computer", "terminal", "computer-demo"]) == 1
     output = " ".join(capsys.readouterr().err.replace("│", " ").split())
-    assert "celesto sandbox logs sbx-demo" in output
+    assert "celesto computer logs sbx-demo" in output
     desktop.vm.attach_shell.assert_not_called()
     desktop.close.assert_called_once()
 
 
 def test_missing_local_computer_has_recovery(capsys):
     assert main(["computer", "terminal", "missing"]) == 1
-    assert "celesto computer list" in capsys.readouterr().err
+    error = " ".join(capsys.readouterr().err.replace("│", " ").split())
+    assert "celesto computer list --desktop" in error
 
 
 def test_cloud_terminal_rejects_local_timeout(monkeypatch):

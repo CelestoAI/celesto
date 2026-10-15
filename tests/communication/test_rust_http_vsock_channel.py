@@ -72,9 +72,9 @@ def test_feature_required_error_names_recreate_commands() -> None:
         channel.attach_terminal()
 
     message = str(exc_info.value)
-    assert "Sandbox sbx-riemann was created from an older image" in message
-    assert "celesto sandbox delete sbx-riemann" in message
-    assert "celesto sandbox create --name sbx-riemann" in message
+    assert "Computer sbx-riemann was created from an older image" in message
+    assert "celesto computer delete sbx-riemann" in message
+    assert "celesto computer create --name sbx-riemann" in message
 
 
 class FakeRustChannel(RustHttpVsockChannel):
@@ -264,8 +264,8 @@ def test_vsock_unavailable_message_names_ssh_recovery_command() -> None:
 
     assert "AF_VSOCK" not in message
     assert "vhost_vsock" not in message
-    assert "celesto sandbox delete sbx-pauling" in message
-    assert "celesto sandbox create --name sbx-pauling --comm-channel ssh" in message
+    assert "celesto computer delete sbx-pauling" in message
+    assert "celesto computer create --name sbx-pauling --comm-channel ssh" in message
 
 
 def test_wait_ready_uses_health() -> None:

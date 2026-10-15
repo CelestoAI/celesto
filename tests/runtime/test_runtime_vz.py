@@ -95,5 +95,5 @@ def test_vz_runtime_rejects_snapshot_with_recovery(tmp_path: Path) -> None:
         capture_policy=SnapshotCapturePolicy.ALLOW_PAUSE,
     )
 
-    with pytest.raises(CelestoError, match="celesto sandbox stop mac-test"):
+    with pytest.raises(CelestoError, match="celesto computer stop mac-test"):
         adapter.create_snapshot(request)

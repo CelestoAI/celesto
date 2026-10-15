@@ -199,7 +199,7 @@ def ensure_report_downloads(
         return
 
     log(
-        "Agent stopped before the CSV files appeared in the sandbox; "
+        "Agent stopped before the CSV files appeared in the browser session; "
         "using CDP to click the report download links."
     )
     page.goto(f"{PORTAL_URL}/reports", wait_until="domcontentloaded")
@@ -215,8 +215,8 @@ def ensure_report_downloads(
         return
     except RuntimeError:
         log(
-            "CDP clicks still did not create files in the sandbox download folder; "
-            "using the sandbox shell to fetch the generated CSV files."
+            "CDP clicks still did not create files in the browser session download folder; "
+            "using a shell in the browser session to fetch the generated CSV files."
         )
 
     download_reports_with_vm_shell(vm, session_id, report_date)
@@ -585,7 +585,7 @@ def run_computer_use_agent(
 
             validation_retries += 1
             log(
-                "Agent said it was done, but the sandbox download folder is still missing "
+                "Agent said it was done, but the browser session download folder is still missing "
                 "one or both CSV files; asking it to continue."
             )
             response = client.responses.create(
@@ -593,7 +593,7 @@ def run_computer_use_agent(
                 tools=[{"type": "computer"}],
                 previous_response_id=response.id,
                 input=(
-                    "The sandbox download folder is still missing one or both CSV files. "
+                    "The browser session download folder is still missing one or both CSV files. "
                     "You probably generated the reports but did not click the actual "
                     "download links. Continue using the browser. Click Generate reports if "
                     "needed, then click both visible links: Download Orders CSV and "
@@ -672,7 +672,7 @@ def parse_args() -> argparse.Namespace:
         "--boot-timeout",
         type=float,
         default=180.0,
-        help="Seconds to wait for the Celesto browser sandbox to boot.",
+        help="Seconds to wait for the Celesto browser session to boot.",
     )
     parser.add_argument(
         "--report-date",
@@ -696,7 +696,7 @@ def main() -> int:
     session: Any | None = None
     try:
         session = run_with_heartbeat(
-            f"Starting Celesto browser sandbox (timeout {int(args.boot_timeout)}s)",
+            f"Starting Celesto browser session (timeout {int(args.boot_timeout)}s)",
             lambda: Celesto.browser(
                 headless=args.mode == "headless",
                 record_video=args.mode == "live",
@@ -723,7 +723,7 @@ def main() -> int:
 
         vm = session.vm
         run_with_heartbeat(
-            "Starting Acme legacy portal inside the sandbox",
+            "Starting Acme legacy portal inside the browser session",
             lambda: start_legacy_app(vm),
             interval_seconds=5.0,
         )
@@ -753,14 +753,14 @@ def main() -> int:
         log(f"Agent final answer after file verification: {agent_result.final_answer}")
         session.screenshot(screenshots_dir / "02-after-downloads.png", full_page=False)
         inbox = run_with_heartbeat(
-            "Listing sandbox downloads and copying reports to the host",
+            "Listing browser session downloads and copying reports to your machine",
             lambda: copy_reports_to_host(vm, session.session_id, args.report_date),
             interval_seconds=5.0,
         )
         print(f"Copied reports and wrote manifest: {inbox / 'manifest.json'}")
         print("\nPipeline output:")
         pipeline_output = run_with_heartbeat(
-            "Running the existing-pipeline import on the host handoff folder",
+            "Running the existing-pipeline import on the handoff folder on your machine",
             lambda: run_pipeline(inbox),
             interval_seconds=5.0,
         )
@@ -770,7 +770,7 @@ def main() -> int:
     finally:
         if session is not None:
             run_with_heartbeat(
-                "Stopping Celesto browser sandbox",
+                "Stopping Celesto browser session",
                 session.stop,
                 interval_seconds=5.0,
             )

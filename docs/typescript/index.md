@@ -20,7 +20,7 @@ The separate TypeScript preview retains its `@celestoai/celesto` package name
 and `Celesto` class. Set `runtimePath: "celesto"` as shown below to use the
 installed Python runtime.
 
-The SDK starts a private local bridge on first use. Each client gets an isolated sandbox list and a random credential passed through a private process pipe. `close()` removes that client's sandboxes and stops the bridge.
+The SDK starts a private local bridge on first use. Each client gets an isolated list of computers and a random credential passed through a private process pipe. `close()` removes that client's computers and stops the bridge.
 
 ## Manage the lifecycle
 
@@ -40,9 +40,11 @@ try {
 }
 ```
 
+`celesto.sandboxes.create()` starts a minimal computer; the `sandboxes` name is one of the [older names you will still see](../../GLOSSARY.md#older-names-you-will-still-see).
+
 `sandbox.delete()` and `celesto.close()` are idempotent. `Symbol.asyncDispose` is also installed when the running Node version supports it, but the alpha documentation uses `try/finally` for compatibility and clarity.
 
-The first sandbox may need to download an image. Creation has a 10-minute deadline by default; set `createTimeoutMs` on `Celesto` when a slower connection needs more time.
+The first computer may need to download an image. Creation has a 10-minute deadline by default; set `createTimeoutMs` on `Celesto` when a slower connection needs more time.
 
 ## Run commands
 
@@ -58,7 +60,7 @@ const result = await sandbox.exec(["python3", "-c", "print('hello')"], {
 if (!result.ok) console.error(result.stderr);
 ```
 
-A string intentionally uses the guest login shell, so pipes, redirects, and variable expansion work. A command that exits nonzero still resolves with `ok: false`; bridge, lifecycle, timeout, and abort failures throw.
+A string intentionally uses the computer's login shell, so pipes, redirects, and variable expansion work. A command that exits nonzero still resolves with `ok: false`; bridge, lifecycle, timeout, and abort failures throw.
 
 ## Read and write files
 
@@ -70,7 +72,7 @@ await sandbox.files.upload("./prompt.txt", "/workspace/prompt.txt");
 await sandbox.files.download("/workspace/result.json", "./artifacts/result.json");
 ```
 
-Paths inside the sandbox must be absolute. Uploads send bytes to the bridge rather than exposing a host path. Downloads write a temporary file beside the destination and rename it atomically.
+Paths inside the computer must be absolute. Uploads send bytes to the bridge rather than exposing a path on your machine. Downloads write a temporary file beside the destination and rename it atomically.
 
 ## Start a browser session from a source checkout
 
@@ -100,11 +102,11 @@ try {
 }
 ```
 
-Use `mode: "headless"` when no live viewer is needed. A browser session also provides `exec(...)` for running a command as the unprivileged `agent` user inside that browser VM. On timeout, Celesto attempts to delete the affected session and reports whether cleanup was confirmed.
+Use `mode: "headless"` when no live viewer is needed. A browser session also provides `exec(...)` for running a command as the unprivileged `agent` user inside the browser session's computer. On timeout, Celesto attempts to delete the affected session and reports whether cleanup was confirmed.
 
-## Start a complete Linux computer
+## Start a computer with a desktop
 
-Use a computer when the agent needs a visible desktop with Chromium, a terminal, a file manager, and a text editor. The grouped properties keep screen control separate from browser automation:
+Use a computer with a desktop when the agent needs a visible screen with Chromium, a terminal, a file manager, and a text editor. The grouped properties keep screen control separate from browser automation:
 
 ```ts
 const computer = await celesto.computers.create();
@@ -119,7 +121,7 @@ Closing Chromium does not delete the computer. Open it again explicitly:
 await computer.browser.launch();
 ```
 
-The computer also provides `exec(...)` and `files`. See the [Linux computers guide](../guides/computers.md) for the complete lifecycle and resource chooser.
+The computer also provides `exec(...)` and `files`. See the [desktop guide](../guides/computers.md) for the complete lifecycle and resource chooser.
 
 ## Limit network access
 
@@ -147,7 +149,7 @@ setTimeout(() => controller.abort(), 1_000);
 await sandbox.exec("sleep 60", { signal: controller.signal });
 ```
 
-On abort, the SDK asks the bridge to delete the sandbox and waits for confirmation. If that fails, it closes the complete SDK session instead. The resulting `command_aborted` error says which outcome occurred. Runtime timeouts use the same conservative sandbox-deletion rule.
+On abort, the SDK asks the bridge to delete the computer and waits for confirmation. If that fails, it closes the complete SDK session instead. The resulting `command_aborted` error says which outcome occurred. Runtime timeouts use the same conservative computer-deletion rule.
 
 ## Handle errors and diagnose setup
 
@@ -172,7 +174,7 @@ If the installed runtime predates TypeScript SDK sessions, startup fails with `p
 
 ## Use in CI
 
-Package type-checks can run on any Node platform. Tests that boot a VM should run only on a supported, hardware-enabled runner. Always close the client in `finally`, and give the job permission to use the selected virtualization backend.
+Package type-checks can run on any Node platform. Tests that start a computer should run only on a supported, hardware-enabled runner. Always close the client in `finally`, and give the job permission to use the selected virtualization backend.
 
 The [Vercel AI SDK tool example](../../ts/examples/vercel-ai-tool.ts) adds schema validation and explicit command approval. The [versioned API reference](api/0.1/README.md) is generated from the SDK source.
 
@@ -180,4 +182,4 @@ Release candidates can record cold and warm lifecycle timings with `npm run benc
 
 ## Current limits
 
-The browser-session API documented above is currently available only from a source checkout and will ship in the next TypeScript preview. Persistent sandboxes, snapshots, exposed ports, remote engines, streaming command output, Bun, Deno, and browser runtimes are not part of `0.1.0-preview.1`. SDK sessions do not list or control sandboxes created by the CLI or another SDK client.
+The browser-session API documented above is currently available only from a source checkout and will ship in the next TypeScript preview. Persistent computers, snapshots, exposed ports, remote engines, streaming command output, Bun, Deno, and browser runtimes are not part of `0.1.0-preview.1`. SDK sessions do not list or control computers created by the CLI or another SDK client.

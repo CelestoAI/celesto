@@ -634,7 +634,7 @@ def _non_default_dir_warnings(root: Path) -> list[str]:
     if root == default_root:
         return []
     return [
-        f"Sandboxes look for images in '{default_root}'. Run "
+        f"Computers look for images in '{default_root}'. Run "
         f"export CELESTO_IMAGE_DIR={shlex.quote(str(root))} so they use this download."
     ]
 
@@ -1473,7 +1473,7 @@ def run_macos_image_build(
             return emit_success(command_name, payload)
         console_stdout().print(
             f"macOS image '{tag}' is ready. Create a desktop with "
-            f"'celesto sandbox create --os macos --name test-mac'."
+            f"'celesto computer create --os macos --name test-mac'."
         )
         return 0
     except Exception as exc:

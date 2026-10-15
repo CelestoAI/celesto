@@ -40,7 +40,7 @@ ln -sf {_HERMES_INSTALL_DIR}/.venv/bin/hermes /usr/local/bin/hermes
 
 HERMES_PRESET = Preset(
     name="hermes",
-    summary="Start a sandbox with the Hermes agent preinstalled.",
+    summary="Start a computer with the Hermes agent preinstalled.",
     setup_script=PYTHON_BOOTSTRAP,
     install_script=HERMES_INSTALL_SCRIPT,
     host_env_vars=("OPENROUTER_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "HF_TOKEN"),
@@ -49,6 +49,6 @@ HERMES_PRESET = Preset(
     launch_command="hermes",
     no_env_hint=(
         "No API key found. Set OPENROUTER_API_KEY on your machine,"
-        " or run 'hermes setup' inside the sandbox."
+        " or run 'hermes setup' inside the computer."
     ),
 )

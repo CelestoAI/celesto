@@ -21,7 +21,7 @@ OpenMuse is an open-source computer coworker that browses public websites in its
 
 ## Quick start
 
-OpenMuse runs from this Celesto repository. The supported hosts are Linux x64 and Apple Silicon macOS.
+OpenMuse runs from this Celesto repository. It supports machines running Linux x64 or Apple Silicon macOS.
 
 Before you start, install:
 
@@ -30,13 +30,13 @@ Before you start, install:
 
 ### 1. Prepare Celesto
 
-Install Celesto, prepare your computer, and verify the setup with one command:
+Install Celesto, prepare your machine, and verify the setup with one command:
 
 ```bash
 curl -sSL https://celesto.ai/install.sh | bash
 ```
 
-The installer adds the Python tooling Celesto needs, installs Celesto, prepares the machine, and runs its readiness check. See the [manual installation guide](../docs/installation.md) if the installer reports a problem.
+The installer adds the Python tooling Celesto needs, installs Celesto, prepares your machine, and runs its readiness check. See the [manual installation guide](../docs/installation.md) if the installer reports a problem.
 
 Download and verify the desktop image now so the first task does not pause without terminal progress:
 
@@ -130,7 +130,7 @@ OpenMuse stores bounded chat history and the selected conversation in `.open-mus
 
 ## Develop OpenMuse
 
-Use fixture mode for the fastest edit-and-test loop. It replaces the public web with an in-memory store, so it needs no model, virtual machine, DNS request, or public internet access.
+Use fixture mode for the fastest edit-and-test loop. It replaces the public web with an in-memory store, so it needs no model, Celesto computer, DNS request, or public internet access.
 
 ```bash
 OPEN_MUSE_FIXTURE_STORE=1 npm run dev
@@ -208,7 +208,7 @@ OpenMuse restores `.open-muse/state.json` by design. Use **Reset conversation**,
 
 ## How it works
 
-The React client displays chat and the live desktop. A local Node.js server owns the model connection, credentials, approval checks, conversation state, and computer lifecycle. An OpenMuse-owned provider protocol selects local Celesto or Celesto Cloud, while a host-owned Playwright connection sends approved browser operations to Chromium.
+The React client displays chat and the live desktop. A local Node.js server owns the model connection, credentials, approval checks, conversation state, and computer lifecycle. An OpenMuse-owned provider protocol selects local Celesto or Celesto Cloud, while a Playwright connection held by the local server sends approved browser operations to Chromium.
 
 The model chooses structured operations and their arguments; it does not send executable Playwright code. New popups remain quarantined until the user adopts them. The browser automation address and raw remote-display address stay in the Node.js process, and the client receives only a short-lived path to the viewer.
 

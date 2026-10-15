@@ -36,7 +36,7 @@ from celesto.cli.main import (
     build_cli,
     main,
 )
-from celesto.exceptions import VMNotFoundError
+from celesto.exceptions import BrowserSessionNotFoundError, VMNotFoundError
 from celesto.types import (
     BrowserSessionState,
     CommandResult,
@@ -156,19 +156,19 @@ def test_sandbox_help_describes_all_commands(capsys: pytest.CaptureFixture) -> N
     help_text = capsys.readouterr().out
     for description in [
         "Create a minimal computer; add --desktop for a Linux desktop.",
-        "Delete one or more sandboxes.",
-        "Manage sandbox environment variables.",
-        "Copy files into or out of a sandbox.",
-        "Show details about a sandbox.",
-        "List your sandboxes.",
-        "Pause a running sandbox.",
-        "Manage port forwarding for a sandbox.",
-        "Resume a paused sandbox.",
-        "Save and restore sandbox state.",
-        "Open a fast shell in a sandbox.",
-        "Open an SSH shell in a sandbox.",
-        "Start a stopped sandbox.",
-        "Stop a running sandbox.",
+        "Delete one or more computers.",
+        "Manage a computer's environment variables.",
+        "Copy files into or out of a computer.",
+        "Show details about a computer.",
+        "List your computers.",
+        "Pause a running computer.",
+        "Manage port forwarding for a computer.",
+        "Resume a paused computer.",
+        "Save and restore computer state.",
+        "Open a fast shell in a computer.",
+        "Open an SSH shell in a computer.",
+        "Start a stopped computer.",
+        "Stop a running computer.",
     ]:
         assert description in help_text
 
@@ -211,15 +211,15 @@ def test_json_error_preserves_empty_details(capsys: pytest.CaptureFixture) -> No
     [
         (
             ["sandbox", "list", "--all", "--status", "running"],
-            ["celesto sandbox list --all", "celesto sandbox list --status running"],
+            ["celesto computer list --all", "celesto computer list --status running"],
         ),
         (
             ["sandbox", "delete", "my-sandbox", "--all"],
-            ["celesto sandbox delete my-sandbox", "celesto sandbox delete --all --force"],
+            ["celesto computer delete my-computer", "celesto computer delete --all --force"],
         ),
         (
             ["sandbox", "delete"],
-            ["celesto sandbox delete my-sandbox", "celesto sandbox delete --all --force"],
+            ["celesto computer delete my-computer", "celesto computer delete --all --force"],
         ),
         (
             ["browser", "stop"],
@@ -482,12 +482,12 @@ class TestCliEnv:
         capsys: pytest.CaptureFixture,
     ) -> None:
         """Test handling of VM lookup failure."""
-        mock_vm_cls.from_id.side_effect = Exception("VM not found")
+        mock_vm_cls.from_id.side_effect = Exception("Computer not found")
 
         ret = main(["sandbox", "env", "list", "missing-vm"])
 
         assert ret == 1
-        assert "Error: VM not found" in capsys.readouterr().err
+        assert "Error: Computer not found" in capsys.readouterr().err
 
     def test_vm_no_network_prints_error(
         self,
@@ -496,7 +496,7 @@ class TestCliEnv:
     ) -> None:
         """Test handling of env operation failure from facade."""
         vm = self._setup_vm(mock_vm_cls)
-        vm.list_env_vars.side_effect = Exception("VM has no network configuration")
+        vm.list_env_vars.side_effect = Exception("Computer has no network configuration")
 
         ret = main(["sandbox", "env", "list", "vm001"])
 
@@ -789,13 +789,13 @@ class TestCliCreate:
         vm.wait_for_ssh.assert_not_called()
         vm.close.assert_called_once()
         out = capsys.readouterr().out
-        assert "Created VM 'vm-a1b2c3d4'." in out
+        assert "Created computer 'vm-a1b2c3d4'." in out
         assert "OS" in out
         assert "ubuntu" in out
         assert "Started" in out
-        assert "celesto sandbox shell vm-a1b2c3d4" in out
-        assert "celesto sandbox ssh vm-a1b2c3d4" in out
-        assert "celesto sandbox info vm-a1b2c3d4" in out
+        assert "celesto computer shell vm-a1b2c3d4" in out
+        assert "celesto computer ssh vm-a1b2c3d4" in out
+        assert "celesto computer info vm-a1b2c3d4" in out
         assert "Backend" not in out
         assert "IP Address" not in out
         assert "SSH Port" not in out
@@ -869,13 +869,13 @@ class TestCliCreate:
         vm.delete.assert_not_called()
         vm.close.assert_called_once()
         out = capsys.readouterr().out
-        assert "Created VM 'project-spacex'." in out
+        assert "Created computer 'project-spacex'." in out
         assert "OS" in out
         assert "ubuntu" in out
         assert "Started" in out
-        assert "celesto sandbox shell project-spacex" in out
-        assert "celesto sandbox ssh project-spacex" in out
-        assert "celesto sandbox info project-spacex" in out
+        assert "celesto computer shell project-spacex" in out
+        assert "celesto computer ssh project-spacex" in out
+        assert "celesto computer info project-spacex" in out
         assert "Backend" not in out
         assert "172.16.0.2" not in out
         assert "2200" not in out
@@ -1001,9 +1001,9 @@ class TestCliCreate:
         assert payload["data"]["vm"]["name"] == "project-spacex"
         assert payload["data"]["vm"]["os"] == "ubuntu"
         assert payload["data"]["vm"]["started_at"]
-        assert payload["data"]["next"]["shell_command"] == "celesto sandbox shell project-spacex"
-        assert payload["data"]["next"]["ssh_command"] == "celesto sandbox ssh project-spacex"
-        assert payload["data"]["next"]["info_command"] == "celesto sandbox info project-spacex"
+        assert payload["data"]["next"]["shell_command"] == "celesto computer shell project-spacex"
+        assert payload["data"]["next"]["ssh_command"] == "celesto computer ssh project-spacex"
+        assert payload["data"]["next"]["info_command"] == "celesto computer info project-spacex"
         assert payload["data"]["warnings"] == []
 
     @patch("celesto.facade._build_auto_config")
@@ -1038,9 +1038,9 @@ class TestCliCreate:
 
         assert ret == 0
         payload = json.loads(capsys.readouterr().out)
-        assert payload["data"]["next"]["shell_command"] == ("celesto sandbox shell bridge-demo")
+        assert payload["data"]["next"]["shell_command"] == ("celesto computer shell bridge-demo")
         assert payload["data"]["next"]["ssh_command"] is None
-        assert "celesto sandbox shell bridge-demo" in payload["data"]["warnings"][0]
+        assert "celesto computer shell bridge-demo" in payload["data"]["warnings"][0]
 
     @patch("celesto.facade.platform.machine", return_value="x86_64")
     @patch("celesto.facade.build_seed_iso")
@@ -1165,7 +1165,7 @@ class TestCliCreate:
     ) -> None:
         """Duplicate VM names should fail cleanly."""
         mock_build_auto_config.return_value = (MagicMock(vm_id="project-spacex"), "/tmp/id_ed25519")
-        mock_vm_cls.side_effect = Exception("VM 'project-spacex' already exists")
+        mock_vm_cls.side_effect = Exception("Computer 'project-spacex' already exists")
 
         ret = main(["sandbox", "create", "--name", "project-spacex"])
 
@@ -1522,7 +1522,7 @@ class TestCliWindowsBuildImage:
         # The panel shows the working Python path, not the CLI path that cannot
         # accept Windows login credentials. The password is never leaked.
         assert 'Celesto(os="windows"' in out_text
-        assert "celesto sandbox create --os windows" not in out_text
+        assert "celesto computer create --os windows" not in out_text
         assert 'ssh_password="<hidden>"' in out_text
         assert 'ssh_password="celesto"' not in out_text
 
@@ -1633,7 +1633,7 @@ class TestCliStop:
         vm.stop.assert_called_once_with(timeout=7.0)
         vm.close.assert_called_once()
         out = capsys.readouterr().out
-        assert "Stopped VM 'vm001'." in out
+        assert "Stopped computer 'vm001'." in out
         assert "stopped" in out
 
     @patch("celesto.facade.Celesto")
@@ -1663,12 +1663,12 @@ class TestCliStop:
         capsys: pytest.CaptureFixture,
     ) -> None:
         """Missing VMs should surface a clean error."""
-        mock_vm_cls.from_id.side_effect = Exception("VM 'missing' not found")
+        mock_vm_cls.from_id.side_effect = Exception("Computer 'missing' not found")
 
         ret = main(["sandbox", "stop", "missing"])
 
         assert ret == 1
-        assert "VM 'missing' not found" in capsys.readouterr().err
+        assert "Computer 'missing' not found" in capsys.readouterr().err
 
 
 class TestCliPauseResume:
@@ -1692,7 +1692,7 @@ class TestCliPauseResume:
         vm.pause.assert_called_once_with()
         vm.close.assert_called_once()
         out = capsys.readouterr().out
-        assert "Paused VM 'vm001'." in out
+        assert "Paused computer 'vm001'." in out
         assert "paused" in out
 
     @patch("celesto.facade.Celesto")
@@ -1737,7 +1737,7 @@ class TestCliVmStart:
         vm.start.assert_called_once_with(boot_timeout=30.0)
         vm.close.assert_called_once()
         out = capsys.readouterr().out
-        assert "Started VM 'vm001'." in out
+        assert "Started computer 'vm001'." in out
         assert "running" in out
 
     @patch("celesto.facade.Celesto")
@@ -2115,8 +2115,8 @@ class TestCliShell:
         vm = MagicMock()
         vm.status = VMState.STOPPED
         vm.ensure_shell_supported.side_effect = CelestoError(
-            "Sandbox 'vm001' cannot use 'celesto sandbox shell'; "
-            "run 'celesto sandbox ssh vm001' to open an SSH shell."
+            "Computer 'vm001' cannot use 'celesto computer shell'; "
+            "run 'celesto computer ssh vm001' to open an SSH shell."
         )
         mock_vm_cls.from_id.return_value = vm
 
@@ -2131,7 +2131,7 @@ class TestCliShell:
         mock_run.assert_not_called()
         vm.close.assert_called_once()
         err = capsys.readouterr().err
-        assert "sandbox ssh vm001" in err
+        assert "computer ssh vm001" in err
         assert "vm001" in err
 
     @pytest.mark.parametrize("status", [VMState.RUNNING, VMState.STOPPED])
@@ -2149,9 +2149,9 @@ class TestCliShell:
         vm = MagicMock()
         vm.status = status
         vm.attach_shell.side_effect = CelestoError(
-            "Sandbox vm001 was created from an older image and cannot use fast shell access; "
-            "run `celesto sandbox delete vm001`, then run "
-            "`celesto sandbox create --name vm001` after updating Celesto."
+            "Computer vm001 was created from an older image and cannot use fast shell access; "
+            "run `celesto computer delete vm001`, then run "
+            "`celesto computer create --name vm001` after updating Celesto."
         )
         mock_vm_cls.from_id.return_value = vm
 
@@ -2168,8 +2168,8 @@ class TestCliShell:
         mock_run.assert_not_called()
         vm.close.assert_called_once()
         err = " ".join(capsys.readouterr().err.replace("│", "").split())
-        assert "celesto sandbox delete vm001" in err
-        assert "celesto sandbox create --name vm001" in err
+        assert "celesto computer delete vm001" in err
+        assert "celesto computer create --name vm001" in err
 
     @patch("celesto.facade.Celesto")
     def test_shell_resumes_paused_vm(self, mock_vm_cls: MagicMock) -> None:
@@ -2208,9 +2208,9 @@ class TestCliShell:
         vm.close.assert_called_once()
         err = " ".join(capsys.readouterr().err.replace("│", "").split())
         assert "error state" in err
-        assert "celesto sandbox logs vm001" in err
-        assert "celesto sandbox delete vm001" in err
-        assert "celesto sandbox create --name vm001" in err
+        assert "celesto computer logs vm001" in err
+        assert "celesto computer delete vm001" in err
+        assert "celesto computer create --name vm001" in err
 
 
 class TestCliSSH:
@@ -2344,13 +2344,13 @@ class TestCliSSH:
         capsys: pytest.CaptureFixture,
     ) -> None:
         """Missing VMs should surface a clean error."""
-        mock_vm_cls.from_id.side_effect = Exception("VM 'missing' not found")
+        mock_vm_cls.from_id.side_effect = Exception("Computer 'missing' not found")
 
         ret = main(["sandbox", "ssh", "missing"])
 
         assert ret == 1
         mock_run.assert_not_called()
-        assert "VM 'missing' not found" in capsys.readouterr().err
+        assert "Computer 'missing' not found" in capsys.readouterr().err
 
     @patch("celesto.cli.main.subprocess.run", side_effect=FileNotFoundError)
     @patch("celesto.facade.Celesto")
@@ -2716,7 +2716,7 @@ class TestCliBrowser:
         ret = main(["browser", "open", "browser-abc123"])
 
         assert ret == 1
-        assert "does not have a viewer_url" in capsys.readouterr().err
+        assert "has no live view" in capsys.readouterr().err
 
     @patch("celesto.browser._BrowserSandbox")
     @patch("celesto.vm.resolve_data_dir", return_value=Path("/tmp"))
@@ -2752,7 +2752,7 @@ class TestCliBrowser:
         second_session.stop.assert_called_once_with()
         first_session.close.assert_called_once_with()
         second_session.close.assert_called_once_with()
-        assert "Stopped 2 browser sandbox(es)." in capsys.readouterr().out
+        assert "Stopped 2 browser session(s)." in capsys.readouterr().out
 
     @patch("celesto.browser._BrowserSandbox")
     @patch("celesto.vm.resolve_data_dir", return_value=Path("/tmp"))
@@ -2827,6 +2827,27 @@ class TestCliBrowser:
         assert "celesto computer delete computer-demo" in compact_error
         session.stop.assert_not_called()
 
+    @pytest.mark.parametrize("action", ["stop", "open", "logs"])
+    @patch("celesto.browser._BrowserSandbox")
+    @patch("celesto.cli.state.create_cli_state_manager")
+    def test_browser_command_missing_session_names_browser_list(
+        self,
+        _mock_state_manager_cls: MagicMock,
+        mock_browser_cls: MagicMock,
+        action: str,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """A missing browser session should say so instead of suggesting a retry."""
+        mock_browser_cls.from_id.side_effect = BrowserSessionNotFoundError("ghost")
+
+        ret = main(["browser", action, "ghost"])
+
+        assert ret == 1
+        compact_error = " ".join(capsys.readouterr().err.replace("│", " ").split())
+        assert "Browser session 'ghost' was not found" in compact_error
+        assert "celesto browser list" in compact_error
+        assert "try again" not in compact_error
+
     @patch("celesto.vm.resolve_data_dir", return_value=Path("/tmp"))
     @patch("celesto.cli.state.create_cli_state_manager")
     def test_browser_stop_all_empty(
@@ -2844,7 +2865,7 @@ class TestCliBrowser:
 
         assert ret == 0
         state_manager.list_browser_sessions.assert_called_once_with()
-        assert "No browser sandboxes found." in capsys.readouterr().out
+        assert "No browser sessions found." in capsys.readouterr().out
 
     @patch("celesto.vm.resolve_data_dir", return_value=Path("/tmp"))
     @patch("celesto.cli.state.create_cli_state_manager")
@@ -2977,6 +2998,80 @@ class TestCliComputer:
         assert row["sandbox_id"] == "vm-computer-demo"
         assert "session_id" not in row
         assert "vm_id" not in row
+
+    @pytest.mark.parametrize(
+        ("guest_os", "recovery"),
+        [
+            (GuestOS.MACOS, "celesto computer desktop test-vm"),
+            (GuestOS.ALPINE, "celesto computer shell test-vm"),
+        ],
+    )
+    @patch("celesto.vm.resolve_data_dir", return_value=Path("/tmp"))
+    @patch("celesto.cli.state.create_cli_state_manager")
+    def test_computer_open_names_right_command_for_other_computers(
+        self,
+        mock_state_manager_cls: MagicMock,
+        _mock_resolve_data_dir: MagicMock,
+        guest_os: GuestOS,
+        recovery: str,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """`open` finds only Linux desktops, so other computers need another command."""
+        state_manager = MagicMock()
+        state_manager.get_browser_session_config.side_effect = BrowserSessionNotFoundError(
+            "test-vm"
+        )
+        vm_info = _make_vm_info(vm_id="test-vm")
+        vm_info.config.guest_os = guest_os
+        state_manager.get_vm.return_value = vm_info
+        mock_state_manager_cls.return_value = state_manager
+
+        ret = main(["computer", "open", "test-vm"])
+
+        assert ret == 1
+        compact_error = " ".join(capsys.readouterr().err.replace("│", " ").split())
+        assert recovery in compact_error
+
+    @patch("celesto.vm.resolve_data_dir", return_value=Path("/tmp"))
+    @patch("celesto.cli.state.create_cli_state_manager")
+    def test_computer_open_missing_computer_names_desktop_list(
+        self,
+        mock_state_manager_cls: MagicMock,
+        _mock_resolve_data_dir: MagicMock,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        state_manager = MagicMock()
+        state_manager.get_browser_session_config.side_effect = BrowserSessionNotFoundError("ghost")
+        state_manager.get_vm.side_effect = VMNotFoundError("ghost")
+        mock_state_manager_cls.return_value = state_manager
+
+        ret = main(["computer", "open", "ghost"])
+
+        assert ret == 1
+        compact_error = " ".join(capsys.readouterr().err.replace("│", " ").split())
+        assert "Linux desktop computer 'ghost' was not found" in compact_error
+        assert "celesto computer list --desktop" in compact_error
+
+    @patch("celesto.cli.main._cli_vm_from_id", side_effect=VMNotFoundError("assistant"))
+    @patch("celesto.vm.resolve_data_dir", return_value=Path("/tmp"))
+    @patch("celesto.cli.state.create_cli_state_manager")
+    def test_computer_desktop_names_open_command_for_linux_desktop(
+        self,
+        mock_state_manager_cls: MagicMock,
+        _mock_resolve_data_dir: MagicMock,
+        _mock_vm_from_id: MagicMock,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """`desktop` finds only macOS computers, so a Linux desktop needs `computer open`."""
+        state_manager = MagicMock()
+        state_manager.get_browser_session_config.return_value.mode = "computer"
+        mock_state_manager_cls.return_value = state_manager
+
+        ret = main(["computer", "desktop", "assistant"])
+
+        assert ret == 1
+        compact_error = " ".join(capsys.readouterr().err.replace("│", " ").split())
+        assert "celesto computer open assistant" in compact_error
 
     def test_computer_templates(self, capsys: pytest.CaptureFixture) -> None:
         ret = main(["computer", "templates", "--json"])
@@ -3131,7 +3226,7 @@ class TestCliList:
         ret = main(["sandbox", "list"])
 
         assert ret == 0
-        assert "No running VMs found." in capsys.readouterr().out
+        assert "No running computers found." in capsys.readouterr().out
         mock_sdk_cls.return_value.list_vms.assert_called_once_with(status=VMState.RUNNING)
         mock_sdk_cls.return_value.close.assert_called_once()
 
@@ -3151,12 +3246,12 @@ class TestCliList:
         assert "vm-abc123" in out
         assert "running" in out
         assert "12345" in out
-        assert "Celesto Instances" in out
+        assert "Celesto Computers" in out
         assert "Name" in out
         assert "Preset" in out
         assert "Status" in out
         assert "PID" in out
-        assert "Total: 1 VM(s)." in out
+        assert "Total: 1 computer(s)." in out
         mock_sdk_cls.return_value.list_vms.assert_called_once_with(status=VMState.RUNNING)
 
     def test_list_all_shows_running_and_stopped_vms(
@@ -3178,7 +3273,7 @@ class TestCliList:
         assert "vm-abc123" in out
         assert "vm-def456" in out
         assert "stopped" in out
-        assert "Total: 2 VM(s)." in out
+        assert "Total: 2 computer(s)." in out
         mock_sdk_cls.return_value.list_vms.assert_called_once_with(status=None)
 
     def test_list_no_network(
@@ -3418,20 +3513,20 @@ class TestCliList:
         [
             (
                 ["openclaw", "list"],
-                "No running 'openclaw' sandboxes found.",
+                "No running 'openclaw' computers found.",
                 ("celesto openclaw list --all",),
             ),
             (
                 ["openclaw", "list", "--all"],
-                "No 'openclaw' sandboxes found.",
+                "No 'openclaw' computers found.",
                 (
-                    "To include older or manually prepared sandboxes, run",
-                    "'celesto sandbox list --all'; to create one, run 'celesto openclaw start'.",
+                    "To include older or manually prepared computers, run",
+                    "'celesto computer list --all'; to create one, run 'celesto openclaw start'.",
                 ),
             ),
             (
                 ["openclaw", "list", "--status", "stopped"],
-                "No 'openclaw' sandboxes with status 'stopped'.",
+                "No 'openclaw' computers with status 'stopped'.",
                 ("celesto openclaw list --all",),
             ),
         ],
@@ -3465,7 +3560,7 @@ class TestCliList:
 
         assert ret == 0
         output = " ".join(capsys.readouterr().out.split())
-        assert "celesto sandbox list --preset codex --all" in output
+        assert "celesto computer list --preset codex --all" in output
         assert "celesto codex list" not in output
 
     def test_list_rejects_unknown_preset(self, capsys: pytest.CaptureFixture) -> None:
@@ -3523,7 +3618,7 @@ class TestCliList:
         assert "Warnings:" in out
         assert str(missing) in out
         # The warning explains what to do, not just what's wrong.
-        assert "celesto sandbox delete vm-abc123" in out
+        assert "celesto computer delete vm-abc123" in out
 
     def test_list_warning_does_not_claim_running_sandbox_cannot_start(
         self,
@@ -3568,7 +3663,7 @@ class TestCliList:
         # what's wrong, the missing path, and how to recover.
         assert str(missing) in warnings[0]
         assert "missing" in warnings[0]
-        assert "celesto sandbox delete vm-abc123" in warnings[0]
+        assert "celesto computer delete vm-abc123" in warnings[0]
 
 
 class TestCliInfo:
@@ -3760,7 +3855,7 @@ class TestCliInfo:
         assert "Network Mode" in human
         assert "bridge" in human
         assert "br10" in human
-        assert "Managed inside guest" in human
+        assert "Managed inside the computer" in human
 
         assert main(["sandbox", "info", "sbx-pauling", "--json"]) == 0
         payload = json.loads(capsys.readouterr().out)
@@ -3774,12 +3869,14 @@ class TestCliInfo:
         capsys: pytest.CaptureFixture,
     ) -> None:
         """`celesto sandbox info` returns 1 and an error message when the VM is missing."""
-        mock_sdk_cls.return_value.state.get_vm.side_effect = RuntimeError("VM 'ghost' not found")
+        mock_sdk_cls.return_value.state.get_vm.side_effect = RuntimeError(
+            "Computer 'ghost' not found"
+        )
 
         ret = main(["sandbox", "info", "ghost"])
 
         assert ret == 1
-        assert "VM 'ghost' not found" in capsys.readouterr().err
+        assert "Computer 'ghost' not found" in capsys.readouterr().err
         mock_sdk_cls.return_value.close.assert_called_once()
 
     def test_info_qcow2_uses_virtual_size(
@@ -4039,8 +4136,8 @@ class TestCliStart:
         assert "sbx-codex" in out
         assert "codex" in out
         assert "OPENAI_API_KEY" in out
-        assert "celesto sandbox shell sbx-codex" in out
-        assert "celesto sandbox ssh sbx-codex" in out
+        assert "celesto computer shell sbx-codex" in out
+        assert "celesto computer ssh sbx-codex" in out
 
     @patch("celesto.images.published.is_preset_published", return_value=False)
     @patch("celesto.presets.apply_preset")
@@ -4075,8 +4172,8 @@ class TestCliStart:
         assert payload["data"]["vm"]["os"] == "ubuntu"
         assert payload["data"]["preset"]["name"] == "codex"
         assert payload["data"]["preset"]["injected_env_keys"] == ["OPENAI_API_KEY"]
-        assert payload["data"]["next"]["shell_command"] == "celesto sandbox shell sbx-1"
-        assert payload["data"]["next"]["ssh_command"] == "celesto sandbox ssh sbx-1"
+        assert payload["data"]["next"]["shell_command"] == "celesto computer shell sbx-1"
+        assert payload["data"]["next"]["ssh_command"] == "celesto computer ssh sbx-1"
         assert mock_build_auto_config.call_args.kwargs["preset_name"] == "codex"
         assert mock_apply_fn.call_args.kwargs["preset_command"] == "codex"
         assert mock_apply_fn.call_args.kwargs["sandbox_name"] == "sbx-1"
@@ -4536,7 +4633,7 @@ class TestOpenClawCommands:
 
         assert ret == 0
         output = capsys.readouterr().out
-        assert "Create and manage OpenClaw sandboxes." in output
+        assert "Create and manage OpenClaw computers." in output
         assert "list" in output
         assert "open-ui" in output
 
@@ -4545,9 +4642,9 @@ class TestOpenClawCommands:
 
         assert ret == 0
         output = " ".join(capsys.readouterr().out.split())
-        assert "List your OpenClaw sandboxes." in output
-        assert "Include OpenClaw sandboxes in every state." in output
-        assert "Show only OpenClaw sandboxes in this state." in output
+        assert "List your OpenClaw computers." in output
+        assert "Include OpenClaw computers in every state." in output
+        assert "Show only OpenClaw computers in this state." in output
 
     @patch("celesto.cli.main._run_list", return_value=0)
     def test_list_rejects_conflicting_filters(self, mock_run: MagicMock) -> None:
@@ -4568,7 +4665,7 @@ class TestOpenClawCommands:
         assert "--os [ubuntu]" in output
         assert "alpine" not in output
         assert "windows" not in output
-        assert "Sandbox name; Celesto generates one when omitted." in normalized_output
+        assert "Computer name; Celesto generates one when omitted." in normalized_output
         assert "Seconds to wait for each agent installation step." in normalized_output
 
     def test_open_command_has_been_replaced_by_open_ui(
@@ -4596,8 +4693,8 @@ class TestOpenClawCommands:
         assert ret == 1
         captured = capsys.readouterr()
         error = json.loads(captured.out)["error"]["message"] if json_output else captured.err
-        assert "Sandbox 'missing-claw' was not found" in error
-        assert "celestosandboxlist--all" in "".join(error.split()).replace("│", "")
+        assert "Computer 'missing-claw' was not found" in error
+        assert "celestocomputerlist--all" in "".join(error.split()).replace("│", "")
         assert "celestoopenclawstart--namemissing-claw--no-attach" in (
             "".join(error.split()).replace("│", "")
         )
@@ -4669,7 +4766,7 @@ class TestOpenClawCommands:
         output = capsys.readouterr().out
         assert "http://127.0.0.1:39876/" in output
         assert "one-time-secret" not in output
-        assert "celesto sandbox port close sbx-claw 39876:18789" in output
+        assert "celesto computer port close sbx-claw 39876:18789" in output
         vm.close.assert_called_once()
 
     @patch("celesto.cli.main.webbrowser.open")
@@ -4711,7 +4808,7 @@ class TestOpenClawCommands:
             "browser_url": "http://127.0.0.1:39877/#token=secret",
             "ws_url": None,
             "opened": False,
-            "close_command": "celesto sandbox port close sbx-claw 39877:18789",
+            "close_command": "celesto computer port close sbx-claw 39877:18789",
         }
         vm.close.assert_called_once()
 
@@ -4772,7 +4869,7 @@ class TestOpenClawCommands:
         assert ret == 1
         message = json.loads(capsys.readouterr().out)["error"]["message"]
         assert "unexpected dashboard address" in message
-        assert "celesto sandbox shell sbx-claw" in message
+        assert "celesto computer shell sbx-claw" in message
         vm.expose_local.assert_not_called()
         vm.close.assert_called_once()
 
@@ -4887,8 +4984,8 @@ class TestOpenClawCommands:
         assert message in error
         assert "sbx-claw" in error
         if message in {"OpenClaw is not installed", "requires OpenClaw 2026.9.1"}:
-            assert "celesto sandbox snapshot create sbx-claw" in error
-            assert "celesto sandbox delete sbx-claw" in error
+            assert "celesto computer snapshot create sbx-claw" in error
+            assert "celesto computer delete sbx-claw" in error
             assert "celesto openclaw start --name sbx-claw --no-attach" in error
         vm.expose_local.assert_not_called()
         vm.close.assert_called_once()
@@ -5103,7 +5200,7 @@ class TestPublishedImageLaunchPath:
     def test_arch_helper_rejects_unsupported(self, _mock_machine: MagicMock) -> None:
         from celesto.cli.main import _host_arch_for_published
 
-        with pytest.raises(RuntimeError, match="Unsupported host architecture"):
+        with pytest.raises(RuntimeError, match="Agent presets need an amd64 or arm64 processor"):
             _host_arch_for_published()
 
     @patch("celesto.utils.ensure_ssh_key")
@@ -5144,7 +5241,7 @@ class TestPublishedImageLaunchPath:
     def test_vmm_for_host_rejects_unsupported_os(self, _mock_system: MagicMock) -> None:
         from celesto.cli.main import _vmm_for_host
 
-        with pytest.raises(RuntimeError, match="Unsupported host OS"):
+        with pytest.raises(RuntimeError, match="Agent presets need Linux or macOS"):
             _vmm_for_host()
 
     def test_boot_args_for_firecracker_omits_console_arg(self) -> None:
@@ -5897,7 +5994,7 @@ class TestCliExec:
         capsys: pytest.CaptureFixture,
     ) -> None:
         """A missing sandbox surfaces a human-facing error."""
-        mock_vm_cls.from_id.side_effect = Exception("VM 'missing' not found")
+        mock_vm_cls.from_id.side_effect = Exception("Computer 'missing' not found")
 
         ret = main(["sandbox", "exec", "missing", "--", "ls"])
 
@@ -6152,7 +6249,7 @@ class TestCliLogs:
         payload = json.loads(capsys.readouterr().out)
         assert payload["ok"] is False
         assert payload["error"]["code"] == "not_found"
-        assert "celesto sandbox start vm001" in payload["error"]["recovery"]
+        assert "celesto computer start vm001" in payload["error"]["recovery"]
 
     def test_logs_follow_rejected_in_json(
         self,

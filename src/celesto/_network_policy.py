@@ -53,7 +53,7 @@ def validate_network_policy_options(
         )
     if settings.has_explicit_restrictions:
         if backend == "qemu":
-            help_text = f" See '{recovery_command or 'celesto sandbox create --help'}'."
+            help_text = f" See '{recovery_command or 'celesto computer create --help'}'."
             if settings.mode == "restricted" and (sys.platform != "linux" or qemu_network != "tap"):
                 raise ValidationError(
                     "QEMU address restrictions require Linux TAP networking; use "
@@ -72,7 +72,7 @@ def validate_network_policy_options(
             if qemu_network == "tap" and has_forwards:
                 raise ValidationError(
                     "QEMU TAP does not support port_forwards; omit it and connect to the "
-                    "sandbox's IP, or use expose_local(8080) after starting it." + help_text
+                    "computer's IP, or use expose_local(8080) after starting it." + help_text
                 )
             return
         if backend != "firecracker" or sys.platform != "linux":

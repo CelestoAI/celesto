@@ -87,7 +87,8 @@ class LocalProvider:
             config = state.get_browser_session_config(computer_id)
             if config.mode != "computer":
                 raise ValueError(
-                    f"'{computer_id}' is not a computer; run 'celesto computer list' to choose one."
+                    f"'{computer_id}' is a browser session, not a computer; run "
+                    "'celesto computer list' or 'celesto computer list --desktop' to choose one."
                 )
             unsupported = options.keys() - {
                 "data_dir",
@@ -98,8 +99,8 @@ class LocalProvider:
             if unsupported:
                 names = ", ".join(sorted(unsupported))
                 raise ValueError(
-                    f"Desktop computer '{computer_id}' does not accept {names} when reconnecting; "
-                    "omit those options and retry."
+                    f"Linux desktop computer '{computer_id}' does not accept {names} "
+                    "when reconnecting; omit those options and retry."
                 )
             self._desktop = cast(
                 "_ComputerSandbox", _ComputerSandbox.from_id(computer_id, **options)

@@ -21,7 +21,7 @@ from celesto.presets._types import HostConfigCopy, Preset
 
 OPENCODE_PRESET = Preset(
     name="opencode",
-    summary="Start a sandbox with the stable OpenCode agent preinstalled.",
+    summary="Start a computer with the stable OpenCode agent preinstalled.",
     setup_script=NODE20_BOOTSTRAP,
     install_script=npm_install_global("opencode-ai"),
     host_env_vars=(
@@ -49,6 +49,6 @@ OPENCODE_PRESET = Preset(
     launch_command="opencode",
     no_env_hint=(
         "No OpenCode provider credentials were found. Set a provider API key on your machine,"
-        " or run 'opencode auth login' inside the sandbox."
+        " or run 'opencode auth login' inside the computer."
     ),
 )

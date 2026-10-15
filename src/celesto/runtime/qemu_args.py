@@ -185,15 +185,15 @@ def build_qemu_argv(
     )
 
     if vm_info.network is None:
-        raise CelestoError("QEMU backend requires a VM network config")
+        raise CelestoError("QEMU backend requires a computer network config")
     if (
         not tap_mode
         and vm_info.config.comm_channel == "ssh"
         and vm_info.network.ssh_host_port is None
     ):
         raise CelestoError(
-            f"Sandbox '{vm_info.vm_id}' is missing the port needed for SSH; recreate it with "
-            f"'celesto sandbox create --name {vm_info.vm_id} --comm-channel ssh'."
+            f"Computer '{vm_info.vm_id}' is missing the port needed for SSH; recreate it with "
+            f"'celesto computer create --name {vm_info.vm_id} --comm-channel ssh'."
         )
 
     # Defensive sanity check: if the platform spec forces a specific boot
@@ -206,7 +206,7 @@ def build_qemu_argv(
         and vm_info.config.boot_mode != platform_spec.forced_boot_mode
     ):
         raise CelestoError(
-            "VM boot_mode does not match platform spec",
+            "Computer boot_mode does not match platform spec",
             {
                 "guest_os": platform_spec.guest_os.value,
                 "vmconfig_boot_mode": vm_info.config.boot_mode,

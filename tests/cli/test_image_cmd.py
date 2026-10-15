@@ -1063,7 +1063,7 @@ class TestNonDefaultDirWarning:
         sentence."""
         [warning] = _non_default_dir_warnings(tmp_path)
 
-        assert warning.startswith(f"Sandboxes look for images in '{resolve_image_dir(None)}'. ")
+        assert warning.startswith(f"Computers look for images in '{resolve_image_dir(None)}'. ")
         assert shlex.quote(str(tmp_path)) in warning
 
 

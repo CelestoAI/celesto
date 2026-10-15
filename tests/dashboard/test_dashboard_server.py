@@ -340,7 +340,7 @@ def test_execute_command_reports_a_partial_failure_honestly(
 
     assert isinstance(response, server.CommandResponse)
     assert response.result == (
-        f"{past} 1 of 2 sandboxes. 'sbx-2' failed: run '{verb} sbx-2' to try again."
+        f"{past} 1 of 2 computers. 'sbx-2' failed: run '{verb} sbx-2' to try again."
     )
     assert response.affected_vms == ["sbx-1"]
 
@@ -384,7 +384,7 @@ def test_execute_command_treats_an_already_gone_sandbox_as_done(
     response = asyncio.run(server.execute_command(server.CommandRequest(text=text)))
 
     assert isinstance(response, server.CommandResponse)
-    assert response.result == f"{past} 1 sandbox."
+    assert response.result == f"{past} 1 computer."
 
 
 @pytest.mark.parametrize("prior", [VMState.CREATED, VMState.STOPPED, VMState.ERROR])
@@ -408,7 +408,7 @@ def test_execute_command_does_not_claim_to_stop_a_sandbox_that_was_not_running(
     response = asyncio.run(server.execute_command(server.CommandRequest(text="stop sbx-idle")))
 
     assert isinstance(response, server.CommandResponse)
-    assert response.result == "Stopped 0 of 1 sandboxes. 'sbx-idle' was not running."
+    assert response.result == "Stopped 0 of 1 computers. 'sbx-idle' was not running."
     assert response.affected_vms == []
 
 
@@ -435,7 +435,7 @@ def test_execute_command_does_not_claim_to_stop_an_idle_sandbox_that_vanished(
     response = asyncio.run(server.execute_command(server.CommandRequest(text="stop sbx-idle")))
 
     assert isinstance(response, server.CommandResponse)
-    assert response.result == "Stopped 0 of 1 sandboxes. 'sbx-idle' was not running."
+    assert response.result == "Stopped 0 of 1 computers. 'sbx-idle' was not running."
     assert response.affected_vms == []
 
 
@@ -519,7 +519,7 @@ def test_execute_command_group_delete_needs_confirmation(
     assert isinstance(response, JSONResponse)
     assert response.status_code == 409
     error = json.loads(response.body)["error"]
-    assert "Deleting 2 sandboxes cannot be undone" in error
+    assert "Deleting 2 computers cannot be undone" in error
     assert "Run 'delete all --force' to confirm" in error
     assert deleted == [], "nothing may be deleted before the user confirms"
 
@@ -541,7 +541,7 @@ def test_execute_command_group_delete_proceeds_once_confirmed(
     )
 
     assert isinstance(response, server.CommandResponse)
-    assert response.result == "Deleted 2 sandboxes."
+    assert response.result == "Deleted 2 computers."
     assert deleted == ["sbx-1", "sbx-2"]
 
 
@@ -578,7 +578,7 @@ def test_execute_command_unknown_sandbox_is_an_error_for_every_verb(
 
     assert isinstance(response, JSONResponse)
     assert response.status_code == 404
-    assert "No sandbox named 'sbx-nope'" in json.loads(response.body)["error"]
+    assert "No computer named 'sbx-nope'" in json.loads(response.body)["error"]
 
 
 @pytest.mark.parametrize("text", ["stop all", "delete all", "stop error", "stop running"])
@@ -594,7 +594,7 @@ def test_execute_command_group_target_matching_nothing_is_a_result(
 
     assert isinstance(response, server.CommandResponse)
     assert response.affected_vms == []
-    assert response.result.endswith("0 sandboxes.")
+    assert response.result.endswith("0 computers.")
 
 
 def test_execute_command_route_declares_its_error_responses() -> None:
@@ -626,7 +626,7 @@ def test_execute_command_returns_pydantic_model_on_success(
 
     assert isinstance(response, server.CommandResponse)
     assert response.action == "list"
-    assert response.result == "Found 0 VMs."
+    assert response.result == "Found 0 computers."
     assert response.affected_vms == []
 
 
@@ -646,7 +646,7 @@ def test_execute_command_unknown_input_returns_400_json(
     assert "'nope' is not a command" in error
     # Bare verbs would pass even if the syntax were dropped; assert the forms.
     assert "'list'" in error
-    for form in ("'info <sandbox>'", "'stop <sandbox>'", "'delete <sandbox>'"):
+    for form in ("'info <computer>'", "'stop <computer>'", "'delete <computer>'"):
         assert form in error
 
 
@@ -662,7 +662,7 @@ def test_execute_command_unknown_status_names_the_valid_statuses(
     assert isinstance(response, JSONResponse)
     assert response.status_code == 400
     error = json.loads(response.body)["error"]
-    assert "'bogus' is not a sandbox status" in error
+    assert "'bogus' is not a computer status" in error
     assert "Try 'list' on its own, or 'list' with one of:" in error
     for state in VMState:
         assert state.value in error
@@ -684,7 +684,7 @@ def test_execute_command_missing_vm_is_an_error_not_a_result(
     assert isinstance(response, JSONResponse)
     assert response.status_code == 404
     error = json.loads(response.body)["error"]
-    assert "No sandbox named 'sbx-nope'" in error
+    assert "No computer named 'sbx-nope'" in error
     assert "Run 'list' to see the ones you have." in error
 
 
@@ -720,8 +720,8 @@ def test_open_vm_desktop_not_found_names_recovery(monkeypatch: pytest.MonkeyPatc
         asyncio.run(server.open_vm_desktop("missing-mac"))
 
     assert exc_info.value.status_code == 404
-    assert "Sandbox 'missing-mac'" in exc_info.value.detail
-    assert "celesto sandbox list --all" in exc_info.value.detail
+    assert "Computer 'missing-mac'" in exc_info.value.detail
+    assert "celesto computer list --all" in exc_info.value.detail
 
 
 # ── Tests for GET /api/vms/{vm_id}/processes ──

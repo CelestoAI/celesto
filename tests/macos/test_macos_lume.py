@@ -326,7 +326,7 @@ def test_lume_share_error_names_pasteable_create_command() -> None:
             sandbox_name="mac-test",
         )
 
-    assert "celesto sandbox create --os macos --name mac-test" in str(exc_info.value)
+    assert "celesto computer create --os macos --name mac-test" in str(exc_info.value)
     assert "--mount /tmp/shared-folder" in str(exc_info.value)
 
 
@@ -387,7 +387,7 @@ def test_lume_run_timeout_names_sandbox_logs(tmp_path: Path) -> None:
             "celesto.macos.lume.subprocess.run",
             side_effect=subprocess.TimeoutExpired(["lume"], 15),
         ),
-        pytest.raises(CelestoError, match="celesto sandbox logs mac-test"),
+        pytest.raises(CelestoError, match="celesto computer logs mac-test"),
     ):
         LumeDriver(tmp_path / "lume").inspect("mac-test", storage_path=tmp_path)
 

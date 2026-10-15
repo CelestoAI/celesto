@@ -298,7 +298,7 @@ class _BrowserSandbox:
         if session_id is not None and state_manager is None:
             raise ValueError(
                 "Reconnecting by session_id requires an explicit state_manager; "
-                "retain the original browser sandbox handle for SDK use."
+                "retain the original browser session handle for SDK use."
             )
 
         self._data_dir = resolve_data_dir(data_dir)
@@ -424,7 +424,7 @@ class _BrowserSandbox:
     def vm(self) -> Celesto:
         """Underlying Celesto instance for shell commands and file transfer."""
         if self._vm is None:
-            raise CelestoError("Browser sandbox VM is unavailable.")
+            raise CelestoError("Browser session's computer is unavailable.")
         return self._vm
 
     @property
@@ -491,8 +491,8 @@ class _BrowserSandbox:
             )
         if self._vm is None:
             raise CelestoError(
-                f"Browser sandbox '{self.session_id}' cannot be started because "
-                "its VM is unavailable."
+                f"Browser session '{self.session_id}' cannot be started because "
+                "its computer is unavailable."
             )
 
         self._info = self._state.update_browser_session(
@@ -526,7 +526,7 @@ class _BrowserSandbox:
             if expects_browser:
                 if not self._wait_for_guest_port(_BROWSER_DEBUG_PORT, timeout=boot_timeout):
                     raise CelestoError(
-                        f"Browser sandbox '{self.session_id}' did not expose a CDP port in time."
+                        f"Browser session '{self.session_id}' did not expose a CDP port in time."
                     )
                 debug_host_port = self._resolve_browser_host_port(
                     _BROWSER_DEBUG_PORT,
@@ -535,7 +535,7 @@ class _BrowserSandbox:
                 cdp_url = f"http://127.0.0.1:{debug_host_port}"
                 if not self._wait_for_cdp_http(cdp_url, timeout=boot_timeout):
                     raise CelestoError(
-                        f"Browser sandbox '{self.session_id}' did not start in time; "
+                        f"Browser session '{self.session_id}' did not start in time; "
                         f"to inspect logs, run: celesto browser logs {self.session_id}."
                     )
 
@@ -545,11 +545,11 @@ class _BrowserSandbox:
             if expects_display:
                 if not self._wait_for_guest_port(_BROWSER_VNC_PORT, timeout=boot_timeout):
                     raise CelestoError(
-                        f"Browser sandbox '{self.session_id}' did not expose VNC in time."
+                        f"Browser session '{self.session_id}' did not expose VNC in time."
                     )
                 if not self._wait_for_guest_port(_BROWSER_LIVE_PORT, timeout=boot_timeout):
                     raise CelestoError(
-                        f"Browser sandbox '{self.session_id}' did not expose a viewer in time."
+                        f"Browser session '{self.session_id}' did not expose a viewer in time."
                     )
                 live_host_port = self._resolve_browser_host_port(
                     _BROWSER_LIVE_PORT,
@@ -638,7 +638,7 @@ class _BrowserSandbox:
     def connect_playwright(self) -> Any:
         """Connect Playwright to the browser sandbox over CDP."""
         if self._info.cdp_url is None:
-            raise CelestoError("Browser sandbox is not ready; start it before connecting.")
+            raise CelestoError("Browser session is not ready; start it before connecting.")
 
         try:
             from playwright.sync_api import sync_playwright
@@ -674,19 +674,19 @@ class _BrowserSandbox:
     def open_viewer(self) -> bool:
         """Open the viewer URL in the local default browser."""
         if self._info.live_url is None:
-            raise CelestoError("This browser sandbox does not expose a viewer_url.")
+            raise CelestoError("This browser session does not expose a viewer_url.")
         return webbrowser.open(self._info.live_url)
 
     def push_file(self, local_path: str | Path, guest_path: str) -> None:
         """Upload a file into the guest using the sandbox control channel."""
         if self._vm is None:
-            raise CelestoError("Browser sandbox VM is unavailable.")
+            raise CelestoError("Browser session's computer is unavailable.")
         self._vm.upload_file(local_path, guest_path)
 
     def pull_file(self, guest_path: str, local_path: str | Path) -> Path:
         """Download a file from the guest using the sandbox control channel."""
         if self._vm is None:
-            raise CelestoError("Browser sandbox VM is unavailable.")
+            raise CelestoError("Browser session's computer is unavailable.")
         return Path(self._vm.download_file(guest_path, local_path))
 
     def collect_artifacts(self) -> Path | None:
@@ -717,7 +717,7 @@ class _BrowserSandbox:
         result = self._vm.run(command, timeout=180)
         if not result.ok:
             raise CelestoError(
-                "Failed to collect browser sandbox artifacts: "
+                "Failed to collect browser session artifacts: "
                 f"{result.stderr.strip() or result.stdout}"
             )
 
@@ -770,7 +770,7 @@ class _BrowserSandbox:
 
     def _start_guest_browser(self) -> None:
         if self._vm is None:
-            raise CelestoError("Browser sandbox VM is unavailable.")
+            raise CelestoError("Browser session's computer is unavailable.")
 
         vm_info = self._vm.info
         proxy_endpoint = (
@@ -801,7 +801,7 @@ class _BrowserSandbox:
     def _launch_guest_browser(self) -> None:
         """Launch only Chromium, preserving the running graphical desktop."""
         if self._vm is None:
-            raise CelestoError("Browser sandbox VM is unavailable.")
+            raise CelestoError("Browser session's computer is unavailable.")
         vm_info = self._vm.info
         proxy_endpoint = (
             _guest_browser_proxy_endpoint(vm_info) if isinstance(vm_info, VMInfo) else None
@@ -835,7 +835,7 @@ class _BrowserSandbox:
         loopback policy for that browser endpoint.
         """
         if self._vm is None:
-            raise CelestoError("Browser sandbox VM is unavailable.")
+            raise CelestoError("Browser session's computer is unavailable.")
 
         configured = self._configured_browser_host_port(guest_port)
         if configured is not None and self._probe_local_port(configured):
@@ -848,7 +848,7 @@ class _BrowserSandbox:
 
     def _wait_for_guest_port(self, port: int, *, timeout: float) -> bool:
         if self._vm is None:
-            raise CelestoError("Browser sandbox VM is unavailable.")
+            raise CelestoError("Browser session's computer is unavailable.")
 
         control_wait_result = self._vm.wait_for_guest_tcp_ports(
             [port],
@@ -941,6 +941,7 @@ class _DesktopSandbox(_BrowserSandbox):
     def connect_playwright(self) -> Any:
         """Desktop sandboxes do not expose Playwright automation."""
         raise CelestoError(
-            "Desktop sandboxes do not support Playwright or browser automation; "
-            "use Celesto.browser() when you need a browser connection address."
+            "Desktops created with Celesto.desktop() do not support Playwright or browser "
+            "automation; use Celesto.computer() for a desktop with Chromium, or "
+            "Celesto.browser() for a browser session."
         )

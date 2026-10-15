@@ -414,7 +414,8 @@ class SQLiteStateManager:
                 existing_ip = str(existing["ip"])
                 if requested_ip and existing_ip != requested_ip:
                     raise NetworkError(
-                        f"VM {vm_id} already has IP {existing_ip}, cannot reserve {requested_ip}"
+                        f"Computer {vm_id} already has IP {existing_ip}, cannot reserve "
+                        f"{requested_ip}"
                     )
                 return existing_ip
 
@@ -509,7 +510,7 @@ class SQLiteStateManager:
                 existing_host_port = int(existing["host_port"])
                 if host_port is not None and existing_host_port != host_port:
                     raise NetworkError(
-                        f"VM {vm_id} already has SSH host port {existing_host_port}, "
+                        f"Computer {vm_id} already has SSH host port {existing_host_port}, "
                         f"cannot reserve {host_port}"
                     )
                 return existing_host_port
@@ -586,7 +587,7 @@ class SQLiteStateManager:
                 existing_cid = int(existing["guest_cid"])
                 if guest_cid is not None and existing_cid != guest_cid:
                     raise NetworkError(
-                        f"VM {vm_id} already has vsock CID {existing_cid}, "
+                        f"Computer {vm_id} already has vsock CID {existing_cid}, "
                         f"cannot reserve {guest_cid}"
                     )
                 return existing_cid
@@ -677,8 +678,8 @@ class SQLiteStateManager:
                     or (requested_tap is not None and requested_tap != existing_tap)
                 ):
                     raise NetworkError(
-                        f"Sandbox '{vm_id}' already reserves TAP '{existing_tap}' for "
-                        f"{existing_mode} networking; run 'celesto sandbox delete {vm_id}' "
+                        f"Computer '{vm_id}' already reserves TAP '{existing_tap}' for "
+                        f"{existing_mode} networking; run 'celesto computer delete {vm_id}' "
                         "before changing its network attachment."
                     )
                 return existing_tap

@@ -161,7 +161,7 @@ def vz_status() -> BackendStatus:
         return BackendStatus(
             False,
             False,
-            "macOS desktop sandboxes need macOS 14 or newer. Update this Mac, then run "
+            "macOS desktop computers need macOS 14 or newer. Update this Mac, then run "
             "'celesto doctor --backend vz' again.",
         )
     if not _lume_binary_present():
@@ -315,15 +315,16 @@ def _create_with_qemu_command(vm_name: str | None) -> str:
     command is runnable as-is rather than a generic placeholder.
     """
     if vm_name:
-        return f"celesto sandbox create --name {shlex.quote(vm_name)} --backend qemu"
-    return "celesto sandbox create --backend qemu"
+        return f"celesto computer create --name {shlex.quote(vm_name)} --backend qemu"
+    return "celesto computer create --backend qemu"
 
 
 def _firecracker_missing_message(vm_name: str | None = None) -> str:
     """Plain-English recovery for a missing Firecracker binary."""
     return (
         "Firecracker isn't installed on this machine. Run 'celesto setup', or "
-        f"create the sandbox with a different backend, e.g. '{_create_with_qemu_command(vm_name)}'."
+        "create the computer with a different backend, e.g. "
+        f"'{_create_with_qemu_command(vm_name)}'."
     )
 
 
@@ -333,7 +334,7 @@ def _firecracker_kvm_message(vm_name: str | None = None) -> str:
         "Firecracker needs hardware virtualization (/dev/kvm), which isn't "
         "available or accessible on this machine. Give your user access with "
         "'sudo usermod -aG kvm $USER' and start a new login session, or create "
-        f"the sandbox with a different backend, e.g. '{_create_with_qemu_command(vm_name)}'."
+        f"the computer with a different backend, e.g. '{_create_with_qemu_command(vm_name)}'."
     )
 
 
@@ -380,15 +381,15 @@ def _libkrun_missing_message() -> str:
 def _vz_unsupported_host_message() -> str:
     """Recovery for trying to run a macOS guest on unsupported hardware."""
     return (
-        "macOS sandboxes need an Apple Silicon Mac. Run "
-        "'celesto sandbox create --os alpine' on this machine instead."
+        "macOS computers need an Apple Silicon Mac. Run "
+        "'celesto computer create --os alpine' on this machine instead."
     )
 
 
 def _vz_missing_message() -> str:
     """Recovery for a supported host without the preview runtime driver."""
     return (
-        "The macOS sandbox runtime isn't installed. Run 'celesto setup --macos', then "
+        "The macOS desktop runtime isn't installed. Run 'celesto setup --macos', then "
         "'celesto doctor --backend vz' to confirm."
     )
 

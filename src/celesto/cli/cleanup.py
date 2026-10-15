@@ -123,7 +123,7 @@ def _render_result(result: DeleteResult, *, command: str, warn_not_root: bool) -
     if result.reconciled_stale_ids:
         console.print(
             Panel.fit(
-                "Reconciled stale VMs: " + ", ".join(result.reconciled_stale_ids),
+                "Reconciled stale computers: " + ", ".join(result.reconciled_stale_ids),
                 title="Reconciled",
                 border_style="cyan",
             )
@@ -132,11 +132,11 @@ def _render_result(result: DeleteResult, *, command: str, warn_not_root: bool) -
     title = command.capitalize()
 
     if not result.targets:
-        render_empty(title, "No matching VMs to delete.")
+        render_empty(title, "No matching computers to delete.")
         return
 
     targets_table = Table(title=f"{title} Targets ({len(result.targets)})")
-    targets_table.add_column("VM")
+    targets_table.add_column("Computer")
     for vm_id in result.targets:
         targets_table.add_row(vm_id)
     console.print(targets_table)
@@ -152,7 +152,7 @@ def _render_result(result: DeleteResult, *, command: str, warn_not_root: bool) -
         return
 
     results_table = Table(title=f"{title} Results")
-    results_table.add_column("VM")
+    results_table.add_column("Computer")
     results_table.add_column("Result")
     results_table.add_column("Error")
 
@@ -322,22 +322,22 @@ def _confirm_cleanup(
         emit_error(
             command_name,
             "refused",
-            "Refusing to delete VMs without --force in --json mode. "
-            "Run 'celesto sandbox delete --all --force --json' to confirm.",
-            recovery="Run 'celesto sandbox delete --all --force --json' to confirm.",
+            "Refusing to delete computers without --force in --json mode. "
+            "Run 'celesto computer delete --all --force --json' to confirm.",
+            recovery="Run 'celesto computer delete --all --force --json' to confirm.",
             exit_code=1,
         )
         return 1
 
     if not sys.stdin.isatty():
         render_error(
-            "Refusing to delete VMs without a confirmation prompt. Pass --force to confirm."
+            "Refusing to delete computers without a confirmation prompt. Pass --force to confirm."
         )
         return 1
 
     console = console_stdout()
     console.print(
-        f"This will permanently delete [bold]{len(target_ids)}[/bold] VM(s): "
+        f"This will permanently delete [bold]{len(target_ids)}[/bold] computer(s): "
         f"{', '.join(target_ids)}"
     )
     console.print("[yellow]This action cannot be undone.[/yellow]")
@@ -439,7 +439,7 @@ def _confirm_prune(entries: list[LeftoverEntry], *, freed_bytes: int) -> bool:
     console = console_stdout()
     console.print(
         f"This will delete [bold]{len(entries)}[/bold] file(s) "
-        f"({_format_bytes(freed_bytes)}) left over from sandboxes that no longer exist."
+        f"({_format_bytes(freed_bytes)}) left over from computers that no longer exist."
     )
     console.print("[yellow]This action cannot be undone.[/yellow]")
     try:
@@ -462,7 +462,7 @@ def _render_prune(result: PruneResult) -> None:
         console.print(
             Panel.fit(
                 f"Kept {len(result.kept)} file(s) ({_format_bytes(kept_bytes)}) you asked "
-                "Celesto to save. Run 'celesto sandbox prune --include-saved' to delete "
+                "Celesto to save. Run 'celesto computer prune --include-saved' to delete "
                 "those too.",
                 title="Kept",
                 border_style="cyan",
@@ -534,8 +534,8 @@ def run_prune_sandboxes(
                         command_name,
                         "refused",
                         "Refusing to delete leftover files without --force in --json mode. "
-                        "Run 'celesto sandbox prune --force --json' to confirm.",
-                        recovery="Run 'celesto sandbox prune --force --json' to confirm.",
+                        "Run 'celesto computer prune --force --json' to confirm.",
+                        recovery="Run 'celesto computer prune --force --json' to confirm.",
                         exit_code=1,
                     )
                 if not sys.stdin.isatty():

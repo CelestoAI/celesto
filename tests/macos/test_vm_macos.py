@@ -180,7 +180,7 @@ def test_manager_refuses_third_running_macos_guest(tmp_path: Path) -> None:
     manager.state.update_vm("mac-one", status=VMState.RUNNING, pid=1)
     manager.state.update_vm("mac-two", status=VMState.RUNNING, pid=2)
 
-    with pytest.raises(CelestoError, match="sandbox stop mac-one"):
+    with pytest.raises(CelestoError, match="computer stop mac-one"):
         manager.start("mac-three")
 
 

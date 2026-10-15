@@ -46,7 +46,7 @@ class VzRuntimeAdapter(RuntimeAdapter):
             binary = find_lume_binary()
             if binary is None or not pinned_lume_ready():
                 raise CelestoError(
-                    "The macOS sandbox runtime isn't installed. Run 'celesto setup --macos', then "
+                    "The macOS desktop runtime isn't installed. Run 'celesto setup --macos', then "
                     "'celesto doctor --backend vz' to confirm."
                 )
             driver = LumeDriver(binary)
@@ -56,8 +56,8 @@ class VzRuntimeAdapter(RuntimeAdapter):
     def _machine(vm_info: VMInfo) -> MacOSMachineConfig:
         if vm_info.config.guest_os is not GuestOS.MACOS or vm_info.config.macos_machine is None:
             raise CelestoError(
-                f"Sandbox '{vm_info.vm_id}' does not have a macOS machine bundle; delete it with "
-                f"'celesto sandbox delete {vm_info.vm_id}' and create it again with '--os macos'."
+                f"Computer '{vm_info.vm_id}' does not have a macOS machine bundle; delete it with "
+                f"'celesto computer delete {vm_info.vm_id}' and create it again with '--os macos'."
             )
         return vm_info.config.macos_machine
 
@@ -111,27 +111,27 @@ class VzRuntimeAdapter(RuntimeAdapter):
 
     def pause(self, vm_info: VMInfo) -> None:
         raise CelestoError(
-            f"macOS sandbox '{vm_info.vm_id}' cannot be paused in this release; run "
-            f"'celesto sandbox stop {vm_info.vm_id}' instead."
+            f"macOS computer '{vm_info.vm_id}' cannot be paused in this release; run "
+            f"'celesto computer stop {vm_info.vm_id}' instead."
         )
 
     def resume(self, vm_info: VMInfo) -> None:
         raise CelestoError(
-            f"macOS sandbox '{vm_info.vm_id}' cannot be resumed in this release; run "
-            f"'celesto sandbox start {vm_info.vm_id}' instead."
+            f"macOS computer '{vm_info.vm_id}' cannot be resumed in this release; run "
+            f"'celesto computer start {vm_info.vm_id}' instead."
         )
 
     def create_snapshot(self, request: SnapshotCreateRequest) -> SnapshotCreateResult:
         vm_id = request.vm_info.vm_id
         raise CelestoError(
-            f"macOS sandbox '{vm_id}' does not support snapshots in this release; stop it with "
-            f"'celesto sandbox stop {vm_id}' and keep the sandbox instead."
+            f"macOS computer '{vm_id}' does not support snapshots in this release; stop it with "
+            f"'celesto computer stop {vm_id}' and keep the computer instead."
         )
 
     def restore_snapshot(self, request: SnapshotRestoreRequest) -> RuntimeLaunch:
         raise CelestoError(
             f"macOS snapshot '{request.snapshot.snapshot_id}' cannot be restored in this release; "
-            "create a new macOS sandbox instead."
+            "create a new macOS computer instead."
         )
 
     async def async_start(

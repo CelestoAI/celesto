@@ -182,7 +182,7 @@ def _check_ext4_tools() -> DoctorCheck:
     return DoctorCheck(
         name="e2fsprogs",
         status="warn",
-        detail=f"{', '.join(missing)} not found; needed to grow sandbox disks",
+        detail=f"{', '.join(missing)} not found; needed to grow computer disks",
         fix="brew install e2fsprogs" if sys.platform == "darwin" else "Install e2fsprogs",
     )
 
@@ -310,7 +310,7 @@ def _check_nft_table(family: str, table: str) -> DoctorCheck:
             return DoctorCheck(
                 name=f"nft-table:{family}:{table}",
                 status="warn",
-                detail="not created yet (will be created on first VM network setup)",
+                detail="not created yet (will be created on first computer network setup)",
             )
         return DoctorCheck(
             name=f"nft-table:{family}:{table}",
@@ -502,7 +502,7 @@ def _check_kvm_runtime() -> DoctorCheck:
                 ),
                 fix=(
                     "Log out of this shell and reconnect to apply the new group, "
-                    "or run any other 'celesto' command (such as 'celesto sandbox list') — "
+                    "or run any other 'celesto' command (such as 'celesto computer list') — "
                     "it will auto-activate the group via 'sg kvm' for that run."
                 ),
             )
@@ -777,11 +777,11 @@ def generate_doctor_report(backend: str | None = None) -> DoctorReport:
                 detail=(
                     "Apple Silicon Mac"
                     if is_apple_silicon
-                    else "macOS desktop sandboxes require an Apple Silicon Mac"
+                    else "macOS desktop computers require an Apple Silicon Mac"
                 ),
                 fix=None
                 if is_apple_silicon
-                else "Run 'celesto sandbox create --os alpine' on this machine instead.",
+                else "Run 'celesto computer create --os alpine' on this machine instead.",
             )
         )
         macos_version = capabilities.version

@@ -83,7 +83,7 @@ class MacOSImageManager:
             binary = find_lume_binary()
             if binary is None or not pinned_lume_ready():
                 raise ImageError(
-                    "The macOS sandbox runtime isn't installed. Run 'celesto setup --macos', then "
+                    "The macOS desktop runtime isn't installed. Run 'celesto setup --macos', then "
                     "'celesto doctor --backend vz' to confirm."
                 )
             driver = LumeDriver(binary)

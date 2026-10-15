@@ -1644,14 +1644,14 @@ class NetworkManager:
             raise NetworkError(
                 f"Localhost port {host_port} already forwards to another application; "
                 "choose a different host port with "
-                f"'celesto sandbox port expose {vm_id} {guest_port}'."
+                f"'celesto computer port expose {vm_id} {guest_port}'."
             )
         ssh_map = re.search(r"\bmap dnat_local\s*\{(.*?)\n\s*\}", output, re.DOTALL)
         if ssh_map and re.search(rf"\b{host_port}\s*:", ssh_map.group(1)):
             raise NetworkError(
-                f"Localhost port {host_port} is reserved for a sandbox connection; "
+                f"Localhost port {host_port} is reserved for a computer connection; "
                 "choose a different host port with "
-                f"'celesto sandbox port expose {vm_id} {guest_port}'."
+                f"'celesto computer port expose {vm_id} {guest_port}'."
             )
 
     def setup_local_port_forward(
@@ -1686,7 +1686,7 @@ class NetworkManager:
         except CelestoError as exc:
             raise NetworkError(
                 "Cannot check existing port forwards; retry with "
-                f"'celesto sandbox port expose {vm_id} {host_port}:{guest_port}'."
+                f"'celesto computer port expose {vm_id} {host_port}:{guest_port}'."
             ) from exc
         self._check_local_port_ownership(output, vm_id, host_port, guest_ip, guest_port)
 
@@ -1755,7 +1755,7 @@ class NetworkManager:
         except CelestoError as exc:
             raise NetworkError(
                 "Cannot check existing port forwards; retry with "
-                f"'celesto sandbox port expose {vm_id} {host_port}:{guest_port}'."
+                f"'celesto computer port expose {vm_id} {host_port}:{guest_port}'."
             ) from exc
         self._check_local_port_ownership(output, vm_id, host_port, guest_ip, guest_port)
 
@@ -2389,7 +2389,7 @@ class NetworkManager:
                 ok=False,
                 reason=(
                     "Bridged networking is only supported on Linux; run "
-                    "'celesto sandbox create --network nat' instead."
+                    "'celesto computer create --network nat' instead."
                 ),
             )
 
@@ -2523,13 +2523,13 @@ class NetworkManager:
         if kind != "tun" or tap_type != "tap":
             raise BridgeTapOwnershipError(
                 f"Network interface '{tap_name}' already exists and is not a Celesto TAP; "
-                f"remove the conflicting interface, then retry sandbox '{vm_id}'."
+                f"remove the conflicting interface, then retry computer '{vm_id}'."
             )
 
         expected_alias = self._bridge_tap_alias(vm_id)
         if link_info.get("ifalias") != expected_alias:
             raise BridgeTapOwnershipError(
-                f"Network interface '{tap_name}' already exists but does not belong to sandbox "
+                f"Network interface '{tap_name}' already exists but does not belong to computer "
                 f"'{vm_id}'; remove the conflicting interface, then retry."
             )
         return link_info
@@ -2607,7 +2607,7 @@ class NetworkManager:
             if master != bridge_name:
                 raise NetworkError(
                     f"TAP '{tap_name}' is attached to '{master}', not '{bridge_name}'; "
-                    f"run 'celesto sandbox delete {vm_id}', then retry."
+                    f"run 'celesto computer delete {vm_id}', then retry."
                 )
         except Exception:
             if created:
@@ -2643,8 +2643,8 @@ class NetworkManager:
                 time.sleep(0.1 * (attempt + 1))
 
         raise NetworkError(
-            f"Could not remove the network interface for sandbox '{vm_id}'; run "
-            f"'celesto sandbox delete {vm_id}' again."
+            f"Could not remove the network interface for computer '{vm_id}'; run "
+            f"'celesto computer delete {vm_id}' again."
         )
 
     async def async_cleanup_bridged_tap(self, tap_name: str, vm_id: str) -> None:

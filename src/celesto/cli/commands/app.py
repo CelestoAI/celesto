@@ -145,8 +145,8 @@ def _reject_provided_options(names: tuple[str, ...], *, recovery: str) -> None:
 def computer_provider_options(function: Any, *, cloud_supported: bool = True) -> Any:
     """Resolve mutually exclusive location flags before dispatch."""
 
-    @click.option("--local", is_flag=True, help="Run on this machine (the default).")
-    @click.option("--cloud", is_flag=True, hidden=not cloud_supported, help="Run in Celesto Cloud.")
+    @click.option("--local", is_flag=True, help="Use your machine (the default).")
+    @click.option("--cloud", is_flag=True, hidden=not cloud_supported, help="Use Celesto Cloud.")
     @wraps(function)
     def wrapped(*args: Any, local: bool, cloud: bool, **kwargs: Any) -> Any:
         if local and cloud:
@@ -312,7 +312,7 @@ def sandbox() -> None:
 
 @sandbox.command("create")
 @click.option(
-    "--desktop", is_flag=True, help="Start a Linux desktop instead of a minimal computer."
+    "--desktop", is_flag=True, help="Create a Linux desktop computer instead of a minimal one."
 )
 @computer_provider_options
 @click.option("-n", "--name", default=None, help="Name for the computer.")
@@ -331,8 +331,16 @@ def sandbox() -> None:
 @backend_option(default=None)
 @qemu_machine_option
 @comm_channel_option
-@click.option("--mount", "mounts", multiple=True, metavar="HOST_PATH[:GUEST_PATH]")
-@click.option("--writable-mounts", is_flag=True, help="Allow writes to mounted host folders.")
+@click.option(
+    "--mount",
+    "mounts",
+    multiple=True,
+    metavar="LOCAL_PATH[:COMPUTER_PATH]",
+    help="Share a folder from your machine; repeat to share more than one.",
+)
+@click.option(
+    "--writable-mounts", is_flag=True, help="Allow the computer to change shared folders."
+)
 @click.option(
     "--clipboard/--no-clipboard",
     default=True,
@@ -347,7 +355,10 @@ def sandbox() -> None:
     "network_mode",
     type=click.Choice(["nat", "bridge"]),
     default="nat",
-    help="Network mode: 'nat' (default, private network) or 'bridge' (connect to a host bridge).",
+    help=(
+        "Network mode: 'nat' (default, private network) or 'bridge' "
+        "(join a network bridge on your machine)."
+    ),
 )
 @click.option(
     "--bridge",
@@ -484,8 +495,8 @@ def sandbox_create(
 
 @sandbox.command("list")
 @computer_provider_options
-@click.option("--desktop", is_flag=True, help="List managed Linux desktops.")
-@click.option("--all", "include_all", is_flag=True, help="Show all sandboxes.")
+@click.option("--desktop", is_flag=True, help="List Linux desktop computers.")
+@click.option("--all", "include_all", is_flag=True, help="Show computers in every state.")
 @click.option(
     "--status",
     "status_filter",
@@ -497,7 +508,7 @@ def sandbox_create(
     "preset_filter",
     type=click.Choice(public_preset_names()),
     default=None,
-    help="Show sandboxes created by this preset.",
+    help="Show computers created by this preset.",
 )
 @click.option(
     "--limit",
@@ -516,11 +527,11 @@ def sandbox_list(
     limit: int,
     json_output: bool,
 ) -> Any:
-    """List your sandboxes."""
+    """List your computers."""
     if include_all and status_filter is not None:
         raise click.UsageError(
-            "Use one filter. Run 'celesto sandbox list --all' or "
-            "'celesto sandbox list --status running'."
+            "Use one filter. Run 'celesto computer list --all' or "
+            "'celesto computer list --status running'."
         )
     _before_command(json_output=json_output)
     if provider == "cloud":
@@ -550,11 +561,11 @@ def sandbox_list(
 
 
 @sandbox.command("info")
-@click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
 @computer_provider_options
 @json_option
 def sandbox_info(vm_id: str, provider: str, json_output: bool) -> Any:
-    """Show details about a sandbox."""
+    """Show details about a computer."""
     _before_command(json_output=json_output)
     if provider == "cloud":
         return _handlers()._run_computer(
@@ -568,12 +579,12 @@ def sandbox_info(vm_id: str, provider: str, json_output: bool) -> Any:
 
 
 @sandbox.command("start")
-@click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
 @computer_provider_options
 @boot_timeout_option
 @json_option
 def sandbox_start(vm_id: str, provider: str, boot_timeout: float, json_output: bool) -> Any:
-    """Start a stopped sandbox."""
+    """Start a stopped computer."""
     _before_command(json_output=json_output)
     if provider == "cloud":
         _reject_provided_options(
@@ -588,8 +599,8 @@ def sandbox_start(vm_id: str, provider: str, boot_timeout: float, json_output: b
 
 
 @sandbox.command("desktop")
-@click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
-@click.option("--start", "start_if_needed", is_flag=True, help="Start a stopped sandbox first.")
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
+@click.option("--start", "start_if_needed", is_flag=True, help="Start a stopped computer first.")
 @boot_timeout_option
 @json_option
 def sandbox_desktop(
@@ -598,7 +609,7 @@ def sandbox_desktop(
     boot_timeout: float,
     json_output: bool,
 ) -> Any:
-    """Open a sandbox desktop."""
+    """Open a macOS computer's desktop."""
     _before_command(json_output=json_output)
     return _handlers()._run_desktop(
         _ns(
@@ -612,7 +623,7 @@ def sandbox_desktop(
 
 
 @sandbox.command("stop")
-@click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
 @computer_provider_options
 @click.option(
     "--timeout",
@@ -623,7 +634,7 @@ def sandbox_desktop(
 )
 @json_option
 def sandbox_stop(vm_id: str, provider: str, timeout: float, json_output: bool) -> Any:
-    """Stop a running sandbox."""
+    """Stop a running computer."""
     _before_command(json_output=json_output)
     if provider == "cloud":
         _reject_provided_options(("timeout",), recovery=f"celesto computer stop {vm_id} --cloud")
@@ -636,19 +647,19 @@ def sandbox_stop(vm_id: str, provider: str, timeout: float, json_output: bool) -
 
 
 @sandbox.command("pause")
-@click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
 @json_option
 def sandbox_pause(vm_id: str, json_output: bool) -> Any:
-    """Pause a running sandbox."""
+    """Pause a running computer."""
     _before_command(json_output=json_output)
     return _handlers()._run_pause(_ns(command_name="sandbox.pause", vm_id=vm_id, json=json_output))
 
 
 @sandbox.command("resume")
-@click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
 @json_option
 def sandbox_resume(vm_id: str, json_output: bool) -> Any:
-    """Resume a paused sandbox."""
+    """Resume a paused computer."""
     _before_command(json_output=json_output)
     return _handlers()._run_resume(
         _ns(command_name="sandbox.resume", vm_id=vm_id, json=json_output)
@@ -656,10 +667,10 @@ def sandbox_resume(vm_id: str, json_output: bool) -> Any:
 
 
 @sandbox.command("shell")
-@click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
 @boot_timeout_option
 def sandbox_shell(vm_id: str, boot_timeout: float) -> Any:
-    """Open a fast shell in a sandbox."""
+    """Open a fast shell in a computer."""
     _before_command()
     return _handlers()._run_shell(
         _ns(
@@ -671,14 +682,14 @@ def sandbox_shell(vm_id: str, boot_timeout: float) -> Any:
 
 
 @sandbox.command("ssh")
-@click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
 @computer_provider_options
 @ssh_auth_options
 @boot_timeout_option
 def sandbox_ssh(
     vm_id: str, provider: str, ssh_key: str | None, ssh_user: str, boot_timeout: float
 ) -> Any:
-    """Open an SSH shell in a sandbox."""
+    """Open an SSH shell in a computer."""
     _before_command()
     if provider == "cloud":
         _reject_provided_options(
@@ -701,13 +712,13 @@ def sandbox_ssh(
 
 @sandbox.command(
     "exec",
-    short_help="Run a command in a sandbox and print its output.",
+    short_help="Run a command in a computer and print its output.",
     context_settings={"ignore_unknown_options": True},
 )
-@click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
 @click.argument("command", nargs=-1, required=True, metavar="-- COMMAND ...")
 @computer_provider_options
-@click.option("--desktop", is_flag=True, help="Use a managed Linux desktop ID.")
+@click.option("--desktop", is_flag=True, help="Run in a Linux desktop computer.")
 @click.option(
     "--timeout",
     type=positive_int_type(),
@@ -718,7 +729,7 @@ def sandbox_ssh(
 @click.option(
     "--start",
     is_flag=True,
-    help="Start the sandbox first if it is not already running.",
+    help="Start the computer first if it is not already running.",
 )
 @boot_timeout_option
 @json_option
@@ -732,14 +743,14 @@ def sandbox_exec(
     boot_timeout: float,
     json_output: bool,
 ) -> Any:
-    """Run a command in a sandbox and print its output.
+    """Run a command in a computer and print its output.
 
-    The sandbox must already be running. Pass --start to have it started
+    The computer must already be running. Pass --start to have it started
     automatically first.
 
     \b
     Example:
-      celesto sandbox exec my-sandbox -- ls -la /root
+      celesto computer exec my-computer -- ls -la /root
     """
     _before_command(json_output=json_output)
     if provider == "cloud":
@@ -781,7 +792,7 @@ def sandbox_exec(
 
 
 @sandbox.command("logs")
-@click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
 @computer_local_options
 @click.option(
     "--tail",
@@ -793,7 +804,7 @@ def sandbox_exec(
 @click.option("-f", "--follow", is_flag=True, help="Keep printing new log lines as they arrive.")
 @json_option
 def sandbox_logs(vm_id: str, provider: str, tail: int, follow: bool, json_output: bool) -> Any:
-    """Show a sandbox's boot and console logs."""
+    """Show a computer's boot and console logs."""
     _before_command(json_output=json_output)
     return _handlers()._run_logs(
         _ns(
@@ -808,9 +819,9 @@ def sandbox_logs(vm_id: str, provider: str, tail: int, follow: bool, json_output
 
 @sandbox.command("delete")
 @computer_provider_options
-@click.option("--desktop", is_flag=True, help="Delete a managed Linux desktop by its ID.")
-@click.argument("vm_ids", nargs=-1, metavar="sandbox...", shell_complete=complete_sandbox_names)
-@click.option("--all", "all_sandboxes", is_flag=True, help="Delete every sandbox.")
+@click.option("--desktop", is_flag=True, help="Delete a Linux desktop computer by its ID.")
+@click.argument("vm_ids", nargs=-1, metavar="computer...", shell_complete=complete_sandbox_names)
+@click.option("--all", "all_sandboxes", is_flag=True, help="Delete every computer.")
 @click.option("--force", "--yes", is_flag=True, help="Skip the confirmation prompt for --all.")
 @click.option("--dry-run", is_flag=True, help="Show what would be deleted.")
 @json_option
@@ -823,16 +834,16 @@ def sandbox_delete(
     dry_run: bool,
     json_output: bool,
 ) -> Any:
-    """Delete one or more sandboxes."""
+    """Delete one or more computers."""
     if all_sandboxes and vm_ids:
         raise click.UsageError(
-            "Choose one target. Run 'celesto sandbox delete my-sandbox' or "
-            "'celesto sandbox delete --all --force'."
+            "Choose one target. Run 'celesto computer delete my-computer' or "
+            "'celesto computer delete --all --force'."
         )
     if not all_sandboxes and not vm_ids:
         raise click.UsageError(
-            "Pass a target. Run 'celesto sandbox delete my-sandbox' or "
-            "'celesto sandbox delete --all --force'."
+            "Pass a target. Run 'celesto computer delete my-computer' or "
+            "'celesto computer delete --all --force'."
         )
     if all_sandboxes and json_output and not force:
         from celesto.cli.output import emit_error
@@ -840,9 +851,9 @@ def sandbox_delete(
         return emit_error(
             "sandbox.delete",
             "refused",
-            "Refusing to delete sandboxes without --force in --json mode. "
-            "Run 'celesto sandbox delete --all --force --json' to confirm.",
-            recovery="Run 'celesto sandbox delete --all --force --json' to confirm.",
+            "Refusing to delete computers without --force in --json mode. "
+            "Run 'celesto computer delete --all --force --json' to confirm.",
+            recovery="Run 'celesto computer delete --all --force --json' to confirm.",
         )
 
     _before_command(json_output=json_output)
@@ -861,11 +872,11 @@ def sandbox_delete(
     if desktop:
         if all_sandboxes or dry_run or len(vm_ids) != 1:
             raise click.UsageError(
-                "Desktop delete accepts one computer ID; run "
+                "Linux desktop delete accepts one computer ID; run "
                 "'celesto computer list --desktop' to choose one."
             )
         if not force and not json_output:
-            click.confirm(f"Delete desktop computer '{vm_ids[0]}' and its files?", abort=True)
+            click.confirm(f"Delete Linux desktop computer '{vm_ids[0]}' and its files?", abort=True)
         return _handlers()._run_computer(
             _ns(computer_action="delete", computer_id=vm_ids[0], provider="local", json=json_output)
         )
@@ -901,7 +912,7 @@ def sandbox_prune(
     include_saved: bool,
     json_output: bool,
 ) -> Any:
-    """Delete files left behind by sandboxes that no longer exist."""
+    """Delete files left behind by computers that no longer exist."""
     _before_command(json_output=json_output)
     from celesto.cli.cleanup import run_prune_sandboxes
 
@@ -916,7 +927,9 @@ def sandbox_prune(
 @cli.command("setup", help="Install or validate local runtime dependencies.")
 @click.option("--check-only", is_flag=True, help="Check what is needed without installing.")
 @click.option("--with-docker", is_flag=True, help="Also install or check Docker.")
-@click.option("--macos", "macos_runtime", is_flag=True, help="Prepare macOS desktop sandboxes.")
+@click.option(
+    "--macos", "macos_runtime", is_flag=True, help="Prepare your Mac to run macOS desktops."
+)
 @click.option("--skip-deps", is_flag=True, help="Skip installing system packages.")
 @click.option("--assets-dir", is_flag=True, help="Print the packaged setup-assets directory.")
 @click.option("--no-configure-runtime", cls=LinuxOnlyOption, is_flag=True)
@@ -970,7 +983,7 @@ def setup(
     )
 
 
-@cli.command("doctor", help="Check whether this machine can run sandboxes.")
+@cli.command("doctor", help="Check whether your machine can run computers.")
 @backend_option(default=None)
 @click.option("--strict", is_flag=True, help="Fail if any check reports a warning.")
 @json_option
@@ -1001,7 +1014,7 @@ def completion(shell: str, install: bool) -> int:
     """Print or install a shell tab-completion script for celesto.
 
     Completion suggests subcommands, options, and the names of your existing
-    sandboxes. The quickest setup is one command:
+    computers. The quickest setup is one command:
 
     \b
       celesto completion bash --install   # also: zsh, fish
@@ -1042,7 +1055,7 @@ def prune(dry_run: bool, cache_dir: str | None, image_dir: str | None, json_outp
 
 @cli.group(context_settings=CONTEXT_SETTINGS)
 def image() -> None:
-    """Download and manage cached sandbox images."""
+    """Download and manage the images computers start from."""
 
 
 @image.command("pull")
@@ -1051,19 +1064,19 @@ def image() -> None:
     "--all",
     "all_images",
     is_flag=True,
-    help="Download every image for this machine (all operating systems).",
+    help="Download every image for your machine (all operating systems).",
 )
 @click.option(
     "--arch",
     type=click.Choice(["amd64", "arm64"]),
     default=None,
-    help="Processor type of the image; defaults to this machine's.",
+    help="Processor type of the image; defaults to your machine's.",
 )
 @click.option(
     "--vmm",
     type=click.Choice(["firecracker", "qemu", "libkrun"]),
     default=None,
-    help="Virtual machine engine that boots the image; defaults to what this machine uses.",
+    help="Engine that boots the image; defaults to what your machine uses.",
 )
 @click.option(
     "--os",
@@ -1084,7 +1097,7 @@ def image_pull(
     image_dir: str | None,
     json_output: bool,
 ) -> Any:
-    """Download a sandbox image before first use."""
+    """Download an image before first use."""
     if bool(preset) == all_images:
         raise click.UsageError(
             "Choose one target: 'celesto image pull codex' or 'celesto image pull --all'."
@@ -1202,7 +1215,7 @@ def image_rm(name: str, dry_run: bool, image_dir: str | None, json_output: bool)
     "--arch",
     type=click.Choice(["amd64", "arm64"]),
     default=None,
-    help="Processor type to build for; defaults to this machine's.",
+    help="Processor type to build for; defaults to your machine's.",
 )
 @backend_option(default="auto")
 @click.option("--init", default="/init", show_default=True, help="Program the image starts with.")
@@ -1361,11 +1374,11 @@ def server_start(host: str, port: int, sdk_session: bool, control_fd: int) -> An
 
 @sandbox.group(context_settings=CONTEXT_SETTINGS)
 def snapshot() -> None:
-    """Save and restore sandbox state."""
+    """Save and restore computer state."""
 
 
 @snapshot.command("create")
-@click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
 @click.option("--snapshot-id", default=None)
 @click.option(
     "--snapshot-type",
@@ -1377,7 +1390,7 @@ def snapshot() -> None:
 @click.option(
     "--live-only",
     is_flag=True,
-    help="Keep a running QEMU sandbox available during a disk snapshot, or fail.",
+    help="Keep a running QEMU computer available during a disk snapshot, or fail.",
 )
 @click.option(
     "--flush-policy",
@@ -1399,7 +1412,7 @@ def snapshot_create(
     flush_policy: str,
     json_output: bool,
 ) -> Any:
-    """Save a sandbox snapshot."""
+    """Save a computer snapshot."""
     _before_command(json_output=json_output)
     return _handlers()._run_snapshot(
         _ns(
@@ -1422,7 +1435,7 @@ def snapshot_create(
 @click.option("--force", is_flag=True)
 @json_option
 def snapshot_restore(snapshot_id: str, resume: bool, force: bool, json_output: bool) -> Any:
-    """Restore a sandbox from a snapshot."""
+    """Restore a computer from a snapshot."""
     _before_command(json_output=json_output)
     return _handlers()._run_snapshot(
         _ns(
@@ -1453,7 +1466,9 @@ def snapshot_delete(snapshot_id: str, json_output: bool) -> Any:
 
 
 @snapshot.command("list")
-@click.option("--vm-id", default=None)
+@click.option(
+    "--vm-id", default=None, metavar="COMPUTER", help="Show only this computer's snapshots."
+)
 @json_option
 def snapshot_list(vm_id: str | None, json_output: bool) -> Any:
     """List saved snapshots."""
@@ -1470,13 +1485,13 @@ def snapshot_list(vm_id: str | None, json_output: bool) -> Any:
 
 @sandbox.group(context_settings=CONTEXT_SETTINGS)
 def file() -> None:
-    """Copy files into or out of a sandbox."""
+    """Copy files into or out of a computer."""
 
 
 @file.command("upload")
-@click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
 @click.argument("local_path", metavar="local-path")
-@click.argument("guest_path", metavar="guest-path")
+@click.argument("guest_path", metavar="computer-path")
 @click.option("--no-create-dirs", is_flag=True)
 @ssh_auth_options
 @comm_channel_option
@@ -1491,7 +1506,7 @@ def file_upload(
     comm_channel: str | None,
     json_output: bool,
 ) -> Any:
-    """Copy a file into a sandbox."""
+    """Copy a file into a computer."""
     _before_command(json_output=json_output)
     return _handlers()._run_file(
         _ns(
@@ -1510,8 +1525,8 @@ def file_upload(
 
 
 @file.command("download")
-@click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
-@click.argument("guest_path", metavar="guest-path")
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
+@click.argument("guest_path", metavar="computer-path")
 @click.argument("local_path", metavar="local-path")
 @click.option("--no-create-dirs", is_flag=True)
 @ssh_auth_options
@@ -1527,7 +1542,7 @@ def file_download(
     comm_channel: str | None,
     json_output: bool,
 ) -> Any:
-    """Copy a file out of a sandbox."""
+    """Copy a file out of a computer."""
     _before_command(json_output=json_output)
     return _handlers()._run_file(
         _ns(
@@ -1547,11 +1562,11 @@ def file_download(
 
 @sandbox.group(context_settings=CONTEXT_SETTINGS)
 def env() -> None:
-    """Manage sandbox environment variables."""
+    """Manage a computer's environment variables."""
 
 
 @env.command("set")
-@click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
 @click.argument("pairs", nargs=-1, required=True, metavar="KEY=VALUE...")
 @ssh_auth_options
 @comm_channel_option
@@ -1564,7 +1579,7 @@ def env_set(
     comm_channel: str | None,
     json_output: bool,
 ) -> Any:
-    """Set environment variables in a sandbox."""
+    """Set environment variables in a computer."""
     _before_command(json_output=json_output)
     return _handlers()._run_env(
         _ns(
@@ -1581,7 +1596,7 @@ def env_set(
 
 
 @env.command("unset")
-@click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
 @click.argument("keys", nargs=-1, required=True, metavar="KEY...")
 @ssh_auth_options
 @comm_channel_option
@@ -1594,7 +1609,7 @@ def env_unset(
     comm_channel: str | None,
     json_output: bool,
 ) -> Any:
-    """Remove environment variables from a sandbox."""
+    """Remove environment variables from a computer."""
     _before_command(json_output=json_output)
     return _handlers()._run_env(
         _ns(
@@ -1611,7 +1626,7 @@ def env_unset(
 
 
 @env.command("list")
-@click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
 @click.option("--show-values", is_flag=True)
 @ssh_auth_options
 @comm_channel_option
@@ -1624,7 +1639,7 @@ def env_list(
     comm_channel: str | None,
     json_output: bool,
 ) -> Any:
-    """List environment variables in a sandbox."""
+    """List environment variables in a computer."""
     _before_command(json_output=json_output)
     return _handlers()._run_env(
         _ns(
@@ -1642,12 +1657,12 @@ def env_list(
 
 @sandbox.group(context_settings=CONTEXT_SETTINGS)
 def port() -> None:
-    """Manage port forwarding for a sandbox."""
+    """Manage port forwarding for a computer."""
 
 
 @port.command("expose")
-@click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
-@click.argument("mapping", metavar="[host-port:]sandbox-port")
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
+@click.argument("mapping", metavar="[local-port:]computer-port")
 @ssh_auth_options
 @comm_channel_option
 @json_option
@@ -1659,7 +1674,7 @@ def port_expose(
     comm_channel: str | None,
     json_output: bool,
 ) -> Any:
-    """Share a sandbox port with your machine."""
+    """Share a computer port with your machine."""
     _before_command(json_output=json_output)
     return _handlers()._run_port_expose(
         _ns(
@@ -1675,8 +1690,8 @@ def port_expose(
 
 
 @port.command("close")
-@click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
-@click.argument("mapping", metavar="host-port:sandbox-port")
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
+@click.argument("mapping", metavar="local-port:computer-port")
 @ssh_auth_options
 @comm_channel_option
 @json_option
@@ -1688,7 +1703,7 @@ def port_close(
     comm_channel: str | None,
     json_output: bool,
 ) -> Any:
-    """Stop sharing a sandbox port."""
+    """Stop sharing a computer port."""
     _before_command(json_output=json_output)
     return _handlers()._run_port_close(
         _ns(
@@ -1704,7 +1719,7 @@ def port_close(
 
 
 @port.command("list")
-@click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
 @computer_provider_options
 @ssh_auth_options
 @comm_channel_option
@@ -1717,7 +1732,7 @@ def port_list(
     comm_channel: str | None,
     json_output: bool,
 ) -> Any:
-    """List shared sandbox ports."""
+    """List shared computer ports."""
     _before_command(json_output=json_output)
     if provider == "cloud":
         _reject_provided_options(
@@ -1741,7 +1756,7 @@ def port_list(
 
 @cli.group(context_settings=CONTEXT_SETTINGS)
 def bridge() -> None:
-    """Check host bridges for bridged networking."""
+    """Check network bridges on your machine for bridged networking."""
 
 
 @bridge.command("check")
@@ -1761,7 +1776,7 @@ def bridge_check(bridge_name: str, json_output: bool) -> Any:
 
 @cli.group(context_settings=CONTEXT_SETTINGS)
 def windows() -> None:
-    """Build Windows guest images."""
+    """Build Windows images."""
 
 
 @windows.command("build-image")
@@ -1787,7 +1802,7 @@ def windows_build_image(
     build_timeout_s: float,
     json_output: bool,
 ) -> Any:
-    """Build a Windows sandbox image."""
+    """Build a Windows image."""
     _before_command(json_output=json_output)
     return _handlers()._run_windows_build_image(
         _ns(
@@ -1807,7 +1822,7 @@ def windows_build_image(
 
 @cli.group(context_settings=CONTEXT_SETTINGS)
 def browser() -> None:
-    """Manage browser sandboxes."""
+    """Manage browser sessions."""
 
 
 @browser.command("start")
@@ -1841,7 +1856,7 @@ def browser_start(
     boot_timeout: float,
     json_output: bool,
 ) -> Any:
-    """Start a browser sandbox."""
+    """Start a browser session."""
     _before_command(json_output=json_output)
     return _handlers()._run_browser(
         _ns(
@@ -1870,7 +1885,7 @@ def browser_start(
 )
 @click.option("--all", "all_sessions", is_flag=True)
 def browser_stop(session_id: str | None, all_sessions: bool) -> Any:
-    """Stop a browser sandbox."""
+    """Stop a browser session."""
     if all_sessions == (session_id is not None):
         raise click.UsageError(
             "Choose one target. Run 'celesto browser stop browser-id' or "
@@ -1890,7 +1905,7 @@ def browser_stop(session_id: str | None, all_sessions: bool) -> Any:
 )
 @json_option
 def browser_list(status: str | None, json_output: bool) -> Any:
-    """List browser sandboxes."""
+    """List browser sessions."""
     _before_command(json_output=json_output)
     return _handlers()._run_browser(_ns(browser_action="list", status=status, json=json_output))
 
@@ -1967,7 +1982,7 @@ def computer_run(computer_id: str, run_command: str, timeout: int, json_output: 
 @computer_local_options
 @click.argument("computer_id", metavar="computer")
 def computer_open(computer_id: str, provider: str) -> Any:
-    """Open a computer's desktop view."""
+    """Open a Linux desktop computer in your browser."""
     _before_command()
     return _handlers()._run_computer(
         _ns(computer_action="open", computer_id=computer_id, provider=provider, json=False)
@@ -2042,7 +2057,7 @@ def _register_preset_commands() -> None:
             *,
             prefer_published_image: bool,
         ) -> Any:
-            start_help = "Create a sandbox and install this agent."
+            start_help = "Create a computer and install this agent."
             if not prefer_published_image:
                 start_help += " Installation may take several minutes."
 
@@ -2051,7 +2066,7 @@ def _register_preset_commands() -> None:
                 "-n",
                 "--name",
                 default=None,
-                help="Sandbox name; Celesto generates one when omitted.",
+                help="Computer name; Celesto generates one when omitted.",
             )
             @click.option(
                 "--memory",
@@ -2074,19 +2089,19 @@ def _register_preset_commands() -> None:
                 "os_name",
                 type=_PresetOSChoice(list(supported_oses)),
                 default=None,
-                help="Guest operating system; uses Ubuntu when omitted.",
+                help="Operating system; uses Ubuntu when omitted.",
             )
             @click.option(
                 "--mount",
                 "mounts",
                 multiple=True,
-                metavar="HOST_PATH[:GUEST_PATH]",
-                help="Share a host folder; repeat the option to share more than one.",
+                metavar="LOCAL_PATH[:COMPUTER_PATH]",
+                help="Share a folder from your machine; repeat to share more than one.",
             )
             @click.option(
                 "--writable-mounts",
                 is_flag=True,
-                help="Allow the sandbox to modify shared host folders.",
+                help="Allow the computer to change shared folders.",
             )
             @click.option(
                 "--install-timeout",
@@ -2098,7 +2113,7 @@ def _register_preset_commands() -> None:
             @click.option(
                 "--attach/--no-attach",
                 default=None,
-                help="Open the agent after setup, or leave the sandbox running.",
+                help="Open the agent after setup, or leave the computer running.",
             )
             @comm_channel_option
             @boot_timeout_option
@@ -2151,19 +2166,19 @@ def _register_preset_commands() -> None:
         )
         if preset.name == "openclaw":
 
-            @click.command("list", help="List your OpenClaw sandboxes.")
+            @click.command("list", help="List your OpenClaw computers.")
             @click.option(
                 "--all",
                 "include_all",
                 is_flag=True,
-                help="Include OpenClaw sandboxes in every state.",
+                help="Include OpenClaw computers in every state.",
             )
             @click.option(
                 "--status",
                 "status_filter",
                 type=click.Choice([state.value for state in VMState]),
                 default=None,
-                help="Show only OpenClaw sandboxes in this state.",
+                help="Show only OpenClaw computers in this state.",
             )
             @json_option
             def openclaw_list(
@@ -2171,7 +2186,7 @@ def _register_preset_commands() -> None:
                 status_filter: str | None,
                 json_output: bool,
             ) -> Any:
-                """List your OpenClaw sandboxes."""
+                """List your OpenClaw computers."""
                 if include_all and status_filter is not None:
                     raise click.UsageError(
                         "Use one filter. Run 'celesto openclaw list --all' or "
@@ -2187,8 +2202,8 @@ def _register_preset_commands() -> None:
                     command_name="openclaw.list",
                 )
 
-            @click.command("open-ui", help="Open an OpenClaw sandbox's dashboard.")
-            @click.argument("vm_id", metavar="sandbox", shell_complete=complete_sandbox_names)
+            @click.command("open-ui", help="Open an OpenClaw computer's dashboard.")
+            @click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
             @click.option(
                 "--host-port",
                 type=click.IntRange(1, 65535),
