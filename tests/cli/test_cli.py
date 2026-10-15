@@ -36,7 +36,7 @@ from celesto.cli.main import (
     build_cli,
     main,
 )
-from celesto.exceptions import VMNotFoundError
+from celesto.exceptions import BrowserSessionNotFoundError, VMNotFoundError
 from celesto.types import (
     BrowserSessionState,
     CommandResult,
@@ -2827,6 +2827,27 @@ class TestCliBrowser:
         assert "celesto computer delete computer-demo" in compact_error
         session.stop.assert_not_called()
 
+    @pytest.mark.parametrize("action", ["stop", "open", "logs"])
+    @patch("celesto.browser._BrowserSandbox")
+    @patch("celesto.cli.state.create_cli_state_manager")
+    def test_browser_command_missing_session_names_browser_list(
+        self,
+        _mock_state_manager_cls: MagicMock,
+        mock_browser_cls: MagicMock,
+        action: str,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """A missing browser session should say so instead of suggesting a retry."""
+        mock_browser_cls.from_id.side_effect = BrowserSessionNotFoundError("ghost")
+
+        ret = main(["browser", action, "ghost"])
+
+        assert ret == 1
+        compact_error = " ".join(capsys.readouterr().err.replace("│", " ").split())
+        assert "Browser session 'ghost' was not found" in compact_error
+        assert "celesto browser list" in compact_error
+        assert "try again" not in compact_error
+
     @patch("celesto.vm.resolve_data_dir", return_value=Path("/tmp"))
     @patch("celesto.cli.state.create_cli_state_manager")
     def test_browser_stop_all_empty(
@@ -2977,6 +2998,80 @@ class TestCliComputer:
         assert row["sandbox_id"] == "vm-computer-demo"
         assert "session_id" not in row
         assert "vm_id" not in row
+
+    @pytest.mark.parametrize(
+        ("guest_os", "recovery"),
+        [
+            (GuestOS.MACOS, "celesto computer desktop test-vm"),
+            (GuestOS.ALPINE, "celesto computer shell test-vm"),
+        ],
+    )
+    @patch("celesto.vm.resolve_data_dir", return_value=Path("/tmp"))
+    @patch("celesto.cli.state.create_cli_state_manager")
+    def test_computer_open_names_right_command_for_other_computers(
+        self,
+        mock_state_manager_cls: MagicMock,
+        _mock_resolve_data_dir: MagicMock,
+        guest_os: GuestOS,
+        recovery: str,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """`open` finds only Linux desktops, so other computers need another command."""
+        state_manager = MagicMock()
+        state_manager.get_browser_session_config.side_effect = BrowserSessionNotFoundError(
+            "test-vm"
+        )
+        vm_info = _make_vm_info(vm_id="test-vm")
+        vm_info.config.guest_os = guest_os
+        state_manager.get_vm.return_value = vm_info
+        mock_state_manager_cls.return_value = state_manager
+
+        ret = main(["computer", "open", "test-vm"])
+
+        assert ret == 1
+        compact_error = " ".join(capsys.readouterr().err.replace("│", " ").split())
+        assert recovery in compact_error
+
+    @patch("celesto.vm.resolve_data_dir", return_value=Path("/tmp"))
+    @patch("celesto.cli.state.create_cli_state_manager")
+    def test_computer_open_missing_computer_names_desktop_list(
+        self,
+        mock_state_manager_cls: MagicMock,
+        _mock_resolve_data_dir: MagicMock,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        state_manager = MagicMock()
+        state_manager.get_browser_session_config.side_effect = BrowserSessionNotFoundError("ghost")
+        state_manager.get_vm.side_effect = VMNotFoundError("ghost")
+        mock_state_manager_cls.return_value = state_manager
+
+        ret = main(["computer", "open", "ghost"])
+
+        assert ret == 1
+        compact_error = " ".join(capsys.readouterr().err.replace("│", " ").split())
+        assert "Linux desktop computer 'ghost' was not found" in compact_error
+        assert "celesto computer list --desktop" in compact_error
+
+    @patch("celesto.cli.main._cli_vm_from_id", side_effect=VMNotFoundError("assistant"))
+    @patch("celesto.vm.resolve_data_dir", return_value=Path("/tmp"))
+    @patch("celesto.cli.state.create_cli_state_manager")
+    def test_computer_desktop_names_open_command_for_linux_desktop(
+        self,
+        mock_state_manager_cls: MagicMock,
+        _mock_resolve_data_dir: MagicMock,
+        _mock_vm_from_id: MagicMock,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """`desktop` finds only macOS computers, so a Linux desktop needs `computer open`."""
+        state_manager = MagicMock()
+        state_manager.get_browser_session_config.return_value.mode = "computer"
+        mock_state_manager_cls.return_value = state_manager
+
+        ret = main(["computer", "desktop", "assistant"])
+
+        assert ret == 1
+        compact_error = " ".join(capsys.readouterr().err.replace("│", " ").split())
+        assert "celesto computer open assistant" in compact_error
 
     def test_computer_templates(self, capsys: pytest.CaptureFixture) -> None:
         ret = main(["computer", "templates", "--json"])

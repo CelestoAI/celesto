@@ -99,8 +99,8 @@ class LocalProvider:
             if unsupported:
                 names = ", ".join(sorted(unsupported))
                 raise ValueError(
-                    f"Desktop computer '{computer_id}' does not accept {names} when reconnecting; "
-                    "omit those options and retry."
+                    f"Linux desktop computer '{computer_id}' does not accept {names} "
+                    "when reconnecting; omit those options and retry."
                 )
             self._desktop = cast(
                 "_ComputerSandbox", _ComputerSandbox.from_id(computer_id, **options)

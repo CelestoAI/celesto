@@ -136,7 +136,7 @@ def _render_result(result: DeleteResult, *, command: str, warn_not_root: bool) -
         return
 
     targets_table = Table(title=f"{title} Targets ({len(result.targets)})")
-    targets_table.add_column("VM")
+    targets_table.add_column("Computer")
     for vm_id in result.targets:
         targets_table.add_row(vm_id)
     console.print(targets_table)
@@ -152,7 +152,7 @@ def _render_result(result: DeleteResult, *, command: str, warn_not_root: bool) -
         return
 
     results_table = Table(title=f"{title} Results")
-    results_table.add_column("VM")
+    results_table.add_column("Computer")
     results_table.add_column("Result")
     results_table.add_column("Error")
 

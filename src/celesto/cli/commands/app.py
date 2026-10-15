@@ -145,8 +145,8 @@ def _reject_provided_options(names: tuple[str, ...], *, recovery: str) -> None:
 def computer_provider_options(function: Any, *, cloud_supported: bool = True) -> Any:
     """Resolve mutually exclusive location flags before dispatch."""
 
-    @click.option("--local", is_flag=True, help="Run on your machine (the default).")
-    @click.option("--cloud", is_flag=True, hidden=not cloud_supported, help="Run in Celesto Cloud.")
+    @click.option("--local", is_flag=True, help="Use your machine (the default).")
+    @click.option("--cloud", is_flag=True, hidden=not cloud_supported, help="Use Celesto Cloud.")
     @wraps(function)
     def wrapped(*args: Any, local: bool, cloud: bool, **kwargs: Any) -> Any:
         if local and cloud:
@@ -312,7 +312,7 @@ def sandbox() -> None:
 
 @sandbox.command("create")
 @click.option(
-    "--desktop", is_flag=True, help="Start a Linux desktop instead of a minimal computer."
+    "--desktop", is_flag=True, help="Create a Linux desktop computer instead of a minimal one."
 )
 @computer_provider_options
 @click.option("-n", "--name", default=None, help="Name for the computer.")
@@ -495,7 +495,7 @@ def sandbox_create(
 
 @sandbox.command("list")
 @computer_provider_options
-@click.option("--desktop", is_flag=True, help="List desktop computers.")
+@click.option("--desktop", is_flag=True, help="List Linux desktop computers.")
 @click.option("--all", "include_all", is_flag=True, help="Show computers in every state.")
 @click.option(
     "--status",
@@ -609,7 +609,7 @@ def sandbox_desktop(
     boot_timeout: float,
     json_output: bool,
 ) -> Any:
-    """Open a computer's desktop."""
+    """Open a macOS computer's desktop."""
     _before_command(json_output=json_output)
     return _handlers()._run_desktop(
         _ns(
@@ -718,7 +718,7 @@ def sandbox_ssh(
 @click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
 @click.argument("command", nargs=-1, required=True, metavar="-- COMMAND ...")
 @computer_provider_options
-@click.option("--desktop", is_flag=True, help="Run in a desktop computer instead of a minimal one.")
+@click.option("--desktop", is_flag=True, help="Run in a Linux desktop computer.")
 @click.option(
     "--timeout",
     type=positive_int_type(),
@@ -819,7 +819,7 @@ def sandbox_logs(vm_id: str, provider: str, tail: int, follow: bool, json_output
 
 @sandbox.command("delete")
 @computer_provider_options
-@click.option("--desktop", is_flag=True, help="Delete a desktop computer by its ID.")
+@click.option("--desktop", is_flag=True, help="Delete a Linux desktop computer by its ID.")
 @click.argument("vm_ids", nargs=-1, metavar="computer...", shell_complete=complete_sandbox_names)
 @click.option("--all", "all_sandboxes", is_flag=True, help="Delete every computer.")
 @click.option("--force", "--yes", is_flag=True, help="Skip the confirmation prompt for --all.")
@@ -872,11 +872,11 @@ def sandbox_delete(
     if desktop:
         if all_sandboxes or dry_run or len(vm_ids) != 1:
             raise click.UsageError(
-                "Desktop delete accepts one computer ID; run "
+                "Linux desktop delete accepts one computer ID; run "
                 "'celesto computer list --desktop' to choose one."
             )
         if not force and not json_output:
-            click.confirm(f"Delete desktop computer '{vm_ids[0]}' and its files?", abort=True)
+            click.confirm(f"Delete Linux desktop computer '{vm_ids[0]}' and its files?", abort=True)
         return _handlers()._run_computer(
             _ns(computer_action="delete", computer_id=vm_ids[0], provider="local", json=json_output)
         )
@@ -1982,7 +1982,7 @@ def computer_run(computer_id: str, run_command: str, timeout: int, json_output: 
 @computer_local_options
 @click.argument("computer_id", metavar="computer")
 def computer_open(computer_id: str, provider: str) -> Any:
-    """Open a computer's desktop view."""
+    """Open a Linux desktop computer in your browser."""
     _before_command()
     return _handlers()._run_computer(
         _ns(computer_action="open", computer_id=computer_id, provider=provider, json=False)

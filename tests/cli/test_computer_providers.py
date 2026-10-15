@@ -331,7 +331,8 @@ def test_local_terminal_error_state_has_recovery(monkeypatch, capsys):
 
 def test_missing_local_computer_has_recovery(capsys):
     assert main(["computer", "terminal", "missing"]) == 1
-    assert "celesto computer list" in capsys.readouterr().err
+    error = " ".join(capsys.readouterr().err.replace("│", " ").split())
+    assert "celesto computer list --desktop" in error
 
 
 def test_cloud_terminal_rejects_local_timeout(monkeypatch):

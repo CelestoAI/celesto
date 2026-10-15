@@ -2315,7 +2315,15 @@ def _run_desktop(args: SimpleNamespace) -> int:
     vm: Celesto | None = None
     command_name = getattr(args, "command_name", "sandbox.desktop")
     try:
-        vm = _cli_vm_from_id(args.vm_id)
+        try:
+            vm = _cli_vm_from_id(args.vm_id)
+        except VMNotFoundError:
+            if _is_linux_desktop(args.vm_id):
+                raise CelestoError(
+                    f"'{args.vm_id}' is a Linux desktop computer; run "
+                    f"'celesto computer open {args.vm_id}' instead."
+                ) from None
+            raise
         if args.start and vm.status in {VMState.CREATED, VMState.STOPPED}:
             vm.start(boot_timeout=args.boot_timeout)
         vm.refresh()
@@ -3861,7 +3869,7 @@ def _render_browser_list(
 
 def _render_computer_list(rows: list[ComputerRow]) -> None:
     """Render computer rows using the computer identifier contract."""
-    table = Table(title="Celesto Desktop Computers")
+    table = Table(title="Celesto Linux Desktop Computers")
     table.add_column("Computer")
     table.add_column("Status")
     table.add_column("Internal ID")
@@ -3896,16 +3904,52 @@ def _display_sessions_for_mode(state: Any, mode: str) -> list[BrowserSessionInfo
     ]
 
 
+def _browser_session_not_found(session_id: str) -> ValueError:
+    return ValueError(
+        f"Browser session '{session_id}' was not found; run 'celesto browser list' to choose one."
+    )
+
+
+def _is_linux_desktop(computer_id: str) -> bool:
+    try:
+        return _cli_state_manager().get_browser_session_config(computer_id).mode == "computer"
+    except Exception:
+        return False
+
+
+def _linux_desktop_not_found(state: Any, computer_id: str, action: str) -> ValueError:
+    """Explain a failed Linux desktop lookup; `open` also names what other computers need."""
+    not_found = ValueError(
+        f"Linux desktop computer '{computer_id}' was not found; "
+        "run 'celesto computer list --desktop' to choose one."
+    )
+    if action != "open":
+        return not_found
+    try:
+        guest_os = state.get_vm(computer_id).config.guest_os
+    except Exception:
+        return not_found
+    if guest_os is GuestOS.MACOS:
+        return ValueError(
+            f"'{computer_id}' is a macOS computer; run "
+            f"'celesto computer desktop {computer_id}' to open its desktop."
+        )
+    return ValueError(
+        f"Computer '{computer_id}' has no desktop; run "
+        f"'celesto computer shell {computer_id}' to use its terminal."
+    )
+
+
 def _require_display_session_mode(state: Any, session_id: str, mode: str) -> None:
     actual = state.get_browser_session_config(session_id).mode
     if actual != mode:
         if mode == "computer":
             raise ValueError(
-                f"'{session_id}' is a browser session, not a desktop computer; run "
+                f"'{session_id}' is a browser session, not a Linux desktop computer; run "
                 "'celesto computer list --desktop' to choose one."
             )
         raise ValueError(
-            f"'{session_id}' is a desktop computer, not a browser session; run "
+            f"'{session_id}' is a Linux desktop computer, not a browser session; run "
             "'celesto browser list' to choose one."
         )
 
@@ -3975,6 +4019,7 @@ def _run_windows_build_image(args: SimpleNamespace) -> int:
 def _run_browser(args: SimpleNamespace) -> int:
     """Handle ``celesto browser`` commands."""
     from celesto.browser import _BrowserSandbox
+    from celesto.exceptions import BrowserSessionNotFoundError
     from celesto.types import BrowserSessionConfig
 
     json_output = getattr(args, "json", False)
@@ -4084,14 +4129,16 @@ def _run_browser(args: SimpleNamespace) -> int:
             session = _BrowserSandbox.from_id(args.session_id, state_manager=state)
             if session._session_config.mode == "computer":
                 raise ValueError(
-                    f"'{args.session_id}' is a desktop computer; run "
+                    f"'{args.session_id}' is a Linux desktop computer; run "
                     f"'celesto computer delete {args.session_id} --desktop' instead."
                 )
             session.stop()
             print(f"Stopped browser session '{args.session_id}'.")
             return 0
         except Exception as exc:
-            if isinstance(exc, ValueError):
+            if isinstance(exc, BrowserSessionNotFoundError):
+                reported_error = _browser_session_not_found(args.session_id)
+            elif isinstance(exc, ValueError):
                 reported_error = exc
             else:
                 reported_error = RuntimeError(
@@ -4109,7 +4156,7 @@ def _run_browser(args: SimpleNamespace) -> int:
             session = _BrowserSandbox.from_id(args.session_id, state_manager=_cli_state_manager())
             if session._session_config.mode == "computer":
                 raise ValueError(
-                    f"'{args.session_id}' is a desktop computer; run "
+                    f"'{args.session_id}' is a Linux desktop computer; run "
                     f"'celesto computer open {args.session_id}' instead."
                 )
             if session.viewer_url is None:
@@ -4123,6 +4170,10 @@ def _run_browser(args: SimpleNamespace) -> int:
             else:
                 print(f"Opened {session.viewer_url}")
             return 0
+        except BrowserSessionNotFoundError:
+            return _emit_cli_error(
+                command_name, 1, _browser_session_not_found(args.session_id), json_output=False
+            )
         except Exception as exc:
             return _emit_cli_error(command_name, 1, exc, json_output=False)
         finally:
@@ -4135,13 +4186,17 @@ def _run_browser(args: SimpleNamespace) -> int:
             session = _BrowserSandbox.from_id(args.session_id, state_manager=_cli_state_manager())
             if session._session_config.mode == "computer":
                 raise ValueError(
-                    f"'{args.session_id}' is a desktop computer; run "
+                    f"'{args.session_id}' is a Linux desktop computer; run "
                     f"'celesto computer logs {session.vm_id}' instead."
                 )
             output = session.logs(tail=args.tail)
             if output:
                 print(output)
             return 0
+        except BrowserSessionNotFoundError:
+            return _emit_cli_error(
+                command_name, 1, _browser_session_not_found(args.session_id), json_output=False
+            )
         except Exception as exc:
             return _emit_cli_error(command_name, 1, exc, json_output=False)
         finally:
@@ -4260,7 +4315,7 @@ def _run_computer(args: SimpleNamespace) -> int:
             if json_output:
                 emit_json(command_name, 0, data={"computers": rows})
             elif not rows:
-                render_empty("Celesto Desktop Computers", "No desktop computers found.")
+                render_empty("Celesto Linux Desktop Computers", "No Linux desktop computers found.")
             else:
                 _render_computer_list(rows)
             return 0
@@ -4272,10 +4327,7 @@ def _run_computer(args: SimpleNamespace) -> int:
         try:
             _require_display_session_mode(state, args.computer_id, "computer")
         except BrowserSessionNotFoundError:
-            raise ValueError(
-                f"Desktop computer '{args.computer_id}' was not found; "
-                "run 'celesto computer list --desktop' to choose one."
-            ) from None
+            raise _linux_desktop_not_found(state, args.computer_id, action) from None
         computer = _ComputerSandbox.from_id(args.computer_id, state_manager=state)
         if action in {"terminal", "exec"}:
             vm = computer.vm
