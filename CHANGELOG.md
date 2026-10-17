@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.5 — 2026-10-17
+
+### Added
+
+- Show CPU and memory sizes in cloud computer list output.
+
 ### Changed
 
 - CLI help, output, and errors say "computer" instead of "sandbox", "VM", or "instance", matching the new [glossary](GLOSSARY.md). Browser sessions keep their name, and `celesto sandbox ...` still works.
