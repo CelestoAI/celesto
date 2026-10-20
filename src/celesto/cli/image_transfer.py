@@ -483,7 +483,14 @@ def run_image_load(
                 ),
             )
         name = manifest.get("name")
-        if schema != _SCHEMA_VERSION or not isinstance(name, str) or not _valid_entry_name(name):
+        # Names must be printable: they are shown in tables and typed back as
+        # 'celesto image rm <name>', so control characters are never accepted.
+        if (
+            schema != _SCHEMA_VERSION
+            or not isinstance(name, str)
+            or not name.isprintable()
+            or not _valid_entry_name(name)
+        ):
             return bad_archive()
 
         # Only members declared in the manifest, as regular files, at safe
@@ -506,6 +513,7 @@ def run_image_load(
                 or meta["size"] < 0
                 or not isinstance(meta.get("sha256"), str)
                 or not _SHA256_RE.match(meta["sha256"])
+                or not meta["path"].isprintable()
                 or not _valid_relative_file_path(meta["path"])
             ):
                 return bad_archive()

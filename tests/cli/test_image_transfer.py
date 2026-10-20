@@ -1062,9 +1062,8 @@ class TestHostileManifestName:
         assert main(["image", "save", "codex", "--image-dir", str(src), "-o", str(archive)]) == 0
         capsys.readouterr()
 
-        hostile = (
-            "[link=mailto:owner@attacker.example]codex-v0.0.1-amd64-firecracker\x1b]0;owned\x07"
-        )
+        # Control characters are rejected at load, so markup is the live threat here.
+        hostile = "[link=mailto:owner@attacker.example]codex-v0.0.1-amd64-firecracker"
         with tarfile.open(archive) as tar:
             manifest = json.load(tar.extractfile("manifest.json"))
             members = [
@@ -1089,7 +1088,7 @@ class TestHostileManifestName:
     ) -> None:
         """Member file names and the on-disk sidecar are untrusted: never markup or ESC."""
         monkeypatch.setenv("COLUMNS", "200")
-        hostile_file = "[red]rootfs[/red]\x1b]0;owned\x07.bin"
+        hostile_file = "[red]rootfs[/red].bin"
         data = b"custom-rootfs"
         # A compressed rootfs makes load restore the sidecar the manifest supplies.
         zst = zstandard.compress(b"\x00" * 16)
@@ -1133,3 +1132,77 @@ class TestHostileManifestName:
         assert "[red]rootfs[/red]" in out
         assert "[bold]sparse-v1:deadbeef" in out
         assert "\x1b" not in out
+
+
+class TestLoadRejectsUnprintableNames:
+    """Names an archive supplies must be printable so they can be shown and typed back."""
+
+    @staticmethod
+    def _archive(path: Path, name: str, member: str) -> None:
+        data = b"custom-rootfs"
+        _write_archive(
+            path,
+            {
+                "schema_version": 1,
+                "name": name,
+                "files": [
+                    {
+                        "path": member,
+                        "encoding": "raw",
+                        "size": len(data),
+                        "sha256": hashlib.sha256(data).hexdigest(),
+                    }
+                ],
+            },
+            [(f"files/{member}", data)],
+        )
+
+    @pytest.mark.parametrize(
+        ("name", "member"),
+        [("codex\x1b]0;owned\x07", "rootfs.bin"), ("codex", "root\x1bfs.bin")],
+        ids=["entry-name", "member-path"],
+    )
+    def test_control_characters_are_rejected(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture, name: str, member: str
+    ) -> None:
+        archive = tmp_path / "bad.tar"
+        self._archive(archive, name, member)
+        dest = tmp_path / "dest"
+
+        ret = main(["image", "load", "-i", str(archive), "--image-dir", str(dest), "--json"])
+
+        assert ret == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["error"]["code"] == "invalid_input"
+        assert not dest.exists() or not any(dest.iterdir())
+
+    def test_error_hints_quote_the_archive_name(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A name with shell metacharacters must be quoted in the suggested command."""
+        name = "my image$(id)"
+        data = b"custom-rootfs"
+        archive = tmp_path / "extra.tar"
+        _write_archive(
+            archive,
+            {
+                "schema_version": 1,
+                "name": name,
+                "files": [
+                    {
+                        "path": "rootfs.bin",
+                        "encoding": "raw",
+                        "size": len(data),
+                        "sha256": hashlib.sha256(data).hexdigest(),
+                    }
+                ],
+            },
+            [("files/rootfs.bin", data), ("files/undeclared.bin", b"x")],
+        )
+        dest = tmp_path / "dest"
+
+        ret = main(["image", "load", "-i", str(archive), "--image-dir", str(dest), "--json"])
+
+        assert ret == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert "celesto image save 'my image$(id)' -o" in payload["error"]["recovery"]
