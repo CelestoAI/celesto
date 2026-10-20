@@ -24,6 +24,18 @@ from rich.panel import Panel
 from rich.text import Text
 
 
+def display_safe(value: str, *, limit: int = 256) -> str:
+    """Return *value* with control characters removed and its length capped.
+
+    Use it on text that comes from an untrusted source (a guest OS, a loaded
+    archive) before it reaches the terminal. Rich only strips a few control
+    codes, so a raw ESC would otherwise let that source emit terminal
+    escape sequences. Render the result through ``rich.text.Text`` so Rich
+    does not interpret it as console markup either.
+    """
+    return "".join(ch for ch in value if ch.isprintable())[:limit]
+
+
 def console_stdout() -> Console:
     """Return the Rich console configured for standard output."""
     return Console()

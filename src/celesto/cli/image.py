@@ -45,10 +45,12 @@ from rich.progress import (
     TimeElapsedColumn,
     TransferSpeedColumn,
 )
+from rich.text import Text
 
 from celesto import __version__
 from celesto.cli.output import (
     console_stdout,
+    display_safe,
     emit_error,
     emit_success,
     render_empty,
@@ -1032,7 +1034,8 @@ def run_image_list(
         if row["current"] is False:
             version = f"[yellow]{version} (stale)[/yellow]"
         table.add_row(
-            row["name"],
+            # Entry names come from disk and loaded archives: render literally.
+            Text(display_safe(row["name"])),
             row["kind"],
             "/".join(platform_parts) or "-",
             version,
@@ -1189,7 +1192,7 @@ def run_image_inspect(
 
     console = console_stdout()
     for entry in entries:
-        table = Table(title=entry["name"], show_header=False)
+        table = Table(title=Text(display_safe(entry["name"])), show_header=False)
         table.add_column("Field")
         table.add_column("Value", overflow="fold")
         table.add_row("Kind", entry["kind"])

@@ -1113,3 +1113,39 @@ class TestUpstreamReviewRegressions:
         assert ret == 2
         payload = json.loads(capsys.readouterr().out)
         assert payload["error"]["code"] == "invalid_input"
+
+
+class TestHostileEntryNames:
+    """Cache entry names come from disk and loaded archives: render them literally."""
+
+    HOSTILE = "[link=mailto:owner@attacker.example]codex-v0.0.1-amd64-firecracker\x1b]0;owned\x07"
+
+    def _make_entry(self, root: Path) -> Path:
+        entry = root / self.HOSTILE
+        entry.mkdir(parents=True)
+        (entry / "rootfs.ext4").write_bytes(b"x" * 10)
+        return entry
+
+    def test_list_renders_name_literally(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        self._make_entry(tmp_path)
+
+        ret = main(["image", "list", "--image-dir", str(tmp_path)])
+
+        assert ret == 0
+        out = capsys.readouterr().out
+        assert "[link=mailto:owner@attacker.example]" in out
+        assert "\x1b" not in out
+
+    def test_inspect_renders_name_literally(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        self._make_entry(tmp_path)
+
+        ret = main(["image", "inspect", self.HOSTILE, "--image-dir", str(tmp_path)])
+
+        assert ret == 0
+        out = capsys.readouterr().out
+        assert "[link=mailto:owner@attacker.example]" in out
+        assert "\x1b" not in out

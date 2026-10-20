@@ -47,6 +47,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypedDict
 
+from rich.text import Text
+
 from celesto import __version__
 from celesto.cli.image import (
     _IMAGE_DIR_NAME_RE,
@@ -59,7 +61,7 @@ from celesto.cli.image import (
     _resolve_entries,
     _valid_entry_name,
 )
-from celesto.cli.output import console_stdout, emit_success
+from celesto.cli.output import console_stdout, display_safe, emit_success
 from celesto.cli.prune import _format_bytes, _total_size
 from celesto.images.manager import resolve_image_dir
 from celesto.images.published import DECOMPRESSED_ROOTFS_SIDECAR_SUFFIX
@@ -681,9 +683,13 @@ def run_image_load(
     if json_output:
         return emit_success(command_name, payload)
     console = console_stdout()
+    # The name comes from the archive: render it literally, never as markup.
     console.print(
-        f"Loaded [bold]{name}[/bold] ({_format_bytes(payload['size_bytes'])}). "
-        "Run 'celesto image list' to confirm."
+        Text.assemble(
+            "Loaded ",
+            (display_safe(name), "bold"),
+            f" ({_format_bytes(payload['size_bytes'])}). Run 'celesto image list' to confirm.",
+        )
     )
     for warning in warnings:
         console.print(f"[yellow]{warning}[/yellow]")

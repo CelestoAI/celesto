@@ -3765,6 +3765,32 @@ class TestCliInfo:
         assert "312 / 1024 MiB used" in out
         mock_query.assert_called_once_with(vm_info)
 
+    def test_info_renders_guest_os_name_literally(
+        self,
+        mock_sdk_cls: MagicMock,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """A guest-controlled OS name must not become Rich markup or terminal escapes."""
+        vm_info = self._make_info_vm(status=VMState.RUNNING)
+        mock_sdk_cls.return_value.state.get_vm.return_value = vm_info
+        hostile_name = (
+            "[link=https://attacker.example/login]Alpine Linux v3.19[/link]"
+            "\x1b]52;c;cHduZWQ=\x1b\\\x1b]0;owned\x1b\\"
+        )
+        ssh_result = MagicMock(exit_code=0, stdout=f"{hostile_name}\n---\n123\n")
+        with patch("celesto.ssh.SSHClient") as mock_ssh_cls:
+            mock_ssh_cls.return_value.run.return_value = ssh_result
+
+            ret = main(["sandbox", "info", "sbx-pauling"])
+
+        assert ret == 0
+        out = capsys.readouterr().out
+        # The cell may wrap, so check the markup survives as visible text.
+        assert "[link=https://attacker.example/login]Alpine Linux" in out
+        assert "v3.19[/link]" in out
+        assert "\x1b" not in out
+        assert "123 / 1024 MiB used" in out
+
     def test_info_running_vm_with_unreachable_ssh(
         self,
         mock_sdk_cls: MagicMock,

@@ -1049,3 +1049,35 @@ class TestLoadDoesNotTrustArchiveProvenance:
         assert payload["error"]["code"] == "invalid_input"
         assert "damaged" in payload["error"]["message"]
         assert not dest.exists() or not any(dest.iterdir())
+class TestHostileManifestName:
+    def test_load_renders_archive_name_literally(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """An archive-supplied name must not become Rich markup or terminal escapes."""
+        src = tmp_path / "src"
+        _make_published_entry(src, "codex-v0.0.1-amd64-firecracker")
+        archive = tmp_path / "codex.tar"
+        assert main(["image", "save", "codex", "--image-dir", str(src), "-o", str(archive)]) == 0
+        capsys.readouterr()
+
+        hostile = (
+            "[link=mailto:owner@attacker.example]codex-v0.0.1-amd64-firecracker\x1b]0;owned\x07"
+        )
+        with tarfile.open(archive) as tar:
+            manifest = json.load(tar.extractfile("manifest.json"))
+            members = [
+                (m.name, tar.extractfile(m).read())
+                for m in tar.getmembers()
+                if m.name != "manifest.json"
+            ]
+        manifest["name"] = hostile
+        hostile_archive = tmp_path / "hostile.tar"
+        _write_archive(hostile_archive, manifest, members)
+
+        dest = tmp_path / "dest"
+        ret = main(["image", "load", "-i", str(hostile_archive), "--image-dir", str(dest)])
+
+        assert ret == 0
+        out = capsys.readouterr().out
+        assert "[link=mailto:owner@attacker.example]" in out
+        assert "\x1b" not in out
