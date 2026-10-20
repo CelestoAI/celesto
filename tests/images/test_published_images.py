@@ -17,6 +17,7 @@
 import hashlib
 import re
 from collections import defaultdict
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier
@@ -656,6 +657,78 @@ class TestZstdDecompression:
         )
 
         assert mock_get.call_count == 2
+        assert local.rootfs_path.read_bytes() == rootfs_plain
+        assert (image_dir / "rootfs.ext4.from-sha256").read_text().strip() == (
+            _decompressed_rootfs_sidecar_value(entry.rootfs_sha256)
+        )
+
+    @patch("celesto.images.manager.requests.get")
+    def test_interrupted_redownload_drops_stale_sidecar(
+        self,
+        mock_get: MagicMock,
+        compressed_entry: tuple[PublishedImage, bytes, bytes, bytes],
+        tmp_path: Path,
+    ) -> None:
+        """A re-download that dies after its first byte must leave no
+        pin-matching sidecar beside the stale rootfs.ext4, or the next
+        start (whose .zst may by then verify) would serve it."""
+        entry, kernel_bytes, _rootfs_zst, _ = compressed_entry
+        manifest = {(entry.preset, entry.arch, entry.vmm, entry.os): entry}
+        image_dir = tmp_path / cache_name(entry.preset, entry.arch, entry.vmm, "0.0.13")
+        image_dir.mkdir(parents=True)
+        (image_dir / "vmlinux.bin").write_bytes(kernel_bytes)
+        (image_dir / "rootfs.ext4.zst").write_bytes(b"not the pinned zst")
+        (image_dir / "rootfs.ext4").write_bytes(b"tampered")
+        sidecar = image_dir / "rootfs.ext4.from-sha256"
+        sidecar.write_text(_decompressed_rootfs_sidecar_value(entry.rootfs_sha256))
+
+        def chunks() -> Iterator[bytes]:
+            yield kernel_bytes[:4]
+            raise ConnectionError("link dropped")
+
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.headers.get.return_value = None
+        resp.iter_content = lambda chunk_size: chunks()
+        mock_get.return_value = resp
+
+        with pytest.raises(Exception):  # noqa: B017 — any failure shape, the sidecar is what matters
+            ensure_published_image(
+                entry.preset,
+                entry.arch,
+                entry.vmm,
+                cache_dir=tmp_path,
+                manifest=manifest,
+                version="0.0.13",
+            )
+        assert not sidecar.exists()
+        assert (image_dir / "rootfs.ext4.zst").read_bytes() == b"not the pinned zst"
+
+    def test_unreadable_sidecar_is_treated_as_missing(
+        self,
+        compressed_entry: tuple[PublishedImage, bytes, bytes, bytes],
+        tmp_path: Path,
+    ) -> None:
+        """Garbage bytes in the sidecar must regenerate, not crash every start."""
+        entry, kernel_bytes, rootfs_zst, rootfs_plain = compressed_entry
+        manifest = {(entry.preset, entry.arch, entry.vmm, entry.os): entry}
+        image_dir = tmp_path / cache_name(entry.preset, entry.arch, entry.vmm, "0.0.13")
+        image_dir.mkdir(parents=True)
+        (image_dir / "vmlinux.bin").write_bytes(kernel_bytes)
+        (image_dir / "rootfs.ext4.zst").write_bytes(rootfs_zst)
+        (image_dir / "rootfs.ext4").write_bytes(b"stale")
+        (image_dir / "rootfs.ext4.from-sha256").write_bytes(b"\xff\xfe garbage")
+
+        with patch("celesto.images.manager.requests.get") as mock_get:
+            local = ensure_published_image(
+                entry.preset,
+                entry.arch,
+                entry.vmm,
+                cache_dir=tmp_path,
+                manifest=manifest,
+                version="0.0.13",
+            )
+            mock_get.assert_not_called()
         assert local.rootfs_path.read_bytes() == rootfs_plain
         assert (image_dir / "rootfs.ext4.from-sha256").read_text().strip() == (
             _decompressed_rootfs_sidecar_value(entry.rootfs_sha256)

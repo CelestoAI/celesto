@@ -56,6 +56,7 @@ from celesto.cli.output import (
 )
 from celesto.cli.prune import _VERSION_PATTERN, _format_bytes, _size_on_disk, _total_size
 from celesto.images.manager import resolve_image_dir
+from celesto.images.published import decompressed_rootfs_sidecar_path
 
 # Cache directory names produced by ``published.cache_name()``:
 # ``{preset}-v{cli_version}-{arch}-{vmm}`` with a ``-alpine`` suffix for
@@ -1079,12 +1080,12 @@ def _inspect_entry(path: Path, root: Path) -> ImageInspectEntry:
     else:
         row = _classify(path, size_bytes=size_on_disk)
 
-    sidecar_path = path / "rootfs.ext4.from-sha256"
+    sidecar_path = decompressed_rootfs_sidecar_path(path / "rootfs.ext4")
     sidecar: str | None = None
     if sidecar_path.is_file():
         try:
             sidecar = sidecar_path.read_text().strip()
-        except OSError:
+        except (OSError, UnicodeDecodeError):
             sidecar = None
 
     manifest_info: ImageManifestInfo | None = None

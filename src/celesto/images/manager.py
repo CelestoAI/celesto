@@ -925,6 +925,7 @@ class ImageManager:
             kernel_path=kernel_path,
             initrd_path=initrd_path,
             rootfs_path=rootfs_path,
+            downloaded=not (kernel_ok and rootfs_ok and initrd_ok),
         )
         return local, manifest
 

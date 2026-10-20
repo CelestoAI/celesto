@@ -22,10 +22,12 @@ never carry encoding suffixes, so sibling files like ``x`` and ``x.zst``
 can't collide. Large files travel as zstd streams so sparse
 rootfs images stay small; files that are already ``.zst`` always travel
 raw (never re-compressed), so their manifest digest is also the digest of
-the installed file. The decompressed ``rootfs.ext4`` and its sidecar
-are omitted entirely when the compressed ``rootfs.ext4.zst`` is present and
-are recreated on load, byte-compatible with what ``ensure_published_image``
-expects.
+the installed file. The ``rootfs.ext4.from-sha256`` sidecar is never
+saved, and the decompressed ``rootfs.ext4`` is omitted whenever the
+compressed ``rootfs.ext4.zst`` is present; load recreates both from the
+digest of the ``.zst`` it installed, byte-compatible with what
+``ensure_published_image`` expects, so an archive can never assert which
+pinned bytes a rootfs came from.
 """
 
 from __future__ import annotations
@@ -39,6 +41,7 @@ import shlex
 import shutil
 import tarfile
 import tempfile
+import unicodedata
 from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
@@ -59,6 +62,7 @@ from celesto.cli.image import (
 from celesto.cli.output import console_stdout, emit_success
 from celesto.cli.prune import _format_bytes, _total_size
 from celesto.images.manager import resolve_image_dir
+from celesto.images.published import DECOMPRESSED_ROOTFS_SIDECAR_SUFFIX
 
 _SCHEMA_VERSION = 1
 _COPY_CHUNK = 1024 * 1024
@@ -70,7 +74,7 @@ _MANIFEST_SIZE_CAP = 10 * 1024 * 1024
 # compressed wire file, so archives never carry them alongside it.
 _DECOMPRESSED_ROOTFS = "rootfs.ext4"
 _ROOTFS_ZST = "rootfs.ext4.zst"
-_ROOTFS_SIDECAR = "rootfs.ext4.from-sha256"
+_ROOTFS_SIDECAR = _DECOMPRESSED_ROOTFS + DECOMPRESSED_ROOTFS_SIDECAR_SUFFIX
 # Builders hold this lock while rewriting an entry (see builder.py).
 _BUILD_LOCK = ".build.lock"
 
@@ -118,6 +122,16 @@ class _HashingReader:
         chunk = self._fileobj.read(size)
         self._hasher.update(chunk)
         return chunk
+
+
+def _canonical_path(path: str) -> str:
+    """Key under which a declared path is compared with reserved names.
+
+    The image cache may live on a case-insensitive filesystem (macOS by
+    default), where ``rootfs.ext4.ZST`` lands as ``rootfs.ext4.zst``, so
+    every name rule and collision check works on this key, not the spelling.
+    """
+    return unicodedata.normalize("NFC", path).casefold()
 
 
 def _valid_relative_file_path(path: str) -> bool:
@@ -397,7 +411,10 @@ def run_image_load(
     import zstandard
 
     from celesto.host.disk import decompress_zstd_sparse
-    from celesto.images.published import _decompressed_rootfs_sidecar_value
+    from celesto.images.published import (
+        _decompressed_rootfs_sidecar_value,
+        _looks_like_zstd_decode_error,
+    )
 
     root = resolve_image_dir(image_dir)
     in_path = Path(input_file)
@@ -467,6 +484,7 @@ def run_image_load(
         # relative paths, are ever written to disk — extraction below builds
         # its own destination paths and never uses tar member names as paths.
         allowed: dict[str, dict[str, Any]] = {}
+        declared: set[str] = set()
         raw_files = manifest.get("files")
         for meta in raw_files if isinstance(raw_files, list) else [None]:
             if (
@@ -476,7 +494,7 @@ def run_image_load(
                 # .zst files always travel raw; a re-compressed one would
                 # install bytes that differ from the digest the manifest
                 # (and the regenerated rootfs sidecar) describes.
-                or (meta["path"].endswith(".zst") and meta["encoding"] != "raw")
+                or (_canonical_path(meta["path"]).endswith(".zst") and meta["encoding"] != "raw")
                 or not isinstance(meta.get("size"), int)
                 or isinstance(meta.get("size"), bool)
                 or meta["size"] < 0
@@ -485,18 +503,21 @@ def run_image_load(
                 or not _valid_relative_file_path(meta["path"])
             ):
                 return bad_archive()
+            key = _canonical_path(meta["path"])
+            if key in declared:
+                # Two spellings of one file would silently overwrite each
+                # other on a case-insensitive filesystem.
+                return bad_archive()
+            declared.add(key)
             allowed[f"files/{meta['path']}"] = meta
         # save never emits these: dot-prefixed names are lock files, build
-        # fingerprints and in-progress artifacts; the decompressed rootfs
-        # and its sidecar are regenerated below from the installed .zst so
-        # an archive cannot assert which pinned bytes a rootfs came from.
-        declared = {meta["path"] for meta in allowed.values()}
-        never_saved = {_ROOTFS_SIDECAR}
-        if _ROOTFS_ZST in declared:
-            never_saved.add(_DECOMPRESSED_ROOTFS)
+        # fingerprints and in-progress artifacts, and the decompressed
+        # rootfs is regenerated below from the installed .zst so an archive
+        # cannot assert which pinned bytes a rootfs came from.
+        never_saved = {_DECOMPRESSED_ROOTFS} if _ROOTFS_ZST in declared else set()
         if any(
-            path in never_saved or any(seg.startswith(".") for seg in path.split("/"))
-            for path in declared
+            key in never_saved or any(seg.startswith(".") for seg in key.split("/"))
+            for key in declared
         ):
             return bad_archive(
                 f"'{in_path}' contains files that 'celesto image save' never writes "
@@ -535,8 +556,15 @@ def run_image_load(
         try:
             partial.mkdir()
             zst_sha: str | None = None
+            installed = 0
             for member in data_members:
                 meta = allowed[member.name]
+                if _canonical_path(meta["path"]) == _ROOTFS_SIDECAR:
+                    # Older Celesto saved the sidecar for entries without a
+                    # .zst. It is a local cache key, never installed from an
+                    # archive: load regenerates it below when it applies.
+                    continue
+                installed += 1
                 destination = partial / meta["path"]
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 source = tar.extractfile(member)
@@ -544,8 +572,8 @@ def run_image_load(
                     raise tarfile.TarError(f"could not read '{member.name}' from the archive")
                 # Every member's stored bytes are verified against the
                 # manifest digest before use; for the always-raw
-                # rootfs.ext4.zst, that same digest doubles as the
-                # sidecar fallback.
+                # rootfs.ext4.zst, that same digest is the sole source of
+                # the regenerated sidecar value.
                 hasher = hashlib.sha256()
                 if meta["encoding"] == "raw":
                     with source, open(destination, "wb") as out:
@@ -571,20 +599,33 @@ def run_image_load(
                     raise zstandard.ZstdError(
                         f"'{meta['path']}' does not match the size the archive declares"
                     )
-                if meta["path"] == _ROOTFS_ZST:
+                if _canonical_path(meta["path"]) == _ROOTFS_ZST:
                     # Always raw (validated above), so this digest is also
                     # the digest of the installed file.
                     zst_sha = digest
 
             # Recreate what save deliberately left out, byte-compatible with
-            # what ensure_published_image validates on the next start. The
-            # sidecar is derived only from the digest of the .zst actually
-            # installed; a value carried in the manifest (older archives)
-            # is ignored, since it is the archive author's claim.
+            # what ensure_published_image validates on the next start. This
+            # goes by what is on disk, not by manifest spellings: whenever a
+            # compressed rootfs was installed, the decompressed copy and the
+            # sidecar are rebuilt from its verified digest, and a value
+            # carried in the manifest (older archives) is ignored, since it
+            # is the archive author's claim.
             zst = partial / _ROOTFS_ZST
             rootfs = partial / _DECOMPRESSED_ROOTFS
-            if zst.is_file() and zst_sha:
-                decompress_zstd_sparse(zst, rootfs)
+            if zst.is_file():
+                if zst_sha is None:
+                    raise tarfile.TarError("the compressed rootfs was not declared")
+                rootfs.unlink(missing_ok=True)
+                (partial / _ROOTFS_SIDECAR).unlink(missing_ok=True)
+                try:
+                    decompress_zstd_sparse(zst, rootfs)
+                except OSError as exc:
+                    if _looks_like_zstd_decode_error(exc):
+                        raise zstandard.ZstdError(
+                            f"'{_ROOTFS_ZST}' is not a valid zstd stream"
+                        ) from exc
+                    raise
                 (partial / _ROOTFS_SIDECAR).write_text(_decompressed_rootfs_sidecar_value(zst_sha))
 
             if target.exists():
@@ -620,7 +661,7 @@ def run_image_load(
         name=name,
         path=str(target),
         size_bytes=_total_size(target),
-        files=len(data_members),
+        files=installed,
         warnings=warnings,
     )
     if json_output:
