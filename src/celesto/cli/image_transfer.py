@@ -542,7 +542,7 @@ def run_image_load(
                 f"'{in_path}' contains files that 'celesto image save' never writes "
                 "and was not loaded.",
                 recovery="Recreate it on the source machine with "
-                f"'celesto image save {name} -o {shlex.quote(in_path.name)}'.",
+                f"'celesto image save {shlex.quote(name)} -o {shlex.quote(in_path.name)}'.",
             )
         data_members = [m for m in members if m.name != _MANIFEST_MEMBER]
         seen: set[str] = set()
@@ -554,7 +554,7 @@ def run_image_load(
                     json_output=json_output,
                     code="invalid_input",
                     recovery="Recreate it on the source machine with "
-                    f"'celesto image save {name} -o {shlex.quote(in_path.name)}'.",
+                    f"'celesto image save {shlex.quote(name)} -o {shlex.quote(in_path.name)}'.",
                     exit_code=2,
                 )
             seen.add(member.name)
@@ -566,7 +566,7 @@ def run_image_load(
         if target.exists() and not force:
             return _fail(
                 command_name,
-                f"'{name}' already exists.",
+                f"'{display_safe(name)}' already exists.",
                 json_output=json_output,
                 recovery=f"Run 'celesto image load -i {quoted_input} --force' to replace it.",
             )
