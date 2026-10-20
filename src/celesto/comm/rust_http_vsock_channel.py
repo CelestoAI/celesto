@@ -57,6 +57,8 @@ CELESTO_TERMINAL_PORT = 1025
 _READY_FAST_POLL_WINDOW = 1.0
 _READY_FAST_POLL_INTERVAL = 0.02
 _DEFAULT_MAX_AGENT_RESPONSE_BYTES = 1024 * 1024
+_DEFAULT_MAX_EXEC_RESPONSE_BYTES = 16 * 1024 * 1024
+"""Host-owned cap on one POST /exec reply; larger output must use run_stream."""
 _DEFAULT_MAX_STREAM_SIZE_BYTES = 256 * 1024 * 1024
 _DEFAULT_MAX_TAR_SIZE_BYTES = 512 * 1024 * 1024
 _DEFAULT_MAX_TERMINAL_FRAME_BYTES = 1024 * 1024
@@ -462,6 +464,41 @@ def _reject_symlink_path(root: Path, target: Path) -> None:
             raise CelestoError(f"Refusing tar extraction through symlink: {cursor}")
 
 
+def _response_too_large_error(method: str, path: str, max_bytes: int) -> CelestoError:
+    if method == "POST" and path == "/exec":
+        return CelestoError(
+            f"Command output was larger than {max_bytes} bytes, so it cannot be returned "
+            "in one reply. Use run_stream to read large output as it arrives."
+        )
+    return CelestoError(f"guest agent response for {method} {path} exceeded {max_bytes} bytes")
+
+
+def _read_response_bounded(
+    resp: http.client.HTTPResponse,
+    max_bytes: int,
+    *,
+    method: str,
+    path: str,
+) -> bytes:
+    """Read a reply body of at most ``max_bytes``.
+
+    Checks the declared size headers first so an oversized reply is refused
+    before any of it is buffered, then reads one byte past the cap to catch a
+    body that is larger than it declared.
+    """
+    for header in ("Content-Length", "x-celesto-file-size"):
+        value = resp.getheader(header)
+        if value is None:
+            continue
+        declared_size = _parse_size_header(value, header=header, method=method, path=path)
+        if declared_size > max_bytes:
+            raise _response_too_large_error(method, path, max_bytes)
+    data = resp.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise _response_too_large_error(method, path, max_bytes)
+    return data
+
+
 class _SocketHTTPConnection(http.client.HTTPConnection):
     """HTTPConnection that uses a caller-supplied connected socket."""
 
@@ -598,9 +635,18 @@ class RustHttpVsockChannel:
         body: bytes | None = None,
         content_type: str | None = None,
         timeout: float | None = None,
+        max_bytes: int | None = None,
     ) -> dict[str, Any]:
+        """Send a request and decode a JSON object reply.
+
+        The reply is read at most ``max_bytes`` (default
+        ``_DEFAULT_MAX_AGENT_RESPONSE_BYTES``) so an untrusted guest cannot
+        grow host memory without bound.
+        """
         if payload is not None and body is not None:
             raise ValueError("provide payload or body, not both")
+        if max_bytes is None:
+            max_bytes = _DEFAULT_MAX_AGENT_RESPONSE_BYTES
         request_body = b"" if payload is None and body is None else body
         if payload is not None:
             request_body = json.dumps(payload).encode("utf-8")
@@ -617,7 +663,7 @@ class RustHttpVsockChannel:
         try:
             conn.request(method, path, body=request_body, headers=headers)
             resp = conn.getresponse()
-            data = resp.read()
+            data = _read_response_bounded(resp, max_bytes, method=method, path=path)
             if resp.status >= 400:
                 detail = data.decode("utf-8", errors="replace")
                 raise CelestoError(f"guest agent HTTP {resp.status} for {method} {path}: {detail}")
@@ -654,25 +700,7 @@ class RustHttpVsockChannel:
             conn.request(method, path, body=body, headers=headers)
             resp = conn.getresponse()
             if max_bytes is not None:
-                for header in ("Content-Length", "x-celesto-file-size"):
-                    value = resp.getheader(header)
-                    if value is None:
-                        continue
-                    declared_size = _parse_size_header(
-                        value,
-                        header=header,
-                        method=method,
-                        path=path,
-                    )
-                    if declared_size > max_bytes:
-                        raise CelestoError(
-                            f"guest agent response for {method} {path} exceeded {max_bytes} bytes"
-                        )
-                data = resp.read(max_bytes + 1)
-                if len(data) > max_bytes:
-                    raise CelestoError(
-                        f"guest agent response for {method} {path} exceeded {max_bytes} bytes"
-                    )
+                data = _read_response_bounded(resp, max_bytes, method=method, path=path)
             else:
                 data = resp.read()
             if resp.status >= 400:
@@ -732,6 +760,7 @@ class RustHttpVsockChannel:
             "/exec",
             {"command": command, "shell": shell, "timeout_seconds": timeout_seconds},
             timeout=float(timeout_seconds + self.connect_timeout),
+            max_bytes=_DEFAULT_MAX_EXEC_RESPONSE_BYTES,
         )
         if resp.get("timed_out"):
             raise OperationTimeoutError(f"vsock run: {command}", timeout_seconds)

@@ -48,6 +48,26 @@ from celesto.types import (
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_MAX_COMMAND_OUTPUT_BYTES = 16 * 1024 * 1024
+"""Host-owned cap on the output ``run`` buffers; larger output must use ``run_stream``."""
+_COMMAND_OUTPUT_CHUNK_BYTES = 64 * 1024
+
+
+def _read_command_output(stream: BinaryIO, *, received: int, max_bytes: int) -> tuple[bytes, int]:
+    """Read *stream* to EOF in bounded chunks, refusing more than *max_bytes* in all."""
+    chunks: list[bytes] = []
+    while True:
+        chunk = stream.read(_COMMAND_OUTPUT_CHUNK_BYTES)
+        if not chunk:
+            return b"".join(chunks), received
+        received += len(chunk)
+        if received > max_bytes:
+            raise CelestoError(
+                f"Command output was larger than {max_bytes} bytes, so it cannot be returned "
+                "in one reply. Use run_stream to read large output as it arrives."
+            )
+        chunks.append(chunk)
+
 
 class _LimitedWriter:
     """Reject a download chunk before it would exceed the caller's byte limit."""
@@ -429,9 +449,21 @@ class SSHClient:
 
         try:
             _, stdout_ch, stderr_ch = client.exec_command(remote_command, timeout=timeout)
-            # Read all output
-            stdout = stdout_ch.read().decode("utf-8", errors="replace")
-            stderr = stderr_ch.read().decode("utf-8", errors="replace")
+            max_bytes = _DEFAULT_MAX_COMMAND_OUTPUT_BYTES
+            try:
+                stdout_bytes, received = _read_command_output(
+                    stdout_ch, received=0, max_bytes=max_bytes
+                )
+                stderr_bytes, _ = _read_command_output(
+                    stderr_ch, received=received, max_bytes=max_bytes
+                )
+            except CelestoError:
+                # Stop the guest command instead of letting it stream into nothing.
+                with suppress(Exception):
+                    stdout_ch.channel.close()
+                raise
+            stdout = stdout_bytes.decode("utf-8", errors="replace")
+            stderr = stderr_bytes.decode("utf-8", errors="replace")
             exit_code = stdout_ch.channel.recv_exit_status()
 
             return CommandResult(
@@ -439,6 +471,8 @@ class SSHClient:
                 stdout=stdout,
                 stderr=stderr,
             )
+        except CelestoError:
+            raise
         except TimeoutError as e:
             raise OperationTimeoutError(
                 f"ssh {self.host}:{self.port}: {command}",

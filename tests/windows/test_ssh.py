@@ -109,8 +109,8 @@ def _mock_exec_result(
 ) -> tuple[None, MagicMock, MagicMock]:
     stdout_ch = MagicMock()
     stderr_ch = MagicMock()
-    stdout_ch.read.return_value = stdout.encode("utf-8")
-    stderr_ch.read.return_value = stderr.encode("utf-8")
+    stdout_ch.read.side_effect = [stdout.encode("utf-8"), b""]
+    stderr_ch.read.side_effect = [stderr.encode("utf-8"), b""]
     stdout_ch.channel.recv_exit_status.return_value = exit_code
     return (None, stdout_ch, stderr_ch)
 
@@ -213,6 +213,48 @@ class TestSSHClientRun:
         assert events[2].data == "warning\n"  # type: ignore[union-attr]
         assert events[3].exit_code == 7  # type: ignore[union-attr]
         channel.close.assert_called_once()
+
+    @patch.object(SSHClient, "_ensure_connected")
+    def test_run_rejects_output_over_host_cap(
+        self, mock_connected: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A guest that streams output forever cannot grow host memory without bound."""
+        import celesto.ssh as ssh_module
+
+        monkeypatch.setattr(ssh_module, "_DEFAULT_MAX_COMMAND_OUTPUT_BYTES", 1024)
+        stdout_ch = MagicMock()
+        stdout_ch.read.return_value = b"y\n" * 256  # never returns b"", like `yes`
+        stderr_ch = MagicMock()
+        stderr_ch.read.side_effect = [b"", b""]
+        mock_client = MagicMock()
+        mock_client.exec_command.return_value = (None, stdout_ch, stderr_ch)
+        mock_connected.return_value = mock_client
+
+        client = SSHClient("172.16.0.2")
+        with pytest.raises(CelestoError, match="run_stream") as excinfo:
+            client.run("yes", timeout=5)
+
+        assert "1024 bytes" in str(excinfo.value)
+        assert stdout_ch.read.call_count <= 3
+        stdout_ch.channel.close.assert_called_once()
+
+    @patch.object(SSHClient, "_ensure_connected")
+    def test_run_reads_output_in_bounded_chunks(self, mock_connected: MagicMock) -> None:
+        stdout_ch = MagicMock()
+        stdout_ch.read.side_effect = [b"hel", b"lo\n", b""]
+        stderr_ch = MagicMock()
+        stderr_ch.read.side_effect = [b"warn", b""]
+        stdout_ch.channel.recv_exit_status.return_value = 0
+        mock_client = MagicMock()
+        mock_client.exec_command.return_value = (None, stdout_ch, stderr_ch)
+        mock_connected.return_value = mock_client
+
+        result = SSHClient("172.16.0.2").run("echo hello")
+
+        assert result.stdout == "hello\n"
+        assert result.stderr == "warn"
+        for call in stdout_ch.read.call_args_list + stderr_ch.read.call_args_list:
+            assert call.args and 0 < call.args[0] <= 1024 * 1024
 
     def test_run_empty_command_raises(self) -> None:
         """Test that empty command raises ValueError."""
