@@ -2333,10 +2333,35 @@ class Celesto:
             return SecretChange(name, secret.hosts, "not_applied", False)
         binding = user_secrets.binding_from_record(record)
         if not user_secrets.apply_live_set(self._vm_id, binding, real_value).applied:
-            return SecretChange(name, secret.hosts, "not_applied", True)
+            if not self._attach_first_proxy({name: real_value}):
+                return SecretChange(name, secret.hosts, "not_applied", True)
+            # attach() wrote every placeholder, this one included, into the guest.
+            return SecretChange(name, secret.hosts, "live", True)
         # The proxy is ready first; only then does the guest learn the placeholder.
         self._set_env_vars_unchecked({name: record["placeholder"]})
         return SecretChange(name, secret.hosts, "live", True)
+
+    def _attach_first_proxy(self, extra_env: dict[str, str]) -> bool:
+        """Start credential protection on a running sandbox that never had it (D-15).
+
+        A sandbox started without secrets has no proxy, so its first secret
+        starts one. A proxy that existed and stopped is left alone: D-16 says
+        a restart restores it, because a new CA would break running clients.
+        """
+        from celesto.credentials import plan as credential_plan
+        from celesto.credentials import runtime as credential_runtime
+
+        if credential_runtime.status(self._vm_id).state != "not_configured":
+            return False
+        plan = credential_plan.build_plan(
+            self._vm_id, self._sdk.state, env={**os.environ, **extra_env}
+        )
+        try:
+            credential_runtime.attach(self, plan)
+        except credential_runtime.CredentialsUnsupported as exc:
+            logger.warning("%s", exc.message)
+            return False
+        return True
 
     def remove_secret(self, name: str) -> SecretChange | None:
         """Stop protecting *name*; return None if it was not a secret here.
