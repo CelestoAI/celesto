@@ -1139,6 +1139,7 @@ class TestLoadRejectsUnprintableNames:
 
     @staticmethod
     def _archive(path: Path, name: str, member: str) -> None:
+        """Write a one-file archive with the given entry name and member path."""
         data = b"custom-rootfs"
         _write_archive(
             path,
@@ -1165,6 +1166,7 @@ class TestLoadRejectsUnprintableNames:
     def test_control_characters_are_rejected(
         self, tmp_path: Path, capsys: pytest.CaptureFixture, name: str, member: str
     ) -> None:
+        """Load refuses archives whose name or member path has control characters."""
         archive = tmp_path / "bad.tar"
         self._archive(archive, name, member)
         dest = tmp_path / "dest"
@@ -1206,3 +1208,114 @@ class TestLoadRejectsUnprintableNames:
         assert ret == 2
         payload = json.loads(capsys.readouterr().out)
         assert "celesto image save 'my image$(id)' -o" in payload["error"]["recovery"]
+
+
+class TestSaveAndLoadAgreeOnNames:
+    """Save refuses what load would reject, and both keep control characters off the terminal."""
+
+    @staticmethod
+    def _entry(root: Path, name: str, file_name: str = "rootfs.ext4") -> Path:
+        """Create a minimal cache entry directory with one data file."""
+        entry = root / name
+        entry.mkdir(parents=True)
+        (entry / file_name).write_bytes(b"x" * 10)
+        return entry
+
+    def test_save_rejects_entry_name_with_control_characters(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """An entry whose folder name carries ESC cannot be saved."""
+        name = "codex\x1b]0;owned\x07"
+        self._entry(tmp_path / "src", name)
+        archive = tmp_path / "out.tar"
+
+        ret = main(
+            [
+                "image",
+                "save",
+                name,
+                "--image-dir",
+                str(tmp_path / "src"),
+                "-o",
+                str(archive),
+                "--json",
+            ]
+        )
+
+        assert ret == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["error"]["code"] == "invalid_input"
+        assert "\x1b" not in json.dumps(payload)
+        assert not archive.exists()
+
+    def test_save_rejects_file_name_with_control_characters(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A file inside the entry whose name carries ESC cannot be saved."""
+        self._entry(tmp_path / "src", "codex", file_name="root\x1bfs.bin")
+        archive = tmp_path / "out.tar"
+
+        ret = main(
+            [
+                "image",
+                "save",
+                "codex",
+                "--image-dir",
+                str(tmp_path / "src"),
+                "-o",
+                str(archive),
+                "--json",
+            ]
+        )
+
+        assert ret == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["error"]["code"] == "invalid_input"
+        assert "\x1b" not in json.dumps(payload)
+        assert not archive.exists()
+
+    def test_save_output_path_is_shown_without_control_characters(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """The Saved line and its suggested load command never carry ESC from -o."""
+        self._entry(tmp_path / "src", "codex")
+        archive = tmp_path / "out\x1b]0;owned\x07.tar"
+
+        ret = main(
+            ["image", "save", "codex", "--image-dir", str(tmp_path / "src"), "-o", str(archive)]
+        )
+
+        assert ret == 0
+        assert "\x1b" not in capsys.readouterr().out
+
+    def test_load_error_hints_show_input_path_without_control_characters(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Load error messages sanitize the archive path before quoting it."""
+        data = b"custom-rootfs"
+        archive = tmp_path / "in\x1b]0;owned\x07.tar"
+        _write_archive(
+            archive,
+            {
+                "schema_version": 1,
+                "name": "codex",
+                "files": [
+                    {
+                        "path": "rootfs.bin",
+                        "encoding": "raw",
+                        "size": len(data),
+                        "sha256": hashlib.sha256(data).hexdigest(),
+                    }
+                ],
+            },
+            [("files/rootfs.bin", data), ("files/undeclared.bin", b"x")],
+        )
+
+        ret = main(
+            ["image", "load", "-i", str(archive), "--image-dir", str(tmp_path / "dest"), "--json"]
+        )
+
+        assert ret == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert "\x1b" not in payload["error"]["message"]
+        assert "\x1b" not in payload["error"]["recovery"]

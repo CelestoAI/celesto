@@ -1121,6 +1121,7 @@ class TestHostileEntryNames:
     HOSTILE = "[link=mailto:owner@attacker.example]codex-v0.0.1-amd64-firecracker\x1b]0;owned\x07"
 
     def _make_entry(self, root: Path) -> Path:
+        """Create a cache entry whose directory name carries markup and ESC."""
         entry = root / self.HOSTILE
         entry.mkdir(parents=True)
         (entry / "rootfs.ext4").write_bytes(b"x" * 10)
@@ -1129,6 +1130,7 @@ class TestHostileEntryNames:
     def test_list_renders_name_literally(
         self, tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """`image list` shows the hostile name as text and emits no ESC."""
         monkeypatch.setenv("COLUMNS", "200")  # keep the name on one line
         self._make_entry(tmp_path)
 
@@ -1142,6 +1144,7 @@ class TestHostileEntryNames:
     def test_inspect_renders_name_literally(
         self, tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """`image inspect` shows the hostile name in the title and Path row as text."""
         monkeypatch.setenv("COLUMNS", "200")  # keep the name on one line
         self._make_entry(tmp_path)
 
@@ -1156,6 +1159,7 @@ class TestHostileEntryNames:
     def test_list_shows_placeholder_for_unprintable_name(
         self, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:
+        """A name with no printable characters gets a visible placeholder."""
         entry = tmp_path / "\x1b\x07"
         entry.mkdir()
         (entry / "rootfs.ext4").write_bytes(b"x")
