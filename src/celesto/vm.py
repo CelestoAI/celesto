@@ -38,7 +38,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -783,7 +783,12 @@ class CelestoManager:
             return _HeldOperationLock(None, None)
 
         lock_dir.mkdir(parents=True, exist_ok=True)
-        lock_file = lock_path.open("w")
+        owner = _get_sudo_user_info()
+        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o666)
+        lock_file = os.fdopen(fd, "r+")
+        if owner is not None:
+            self._ensure_path_owner(lock_dir, owner.pw_uid, owner.pw_gid)
+            self._ensure_path_owner(lock_path, owner.pw_uid, owner.pw_gid)
         deadline = None if timeout is None else time.monotonic() + timeout
         try:
             while True:
@@ -825,8 +830,14 @@ class CelestoManager:
             return _HeldOperationLock(None, None)
 
         lock_dir = self.data_dir / "locks"
+        lock_path = lock_dir / lock_name
         lock_dir.mkdir(parents=True, exist_ok=True)
-        lock_file = (lock_dir / lock_name).open("w")
+        owner = _get_sudo_user_info()
+        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o666)
+        lock_file = os.fdopen(fd, "r+")
+        if owner is not None:
+            self._ensure_path_owner(lock_dir, owner.pw_uid, owner.pw_gid)
+            self._ensure_path_owner(lock_path, owner.pw_uid, owner.pw_gid)
         deadline = None if timeout is None else time.monotonic() + timeout
         try:
             while True:
@@ -895,7 +906,7 @@ class CelestoManager:
         vm_id: str,
         *,
         timeout: float = OPERATION_LOCK_TIMEOUT_SECONDS,
-    ) -> Iterator[None]:
+    ) -> AsyncIterator[None]:
         """Async twin of :meth:`_lifecycle_lock`."""
         lock = await self._async_acquire_operation_lock(
             self._lifecycle_lock_name(vm_id),
