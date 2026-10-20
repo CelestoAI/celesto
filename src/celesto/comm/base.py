@@ -30,9 +30,23 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Literal, Protocol, runtime_checkable
 
+from celesto.exceptions import CelestoError
 from celesto.types import CommandEvent, CommandResult
 
 CommChannelKind = Literal["ssh", "vsock"]
+
+MAX_RUN_OUTPUT_BYTES = 16 * 1024 * 1024
+"""Host-owned cap on the output ``run`` returns in one result, on every transport."""
+
+
+def run_output_too_large_error(max_bytes: int) -> CelestoError:
+    """Error for a ``run`` result the host refuses to buffer whole."""
+    return CelestoError(
+        f"Command output (stdout and stderr together) exceeded {max_bytes} bytes, so it "
+        "cannot be returned in one result. Use run_stream to read large output as it arrives."
+    )
+
+
 """Which transport a VM uses for its control plane."""
 
 ShellMode = Literal["login", "raw"]

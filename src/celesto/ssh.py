@@ -37,6 +37,7 @@ from uuid import uuid4
 
 import paramiko
 
+from celesto.comm.base import MAX_RUN_OUTPUT_BYTES, run_output_too_large_error
 from celesto.exceptions import CelestoError, OperationTimeoutError
 from celesto.types import (
     CommandEvent,
@@ -48,25 +49,49 @@ from celesto.types import (
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_MAX_COMMAND_OUTPUT_BYTES = 16 * 1024 * 1024
+_DEFAULT_MAX_COMMAND_OUTPUT_BYTES = MAX_RUN_OUTPUT_BYTES
 """Host-owned cap on the output ``run`` buffers; larger output must use ``run_stream``."""
 _COMMAND_OUTPUT_CHUNK_BYTES = 64 * 1024
+_COMMAND_OUTPUT_POLL_SECONDS = 0.01
 
 
-def _read_command_output(stream: BinaryIO, *, received: int, max_bytes: int) -> tuple[bytes, int]:
-    """Read *stream* to EOF in bounded chunks, refusing more than *max_bytes* in all."""
-    chunks: list[bytes] = []
+def _read_command_output(
+    channel: paramiko.Channel, *, timeout: float, max_bytes: int
+) -> tuple[bytes, bytes]:
+    """Drain stdout and stderr together until the command exits.
+
+    Both streams are read as they arrive, so neither can pile up unread inside
+    the SSH channel while the other is still open, and their combined size is
+    refused past *max_bytes*. *timeout* is the longest the command may go
+    without producing output; it raises ``TimeoutError`` for the caller to map.
+    """
+    stdout: list[bytes] = []
+    stderr: list[bytes] = []
+    received = 0
+    last_output = time.monotonic()
     while True:
-        chunk = stream.read(_COMMAND_OUTPUT_CHUNK_BYTES)
-        if not chunk:
-            return b"".join(chunks), received
-        received += len(chunk)
-        if received > max_bytes:
-            raise CelestoError(
-                f"Command output was larger than {max_bytes} bytes, so it cannot be returned "
-                "in one reply. Use run_stream to read large output as it arrives."
-            )
-        chunks.append(chunk)
+        progressed = False
+        for ready, recv, sink in (
+            (channel.recv_ready, channel.recv, stdout),
+            (channel.recv_stderr_ready, channel.recv_stderr, stderr),
+        ):
+            while ready():
+                chunk = recv(_COMMAND_OUTPUT_CHUNK_BYTES)
+                if not chunk:
+                    break
+                progressed = True
+                received += len(chunk)
+                if received > max_bytes:
+                    raise run_output_too_large_error(max_bytes)
+                sink.append(chunk)
+        if progressed:
+            last_output = time.monotonic()
+            continue
+        if channel.exit_status_ready() or channel.closed:
+            return b"".join(stdout), b"".join(stderr)
+        if time.monotonic() - last_output >= timeout:
+            raise TimeoutError("command produced no output within the timeout")
+        time.sleep(_COMMAND_OUTPUT_POLL_SECONDS)
 
 
 class _LimitedWriter:
@@ -427,8 +452,11 @@ class SSHClient:
 
         Raises:
             ValueError: If *command* is empty.
-            OperationTimeoutError: If the command exceeds *timeout*.
-            CelestoError: If the SSH connection cannot be established.
+            OperationTimeoutError: If the command produces no output for
+                *timeout* seconds.
+            CelestoError: If the SSH connection cannot be established, or if
+                the command's stdout and stderr together exceed 16 MiB (use
+                :meth:`run_stream` for large output).
         """
         if not command or not command.strip():
             raise ValueError("command cannot be empty")
@@ -448,23 +476,23 @@ class SSHClient:
         client = self._ensure_connected()
 
         try:
-            _, stdout_ch, stderr_ch = client.exec_command(remote_command, timeout=timeout)
-            max_bytes = _DEFAULT_MAX_COMMAND_OUTPUT_BYTES
+            _, stdout_ch, _stderr_ch = client.exec_command(remote_command, timeout=timeout)
+            channel = stdout_ch.channel
             try:
-                stdout_bytes, received = _read_command_output(
-                    stdout_ch, received=0, max_bytes=max_bytes
+                stdout_bytes, stderr_bytes = _read_command_output(
+                    channel,
+                    timeout=timeout,
+                    max_bytes=_DEFAULT_MAX_COMMAND_OUTPUT_BYTES,
                 )
-                stderr_bytes, _ = _read_command_output(
-                    stderr_ch, received=received, max_bytes=max_bytes
-                )
-            except CelestoError:
-                # Stop the guest command instead of letting it stream into nothing.
+            except (CelestoError, TimeoutError):
+                # Best effort: closing the channel closes the command's pipes, so a
+                # command that keeps writing gets SIGPIPE instead of streaming on.
                 with suppress(Exception):
-                    stdout_ch.channel.close()
+                    channel.close()
                 raise
             stdout = stdout_bytes.decode("utf-8", errors="replace")
             stderr = stderr_bytes.decode("utf-8", errors="replace")
-            exit_code = stdout_ch.channel.recv_exit_status()
+            exit_code = channel.recv_exit_status()
 
             return CommandResult(
                 exit_code=exit_code,

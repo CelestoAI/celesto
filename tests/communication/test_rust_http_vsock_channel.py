@@ -33,12 +33,12 @@ import pytest
 import celesto.comm.rust_http_vsock_channel as vsock_channel
 from celesto.comm.base import CommChannel
 from celesto.comm.rust_http_vsock_channel import (
-    _DEFAULT_MAX_EXEC_RESPONSE_BYTES,
     CELESTO_TERMINAL_PORT,
     ControlCapabilities,
     RustHttpVsockChannel,
     _directory_to_tar,
     _pack_terminal_frame,
+    _read_response_bounded,
     _read_terminal_frame,
     _SocketHTTPConnection,
     _vsock_family,
@@ -845,28 +845,52 @@ def test_wait_for_ports_preserves_guest_timeout_validation_errors() -> None:
 
 
 def test_run_rejects_command_output_over_host_cap(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(vsock_channel, "_DEFAULT_MAX_EXEC_RESPONSE_BYTES", 64)
+    body = json.dumps({"ok": True, "exit_code": 0, "stdout": "A" * 64, "stderr": ""}).encode()
+    monkeypatch.setattr(vsock_channel, "_DEFAULT_MAX_EXEC_RESPONSE_BYTES", len(body) - 1)
 
-    def _handler(method: str, path: str, body: bytes) -> dict:
+    def _handler(method: str, path: str, raw: bytes) -> tuple[int, bytes, dict[str, str]]:
         assert path == "/exec"
-        return {"ok": True, "exit_code": 0, "stdout": "A" * 1024, "stderr": ""}
-
-    channel = FakeRustChannel([_handler])
+        return (200, body, {"Content-Type": "application/json"})
 
     with pytest.raises(CelestoError, match="run_stream") as excinfo:
-        channel.run("yes")
-    assert "64 bytes" in str(excinfo.value)
+        FakeRustChannel([_handler]).run("yes")
+    assert f"{len(body) - 1} bytes" in str(excinfo.value)
 
 
-def test_run_accepts_command_output_at_host_cap() -> None:
-    assert _DEFAULT_MAX_EXEC_RESPONSE_BYTES >= 16 * 1024 * 1024
+def test_run_accepts_command_output_exactly_at_host_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    body = json.dumps({"ok": True, "exit_code": 0, "stdout": "A" * 64, "stderr": ""}).encode()
+    monkeypatch.setattr(vsock_channel, "_DEFAULT_MAX_EXEC_RESPONSE_BYTES", len(body))
 
-    def _handler(method: str, path: str, body: bytes) -> dict:
-        return {"ok": True, "exit_code": 0, "stdout": "A" * 4096, "stderr": ""}
+    def _handler(method: str, path: str, raw: bytes) -> tuple[int, bytes, dict[str, str]]:
+        return (200, body, {"Content-Type": "application/json"})
 
-    result = FakeRustChannel([_handler]).run("printf ok")
+    assert FakeRustChannel([_handler]).run("printf ok").stdout == "A" * 64
 
-    assert result.stdout == "A" * 4096
+
+def test_run_reports_guest_error_replies_before_the_size_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(vsock_channel, "_DEFAULT_MAX_EXEC_RESPONSE_BYTES", 8)
+
+    def _handler(method: str, path: str, raw: bytes) -> tuple[int, str]:
+        return (500, "agent exploded " * 4)
+
+    with pytest.raises(CelestoError, match="HTTP 500") as excinfo:
+        FakeRustChannel([_handler]).run("true")
+    assert "run_stream" not in str(excinfo.value)
+
+
+def test_read_response_bounded_rejects_body_larger_than_declared() -> None:
+    class _Resp:
+        def getheader(self, name: str) -> None:
+            return None
+
+        def read(self, amt: int = -1) -> bytes:
+            assert amt == 9
+            return b"x" * 9
+
+    with pytest.raises(CelestoError, match="8 bytes"):
+        _read_response_bounded(_Resp(), 8, method="GET", path="/env")  # type: ignore[arg-type]
 
 
 def test_json_requests_reject_responses_over_host_cap(monkeypatch: pytest.MonkeyPatch) -> None:
