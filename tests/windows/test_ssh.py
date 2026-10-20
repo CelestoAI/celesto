@@ -358,6 +358,34 @@ class TestSSHClientRun:
         assert all(0 < size <= 1024 * 1024 for size in channel.recv_sizes)
 
     @patch.object(SSHClient, "_ensure_connected")
+    def test_run_keeps_output_that_arrives_with_the_exit_status(
+        self, mock_connected: MagicMock
+    ) -> None:
+        """Data buffered just before the exit status is read, not dropped."""
+
+        class _TailArrivesWithExit(_FakeChannel):
+            def __init__(self) -> None:
+                super().__init__([("out", b"head\n")])
+                self.tail_sent = False
+
+            def exit_status_ready(self) -> bool:
+                # paramiko's transport thread delivers the last chunk and the
+                # exit status back to back, in the gap after a drain pass.
+                if not self.tail_sent:
+                    self.tail_sent = True
+                    self.script.append(("out", b"tail\n"))
+                return True
+
+        channel = _TailArrivesWithExit()
+        mock_client = MagicMock()
+        mock_client.exec_command.return_value = _mock_exec_channel(channel)
+        mock_connected.return_value = mock_client
+
+        result = SSHClient("172.16.0.2").run("cat file")
+
+        assert result.stdout == "head\ntail\n"
+
+    @patch.object(SSHClient, "_ensure_connected")
     def test_run_times_out_when_command_goes_quiet(self, mock_connected: MagicMock) -> None:
         class _NeverFinishes(_FakeChannel):
             def exit_status_ready(self) -> bool:

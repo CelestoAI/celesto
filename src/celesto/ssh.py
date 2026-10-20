@@ -70,6 +70,11 @@ def _read_command_output(
     received = 0
     last_output = time.monotonic()
     while True:
+        # Read the exit state before draining: paramiko delivers data and the
+        # exit status in order, so a drain pass that starts after the status
+        # arrived and reads nothing has seen every byte. Checking afterwards
+        # could return while a last chunk sits unread in the channel.
+        done = channel.exit_status_ready() or channel.closed
         progressed = False
         for ready, recv, sink in (
             (channel.recv_ready, channel.recv, stdout),
@@ -87,7 +92,7 @@ def _read_command_output(
         if progressed:
             last_output = time.monotonic()
             continue
-        if channel.exit_status_ready() or channel.closed:
+        if done:
             return b"".join(stdout), b"".join(stderr)
         if time.monotonic() - last_output >= timeout:
             raise TimeoutError("command produced no output within the timeout")
