@@ -226,13 +226,10 @@ def run_image_save(
     # A symlinked wire file is skipped by the archive loop below, so
     # treating it as present would produce an archive with no rootfs.
     zst_present = zst_path.is_file() and not zst_path.is_symlink()
-    excluded = {_DECOMPRESSED_ROOTFS, _ROOTFS_SIDECAR} if zst_present else set()
-    sidecar_value: str | None = None
-    if zst_present and (entry / _ROOTFS_SIDECAR).is_file():
-        try:
-            sidecar_value = (entry / _ROOTFS_SIDECAR).read_text().strip()
-        except OSError:
-            sidecar_value = None
+    # The sidecar is a local cache key that load regenerates from the
+    # installed .zst digest; it never travels. The decompressed rootfs is
+    # regenerated too whenever the wire file is present.
+    excluded = {_DECOMPRESSED_ROOTFS, _ROOTFS_SIDECAR} if zst_present else {_ROOTFS_SIDECAR}
 
     warnings: list[str] = []
     files_meta: list[dict[str, Any]] = []
@@ -319,7 +316,6 @@ def run_image_save(
                 "created": datetime.now(UTC).isoformat(),
                 "name": archive_name,
                 "kind": _entry_kind(entry, root),
-                "rootfs_sidecar": sidecar_value,
                 "files": files_meta,
             }
             manifest_bytes = json.dumps(manifest, indent=2).encode()
@@ -490,6 +486,24 @@ def run_image_load(
             ):
                 return bad_archive()
             allowed[f"files/{meta['path']}"] = meta
+        # save never emits these: dot-prefixed names are lock files, build
+        # fingerprints and in-progress artifacts; the decompressed rootfs
+        # and its sidecar are regenerated below from the installed .zst so
+        # an archive cannot assert which pinned bytes a rootfs came from.
+        declared = {meta["path"] for meta in allowed.values()}
+        never_saved = {_ROOTFS_SIDECAR}
+        if _ROOTFS_ZST in declared:
+            never_saved.add(_DECOMPRESSED_ROOTFS)
+        if any(
+            path in never_saved or any(seg.startswith(".") for seg in path.split("/"))
+            for path in declared
+        ):
+            return bad_archive(
+                f"'{in_path}' contains files that 'celesto image save' never writes "
+                "and was not loaded.",
+                recovery="Recreate it on the source machine with "
+                f"'celesto image save {name} -o {shlex.quote(in_path.name)}'.",
+            )
         data_members = [m for m in members if m.name != _MANIFEST_MEMBER]
         for member in data_members:
             if not member.isreg() or member.name not in allowed:
@@ -514,9 +528,6 @@ def run_image_load(
                 json_output=json_output,
                 recovery=f"Run 'celesto image load -i {quoted_input} --force' to replace it.",
             )
-
-        manifest_sidecar = manifest.get("rootfs_sidecar")
-        have_sidecar = isinstance(manifest_sidecar, str) and bool(manifest_sidecar)
 
         target.parent.mkdir(parents=True, exist_ok=True)
         partial = target.parent / f".{target.name}.partial-{os.getpid()}"
@@ -566,18 +577,15 @@ def run_image_load(
                     zst_sha = digest
 
             # Recreate what save deliberately left out, byte-compatible with
-            # what ensure_published_image validates on the next start.
+            # what ensure_published_image validates on the next start. The
+            # sidecar is derived only from the digest of the .zst actually
+            # installed; a value carried in the manifest (older archives)
+            # is ignored, since it is the archive author's claim.
             zst = partial / _ROOTFS_ZST
             rootfs = partial / _DECOMPRESSED_ROOTFS
-            if zst.is_file() and not rootfs.is_file():
+            if zst.is_file() and zst_sha:
                 decompress_zstd_sparse(zst, rootfs)
-                sidecar_value: str | None
-                if have_sidecar:
-                    sidecar_value = str(manifest_sidecar)
-                else:
-                    sidecar_value = _decompressed_rootfs_sidecar_value(zst_sha) if zst_sha else None
-                if sidecar_value:
-                    (partial / _ROOTFS_SIDECAR).write_text(sidecar_value)
+                (partial / _ROOTFS_SIDECAR).write_text(_decompressed_rootfs_sidecar_value(zst_sha))
 
             if target.exists():
                 _remove_existing_entry(target)

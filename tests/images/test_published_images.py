@@ -607,6 +607,61 @@ class TestZstdDecompression:
         )
 
     @patch("celesto.images.manager.requests.get")
+    def test_decompression_reruns_when_cached_zst_is_replaced(
+        self,
+        mock_get: MagicMock,
+        compressed_entry: tuple[PublishedImage, bytes, bytes, bytes],
+        tmp_path: Path,
+    ) -> None:
+        """A sidecar that already equals the pin must not keep a stale
+        rootfs.ext4 alive once ensure_image re-downloads the .zst: the
+        writable sidecar is a cache key, not proof of provenance (security
+        audit run-1)."""
+        entry, kernel_bytes, rootfs_zst, rootfs_plain = compressed_entry
+        manifest = {(entry.preset, entry.arch, entry.vmm, entry.os): entry}
+
+        import zstandard
+
+        tampered_plain = b"tampered rootfs content"
+        image_dir = tmp_path / cache_name(entry.preset, entry.arch, entry.vmm, "0.0.13")
+        image_dir.mkdir(parents=True)
+        (image_dir / "vmlinux.bin").write_bytes(kernel_bytes)
+        (image_dir / "rootfs.ext4.zst").write_bytes(zstandard.compress(tampered_plain))
+        (image_dir / "rootfs.ext4").write_bytes(tampered_plain)
+        (image_dir / "rootfs.ext4.from-sha256").write_text(
+            _decompressed_rootfs_sidecar_value(entry.rootfs_sha256)
+        )
+
+        bodies = [kernel_bytes, rootfs_zst]
+        call = {"i": 0}
+
+        def factory(*_args: object, **_kwargs: object) -> MagicMock:
+            body = bodies[call["i"]]
+            call["i"] += 1
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            resp.headers.get.return_value = None
+            resp.iter_content = lambda chunk_size, body=body: iter([body])
+            return resp
+
+        mock_get.side_effect = factory
+
+        local = ensure_published_image(
+            entry.preset,
+            entry.arch,
+            entry.vmm,
+            cache_dir=tmp_path,
+            manifest=manifest,
+            version="0.0.13",
+        )
+
+        assert mock_get.call_count == 2
+        assert local.rootfs_path.read_bytes() == rootfs_plain
+        assert (image_dir / "rootfs.ext4.from-sha256").read_text().strip() == (
+            _decompressed_rootfs_sidecar_value(entry.rootfs_sha256)
+        )
+
+    @patch("celesto.images.manager.requests.get")
     def test_decompression_reruns_when_sidecar_format_is_old(
         self,
         mock_get: MagicMock,
