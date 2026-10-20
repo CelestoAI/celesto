@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import gzip
 import io
 import json
 import os
@@ -39,6 +40,7 @@ from celesto.comm.rust_http_vsock_channel import (
     _directory_to_tar,
     _pack_terminal_frame,
     _read_terminal_frame,
+    _safe_extract_tar,
     _SocketHTTPConnection,
     _vsock_family,
     _vsock_unavailable_message,
@@ -841,6 +843,74 @@ def test_wait_for_ports_preserves_guest_timeout_validation_errors() -> None:
 
     with pytest.raises(CelestoError, match="timeout_ms must be at most"):
         channel.wait_for_ports([3000])
+
+
+def _plain_tar(members: dict[str, bytes]) -> bytes:
+    archive = io.BytesIO()
+    with tarfile.open(fileobj=archive, mode="w", format=tarfile.USTAR_FORMAT) as tar:
+        for name, payload in members.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(payload)
+            tar.addfile(info, io.BytesIO(payload))
+    return archive.getvalue()
+
+
+def test_extract_tar_rejects_compressed_archives(tmp_path: Path) -> None:
+    compressed = gzip.compress(_plain_tar({"z.bin": b"\x00" * 65536}), 9)
+
+    with pytest.raises(CelestoError, match="not a plain tar archive"):
+        _safe_extract_tar(compressed, tmp_path / "out")
+    assert not (tmp_path / "out" / "z.bin").exists()
+
+
+def test_extract_tar_rejects_sparse_members(tmp_path: Path) -> None:
+    archive = io.BytesIO()
+    with tarfile.open(fileobj=archive, mode="w", format=tarfile.GNU_FORMAT) as tar:
+        info = tarfile.TarInfo("sparse.bin")
+        info.type = tarfile.GNUTYPE_SPARSE
+        tar.addfile(info)
+
+    with pytest.raises(CelestoError, match="sparse"):
+        _safe_extract_tar(archive.getvalue(), tmp_path / "out")
+    assert not (tmp_path / "out" / "sparse.bin").exists()
+
+
+def test_extract_tar_rejects_member_over_cap(tmp_path: Path) -> None:
+    data = _plain_tar({"big.bin": b"x" * 2048})
+
+    with pytest.raises(CelestoError, match="big.bin"):
+        _safe_extract_tar(data, tmp_path / "out", max_member_bytes=1024, max_total_bytes=4096)
+    assert not (tmp_path / "out" / "big.bin").exists()
+
+
+def test_extract_tar_rejects_total_over_cap(tmp_path: Path) -> None:
+    data = _plain_tar({"a.bin": b"x" * 1024, "b.bin": b"y" * 1024, "c.bin": b"z" * 1024})
+
+    with pytest.raises(CelestoError, match="more than 2048 bytes"):
+        _safe_extract_tar(data, tmp_path / "out", max_member_bytes=1024, max_total_bytes=2048)
+    assert not (tmp_path / "out" / "c.bin").exists()
+
+
+def test_extract_tar_streams_members_in_bounded_chunks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = bytes(range(256)) * 64
+    data = _plain_tar({"dir/file.bin": payload})
+    reads: list[int | None] = []
+    original = tarfile.ExFileObject.read
+
+    def _recording_read(self: tarfile.ExFileObject, size: int = -1) -> bytes:
+        reads.append(size)
+        return original(self, size)
+
+    monkeypatch.setattr(tarfile.ExFileObject, "read", _recording_read)
+
+    _safe_extract_tar(data, tmp_path / "out")
+
+    assert (tmp_path / "out" / "dir" / "file.bin").read_bytes() == payload
+    assert reads
+    assert all(0 < size <= 1024 * 1024 for size in reads if size is not None)
+    assert None not in reads and -1 not in reads
 
 
 def _capabilities(features: dict[str, bool], *, limits: dict[str, Any] | None = None) -> Handler:
