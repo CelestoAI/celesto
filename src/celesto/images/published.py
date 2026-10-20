@@ -459,11 +459,12 @@ def read_rootfs_sidecar(sidecar_path: Path) -> str | None:
         return None
 
 
-def _remove_rootfs_sidecar(sidecar_path: Path) -> None:
-    if sidecar_path.is_dir() and not sidecar_path.is_symlink():
-        shutil.rmtree(sidecar_path, ignore_errors=True)
+def _remove_cache_entry_file(path: Path) -> None:
+    """Remove whatever sits at a cache file's path, directory included."""
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path, ignore_errors=True)
     else:
-        sidecar_path.unlink(missing_ok=True)
+        path.unlink(missing_ok=True)
 
 
 def _decompressed_rootfs_sidecar_value(rootfs_sha256: str) -> str:
@@ -564,7 +565,7 @@ def ensure_published_image(
         if compressed and not sidecar_forgotten:
             sidecar_forgotten = True
             with contextlib.suppress(OSError):
-                _remove_rootfs_sidecar(sidecar_path)
+                _remove_cache_entry_file(sidecar_path)
         if on_download is not None:
             on_download(label, chunk, total)
 
@@ -585,7 +586,9 @@ def ensure_published_image(
     expected_sha = _decompressed_rootfs_sidecar_value(entry.rootfs_sha256)
     sidecar_sha = read_rootfs_sidecar(sidecar_path) if sidecar_path.is_file() else None
     if local.downloaded or not decompressed_path.is_file() or sidecar_sha != expected_sha:
-        _remove_rootfs_sidecar(sidecar_path)
+        _remove_cache_entry_file(sidecar_path)
+        if decompressed_path.is_dir():
+            _remove_cache_entry_file(decompressed_path)
         _decompress_zstd(local.rootfs_path, decompressed_path)
         sidecar_path.write_text(expected_sha)
 

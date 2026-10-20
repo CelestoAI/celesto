@@ -734,6 +734,34 @@ class TestZstdDecompression:
             _decompressed_rootfs_sidecar_value(entry.rootfs_sha256)
         )
 
+    def test_directory_at_decompressed_path_is_replaced(
+        self,
+        compressed_entry: tuple[PublishedImage, bytes, bytes, bytes],
+        tmp_path: Path,
+    ) -> None:
+        """A directory squatting on rootfs.ext4 must not make every start
+        fail; the rebuild replaces it."""
+        entry, kernel_bytes, rootfs_zst, rootfs_plain = compressed_entry
+        manifest = {(entry.preset, entry.arch, entry.vmm, entry.os): entry}
+        image_dir = tmp_path / cache_name(entry.preset, entry.arch, entry.vmm, "0.0.13")
+        image_dir.mkdir(parents=True)
+        (image_dir / "vmlinux.bin").write_bytes(kernel_bytes)
+        (image_dir / "rootfs.ext4.zst").write_bytes(rootfs_zst)
+        (image_dir / "rootfs.ext4").mkdir()
+        (image_dir / "rootfs.ext4" / "x").write_bytes(b"x")
+
+        with patch("celesto.images.manager.requests.get") as mock_get:
+            local = ensure_published_image(
+                entry.preset,
+                entry.arch,
+                entry.vmm,
+                cache_dir=tmp_path,
+                manifest=manifest,
+                version="0.0.13",
+            )
+            mock_get.assert_not_called()
+        assert local.rootfs_path.read_bytes() == rootfs_plain
+
     @patch("celesto.images.manager.requests.get")
     def test_decompression_reruns_when_sidecar_format_is_old(
         self,

@@ -515,8 +515,13 @@ def run_image_load(
         # rootfs is regenerated below from the installed .zst so an archive
         # cannot assert which pinned bytes a rootfs came from.
         never_saved = {_DECOMPRESSED_ROOTFS} if _ROOTFS_ZST in declared else set()
+        # A directory squatting on one of the rootfs names would make every
+        # later start of a published image fail until the entry is removed.
+        reserved_dirs = tuple(f"{n}/" for n in (_DECOMPRESSED_ROOTFS, _ROOTFS_ZST, _ROOTFS_SIDECAR))
         if any(
-            key in never_saved or any(seg.startswith(".") for seg in key.split("/"))
+            key in never_saved
+            or key.startswith(reserved_dirs)
+            or any(seg.startswith(".") for seg in key.split("/"))
             for key in declared
         ):
             return bad_archive(
@@ -526,8 +531,9 @@ def run_image_load(
                 f"'celesto image save {name} -o {shlex.quote(in_path.name)}'.",
             )
         data_members = [m for m in members if m.name != _MANIFEST_MEMBER]
+        seen: set[str] = set()
         for member in data_members:
-            if not member.isreg() or member.name not in allowed:
+            if not member.isreg() or member.name not in allowed or member.name in seen:
                 return _fail(
                     command_name,
                     f"'{in_path}' contains unexpected entries and was not loaded.",
@@ -537,7 +543,8 @@ def run_image_load(
                     f"'celesto image save {name} -o {shlex.quote(in_path.name)}'.",
                     exit_code=2,
                 )
-        missing = set(allowed) - {m.name for m in data_members}
+            seen.add(member.name)
+        missing = set(allowed) - seen
         if missing:
             return bad_archive(f"'{in_path}' is incomplete and was not loaded.")
 
@@ -593,7 +600,14 @@ def run_image_load(
                     if digest != meta["sha256"]:
                         tmp_zst.unlink()
                         raise zstandard.ZstdError(f"'{meta['path']}' failed its integrity check")
-                    decompress_zstd_sparse(tmp_zst, destination)
+                    try:
+                        decompress_zstd_sparse(tmp_zst, destination)
+                    except OSError as exc:
+                        if _looks_like_zstd_decode_error(exc):
+                            raise zstandard.ZstdError(
+                                f"'{meta['path']}' is not a valid zstd stream"
+                            ) from exc
+                        raise
                     tmp_zst.unlink()
                 if destination.stat().st_size != meta["size"]:
                     raise zstandard.ZstdError(

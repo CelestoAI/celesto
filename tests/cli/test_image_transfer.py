@@ -979,3 +979,73 @@ class TestLoadDoesNotTrustArchiveProvenance:
         capsys.readouterr()
         assert (dest / "entry" / "rootfs.ext4").read_bytes() == b"decompressed"
         assert not (dest / "entry" / "rootfs.ext4.from-sha256").exists()
+
+    @pytest.mark.parametrize(
+        "path",
+        ["rootfs.ext4/x", "ROOTFS.EXT4.ZST/x", "rootfs.ext4.from-sha256/x"],
+    )
+    def test_directories_at_reserved_rootfs_names_are_rejected(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture, path: str
+    ) -> None:
+        """A directory planted where rootfs.ext4 or its siblings live would
+        make every later start of a published image fail until the entry
+        is removed, so those names are reserved as path prefixes too."""
+        members = [("files/vmlinux.bin", b"kernel"), (f"files/{path}", b"x")]
+        archive = tmp_path / "dir.tar"
+        _write_archive(
+            archive,
+            {"schema_version": 1, "name": "entry", "files": self._files(members)},
+            members,
+        )
+        dest = tmp_path / "dest"
+        assert main(["image", "load", "-i", str(archive), "--image-dir", str(dest), "--json"]) == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["error"]["code"] == "invalid_input"
+        assert not dest.exists() or not any(dest.iterdir())
+
+    def test_duplicate_tar_members_are_rejected(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        zst = zstandard.compress(b"rootfs bytes")
+        members = [("files/vmlinux.bin", b"kernel"), ("files/rootfs.ext4.zst", zst)]
+        archive = tmp_path / "dup.tar"
+        _write_archive(
+            archive,
+            {"schema_version": 1, "name": "entry", "files": self._files(members)},
+            [*members, ("files/rootfs.ext4.zst", zst)],
+        )
+        dest = tmp_path / "dest"
+        assert main(["image", "load", "-i", str(archive), "--image-dir", str(dest), "--json"]) == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["error"]["code"] == "invalid_input"
+        assert not dest.exists() or not any(dest.iterdir())
+
+    def test_corrupt_zstd_member_is_reported_as_damage(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A zstd-encoded member whose bytes are not a zstd stream is a
+        damaged archive, not a disk-space problem."""
+        garbage = b"not a zstd frame at all"
+        archive = tmp_path / "corrupt.tar"
+        _write_archive(
+            archive,
+            {
+                "schema_version": 1,
+                "name": "entry",
+                "files": [
+                    {
+                        "path": "config.json",
+                        "encoding": "zstd",
+                        "size": 5,
+                        "sha256": hashlib.sha256(garbage).hexdigest(),
+                    }
+                ],
+            },
+            [("files/config.json", garbage)],
+        )
+        dest = tmp_path / "dest"
+        assert main(["image", "load", "-i", str(archive), "--image-dir", str(dest), "--json"]) == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["error"]["code"] == "invalid_input"
+        assert "damaged" in payload["error"]["message"]
+        assert not dest.exists() or not any(dest.iterdir())
