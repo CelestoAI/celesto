@@ -772,8 +772,15 @@ def sandbox_exec(
     help="Number of lines to show from the end of the log.",
 )
 @click.option("-f", "--follow", is_flag=True, help="Keep printing new log lines as they arrive.")
+@click.option(
+    "--credentials",
+    is_flag=True,
+    help="Show when the computer used each protected credential, instead of the boot log.",
+)
 @json_option
-def sandbox_logs(vm_id: str, provider: str, tail: int, follow: bool, json_output: bool) -> Any:
+def sandbox_logs(
+    vm_id: str, provider: str, tail: int, follow: bool, credentials: bool, json_output: bool
+) -> Any:
     """Show a computer's boot and console logs."""
     _before_command(json_output=json_output)
     return _handlers()._run_logs(
@@ -782,6 +789,7 @@ def sandbox_logs(vm_id: str, provider: str, tail: int, follow: bool, json_output
             vm_id=vm_id,
             tail=tail,
             follow=follow,
+            credentials=credentials,
             json=json_output,
         )
     )

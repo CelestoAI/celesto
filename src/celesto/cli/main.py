@@ -165,10 +165,19 @@ class InfoVmPayload(TypedDict):
     bridge: str | None
 
 
+class InfoCredentialsPayload(TypedDict):
+    """Credential protection state (D-16); present once a sandbox had a proxy."""
+
+    status: str
+    message: str | None
+
+
 class InfoPayload(TypedDict):
     """JSON payload for ``celesto sandbox info``."""
 
     vm: InfoVmPayload
+    credentials: NotRequired[InfoCredentialsPayload]
+    warnings: NotRequired[list[str]]
 
 
 class CreatePayload(TypedDict):
@@ -394,7 +403,22 @@ def _emit_cli_error(
     return exit_code
 
 
-def _vm_warnings(vm: VMInfo) -> list[str]:
+def _credential_status(vm: VMInfo, data_dir: Path | None) -> dict[str, object] | None:
+    """Credential protection state for info/list (D-16), or None if never set up."""
+    if data_dir is None:
+        return None
+    from celesto.credentials import runtime as credential_runtime
+
+    try:
+        status = credential_runtime.status(vm.vm_id, data_dir=data_dir, vm_info=vm)
+    except Exception:  # noqa: BLE001 - status is advisory; never break info/list
+        return None
+    if status.state == "not_configured":
+        return None
+    return {"status": status.state, "message": status.message}
+
+
+def _vm_warnings(vm: VMInfo, data_dir: Path | None = None) -> list[str]:
     """Collect human-facing warnings about a VM's persisted config.
 
     Today this only covers stale workspace-mount host paths. The
@@ -411,10 +435,13 @@ def _vm_warnings(vm: VMInfo) -> list[str]:
                 f"'{mount.host_path}'. Restore it, or run "
                 f"'celesto computer delete {vm.vm_id}' to remove the computer."
             )
+    credentials = _credential_status(vm, data_dir)
+    if credentials is not None and credentials["message"]:
+        warnings.append(str(credentials["message"]))
     return warnings
 
 
-def _vm_rows(vms: Sequence[VMInfo]) -> list[VmRow]:
+def _vm_rows(vms: Sequence[VMInfo], data_dir: Path | None = None) -> list[VmRow]:
     """Normalize VM info objects into CLI list rows."""
     rows: list[VmRow] = []
     for vm in vms:
@@ -428,7 +455,7 @@ def _vm_rows(vms: Sequence[VMInfo]) -> list[VmRow]:
                 "pid": vm.pid,
                 "ip_address": ip_address,
                 "ssh_port": network.ssh_host_port if network else None,
-                "warnings": _vm_warnings(vm),
+                "warnings": _vm_warnings(vm, data_dir),
             }
         )
     return rows
@@ -611,7 +638,7 @@ def _run_list(
             vms = [sdk.refresh_status(vm) for vm in vms]
             if state is not None:
                 vms = [vm for vm in vms if vm.status == state]
-            rows = _vm_rows(vms)
+            rows = _vm_rows(vms, getattr(sdk, "data_dir", None))
             data: ListPayload = {
                 "filters": {
                     "all": include_all,
@@ -830,6 +857,11 @@ def _render_info_result(data: InfoPayload) -> None:
         str(vm_data["pid"]) if vm_data["pid"] is not None else "-",
     )
     console.print(details)
+    credentials = data.get("credentials")
+    if credentials is not None:
+        console.print(f"Credential protection: {credentials['status']}")
+    for warning in data.get("warnings", []):
+        console.print(f"Warning: {warning}", style="yellow")
 
 
 def _run_info(*, vm_id: str, json_output: bool, command_name: str = "sandbox.info") -> int:
@@ -842,6 +874,15 @@ def _run_info(*, vm_id: str, json_output: bool, command_name: str = "sandbox.inf
             if vm.status == VMState.RUNNING:
                 live_data = _query_live_vm_info(vm)
             data = _info_payload(vm, live_data=live_data)
+            credentials = _credential_status(vm, getattr(sdk, "data_dir", None))
+            if credentials is not None:
+                data["credentials"] = {
+                    "status": str(credentials["status"]),
+                    "message": credentials["message"]
+                    if isinstance(credentials["message"], str)
+                    else None,
+                }
+                data["warnings"] = [m for m in [credentials["message"]] if isinstance(m, str)]
             if json_output:
                 emit_json(command_name, 0, data=data)
             else:
@@ -2554,6 +2595,21 @@ def _run_logs(args: SimpleNamespace) -> int:
     try:
         vm = _cli_vm_from_id(args.vm_id)
         log_path = vm.data_dir / f"{args.vm_id}.log"
+        if getattr(args, "credentials", False):
+            from celesto.credentials import runtime as credential_runtime
+
+            log_path = credential_runtime.log_path(args.vm_id, data_dir=vm.data_dir)
+            if not log_path.exists():
+                message = (
+                    f"No credential activity for computer '{args.vm_id}' yet. "
+                    f"Run 'celesto sandbox logs {args.vm_id} --credentials' again after "
+                    "the computer uses a credential."
+                )
+                if json_output:
+                    emit_json(command_name, 0, data={"path": None, "lines": []})
+                    return 0
+                console_stdout().print(message)
+                return 0
 
         if not log_path.exists():
             recovery = f"Start it with 'celesto computer start {args.vm_id}' to generate logs."
