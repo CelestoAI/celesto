@@ -51,6 +51,7 @@ const ERROR_CODES: ReadonlySet<string> = new Set<CelestoErrorCode>([
   "bridge_exit",
   "cleanup_failed",
   "file_too_large",
+  "secret_refused",
   "transport_failed",
 ]);
 

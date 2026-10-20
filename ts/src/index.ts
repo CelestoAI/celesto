@@ -202,6 +202,7 @@ export class Celesto implements CelestoClient {
           backend: options.backend,
           image: options.image,
           network,
+          secrets: options.secrets,
         }),
       });
     } catch (cause) {

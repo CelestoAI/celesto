@@ -16,7 +16,7 @@ from typing import Literal
 
 from celesto.exceptions import ValidationError
 
-Surface = Literal["cli", "python", "typescript"]
+Surface = Literal["cli", "python", "typescript", "typescript_no_secrets"]
 """Which interface the user is on, so the recovery names a command they can run."""
 
 _NAME_SUFFIXES = ("_KEY", "_TOKEN", "_SECRET")
@@ -89,6 +89,11 @@ def refusal_message(name: str, *, sandbox: str, surface: Surface = "cli") -> str
     lead = f"{name} looks like a secret, so Celesto won't place it inside the sandbox."
     if surface == "python":
         return f'{lead} Pass secrets={{"{name}": Secret(host="{host}")}} instead.'
+    if surface == "typescript_no_secrets":
+        return (
+            f"{lead} TypeScript computers and browser sessions can't hold secrets yet; "
+            f'if it isn\'t one, pass notSecret: ["{name}"].'
+        )
     if surface == "typescript":
         return (
             f'{lead} Create the sandbox with secrets: {{ {name}: {{ host: "{host}" }} }} instead.'

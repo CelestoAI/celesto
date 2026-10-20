@@ -116,6 +116,7 @@ export class Sandbox implements SandboxClient {
           timeout: Math.ceil(timeoutMs / 1000),
           cwd: options.cwd,
           env: options.env ?? {},
+          not_secret: options.notSecret ?? [],
         }),
         signal: options.signal,
       });

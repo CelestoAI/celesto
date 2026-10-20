@@ -980,3 +980,60 @@ test("close ends the transport even when sandbox cleanup fails", async () => {
   );
   assert.equal(transport.closeCount, 1);
 });
+
+test("sends host-bound secrets on create and notSecret on exec", async () => {
+  const transport = new FakeTransport();
+  const client = new Celesto({ transport });
+  const sandbox = await client.sandboxes.create({
+    secrets: {
+      STRIPE_KEY: { host: "api.stripe.com" },
+      HF_TOKEN: { host: ["huggingface.co"], header: "authorization" },
+    },
+  });
+  await sandbox.exec("env", { env: { SORT_KEY: "name" }, notSecret: ["SORT_KEY"] });
+
+  const createBody = JSON.parse(String(transport.calls.find((call) => call.path === "/sandboxes")?.init?.body));
+  const execBody = JSON.parse(String(transport.calls.find((call) => call.path.endsWith("/exec"))?.init?.body));
+  assert.deepEqual(createBody.secrets, {
+    STRIPE_KEY: { host: "api.stripe.com" },
+    HF_TOKEN: { host: ["huggingface.co"], header: "authorization" },
+  });
+  assert.deepEqual(execBody.env, { SORT_KEY: "name" });
+  assert.deepEqual(execBody.not_secret, ["SORT_KEY"]);
+});
+
+test("process transport preserves the secret_refused code from the runtime", async () => {
+  const detail = "OPENAI_API_KEY looks like a secret, so Celesto won't place it inside the sandbox. "
+    + 'Create the sandbox with secrets: { OPENAI_API_KEY: { host: "api.openai.com" } } instead.';
+  const server = createServer((_request, response) => {
+    response.statusCode = 400;
+    response.setHeader("content-type", "application/json");
+    response.setHeader("x-celesto-error-code", "secret_refused");
+    response.end(JSON.stringify({ detail }));
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  assert(address && typeof address === "object");
+  const transport = new ProcessTransport("unused", 1_000, 1_000, 1_000, false, () => {});
+  Object.assign(transport, {
+    startPromise: Promise.resolve(),
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    token: "test-token",
+  });
+
+  try {
+    await assert.rejects(
+      () => transport.request("/sandboxes/sbx-test/exec", { method: "POST" }),
+      (error: unknown) => error instanceof CelestoError
+        && error.code === "secret_refused"
+        && error.message === detail,
+    );
+  } finally {
+    await transport.close();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});

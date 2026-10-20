@@ -39,6 +39,19 @@ NetworkPolicy = Annotated[
 ]
 
 
+class SecretRequest(BaseModel):
+    """A secret that stays on the host and is sent only to its hosts."""
+
+    host: str | list[str] = Field(
+        description="Exact host name (or names) the real value may be sent to."
+    )
+    header: str | None = Field(
+        default=None,
+        description="Header the program sends the placeholder in. Default: Authorization "
+        "or x-api-key.",
+    )
+
+
 class CreateSandboxRequest(BaseModel):
     """Create and boot an SDK-session sandbox."""
 
@@ -61,6 +74,11 @@ class CreateSandboxRequest(BaseModel):
     network: NetworkPolicy = Field(
         default_factory=lambda: OpenNetworkPolicy(mode="open"),
         description="Outbound network policy.",
+    )
+    secrets: dict[str, SecretRequest] | None = Field(
+        default=None,
+        description="Secrets by env var name. The sandbox sees a placeholder; the real value "
+        "is read from the runtime's env var of the same name.",
     )
 
 
@@ -195,6 +213,10 @@ class ExecRequest(BaseModel):
     shell: Literal["login", "raw"] = "login"
     cwd: str | None = Field(default=None, description="Absolute working directory in the guest.")
     env: dict[str, str] = Field(default_factory=dict)
+    not_secret: list[str] = Field(
+        default_factory=list,
+        description="env names to pass although they look like secrets.",
+    )
 
 
 class ExecResponse(CommandResult):
