@@ -1862,7 +1862,25 @@ class Celesto:
             notify("Mounting workspace..." if count == 1 else f"Mounting {count} workspaces...")
             self._mount_workspaces()
 
+        self._attach_credentials()
         return self
+
+    def _attach_credentials(self) -> None:
+        """Start this sandbox's credential proxy when it has credentials (D-05, D-09).
+
+        Runs before ``start`` returns, so no user process sees the guest
+        without its CA, host routes, and placeholders. An unsupported network
+        (D-07) leaves the sandbox running with no credentials and records the
+        message in :attr:`credential_warnings`.
+        """
+        from celesto.credentials import runtime as credential_runtime
+
+        self.credential_warnings: list[str] = []
+        try:
+            credential_runtime.attach_on_start(self)
+        except credential_runtime.CredentialsUnsupported as exc:
+            self.credential_warnings.append(exc.message)
+            logger.warning("%s", exc.message)
 
     def stop(self, timeout: float = 3.0) -> Celesto:
         """Stop the VM.

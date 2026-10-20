@@ -34,6 +34,7 @@ import platform
 from pathlib import Path
 from typing import cast
 
+from celesto.credentials._runtime_paths import PROXY_GUEST_IP, PROXY_GUEST_PORT
 from celesto.exceptions import CelestoError
 from celesto.host._public_egress import (
     QEMU_PUBLIC_PROXY_GUEST_IP,
@@ -135,6 +136,7 @@ def build_qemu_argv(
     start_paused: bool = False,
     root_node_name: str = QEMU_ROOT_NODE_NAME,
     host_system: str | None = None,
+    credential_relay_command: str | None = None,
 ) -> list[str]:
     """Build the ``qemu-system-*`` argv for *vm_info*.
 
@@ -163,6 +165,11 @@ def build_qemu_argv(
         root_node_name: QEMU block graph node name for the primary disk.
         host_system: Override of ``platform.system()`` for testing. When
             ``None`` (the default), the live host system is used.
+        credential_relay_command: Command QEMU runs for each guest
+            connection to the credential proxy address. Only used on slirp
+            with normal internet access: it forwards guest
+            ``10.0.2.100:443`` to this computer's own proxy socket, so no
+            other guest can reach that proxy.
 
     Returns:
         The argv list. No side effects — caller is responsible for
@@ -259,6 +266,10 @@ def build_qemu_argv(
             )
         elif settings is not None and settings.mode == "off":
             netdev_options.extend(["restrict=on", "ipv6=off"])
+        elif credential_relay_command is not None:
+            # Commas are QEMU's option separator; a literal comma is doubled.
+            relay = credential_relay_command.replace(",", ",,")
+            netdev_options.append(f"guestfwd=tcp:{PROXY_GUEST_IP}:{PROXY_GUEST_PORT}-cmd:{relay}")
         netdev_arg = ",".join(netdev_options)
 
     cmd: list[str] = [
