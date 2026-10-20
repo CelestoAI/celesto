@@ -22,6 +22,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import celesto.ssh as ssh_module
 from celesto.exceptions import CelestoError, OperationTimeoutError
 from celesto.ssh import SSHClient, _pwsh_encoded_command
 from celesto.types import CommandResult
@@ -283,8 +284,6 @@ class TestSSHClientRun:
         self, mock_connected: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A guest that streams output forever cannot grow host memory without bound."""
-        import celesto.ssh as ssh_module
-
         monkeypatch.setattr(ssh_module, "_DEFAULT_MAX_COMMAND_OUTPUT_BYTES", 1024)
         channel = _FakeChannel([("out", b"y\n" * 256)] * 64)  # 32 KiB, like `yes`
         mock_client = MagicMock()
@@ -302,8 +301,6 @@ class TestSSHClientRun:
     def test_run_cap_counts_stdout_and_stderr_together(
         self, mock_connected: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import celesto.ssh as ssh_module
-
         monkeypatch.setattr(ssh_module, "_DEFAULT_MAX_COMMAND_OUTPUT_BYTES", 1024)
         channel = _FakeChannel([("out", b"a" * 600), ("err", b"b" * 600)])
         mock_client = MagicMock()
@@ -318,8 +315,6 @@ class TestSSHClientRun:
     def test_run_accepts_output_exactly_at_cap(
         self, mock_connected: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import celesto.ssh as ssh_module
-
         monkeypatch.setattr(ssh_module, "_DEFAULT_MAX_COMMAND_OUTPUT_BYTES", 1024)
         channel = _FakeChannel([("out", b"a" * 1000), ("err", b"b" * 24)])
         mock_client = MagicMock()
@@ -335,8 +330,6 @@ class TestSSHClientRun:
         self, mock_connected: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """stderr arriving before stdout closes is counted against the cap as it arrives."""
-        import celesto.ssh as ssh_module
-
         monkeypatch.setattr(ssh_module, "_DEFAULT_MAX_COMMAND_OUTPUT_BYTES", 1024)
         # stderr floods while stdout has produced one chunk and not yet closed.
         channel = _FakeChannel([("out", b"x")] + [("err", b"e" * 512)] * 8 + [("out", b"y")])
@@ -367,8 +360,6 @@ class TestSSHClientRun:
 
     @patch.object(SSHClient, "_ensure_connected")
     def test_run_times_out_when_command_goes_quiet(self, mock_connected: MagicMock) -> None:
-        channel = _FakeChannel([("out", b"start\n")] + [None] * 10_000)
-
         class _NeverFinishes(_FakeChannel):
             def exit_status_ready(self) -> bool:
                 return False
