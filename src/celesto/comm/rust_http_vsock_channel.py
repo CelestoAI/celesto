@@ -27,6 +27,7 @@ import math
 import os
 import select
 import shlex
+import shutil
 import signal
 import socket
 import stat
@@ -62,6 +63,7 @@ _DEFAULT_MAX_EXEC_RESPONSE_BYTES = 16 * 1024 * 1024
 _DEFAULT_MAX_STREAM_SIZE_BYTES = 256 * 1024 * 1024
 _DEFAULT_MAX_TAR_SIZE_BYTES = 512 * 1024 * 1024
 _DEFAULT_MAX_TERMINAL_FRAME_BYTES = 1024 * 1024
+_TAR_EXTRACT_CHUNK_BYTES = 64 * 1024
 _MAX_PORTS_WAIT = 256
 _MAX_PORT_WAIT_TIMEOUT_SECONDS = 300.0
 _TERMINAL_FRAME_STDIN = 1
@@ -404,9 +406,31 @@ def _safe_tar_member_mode(mode: int) -> int:
     return mode & 0o777
 
 
-def _safe_extract_tar(data: bytes, destination: Path) -> None:
+def _safe_extract_tar(
+    data: bytes,
+    destination: Path,
+    *,
+    max_member_bytes: int = _DEFAULT_MAX_TAR_SIZE_BYTES,
+    max_total_bytes: int = _DEFAULT_MAX_TAR_SIZE_BYTES,
+) -> None:
+    """Extract a plain (uncompressed) tar stream from the guest into *destination*.
+
+    The guest agent only ever emits plain ustar, so compressed input and
+    sparse members are refused outright: both let a small transfer expand
+    into far more host disk and memory than the transfer cap allows. Each
+    member is streamed to disk in bounded chunks, and the per-member and
+    cumulative sizes are checked before any bytes are written.
+    """
     destination.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(fileobj=io.BytesIO(data), mode="r:*") as archive:
+    try:
+        archive = tarfile.open(fileobj=io.BytesIO(data), mode="r:")  # noqa: SIM115
+    except tarfile.TarError as exc:
+        raise CelestoError(
+            "Directory download from the computer is not a plain tar archive, so it was not "
+            "extracted."
+        ) from exc
+    extracted_total = 0
+    with archive:
         for member in archive.getmembers():
             relative = _safe_tar_member_path(member.name)
             if relative is None:
@@ -417,15 +441,29 @@ def _safe_extract_tar(data: bytes, destination: Path) -> None:
                 if member.mode:
                     os.chmod(target, _safe_tar_member_mode(member.mode))
                 continue
+            if member.issparse():
+                raise CelestoError(f"Refusing sparse tar entry: {member.name}")
             if not member.isfile():
                 raise CelestoError(f"Refusing unsupported tar entry: {member.name}")
+            if member.size > max_member_bytes:
+                raise CelestoError(
+                    f"Refusing tar entry '{member.name}': it is {member.size} bytes, "
+                    f"but one file may be at most {max_member_bytes} bytes."
+                )
+            extracted_total += member.size
+            if extracted_total > max_total_bytes:
+                raise CelestoError(
+                    f"Refusing to extract more than {max_total_bytes} bytes from the "
+                    "directory download."
+                )
             parent = target.parent
             _safe_mkdir(destination, parent)
             _reject_symlink_path(destination, target)
             source = archive.extractfile(member)
             if source is None:
                 raise CelestoError(f"Tar entry has no data: {member.name}")
-            target.write_bytes(source.read())
+            with source, target.open("wb") as handle:
+                shutil.copyfileobj(source, handle, _TAR_EXTRACT_CHUNK_BYTES)
             if member.mode:
                 os.chmod(target, _safe_tar_member_mode(member.mode))
 
@@ -983,12 +1021,18 @@ class RustHttpVsockChannel:
         destination = Path(local_path)
         destination.mkdir(parents=True, exist_ok=True)
         query = urllib.parse.urlencode({"path": remote_path})
+        tar_limit = self._limit_bytes("max_tar_size_bytes", _DEFAULT_MAX_TAR_SIZE_BYTES)
         _resp, data = self._request_bytes(
             "GET",
             f"/directories/tar?{query}",
-            max_bytes=self._limit_bytes("max_tar_size_bytes", _DEFAULT_MAX_TAR_SIZE_BYTES),
+            max_bytes=tar_limit,
         )
-        _safe_extract_tar(data, destination)
+        _safe_extract_tar(
+            data,
+            destination,
+            max_member_bytes=tar_limit,
+            max_total_bytes=tar_limit,
+        )
         return destination
 
     def set_managed_env(self, env_vars: dict[str, str], *, merge: bool = True) -> dict[str, str]:
