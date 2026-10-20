@@ -188,12 +188,16 @@ class LocalImage(BaseModel):
         kernel_path: Absolute path to the kernel binary.
         initrd_path: Optional absolute path to the initrd.
         rootfs_path: Absolute path to the root filesystem.
+        downloaded: True when the call that produced this object fetched the
+            assets (cache missing or failed verification), so anything
+            derived from the previous cached files is stale.
     """
 
     name: str
     kernel_path: Path
     initrd_path: Path | None = None
     rootfs_path: Path
+    downloaded: bool = False
 
     model_config = {"frozen": True}
 
@@ -544,6 +548,7 @@ class ImageManager:
             kernel_path=kernel_path,
             initrd_path=initrd_path,
             rootfs_path=rootfs_path,
+            downloaded=True,
         )
 
     def ensure_rootfs_only(
@@ -920,6 +925,7 @@ class ImageManager:
             kernel_path=kernel_path,
             initrd_path=initrd_path,
             rootfs_path=rootfs_path,
+            downloaded=not (kernel_ok and rootfs_ok and initrd_ok),
         )
         return local, manifest
 
