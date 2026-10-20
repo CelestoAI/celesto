@@ -423,16 +423,20 @@ def _safe_extract_tar(
     """
     destination.mkdir(parents=True, exist_ok=True)
     try:
+        # The first header is parsed here; a bad extended-header value in it is
+        # a bare ValueError rather than a TarError.
         archive = tarfile.open(fileobj=io.BytesIO(data), mode="r:")  # noqa: SIM115
-    except tarfile.TarError as exc:
+    except (tarfile.TarError, ValueError) as exc:
         raise CelestoError(
             "Directory download from the computer is not a plain tar archive, so it was not "
             "extracted."
         ) from exc
     try:
         with archive:
+            members = _tar_members(archive, data)
             _extract_tar_members(
                 archive,
+                members,
                 destination,
                 max_member_bytes=max_member_bytes,
                 max_total_bytes=max_total_bytes,
@@ -444,15 +448,46 @@ def _safe_extract_tar(
         ) from exc
 
 
+def _tar_members(archive: tarfile.TarFile, data: bytes) -> list[tarfile.TarInfo]:
+    """List the archive's members, refusing anything the guest agent never emits.
+
+    ``tarfile`` stops quietly at a damaged header after the first member and
+    reports what it read so far as the whole archive, so the end-of-archive
+    marker is checked explicitly. Global extended headers are refused because
+    they rewrite later members' sizes after the data layout was fixed.
+    """
+    try:
+        members = archive.getmembers()
+    except ValueError as exc:
+        # Extended-header values that fail to parse surface as a bare ValueError.
+        raise CelestoError(
+            "Directory download from the computer is not a plain tar archive, so it was not "
+            "extracted."
+        ) from exc
+    if archive.pax_headers:
+        raise CelestoError(
+            "Directory download from the computer uses extended headers it should not "
+            "contain, so it was not extracted."
+        )
+    trailer = data[archive.offset :]
+    if len(trailer) < 2 * tarfile.BLOCKSIZE or trailer.strip(b"\0"):
+        raise CelestoError(
+            "Directory download from the computer is damaged, so it was not extracted."
+        )
+    return members
+
+
 def _extract_tar_members(
     archive: tarfile.TarFile,
+    members: list[tarfile.TarInfo],
     destination: Path,
     *,
     max_member_bytes: int,
     max_total_bytes: int,
 ) -> None:
     extracted_total = 0
-    for member in archive.getmembers():
+    directory_modes: list[tuple[Path, int]] = []
+    for member in members:
         relative = _safe_tar_member_path(member.name)
         if relative is None:
             continue
@@ -460,12 +495,15 @@ def _extract_tar_members(
         if member.isdir():
             _safe_mkdir(destination, target)
             if member.mode:
-                os.chmod(target, _safe_tar_member_mode(member.mode))
+                # Applied after the loop so a read-only folder does not block its children.
+                directory_modes.append((target, _safe_tar_member_mode(member.mode)))
             continue
         if member.issparse():
             raise CelestoError(f"Refusing sparse tar entry: {member.name}")
         if not member.isfile():
             raise CelestoError(f"Refusing unsupported tar entry: {member.name}")
+        if member.size < 0:
+            raise CelestoError(f"Refusing tar entry '{member.name}': its size is negative.")
         if member.size > max_member_bytes:
             raise CelestoError(
                 f"Refusing tar entry '{member.name}': it is {member.size} bytes, "
@@ -488,13 +526,22 @@ def _extract_tar_members(
         source = archive.extractfile(member)
         if source is None:
             raise CelestoError(f"Tar entry has no data: {member.name}")
-        with source, target.open("wb") as handle:
+        # Created owner-only first so a private file is never briefly world-readable.
+        with source, open(target, "wb", opener=_open_private) as handle:
             shutil.copyfileobj(source, handle, _TAR_EXTRACT_CHUNK_BYTES)
         if member.mode:
             os.chmod(target, _safe_tar_member_mode(member.mode))
+    for directory, mode in reversed(directory_modes):
+        os.chmod(directory, mode)
+
+
+def _open_private(path: str, flags: int) -> int:
+    return os.open(path, flags, 0o600)
 
 
 def _safe_tar_member_path(name: str) -> Path | None:
+    if "\0" in name:
+        raise CelestoError("Refusing tar entry whose name contains a NUL byte.")
     if name.startswith(("/", "\\")):
         raise CelestoError(f"Refusing absolute tar entry: {name}")
     parts: list[str] = []

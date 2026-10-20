@@ -22,6 +22,7 @@ import json
 import os
 import queue
 import socket
+import stat
 import tarfile
 import tempfile
 import threading
@@ -954,6 +955,107 @@ def test_get_directory_passes_the_tar_cap_to_extraction(
     with pytest.raises(CelestoError, match="big.bin"):
         channel.get_directory("/remote", tmp_path / "out")
     assert not (tmp_path / "out" / "big.bin").exists()
+
+
+def _pax_tar(
+    members: list[tuple[str, bytes, dict[str, str]]], *, global_headers: dict | None = None
+) -> bytes:
+    archive = io.BytesIO()
+    with tarfile.open(
+        fileobj=archive, mode="w", format=tarfile.PAX_FORMAT, pax_headers=global_headers or {}
+    ) as tar:
+        for name, payload, headers in members:
+            info = tarfile.TarInfo(name)
+            info.size = len(payload)
+            info.pax_headers = headers
+            tar.addfile(info, io.BytesIO(payload))
+    return archive.getvalue()
+
+
+def test_extract_tar_rejects_negative_member_size(tmp_path: Path) -> None:
+    # A PAX "GNU.sparse.realsize" with no sparse map sets member.size negative
+    # without marking the member sparse; it must not lower the running total.
+    data = _pax_tar(
+        [("neg.bin", b"", {"GNU.sparse.realsize": "-999999"}), ("big.bin", b"x" * 2048, {})]
+    )
+
+    with pytest.raises(CelestoError, match="neg.bin"):
+        _safe_extract_tar(data, tmp_path / "out", max_member_bytes=4096, max_total_bytes=1024)
+    assert not (tmp_path / "out" / "big.bin").exists()
+
+
+def test_extract_tar_reports_unparseable_pax_size_plainly(tmp_path: Path) -> None:
+    data = _pax_tar([("odd.bin", b"x", {"GNU.sparse.size": "abc"})])
+
+    with pytest.raises(CelestoError, match="not a plain tar archive|damaged"):
+        _safe_extract_tar(data, tmp_path / "out")
+
+
+def test_extract_tar_rejects_global_pax_headers(tmp_path: Path) -> None:
+    # A global header rewrites every later member's size after the data layout
+    # was fixed, so the size checks would run against an attacker-set number.
+    data = _pax_tar([("a.bin", b"abc", {}), ("b.bin", b"def", {})], global_headers={"size": "100"})
+
+    with pytest.raises(CelestoError, match="extended headers"):
+        _safe_extract_tar(data, tmp_path / "out")
+    assert not (tmp_path / "out" / "a.bin").exists()
+
+
+def test_extract_tar_rejects_damaged_archive_instead_of_partial_result(tmp_path: Path) -> None:
+    good = _plain_tar({"first.txt": b"hello"})
+    body = good[:-1024]  # strip the end-of-archive blocks
+    damaged = body + b"\xffnot a header" + b"\0" * 500 + _plain_tar({"second.txt": b"world"})
+
+    with pytest.raises(CelestoError, match="damaged"):
+        _safe_extract_tar(damaged, tmp_path / "out")
+    assert not (tmp_path / "out" / "first.txt").exists()
+
+
+def test_extract_tar_applies_directory_modes_after_children(tmp_path: Path) -> None:
+    archive = io.BytesIO()
+    with tarfile.open(fileobj=archive, mode="w", format=tarfile.USTAR_FORMAT) as tar:
+        folder = tarfile.TarInfo("locked")
+        folder.type = tarfile.DIRTYPE
+        folder.mode = 0o500
+        tar.addfile(folder)
+        info = tarfile.TarInfo("locked/child.txt")
+        info.size = 2
+        info.mode = 0o600
+        tar.addfile(info, io.BytesIO(b"ok"))
+
+    try:
+        _safe_extract_tar(archive.getvalue(), tmp_path / "out")
+        child = tmp_path / "out" / "locked" / "child.txt"
+        assert child.read_bytes() == b"ok"
+        assert stat.S_IMODE(child.stat().st_mode) == 0o600
+        assert stat.S_IMODE((tmp_path / "out" / "locked").stat().st_mode) == 0o500
+    finally:
+        os.chmod(tmp_path / "out" / "locked", 0o700)
+
+
+def test_extract_tar_rejects_names_with_nul_bytes(tmp_path: Path) -> None:
+    data = _pax_tar([("x", b"abc", {"path": "x\x00y"})])
+
+    with pytest.raises(CelestoError, match="Refusing tar entry"):
+        _safe_extract_tar(data, tmp_path / "out")
+
+
+def test_extract_tar_creates_files_private_before_applying_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen_modes: list[int] = []
+    real_open = os.open
+
+    def _recording_open(path: Any, flags: int, mode: int = 0o777, *args: Any, **kw: Any) -> int:
+        if flags & os.O_CREAT:
+            seen_modes.append(mode)
+        return real_open(path, flags, mode, *args, **kw)
+
+    monkeypatch.setattr(os, "open", _recording_open)
+
+    _safe_extract_tar(_plain_tar({"f.txt": b"x"}), tmp_path / "out")
+
+    assert seen_modes == [0o600]
 
 
 def test_extract_tar_streams_members_in_bounded_chunks(
