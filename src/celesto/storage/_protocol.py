@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, TypedDict
 
 from celesto.types import (
     BrowserSessionConfig,
@@ -31,6 +31,19 @@ from celesto.types import (
     VMInfo,
     VMState,
 )
+
+
+class UserSecretRecord(TypedDict):
+    """A user-defined, host-bound secret stored with its sandbox (D-11).
+
+    Holds the definition and the guest placeholder only, never the real value.
+    """
+
+    name: str
+    hosts: list[str]
+    source: str
+    header: str | None
+    placeholder: str
 
 
 class StateManagerProtocol(Protocol):
@@ -228,6 +241,26 @@ class StateManagerProtocol(Protocol):
         self, status: BrowserSessionState | None = None
     ) -> list[BrowserSessionInfo]:
         pass
+
+    # ------------------------------------------------------------------
+    # User secrets (definitions and placeholders only, never values)
+    # ------------------------------------------------------------------
+
+    def put_user_secret(self, vm_id: str, record: UserSecretRecord) -> None:
+        """Insert or replace the secret named ``record["name"]`` for *vm_id*."""
+        ...
+
+    def delete_user_secret(self, vm_id: str, name: str) -> bool:
+        """Remove a secret; return whether it existed."""
+        ...
+
+    def list_user_secrets(self, vm_id: str) -> list[UserSecretRecord]:
+        """Return the secrets defined for *vm_id*, sorted by name."""
+        ...
+
+    def claim_user_secret_seed(self, vm_id: str) -> bool:
+        """Return True exactly once per VM, so config secrets are copied in once."""
+        ...
 
     # ------------------------------------------------------------------
     # Allowed SSH keys (public keys only; D-13)

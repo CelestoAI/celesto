@@ -20,6 +20,7 @@ Uses exclusive transactions to prevent race conditions in IP assignment.
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from collections.abc import Iterator
@@ -50,6 +51,7 @@ from celesto.storage._base import (
     snapshot_info_from_row,
     vm_config_from_json,
 )
+from celesto.storage._protocol import UserSecretRecord
 from celesto.types import (
     BrowserSessionConfig,
     BrowserSessionInfo,
@@ -213,6 +215,23 @@ class SQLiteStateManager:
                     placeholder TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     PRIMARY KEY (vm_id, name),
+                    FOREIGN KEY (vm_id) REFERENCES vms(id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS user_secrets (
+                    vm_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    hosts TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    header TEXT,
+                    placeholder TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (vm_id, name),
+                    FOREIGN KEY (vm_id) REFERENCES vms(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS user_secret_seeds (
+                    vm_id TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL,
                     FOREIGN KEY (vm_id) REFERENCES vms(id) ON DELETE CASCADE
                 );
 
@@ -1094,6 +1113,61 @@ class SQLiteStateManager:
         return [browser_session_info_from_row(row) for row in rows]
 
     # ------------------------------------------------------------------
+    # User secrets (definitions and placeholders only, never values)
+    # ------------------------------------------------------------------
+
+    def put_user_secret(self, vm_id: str, record: UserSecretRecord) -> None:
+        with self._get_connection(exclusive=True) as conn:
+            if not conn.execute("SELECT id FROM vms WHERE id = ?", (vm_id,)).fetchone():
+                raise VMNotFoundError(vm_id)
+            conn.execute(
+                "INSERT OR REPLACE INTO user_secrets "
+                "(vm_id, name, hosts, source, header, placeholder, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    vm_id,
+                    record["name"],
+                    json.dumps(list(record["hosts"])),
+                    record["source"],
+                    record["header"],
+                    record["placeholder"],
+                    now_iso(),
+                ),
+            )
+
+    def delete_user_secret(self, vm_id: str, name: str) -> bool:
+        with self._get_connection(exclusive=True) as conn:
+            cursor = conn.execute(
+                "DELETE FROM user_secrets WHERE vm_id = ? AND name = ?", (vm_id, name)
+            )
+            return cursor.rowcount > 0
+
+    def list_user_secrets(self, vm_id: str) -> list[UserSecretRecord]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM user_secrets WHERE vm_id = ? ORDER BY name", (vm_id,)
+            ).fetchall()
+        return [
+            UserSecretRecord(
+                name=row["name"],
+                hosts=list(json.loads(row["hosts"])),
+                source=row["source"],
+                header=row["header"],
+                placeholder=row["placeholder"],
+            )
+            for row in rows
+        ]
+
+    def claim_user_secret_seed(self, vm_id: str) -> bool:
+        with self._get_connection(exclusive=True) as conn:
+            if not conn.execute("SELECT id FROM vms WHERE id = ?", (vm_id,)).fetchone():
+                raise VMNotFoundError(vm_id)
+            cursor = conn.execute(
+                "INSERT OR IGNORE INTO user_secret_seeds (vm_id, created_at) VALUES (?, ?)",
+                (vm_id, now_iso()),
+            )
+            return cursor.rowcount > 0
+
     # Allowed SSH keys (public keys only; D-13)
     # ------------------------------------------------------------------
 

@@ -269,6 +269,7 @@ def _build_browser_vm_config(
         backend=resolved_backend,
         retain_disk_on_delete=browser_config.profile_mode == "persistent",
         env_vars=browser_config.env_vars,
+        not_secret=browser_config.not_secret,
         port_forwards=port_forwards,
         workspace_mounts=browser_config.workspace_mounts,
         internet_settings=browser_config.internet_settings,

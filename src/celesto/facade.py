@@ -38,7 +38,7 @@ import socket
 import subprocess
 import time
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,6 +56,7 @@ from celesto.callbacks import Callback, CallbackDispatcher, RunContext
 from celesto.comm import RustHttpVsockChannel
 from celesto.comm.base import CommChannel, CommChannelKind
 from celesto.comm.select import ChannelResolution, VsockNotSupportedError, resolve_comm_channel
+from celesto.credentials.user_secrets import Secret, SecretChange
 from celesto.env import inject_env_vars, read_env_vars, remove_env_vars
 from celesto.env_windows import (
     inject_env_vars as inject_env_vars_windows,
@@ -1011,6 +1012,10 @@ class Celesto:
             ``config.workspace_mounts`` instead.
         on_download: Optional callback for image download progress. Receives
             the image label, downloaded chunk size, and total size when known.
+        secrets: Secrets that stay on your machine, such as
+            ``{"STRIPE_KEY": Secret(host="api.stripe.com")}``. The sandbox
+            sees a placeholder; the real value is read from the env var of
+            the same name on every start and sent only to the bound host.
 
     Raises:
         ValidationError: Invalid or unsupported network policy; details include field
@@ -1043,7 +1048,12 @@ class Celesto:
         callbacks: list[Callback] | None = None,
         state_manager: StateManagerProtocol | None = None,
         on_download: Callable[[str, int, int | None], None] | None = None,
+        secrets: dict[str, Secret] | None = None,
     ) -> None:
+        if secrets and vm_id is not None:
+            raise ValidationError(
+                "Secrets can't be passed when reconnecting; call set_secret() on the sandbox."
+            )
         if internet_settings is not None:
             if vm_id is not None:
                 raise ValidationError("Policy cannot change on reconnect; omit internet_settings.")
@@ -1183,6 +1193,21 @@ class Celesto:
         if internet_settings is not None and config is not None:
             config = config.model_copy(update={"internet_settings": internet_settings})
 
+        if secrets and config is not None:
+            from celesto.credentials.user_secrets import validate_secret_name
+
+            if config.secrets:
+                raise ValidationError(
+                    "secrets is already set on VMConfig; pass it in one place only."
+                )
+            for name in secrets:
+                validate_secret_name(name)
+                if name in config.env_vars:
+                    raise ValidationError(
+                        f"{name} is both a secret and a plain env var; remove it from env_vars."
+                    )
+            config = config.model_copy(update={"secrets": dict(secrets)})
+
         # Normalize and merge mounts into the config
         if mounts is not None:
             if vm_id is not None:
@@ -1274,7 +1299,17 @@ class Celesto:
         ssh_key_path: str | None,
         boot_timeout: float,
         on_progress: Callable[[str], None] | None,
+        not_secret: list[str] | None = None,
     ) -> _DisplaySandboxT:
+        if env_vars:
+            from celesto.credentials.detect import check_env
+
+            check_env(
+                env_vars,
+                sandbox=session_id or "the browser session",
+                not_secret=not_secret or (),
+                surface="python",
+            )
         resolved_boot_timeout = _validate_display_sandbox_limits(
             memory_mb=memory_mb,
             disk_size_mb=disk_size_mb,
@@ -1306,6 +1341,7 @@ class Celesto:
             allow_downloads=allow_downloads,
             internet_settings=resolved_internet_settings,
             env_vars=env_vars or {},
+            not_secret=list(not_secret or ()),
             workspace_mounts=workspace_mounts or [],
             mem_size_mib=memory_mb,
             disk_size_mib=disk_size_mb,
@@ -1345,6 +1381,7 @@ class Celesto:
         allow_downloads: bool = True,
         internet_settings: InternetSettings | dict[str, Any] | None = None,
         env_vars: dict[str, str] | None = None,
+        not_secret: list[str] | None = None,
         workspace_mounts: list[WorkspaceMount] | None = None,
         memory_mb: int = 2048,
         disk_size_mb: int = 4096,
@@ -1377,6 +1414,7 @@ class Celesto:
             allow_downloads=allow_downloads,
             internet_settings=internet_settings,
             env_vars=env_vars,
+            not_secret=not_secret,
             workspace_mounts=workspace_mounts,
             memory_mb=memory_mb,
             disk_size_mb=disk_size_mb,
@@ -1404,6 +1442,7 @@ class Celesto:
         allow_downloads: bool = True,
         internet_settings: InternetSettings | dict[str, Any] | None = None,
         env_vars: dict[str, str] | None = None,
+        not_secret: list[str] | None = None,
         workspace_mounts: list[WorkspaceMount] | None = None,
         memory_mb: int = 2048,
         disk_size_mb: int = 4096,
@@ -1431,6 +1470,7 @@ class Celesto:
             allow_downloads=allow_downloads,
             internet_settings=internet_settings,
             env_vars=env_vars,
+            not_secret=not_secret,
             workspace_mounts=workspace_mounts,
             memory_mb=memory_mb,
             disk_size_mb=disk_size_mb,
@@ -2172,8 +2212,19 @@ class Celesto:
         """
         return self._info.config.guest_os is GuestOS.WINDOWS
 
-    def set_env_vars(self, env_vars: dict[str, str], *, merge: bool = True) -> list[str]:
+    def set_env_vars(
+        self,
+        env_vars: dict[str, str],
+        *,
+        merge: bool = True,
+        not_secret: Iterable[str] = (),
+    ) -> list[str]:
         """Set environment variables on a running VM.
+
+        Values that look like secrets are refused with
+        :class:`~celesto.SecretRefusedError`, because plain env vars are
+        readable inside the sandbox. Use :meth:`set_secret` for those, or
+        list a false positive in *not_secret*.
 
         On Linux guests the variables are persisted in
         ``/etc/profile.d/celesto_env.sh`` and affect new login shells.
@@ -2185,10 +2236,20 @@ class Celesto:
         Args:
             env_vars: Key/value pairs to set.
             merge: If True (default), merge with existing variables.
+            not_secret: Names to set even though they look like secrets.
 
         Returns:
             Sorted variable names present after update.
         """
+        if not env_vars:
+            return []
+        from celesto.credentials.detect import check_env
+
+        check_env(env_vars, sandbox=self._vm_id, not_secret=not_secret, surface="python")
+        return self._set_env_vars_unchecked(env_vars, merge=merge)
+
+    def _set_env_vars_unchecked(self, env_vars: dict[str, str], *, merge: bool = True) -> list[str]:
+        """Write managed env vars without the secret check (placeholders only)."""
         if not env_vars:
             return []
 
@@ -2200,6 +2261,81 @@ class Celesto:
             return sorted(control_env.set_managed_env(env_vars, merge=merge).keys())  # type: ignore[attr-defined]
         ssh = self._ensure_ssh_for_env()
         return inject_env_vars(ssh, env_vars, merge=merge)
+
+    def set_secret(self, name: str, secret: Secret) -> SecretChange:
+        """Protect a secret for this sandbox; the sandbox sees only a placeholder.
+
+        The real value comes from the env var *name* in this process, is
+        re-read on every start, and is sent only to ``secret.hosts``. On a
+        running sandbox the change applies at once: programs started
+        afterwards see the placeholder.
+
+        Raises:
+            ValidationError: The sandbox is running and *name* is not set in
+                this process's environment.
+        """
+        from celesto.credentials import user_secrets
+
+        real_value = user_secrets.resolve(user_secrets.env_source(name))
+        self._refresh_info()
+        if real_value is None and self._info.status == VMState.RUNNING:
+            raise ValidationError(
+                f"{name} isn't set in this process's environment. Set it, then call "
+                f"set_secret({name!r}, ...) again."
+            )
+        return self._set_secret(name, secret, real_value)
+
+    def _set_secret(self, name: str, secret: Secret, real_value: str | None) -> SecretChange:
+        """Store *secret* and, if running, hand *real_value* to the proxy."""
+        from celesto.credentials import user_secrets
+
+        self._refresh_info()
+        state = self._sdk.state
+        user_secrets.ensure_seeded(state, self._vm_id)
+        record = user_secrets.define(state, self._vm_id, name, secret)
+        if self._info.status != VMState.RUNNING:
+            return SecretChange(name, secret.hosts, "next_start", real_value is not None)
+        if real_value is None:
+            return SecretChange(name, secret.hosts, "not_applied", False)
+        binding = user_secrets.binding_from_record(record)
+        if not user_secrets.apply_live_set(self._vm_id, binding, real_value).applied:
+            return SecretChange(name, secret.hosts, "not_applied", True)
+        # The proxy is ready first; only then does the guest learn the placeholder.
+        self._set_env_vars_unchecked({name: record["placeholder"]})
+        return SecretChange(name, secret.hosts, "live", True)
+
+    def remove_secret(self, name: str) -> SecretChange | None:
+        """Stop protecting *name*; return None if it was not a secret here.
+
+        On a running sandbox the proxy stops injecting the real value at once.
+        """
+        from celesto.credentials import user_secrets
+
+        self._refresh_info()
+        state = self._sdk.state
+        current = {r["name"]: r for r in user_secrets.records(state, self._vm_id)}
+        if name not in current:
+            return None
+        state.delete_user_secret(self._vm_id, name)
+        hosts = tuple(current[name]["hosts"])
+        if self._info.status != VMState.RUNNING:
+            return SecretChange(name, hosts, "next_start", False)
+        applied = user_secrets.apply_live_remove(self._vm_id, name).applied
+        with suppress(Exception):
+            self.unset_env_vars([name])
+        return SecretChange(name, hosts, "live" if applied else "not_applied", False)
+
+    def list_secrets(self) -> list[dict[str, Any]]:
+        """Return this sandbox's secrets: name, hosts, source, status, last used.
+
+        Never includes real values or placeholders.
+        """
+        from celesto.credentials import user_secrets
+
+        self._refresh_info()
+        return user_secrets.list_rows(
+            self._sdk.state, self._vm_id, running=self._info.status == VMState.RUNNING
+        )
 
     def unset_env_vars(self, keys: list[str]) -> dict[str, str]:
         """Remove environment variables from a running VM.

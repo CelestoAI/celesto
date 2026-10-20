@@ -23,6 +23,8 @@ from importlib.metadata import version as _pkg_version
 from celesto._compat import apply_legacy_environment_aliases
 from celesto._terminal import TerminalConnection
 from celesto.callbacks import Callback, CommandBlockedError, RunContext
+from celesto.credentials.detect import SecretRefusedError
+from celesto.credentials.user_secrets import Secret
 from celesto.exceptions import (
     CelestoError,
     CloudAPIError,
@@ -123,6 +125,8 @@ __all__ = [
     "SSHClient",
     # Data models
     "InternetSettings",
+    "Secret",
+    "SecretRefusedError",
     "NetworkAttachmentConfig",
     "VMConfig",
     "VMInfo",

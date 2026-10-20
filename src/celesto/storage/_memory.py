@@ -41,6 +41,7 @@ from celesto.storage._base import (
     ip_to_pool_index,
     pool_index_to_ip,
 )
+from celesto.storage._protocol import UserSecretRecord
 from celesto.types import (
     BrowserSessionConfig,
     BrowserSessionInfo,
@@ -73,6 +74,8 @@ class MemoryStateManager:
         self._browser_configs: dict[str, BrowserSessionConfig] = {}
         self._credential_placeholders: dict[str, dict[str, str]] = {}
         self._credential_protection: dict[str, int] = {}
+        self._user_secrets: dict[str, dict[str, UserSecretRecord]] = {}
+        self._user_secret_seeded: set[str] = set()
         self._ssh_keys: dict[str, dict[str, str]] = {}
 
     def close(self) -> None:
@@ -168,9 +171,51 @@ class MemoryStateManager:
             self._tap_allocations.pop(vm_id, None)
             self._credential_placeholders.pop(vm_id, None)
             self._credential_protection.pop(vm_id, None)
+            self._user_secrets.pop(vm_id, None)
+            self._user_secret_seeded.discard(vm_id)
             self._ssh_keys.pop(vm_id, None)
             for kind in ("ip", "ssh", "vsock", "tap"):
                 self._release_claim(kind, vm_id)
+
+    def put_user_secret(self, vm_id: str, record: UserSecretRecord) -> None:
+        with self._lock:
+            if vm_id not in self._vms:
+                raise VMNotFoundError(vm_id)
+            stored = UserSecretRecord(
+                name=record["name"],
+                hosts=list(record["hosts"]),
+                source=record["source"],
+                header=record["header"],
+                placeholder=record["placeholder"],
+            )
+            self._user_secrets.setdefault(vm_id, {})[record["name"]] = stored
+
+    def delete_user_secret(self, vm_id: str, name: str) -> bool:
+        with self._lock:
+            return self._user_secrets.get(vm_id, {}).pop(name, None) is not None
+
+    def list_user_secrets(self, vm_id: str) -> list[UserSecretRecord]:
+        with self._lock:
+            records = self._user_secrets.get(vm_id, {})
+            return [
+                UserSecretRecord(
+                    name=item["name"],
+                    hosts=list(item["hosts"]),
+                    source=item["source"],
+                    header=item["header"],
+                    placeholder=item["placeholder"],
+                )
+                for _, item in sorted(records.items())
+            ]
+
+    def claim_user_secret_seed(self, vm_id: str) -> bool:
+        with self._lock:
+            if vm_id not in self._vms:
+                raise VMNotFoundError(vm_id)
+            if vm_id in self._user_secret_seeded:
+                return False
+            self._user_secret_seeded.add(vm_id)
+            return True
 
     def list_vms(self, status: VMState | None = None) -> list[VMInfo]:
         with self._lock:
