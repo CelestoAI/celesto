@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import socket
@@ -142,9 +143,9 @@ def _string(data: bytes) -> bytes:
     return struct.pack(">I", len(data)) + data
 
 
-@pytest.fixture
-def lab() -> Iterator[Lab]:
-    # Unix socket paths are limited to ~104 bytes on macOS, so stay short.
+@contextlib.contextmanager
+def make_lab() -> Iterator[Lab]:
+    """Start a throwaway agent; Unix socket paths stay short (~104 bytes on macOS)."""
     root = Path(tempfile.mkdtemp(prefix="w6a-", dir="/tmp"))
     lab = Lab(root)
     try:
@@ -152,3 +153,9 @@ def lab() -> Iterator[Lab]:
     finally:
         lab.close()
         shutil.rmtree(root, ignore_errors=True)
+
+
+@pytest.fixture
+def lab() -> Iterator[Lab]:
+    with make_lab() as started:
+        yield started
