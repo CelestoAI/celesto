@@ -215,6 +215,15 @@ class SQLiteStateManager:
                     PRIMARY KEY (vm_id, name),
                     FOREIGN KEY (vm_id) REFERENCES vms(id) ON DELETE CASCADE
                 );
+
+                CREATE TABLE IF NOT EXISTS sandbox_ssh_keys (
+                    vm_id TEXT NOT NULL,
+                    fingerprint TEXT NOT NULL,
+                    public_key TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (vm_id, fingerprint),
+                    FOREIGN KEY (vm_id) REFERENCES vms(id) ON DELETE CASCADE
+                );
             """
             )
             vm_columns = {row["name"] for row in conn.execute("PRAGMA table_info(vms)").fetchall()}
@@ -1083,6 +1092,40 @@ class SQLiteStateManager:
                 rows = conn.execute("SELECT * FROM browser_sessions ORDER BY created_at").fetchall()
 
         return [browser_session_info_from_row(row) for row in rows]
+
+    # ------------------------------------------------------------------
+    # Allowed SSH keys (public keys only; D-13)
+    # ------------------------------------------------------------------
+
+    def add_ssh_key(self, vm_id: str, fingerprint: str, public_key: str) -> bool:
+        with self._get_connection(exclusive=True) as conn:
+            if not conn.execute("SELECT id FROM vms WHERE id = ?", (vm_id,)).fetchone():
+                raise VMNotFoundError(vm_id)
+            cursor = conn.execute(
+                """
+                INSERT OR IGNORE INTO sandbox_ssh_keys (vm_id, fingerprint, public_key, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (vm_id, fingerprint, public_key, now_iso()),
+            )
+            return cursor.rowcount > 0
+
+    def remove_ssh_key(self, vm_id: str, fingerprint: str) -> bool:
+        with self._get_connection(exclusive=True) as conn:
+            cursor = conn.execute(
+                "DELETE FROM sandbox_ssh_keys WHERE vm_id = ? AND fingerprint = ?",
+                (vm_id, fingerprint),
+            )
+            return cursor.rowcount > 0
+
+    def list_ssh_keys(self, vm_id: str) -> list[tuple[str, str]]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT fingerprint, public_key FROM sandbox_ssh_keys "
+                "WHERE vm_id = ? ORDER BY created_at, fingerprint",
+                (vm_id,),
+            ).fetchall()
+        return [(row["fingerprint"], row["public_key"]) for row in rows]
 
     # ------------------------------------------------------------------
     # Reconciliation

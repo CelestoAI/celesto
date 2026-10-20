@@ -230,6 +230,22 @@ class StateManagerProtocol(Protocol):
         pass
 
     # ------------------------------------------------------------------
+    # Allowed SSH keys (public keys only; D-13)
+    # ------------------------------------------------------------------
+
+    def add_ssh_key(self, vm_id: str, fingerprint: str, public_key: str) -> bool:
+        """Allow a key for *vm_id*; False if it was already allowed."""
+        ...
+
+    def remove_ssh_key(self, vm_id: str, fingerprint: str) -> bool:
+        """Disallow a key; False if it was not allowed."""
+        ...
+
+    def list_ssh_keys(self, vm_id: str) -> list[tuple[str, str]]:
+        """Return ``(fingerprint, public_key_line)`` for each allowed key."""
+        ...
+
+    # ------------------------------------------------------------------
     # Reconciliation
     # ------------------------------------------------------------------
 

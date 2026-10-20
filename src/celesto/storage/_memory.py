@@ -73,6 +73,7 @@ class MemoryStateManager:
         self._browser_configs: dict[str, BrowserSessionConfig] = {}
         self._credential_placeholders: dict[str, dict[str, str]] = {}
         self._credential_protection: dict[str, int] = {}
+        self._ssh_keys: dict[str, dict[str, str]] = {}
 
     def close(self) -> None:
         """Release no VM resources; explicit VM deletion owns that lifecycle."""
@@ -167,6 +168,7 @@ class MemoryStateManager:
             self._tap_allocations.pop(vm_id, None)
             self._credential_placeholders.pop(vm_id, None)
             self._credential_protection.pop(vm_id, None)
+            self._ssh_keys.pop(vm_id, None)
             for kind in ("ip", "ssh", "vsock", "tap"):
                 self._release_claim(kind, vm_id)
 
@@ -487,6 +489,24 @@ class MemoryStateManager:
         with self._lock:
             values = list(self._browser_sessions.values())
             return values if status is None else [item for item in values if item.status == status]
+
+    def add_ssh_key(self, vm_id: str, fingerprint: str, public_key: str) -> bool:
+        with self._lock:
+            if vm_id not in self._vms:
+                raise VMNotFoundError(vm_id)
+            keys = self._ssh_keys.setdefault(vm_id, {})
+            if fingerprint in keys:
+                return False
+            keys[fingerprint] = public_key
+            return True
+
+    def remove_ssh_key(self, vm_id: str, fingerprint: str) -> bool:
+        with self._lock:
+            return self._ssh_keys.get(vm_id, {}).pop(fingerprint, None) is not None
+
+    def list_ssh_keys(self, vm_id: str) -> list[tuple[str, str]]:
+        with self._lock:
+            return list(self._ssh_keys.get(vm_id, {}).items())
 
     def reconcile(self) -> list[str]:
         stale: list[str] = []
