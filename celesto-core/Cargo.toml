@@ -29,9 +29,24 @@ log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 zstd = "0.13"
+# Credential proxy (D-08): runs on macOS and Linux.
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "macros", "io-util", "sync", "time"] }
+futures-util = "0.3"
+hyper = { version = "1", features = ["server", "client", "http1", "http2"] }
+hyper-util = { version = "0.1", features = ["tokio", "server", "server-auto", "client-legacy", "http1", "http2"] }
+http-body-util = "0.1"
+bytes = "1"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["ring", "http1", "http2", "tls12", "logging"] }
+rustls-native-certs = "0.8"
+webpki-roots = "1"
+rcgen = { version = "0.14", default-features = false, features = ["ring", "pem", "crypto"] }
+rustls-pemfile = "2"
+base64 = "0.22"
+time = { version = "0.3", features = ["formatting"] }
+tower-service = "0.3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 rtnetlink = "0.21"
 netlink-packet-route = "0.30"
-tokio = { version = "1", features = ["rt", "net", "macros"] }
-futures-util = "0.3"

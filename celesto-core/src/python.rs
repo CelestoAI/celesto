@@ -237,11 +237,7 @@ fn firecracker_wait_for_socket(py: Python<'_>, socket_path: &str, timeout: f64) 
 
 #[cfg(not(unix))]
 #[pyfunction]
-fn firecracker_wait_for_socket(
-    _py: Python<'_>,
-    _socket_path: &str,
-    _timeout: f64,
-) -> PyResult<()> {
+fn firecracker_wait_for_socket(_py: Python<'_>, _socket_path: &str, _timeout: f64) -> PyResult<()> {
     Err(pyo3::exceptions::PyOSError::new_err(
         "Not available on this platform",
     ))
@@ -271,6 +267,7 @@ fn _ffi(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(firecracker_request, m)?)?;
     m.add_function(wrap_pyfunction!(firecracker_wait_for_socket, m)?)?;
     crate::qmp::register(m)?;
+    crate::credential_proxy::python::register(m)?;
 
     Ok(())
 }

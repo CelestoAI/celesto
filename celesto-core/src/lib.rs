@@ -4,6 +4,7 @@
 //! exposes them through public Python modules such as `celesto_core.network` and
 //! keeps the compiled PyO3 module private as `celesto_core._ffi`.
 
+pub mod credential_proxy;
 pub mod disk;
 #[cfg(target_os = "linux")]
 pub mod error;
