@@ -52,6 +52,7 @@ from rich.text import Text
 from celesto import __version__
 from celesto.cli.image import (
     _IMAGE_DIR_NAME_RE,
+    _NAME_DISPLAY_LIMIT,
     _brief_error,
     _entry_kind,
     _expand_custom_entries,
@@ -239,14 +240,19 @@ def run_image_save(
             recovery="Run 'celesto image list' to see cached images.",
         )
     if len(matches) > 1:
-        options = ", ".join(sorted(m.relative_to(root).as_posix() for m in matches))
+        # Folder names come from disk and loaded archives: keep control
+        # characters out of the message and the pasteable hint.
+        names = sorted(
+            display_safe(m.relative_to(root).as_posix(), limit=_NAME_DISPLAY_LIMIT) for m in matches
+        )
         return _fail(
             command_name,
-            f"'{requested}' matches more than one cached image. Pick one of: {options}.",
+            f"'{display_safe(requested, limit=_NAME_DISPLAY_LIMIT)}' matches more than one "
+            f"cached image. Pick one of: {', '.join(names)}.",
             json_output=json_output,
             code="invalid_input",
             recovery=f"Retry with the full name, e.g. 'celesto image save "
-            f"{options.split(', ')[0]} -o {shlex.quote(str(out_path))}'.",
+            f"{shlex.quote(names[0])} -o {shlex.quote(display_safe(str(out_path)))}'.",
             exit_code=2,
         )
 

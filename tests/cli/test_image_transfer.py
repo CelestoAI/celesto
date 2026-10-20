@@ -1376,6 +1376,35 @@ class TestSaveAndLoadAgreeOnNames:
         assert "\x1b" not in payload["error"]["message"]
         assert "\x1b" not in payload["error"]["recovery"]
 
+    @pytest.mark.parametrize("requested", ["custom/web", "custom/web/a"])
+    def test_ambiguous_match_error_shows_names_without_control_characters(
+        self, requested: str, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Folder names listed for an ambiguous name or prefix are echoed sanitized."""
+        root = tmp_path / "src"
+        self._entry(root, "custom/web/a1")
+        self._entry(root, "custom/web/a2\x1b]0;owned\x07")
+
+        ret = main(
+            [
+                "image",
+                "save",
+                requested,
+                "--image-dir",
+                str(root),
+                "-o",
+                str(tmp_path / "out\x1b]0;owned\x07.tar"),
+                "--json",
+            ]
+        )
+
+        assert ret == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert "matches more than one" in payload["error"]["message"]
+        assert "custom/web/a2]0;owned" in payload["error"]["message"]
+        assert "\x1b" not in payload["error"]["message"]
+        assert "\x1b" not in payload["error"]["recovery"]
+
     def test_load_open_error_shows_exception_text_without_control_characters(
         self, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:

@@ -525,11 +525,18 @@ def _resolve_entries(requested: str, root: Path) -> list[Path]:
                     and child.name.startswith(segments[2])
                 ]
                 if len(prefix_matches) > 1:
+                    # Fingerprint folders can come from loaded archives: keep
+                    # control characters out of the message callers print.
                     options = ", ".join(
-                        f"{segments[0]}/{segments[1]}/{child.name}" for child in prefix_matches
+                        display_safe(
+                            f"{segments[0]}/{segments[1]}/{child.name}",
+                            limit=_NAME_DISPLAY_LIMIT,
+                        )
+                        for child in prefix_matches
                     )
                     raise ValueError(
-                        f"'{requested}' matches more than one build. Pick one of: {options}."
+                        f"'{display_safe(requested, limit=_NAME_DISPLAY_LIMIT)}' matches "
+                        f"more than one build. Pick one of: {options}."
                     )
                 return prefix_matches
         return []
