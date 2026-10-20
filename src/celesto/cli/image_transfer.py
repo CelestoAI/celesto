@@ -61,7 +61,7 @@ from celesto.cli.image import (
     _resolve_entries,
     _valid_entry_name,
 )
-from celesto.cli.output import console_stdout, display_safe, emit_success
+from celesto.cli.output import console_stdout, display_safe, emit_success, literal_text
 from celesto.cli.prune import _format_bytes, _total_size
 from celesto.images.manager import resolve_image_dir
 from celesto.images.published import DECOMPRESSED_ROOTFS_SIDECAR_SUFFIX
@@ -392,12 +392,16 @@ def run_image_save(
         return emit_success(command_name, payload)
     console = console_stdout()
     console.print(
-        f"Saved [bold]{archive_name}[/bold] to {out_path} "
-        f"({_format_bytes(payload['archive_size_bytes'])}). Load it on another "
-        f"machine with 'celesto image load -i {shlex.quote(str(out_path))}'."
+        Text.assemble(
+            "Saved ",
+            (display_safe(archive_name), "bold"),
+            f" to {display_safe(str(out_path))} "
+            f"({_format_bytes(payload['archive_size_bytes'])}). Load it on another "
+            f"machine with 'celesto image load -i {shlex.quote(str(out_path))}'.",
+        )
     )
     for warning in warnings:
-        console.print(f"[yellow]{warning}[/yellow]")
+        console.print(literal_text(warning, style="yellow"))
     return 0
 
 
@@ -692,5 +696,5 @@ def run_image_load(
         )
     )
     for warning in warnings:
-        console.print(f"[yellow]{warning}[/yellow]")
+        console.print(literal_text(warning, style="yellow"))
     return 0

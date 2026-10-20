@@ -1149,5 +1149,20 @@ class TestHostileEntryNames:
 
         assert ret == 0
         out = capsys.readouterr().out
-        assert "[link=mailto:owner@attacker.example]" in out
+        # The name appears in the table title and again in the Path row.
+        assert out.count("[link=mailto:owner@attacker.example]") == 2
         assert "\x1b" not in out
+
+    def test_list_shows_placeholder_for_unprintable_name(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        entry = tmp_path / "\x1b\x07"
+        entry.mkdir()
+        (entry / "rootfs.ext4").write_bytes(b"x")
+
+        ret = main(["image", "list", "--image-dir", str(tmp_path)])
+
+        assert ret == 0
+        out = capsys.readouterr().out
+        assert "\x1b" not in out
+        assert "<unprintable name>" in out

@@ -1049,6 +1049,8 @@ class TestLoadDoesNotTrustArchiveProvenance:
         assert payload["error"]["code"] == "invalid_input"
         assert "damaged" in payload["error"]["message"]
         assert not dest.exists() or not any(dest.iterdir())
+
+
 class TestHostileManifestName:
     def test_load_renders_archive_name_literally(
         self, tmp_path: Path, capsys: pytest.CaptureFixture
@@ -1080,4 +1082,54 @@ class TestHostileManifestName:
         assert ret == 0
         out = capsys.readouterr().out
         assert "[link=mailto:owner@attacker.example]" in out
+        assert "\x1b" not in out
+
+    def test_inspect_renders_archive_file_names_and_sidecar_literally(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Member file names and the on-disk sidecar are untrusted: never markup or ESC."""
+        monkeypatch.setenv("COLUMNS", "200")
+        hostile_file = "[red]rootfs[/red]\x1b]0;owned\x07.bin"
+        data = b"custom-rootfs"
+        # A compressed rootfs makes load restore the sidecar the manifest supplies.
+        zst = zstandard.compress(b"\x00" * 16)
+        manifest = {
+            "schema_version": 1,
+            "name": "hostile-files",
+            "files": [
+                {
+                    "path": hostile_file,
+                    "encoding": "raw",
+                    "size": len(data),
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                },
+                {
+                    "path": "rootfs.ext4.zst",
+                    "encoding": "raw",
+                    "size": len(zst),
+                    "sha256": hashlib.sha256(zst).hexdigest(),
+                },
+            ],
+        }
+        archive = tmp_path / "hostile-files.tar"
+        _write_archive(
+            archive,
+            manifest,
+            [(f"files/{hostile_file}", data), ("files/rootfs.ext4.zst", zst)],
+        )
+        dest = tmp_path / "dest"
+        assert main(["image", "load", "-i", str(archive), "--image-dir", str(dest)]) == 0
+        capsys.readouterr()
+        # Load regenerates the sidecar from the installed bytes, so the only
+        # way hostile text reaches it is a rewrite of the file on disk.
+        (dest / "hostile-files" / "rootfs.ext4.from-sha256").write_text(
+            "[bold]sparse-v1:deadbeef\x1b]0;owned\x07"
+        )
+
+        ret = main(["image", "inspect", "hostile-files", "--image-dir", str(dest)])
+
+        assert ret == 0
+        out = capsys.readouterr().out
+        assert "[red]rootfs[/red]" in out
+        assert "[bold]sparse-v1:deadbeef" in out
         assert "\x1b" not in out

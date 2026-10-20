@@ -3791,6 +3791,47 @@ class TestCliInfo:
         assert "\x1b" not in out
         assert "123 / 1024 MiB used" in out
 
+    def test_info_os_name_is_truncated_and_first_line_only(
+        self,
+        mock_sdk_cls: MagicMock,
+        capsys: pytest.CaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Over-long or multi-line guest OS names are capped to one short line."""
+        monkeypatch.setenv("COLUMNS", "400")
+        vm_info = self._make_info_vm(status=VMState.RUNNING)
+        mock_sdk_cls.return_value.state.get_vm.return_value = vm_info
+        ssh_result = MagicMock(exit_code=0, stdout=f"{'A' * 300}\nSECOND LINE\n---\n1\n")
+        with patch("celesto.ssh.SSHClient") as mock_ssh_cls:
+            mock_ssh_cls.return_value.run.return_value = ssh_result
+
+            ret = main(["sandbox", "info", "sbx-pauling"])
+
+        assert ret == 0
+        out = capsys.readouterr().out
+        assert "A" * 128 in out
+        assert "A" * 129 not in out
+        assert "SECOND LINE" not in out
+
+    def test_info_all_control_os_name_falls_back_to_placeholder(
+        self,
+        mock_sdk_cls: MagicMock,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """An OS name made only of control characters is treated as missing."""
+        vm_info = self._make_info_vm(status=VMState.RUNNING)
+        mock_sdk_cls.return_value.state.get_vm.return_value = vm_info
+        ssh_result = MagicMock(exit_code=0, stdout="\x1b\x07\n---\n1\n")
+        with patch("celesto.ssh.SSHClient") as mock_ssh_cls:
+            mock_ssh_cls.return_value.run.return_value = ssh_result
+
+            ret = main(["sandbox", "info", "sbx-pauling"])
+
+        assert ret == 0
+        out = capsys.readouterr().out
+        assert "\x1b" not in out
+        assert "│ OS           │ -" in out
+
     def test_info_running_vm_with_unreachable_ssh(
         self,
         mock_sdk_cls: MagicMock,

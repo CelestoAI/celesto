@@ -36,6 +36,17 @@ def display_safe(value: str, *, limit: int = 256) -> str:
     return "".join(ch for ch in value if ch.isprintable())[:limit]
 
 
+def literal_text(value: object, *, style: str = "", empty: str = "-") -> Text:
+    """Render an untrusted value as literal Rich text.
+
+    Combines :func:`display_safe` with ``rich.text.Text`` so console markup in
+    the value is shown as-is and control characters never reach the terminal.
+    When nothing printable remains, *empty* is shown instead so the row keeps
+    a visible value.
+    """
+    return Text(display_safe(str(value)) or empty, style=style)
+
+
 def console_stdout() -> Console:
     """Return the Rich console configured for standard output."""
     return Console()

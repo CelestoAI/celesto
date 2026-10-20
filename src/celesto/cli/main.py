@@ -779,7 +779,8 @@ def _query_live_vm_info(vm: VMInfo) -> dict[str, object]:
         return {}
     parts = result.stdout.split("---")
     out: dict[str, object] = {}
-    os_name = display_safe(parts[0].strip(), limit=128)
+    os_lines = parts[0].strip().splitlines()
+    os_name = display_safe(os_lines[0], limit=128) if os_lines else ""
     if os_name:
         out["os"] = os_name
     if len(parts) > 1:
