@@ -34,6 +34,7 @@ import pytest
 import celesto.comm.rust_http_vsock_channel as vsock_channel
 from celesto.comm.base import CommChannel
 from celesto.comm.rust_http_vsock_channel import (
+    _DEFAULT_MAX_EXEC_RESPONSE_BYTES,
     _DEFAULT_MAX_STREAM_SIZE_BYTES,
     _DEFAULT_MAX_TAR_SIZE_BYTES,
     _DEFAULT_MAX_TERMINAL_FRAME_BYTES,
@@ -954,6 +955,44 @@ def test_attach_terminal_rejects_frame_over_host_cap_despite_guest_limit(
             channel.attach_terminal()
     finally:
         os.close(read_fd)
+
+
+def test_run_rejects_command_output_over_host_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(vsock_channel, "_DEFAULT_MAX_EXEC_RESPONSE_BYTES", 64)
+
+    def _handler(method: str, path: str, body: bytes) -> dict:
+        assert path == "/exec"
+        return {"ok": True, "exit_code": 0, "stdout": "A" * 1024, "stderr": ""}
+
+    channel = FakeRustChannel([_handler])
+
+    with pytest.raises(CelestoError, match="run_stream") as excinfo:
+        channel.run("yes")
+    assert "64 bytes" in str(excinfo.value)
+
+
+def test_run_accepts_command_output_at_host_cap() -> None:
+    assert _DEFAULT_MAX_EXEC_RESPONSE_BYTES >= 16 * 1024 * 1024
+
+    def _handler(method: str, path: str, body: bytes) -> dict:
+        return {"ok": True, "exit_code": 0, "stdout": "A" * 4096, "stderr": ""}
+
+    result = FakeRustChannel([_handler]).run("printf ok")
+
+    assert result.stdout == "A" * 4096
+
+
+def test_json_requests_reject_responses_over_host_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(vsock_channel, "_DEFAULT_MAX_AGENT_RESPONSE_BYTES", 32)
+
+    def _handler(method: str, path: str, body: bytes) -> dict:
+        assert path == "/env"
+        return {"ok": True, "vars": {"PADDING": "x" * 256}}
+
+    channel = FakeRustChannel([_capabilities({"env_managed": True}), _handler])
+
+    with pytest.raises(CelestoError, match="32 bytes"):
+        channel.list_managed_env()
 
 
 def _capabilities(features: dict[str, bool], *, limits: dict[str, Any] | None = None) -> Handler:
