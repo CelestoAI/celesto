@@ -137,6 +137,11 @@ _DEFAULT_RUN_READY_TIMEOUT = 30.0
 # empirically; tune it if startup profiling shows a tighter bound is reliable.
 _DEFAULT_DISPLAY_SANDBOX_BOOT_TIMEOUT = 90.0
 
+# Stopping a VM ends the hypervisor without a guest shutdown, so files still in
+# the guest's page cache would be lost. Bound the pre-stop flush so a hung
+# guest can still be stopped.
+_STOP_GUEST_SYNC_TIMEOUT = 10.0
+
 _LOCAL_FORWARD_PROBE_TIMEOUT = 2.0
 _LOCAL_FORWARD_PROBE_INTERVAL = 0.2
 _LOCAL_TUNNEL_START_TIMEOUT = 10.0
@@ -1834,10 +1839,32 @@ class Celesto:
             ``self`` for method chaining.
         """
         self._cleanup_local_forwards()
+        self._sync_guest_before_stop()
         self._info = self._sdk.stop(self._vm_id, timeout=timeout)
         self._reset_runtime_state()
         logger.info("VM %s stopped", self._vm_id)
         return self
+
+    def _sync_guest_before_stop(self) -> None:
+        """Flush guest file writes to disk so stop does not lose them.
+
+        Best-effort: a guest that cannot run commands or does not answer is
+        still stopped, with a warning.
+        """
+        self._refresh_info()
+        if self._info.status != VMState.RUNNING or not self.can_run_commands():
+            return
+        try:
+            channel = self._ensure_control_for_operation(
+                action="save files before stopping", timeout=_STOP_GUEST_SYNC_TIMEOUT
+            )
+            channel.sync(timeout=_STOP_GUEST_SYNC_TIMEOUT)
+        except Exception:
+            logger.warning(
+                "Could not save pending file writes in computer %s before stopping it",
+                self._vm_id,
+                exc_info=True,
+            )
 
     def pause(self) -> Celesto:
         """Pause the VM."""
