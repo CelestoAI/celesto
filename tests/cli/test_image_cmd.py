@@ -1127,8 +1127,9 @@ class TestHostileEntryNames:
         return entry
 
     def test_list_renders_name_literally(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        monkeypatch.setenv("COLUMNS", "200")  # keep the name on one line
         self._make_entry(tmp_path)
 
         ret = main(["image", "list", "--image-dir", str(tmp_path)])
@@ -1139,8 +1140,9 @@ class TestHostileEntryNames:
         assert "\x1b" not in out
 
     def test_inspect_renders_name_literally(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        monkeypatch.setenv("COLUMNS", "200")  # keep the name on one line
         self._make_entry(tmp_path)
 
         ret = main(["image", "inspect", self.HOSTILE, "--image-dir", str(tmp_path)])

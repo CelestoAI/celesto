@@ -1207,7 +1207,7 @@ def run_image_inspect(
         created = entry["created"]
         table.add_row("Created", f"{_relative_time(created)} ({created})" if created else "-")
         table.add_row("Size", _format_bytes(entry["size_bytes"]))
-        table.add_row("Path", entry["path"])
+        table.add_row("Path", Text(display_safe(entry["path"])))
         macos = entry.get("macos")
         if macos is not None:
             table.add_row("Source IPSW", macos["source_ipsw"])
