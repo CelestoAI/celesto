@@ -1849,16 +1849,25 @@ class Celesto:
         """Flush guest file writes to disk so stop does not lose them.
 
         Best-effort: a guest that cannot run commands or does not answer is
-        still stopped, with a warning.
+        still stopped, with a warning. Windows guests are skipped because the
+        flush runs the Linux ``sync`` command.
         """
-        self._refresh_info()
-        if self._info.status != VMState.RUNNING or not self.can_run_commands():
-            return
+        deadline = time.monotonic() + _STOP_GUEST_SYNC_TIMEOUT
         try:
+            self._refresh_info()
+            if (
+                self._info.status != VMState.RUNNING
+                or self._info.config.guest_os is GuestOS.WINDOWS
+                or not self.can_run_commands()
+            ):
+                return
             channel = self._ensure_control_for_operation(
                 action="save files before stopping", timeout=_STOP_GUEST_SYNC_TIMEOUT
             )
-            channel.sync(timeout=_STOP_GUEST_SYNC_TIMEOUT)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise OperationTimeoutError("save files before stopping", _STOP_GUEST_SYNC_TIMEOUT)
+            channel.sync(timeout=remaining)
         except Exception:
             logger.warning(
                 "Could not save pending file writes in computer %s before stopping it",
@@ -3132,7 +3141,10 @@ class Celesto:
 
     async def async_stop(self, timeout: float = 3.0) -> Celesto:
         """Async version of :meth:`stop`."""
+        import asyncio
+
         self._cleanup_local_forwards()
+        await asyncio.to_thread(self._sync_guest_before_stop)
         self._info = await self._sdk.async_stop(self._vm_id, timeout=timeout)
         self._reset_runtime_state()
         return self
