@@ -1328,24 +1328,22 @@ class TestSaveAndLoadAgreeOnNames:
         """A recovery hint that embeds the image name must be safe to paste into a shell."""
         name = "my image$(id)"
         self._entry(tmp_path / "src", name)
-        out_dir = tmp_path / "unwritable"
-        out_dir.mkdir()
-        out_dir.chmod(0o500)
-        try:
-            ret = main(
-                [
-                    "image",
-                    "save",
-                    name,
-                    "--image-dir",
-                    str(tmp_path / "src"),
-                    "-o",
-                    str(out_dir / "out.tar"),
-                    "--json",
-                ]
-            )
-        finally:
-            out_dir.chmod(0o700)
+        # A regular file where a directory is needed fails the write for every
+        # user, root included, unlike a chmod-based setup.
+        blocker = tmp_path / "blocker"
+        blocker.write_bytes(b"")
+        ret = main(
+            [
+                "image",
+                "save",
+                name,
+                "--image-dir",
+                str(tmp_path / "src"),
+                "-o",
+                str(blocker / "out.tar"),
+                "--json",
+            ]
+        )
 
         assert ret != 0
         payload = json.loads(capsys.readouterr().out)
