@@ -187,26 +187,29 @@ def run_image_save(
     if not _valid_entry_name(requested):
         return _fail(
             command_name,
-            f"'{name}' is not a cached image name.",
+            f"'{display_safe(name)}' is not a cached image name.",
             json_output=json_output,
             code="invalid_input",
             recovery="Run 'celesto image list' to see cached images.",
             exit_code=2,
         )
     if out_path.is_dir():
+        example = out_path / (requested.replace("/", "-") + ".tar")
         return _fail(
             command_name,
-            f"'{out_path}' is a folder; -o needs a file name.",
+            f"'{display_safe(str(out_path))}' is a folder; -o needs a file name.",
             json_output=json_output,
             code="invalid_input",
-            recovery=f"Retry with a file path, e.g. 'celesto image save {requested} "
-            f"-o {shlex.quote(str(out_path / (requested.replace('/', '-') + '.tar')))}'.",
+            recovery="Retry with a file path, e.g. 'celesto image save "
+            f"{shlex.quote(display_safe(requested))} -o "
+            f"{shlex.quote(display_safe(str(example)))}'.",
             exit_code=2,
         )
 
-    # Both values are shown in error hints: keep control characters out of them.
+    # Both values are shown in error hints: keep control characters out of them,
+    # and shell-quote them so the hint is safe to paste.
     retry_command = (
-        f"celesto image save {display_safe(requested)} -o "
+        f"celesto image save {shlex.quote(display_safe(requested))} -o "
         f"{shlex.quote(display_safe(str(out_path)))}"
     )
     try:
@@ -231,7 +234,7 @@ def run_image_save(
     if not matches:
         return _fail(
             command_name,
-            f"No cached image named '{requested}'.",
+            f"No cached image named '{display_safe(requested)}'.",
             json_output=json_output,
             recovery="Run 'celesto image list' to see cached images.",
         )

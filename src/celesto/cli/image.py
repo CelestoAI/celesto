@@ -50,6 +50,7 @@ from rich.text import Text
 from celesto import __version__
 from celesto.cli.output import (
     console_stdout,
+    display_safe,
     emit_error,
     emit_success,
     literal_text,
@@ -312,6 +313,9 @@ def _brief_error(exc: BaseException, limit: int = 160) -> str:
     """
     text = str(exc).strip()
     text = text.splitlines()[0] if text else exc.__class__.__name__
+    # Exception text can carry user- or archive-supplied paths: keep control
+    # characters out of it before it reaches the terminal.
+    text = display_safe(text)
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 

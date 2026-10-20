@@ -1245,7 +1245,8 @@ class TestSaveAndLoadAgreeOnNames:
         assert ret == 2
         payload = json.loads(capsys.readouterr().out)
         assert payload["error"]["code"] == "invalid_input"
-        assert "\x1b" not in json.dumps(payload)
+        assert "\x1b" not in payload["error"]["message"]
+        assert "\x1b" not in payload["error"]["recovery"]
         assert not archive.exists()
 
     def test_save_rejects_file_name_with_control_characters(
@@ -1271,7 +1272,8 @@ class TestSaveAndLoadAgreeOnNames:
         assert ret == 2
         payload = json.loads(capsys.readouterr().out)
         assert payload["error"]["code"] == "invalid_input"
-        assert "\x1b" not in json.dumps(payload)
+        assert "\x1b" not in payload["error"]["message"]
+        assert "\x1b" not in payload["error"]["recovery"]
         assert not archive.exists()
 
     def test_save_output_path_is_shown_without_control_characters(
@@ -1316,6 +1318,77 @@ class TestSaveAndLoadAgreeOnNames:
         )
 
         assert ret == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert "\x1b" not in payload["error"]["message"]
+        assert "\x1b" not in payload["error"]["recovery"]
+
+    def test_save_retry_command_shell_quotes_the_image_name(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A recovery hint that embeds the image name must be safe to paste into a shell."""
+        name = "my image$(id)"
+        self._entry(tmp_path / "src", name)
+        out_dir = tmp_path / "unwritable"
+        out_dir.mkdir()
+        out_dir.chmod(0o500)
+        try:
+            ret = main(
+                [
+                    "image",
+                    "save",
+                    name,
+                    "--image-dir",
+                    str(tmp_path / "src"),
+                    "-o",
+                    str(out_dir / "out.tar"),
+                    "--json",
+                ]
+            )
+        finally:
+            out_dir.chmod(0o700)
+
+        assert ret != 0
+        payload = json.loads(capsys.readouterr().out)
+        recovery = payload["error"]["recovery"]
+        assert "$(id)" not in recovery.replace("'my image$(id)'", "")
+        assert "'my image$(id)'" in recovery
+
+    def test_missing_image_error_shows_name_without_control_characters(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A single-segment name with ESC that matches nothing is echoed sanitized."""
+        (tmp_path / "src").mkdir()
+        name = "codex\x1b]0;owned\x07"
+
+        ret = main(
+            [
+                "image",
+                "save",
+                name,
+                "--image-dir",
+                str(tmp_path / "src"),
+                "-o",
+                str(tmp_path / "out.tar"),
+                "--json",
+            ]
+        )
+
+        assert ret != 0
+        payload = json.loads(capsys.readouterr().out)
+        assert "\x1b" not in payload["error"]["message"]
+        assert "\x1b" not in payload["error"]["recovery"]
+
+    def test_load_open_error_shows_exception_text_without_control_characters(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A missing archive whose path carries ESC is reported without the escape."""
+        archive = tmp_path / "missing\x1b]0;owned\x07.tar"
+
+        ret = main(
+            ["image", "load", "-i", str(archive), "--image-dir", str(tmp_path / "dest"), "--json"]
+        )
+
+        assert ret != 0
         payload = json.loads(capsys.readouterr().out)
         assert "\x1b" not in payload["error"]["message"]
         assert "\x1b" not in payload["error"]["recovery"]
