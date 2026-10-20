@@ -1625,6 +1625,50 @@ def env_list(
     )
 
 
+@sandbox.group("ssh-key", context_settings=CONTEXT_SETTINGS)
+def ssh_key() -> None:
+    """Choose which of your SSH keys a computer may sign with.
+
+    The private key stays in your SSH agent; the computer can only ask it to
+    sign. By default a computer can't use any of your keys.
+    """
+
+
+def _run_ssh_key(**values: Any) -> Any:
+    from celesto.cli._ssh_keys import run_ssh_key
+
+    return run_ssh_key(_ns(**values))
+
+
+@ssh_key.command("add")
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
+@click.argument("key", metavar="PUBLIC-KEY")
+@json_option
+def ssh_key_add(vm_id: str, key: str, json_output: bool) -> Any:
+    """Let a computer sign with a key loaded in your SSH agent."""
+    _before_command(json_output=json_output)
+    return _run_ssh_key(ssh_key_action="add", vm_id=vm_id, key=key, json=json_output)
+
+
+@ssh_key.command("remove")
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
+@click.argument("key", metavar="KEY")
+@json_option
+def ssh_key_remove(vm_id: str, key: str, json_output: bool) -> Any:
+    """Stop a computer from signing with a key (.pub file or SHA256 fingerprint)."""
+    _before_command(json_output=json_output)
+    return _run_ssh_key(ssh_key_action="remove", vm_id=vm_id, key=key, json=json_output)
+
+
+@ssh_key.command("list")
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
+@json_option
+def ssh_key_list(vm_id: str, json_output: bool) -> Any:
+    """List the SSH keys a computer may sign with."""
+    _before_command(json_output=json_output)
+    return _run_ssh_key(ssh_key_action="list", vm_id=vm_id, json=json_output)
+
+
 @sandbox.group(context_settings=CONTEXT_SETTINGS)
 def port() -> None:
     """Manage port forwarding for a computer."""
