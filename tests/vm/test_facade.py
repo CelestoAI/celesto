@@ -40,6 +40,7 @@ from celesto.types import (
     VsockConfig,
 )
 from celesto.vm import CelestoManager
+from tests.lifecycle_decision import use_real_start_decision
 
 
 @pytest.fixture(autouse=True)
@@ -1851,6 +1852,7 @@ class TestVMWindowsEnvDispatch:
         mock_sdk.create.return_value = created_info
         mock_sdk.start.return_value = running_info
         mock_sdk.get.return_value = running_info
+        use_real_start_decision(mock_sdk)
         mock_sdk_cls.return_value = mock_sdk
 
         mock_ssh = MagicMock()
@@ -1885,6 +1887,7 @@ class TestVMLifecycle:
 
         mock_sdk.create.return_value = mock_info
         mock_sdk.start.return_value = running_info
+        use_real_start_decision(mock_sdk)
         mock_sdk_cls.return_value = mock_sdk
 
         vm = Celesto(sample_config)
@@ -1906,6 +1909,7 @@ class TestVMLifecycle:
         running_info.config.workspace_mounts = []
 
         mock_sdk.create.return_value = running_info
+        use_real_start_decision(mock_sdk)
         mock_sdk_cls.return_value = mock_sdk
 
         vm = Celesto(sample_config)
@@ -1932,6 +1936,7 @@ class TestVMLifecycle:
 
         mock_sdk.create.return_value = paused_info
         mock_sdk.resume.return_value = running_info
+        use_real_start_decision(mock_sdk)
         mock_sdk_cls.return_value = mock_sdk
 
         vm = Celesto(sample_config)
@@ -3107,6 +3112,7 @@ class TestVMContextManager:
         mock_sdk.create.return_value = created_info
         mock_sdk.start.return_value = running_info
         mock_sdk.stop.return_value = stopped_info
+        use_real_start_decision(mock_sdk)
         mock_sdk_cls.return_value = mock_sdk
 
         with Celesto(sample_config):
@@ -3318,6 +3324,7 @@ class TestVMEnvInjection:
         mock_sdk.start.return_value = running_info
         # wait_for_ssh calls get() to poll status
         mock_sdk.get.return_value = running_info
+        use_real_start_decision(mock_sdk)
         mock_sdk_cls.return_value = mock_sdk
 
         mock_ssh = MagicMock()
@@ -3363,6 +3370,7 @@ class TestVMEnvInjection:
         mock_sdk.create.return_value = created_info
         mock_sdk.start.return_value = running_info
         mock_sdk.get.return_value = running_info
+        use_real_start_decision(mock_sdk)
         mock_sdk_cls.return_value = mock_sdk
 
         localhost_client = MagicMock()
@@ -3398,6 +3406,7 @@ class TestVMEnvInjection:
 
         mock_sdk.create.return_value = mock_info
         mock_sdk.start.return_value = mock_info
+        use_real_start_decision(mock_sdk)
         mock_sdk_cls.return_value = mock_sdk
 
         vm = Celesto(config)
@@ -3424,6 +3433,7 @@ class TestVMEnvInjection:
 
         mock_sdk.create.return_value = mock_info
         mock_sdk.start.return_value = mock_info
+        use_real_start_decision(mock_sdk)
         mock_sdk_cls.return_value = mock_sdk
 
         vm = Celesto(config)
