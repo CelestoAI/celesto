@@ -22,7 +22,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import celesto.ssh as ssh_module
 from celesto.exceptions import CelestoError, OperationTimeoutError
 from celesto.ssh import SSHClient, _pwsh_encoded_command
 from celesto.types import CommandResult
@@ -284,7 +283,7 @@ class TestSSHClientRun:
         self, mock_connected: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A guest that streams output forever cannot grow host memory without bound."""
-        monkeypatch.setattr(ssh_module, "_DEFAULT_MAX_COMMAND_OUTPUT_BYTES", 1024)
+        monkeypatch.setattr("celesto.ssh._DEFAULT_MAX_COMMAND_OUTPUT_BYTES", 1024)
         channel = _FakeChannel([("out", b"y\n" * 256)] * 64)  # 32 KiB, like `yes`
         mock_client = MagicMock()
         mock_client.exec_command.return_value = _mock_exec_channel(channel)
@@ -301,7 +300,7 @@ class TestSSHClientRun:
     def test_run_cap_counts_stdout_and_stderr_together(
         self, mock_connected: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(ssh_module, "_DEFAULT_MAX_COMMAND_OUTPUT_BYTES", 1024)
+        monkeypatch.setattr("celesto.ssh._DEFAULT_MAX_COMMAND_OUTPUT_BYTES", 1024)
         channel = _FakeChannel([("out", b"a" * 600), ("err", b"b" * 600)])
         mock_client = MagicMock()
         mock_client.exec_command.return_value = _mock_exec_channel(channel)
@@ -315,7 +314,7 @@ class TestSSHClientRun:
     def test_run_accepts_output_exactly_at_cap(
         self, mock_connected: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(ssh_module, "_DEFAULT_MAX_COMMAND_OUTPUT_BYTES", 1024)
+        monkeypatch.setattr("celesto.ssh._DEFAULT_MAX_COMMAND_OUTPUT_BYTES", 1024)
         channel = _FakeChannel([("out", b"a" * 1000), ("err", b"b" * 24)])
         mock_client = MagicMock()
         mock_client.exec_command.return_value = _mock_exec_channel(channel)
@@ -330,7 +329,7 @@ class TestSSHClientRun:
         self, mock_connected: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """stderr arriving before stdout closes is counted against the cap as it arrives."""
-        monkeypatch.setattr(ssh_module, "_DEFAULT_MAX_COMMAND_OUTPUT_BYTES", 1024)
+        monkeypatch.setattr("celesto.ssh._DEFAULT_MAX_COMMAND_OUTPUT_BYTES", 1024)
         # stderr floods while stdout has produced one chunk and not yet closed.
         channel = _FakeChannel([("out", b"x")] + [("err", b"e" * 512)] * 8 + [("out", b"y")])
         mock_client = MagicMock()
