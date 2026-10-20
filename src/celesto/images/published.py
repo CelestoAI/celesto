@@ -36,7 +36,9 @@ is policy-free.
 
 from __future__ import annotations
 
+import contextlib
 import os
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
@@ -434,6 +436,35 @@ def to_image_source(entry: PublishedImage, version: str = __version__) -> ImageS
 
 _SPARSE_DECOMPRESS_CHUNK_SIZE = 1024 * 1024
 _DECOMPRESSED_ROOTFS_CACHE_VERSION = "sparse-v1"
+# Sibling of the decompressed rootfs that records which compressed SHA it was
+# produced from. ``celesto image save``/``load`` and ``image inspect`` spell
+# the file through this constant so the cache key stays one definition.
+DECOMPRESSED_ROOTFS_SIDECAR_SUFFIX = ".from-sha256"
+
+
+def decompressed_rootfs_sidecar_path(decompressed_path: Path) -> Path:
+    return decompressed_path.with_name(decompressed_path.name + DECOMPRESSED_ROOTFS_SIDECAR_SUFFIX)
+
+
+def read_rootfs_sidecar(sidecar_path: Path) -> str | None:
+    """Return the sidecar's stamped value, or None when absent or unreadable.
+
+    An unreadable or non-text sidecar (disk corruption, or a file planted
+    beside the rootfs) is treated exactly like a missing one so the next
+    start regenerates it instead of failing before the VM boots.
+    """
+    try:
+        return sidecar_path.read_text().strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def _remove_cache_entry_file(path: Path) -> None:
+    """Remove whatever sits at a cache file's path, directory included."""
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path, ignore_errors=True)
+    else:
+        path.unlink(missing_ok=True)
 
 
 def _decompressed_rootfs_sidecar_value(rootfs_sha256: str) -> str:
@@ -517,23 +548,47 @@ def ensure_published_image(
     entry = lookup(preset, arch, vmm, os, manifest=manifest)
     source = to_image_source(entry, version=version)
     manager = ImageManager(cache_dir=cache_dir, registry={source.name: source})
-    local = manager.ensure_image(source.name, on_download=on_download)
+    compressed = source.rootfs_filename.endswith(".zst")
+    rootfs_path = manager.cache_dir / source.name / source.rootfs_filename
+    decompressed_path = rootfs_path.with_suffix("")
+    sidecar_path = decompressed_rootfs_sidecar_path(decompressed_path)
+
+    sidecar_forgotten = False
+
+    def _forget_decompressed(label: str, chunk: int, total: int | None) -> None:
+        # The first downloaded byte means the cached assets are being
+        # replaced: drop the sidecar before any file lands so a crash
+        # mid-download can never leave a stale ``rootfs.ext4`` vouched for
+        # by a sidecar that matches the pin. A failure here must not abort
+        # the download; the rebuild below removes the sidecar again.
+        nonlocal sidecar_forgotten
+        if compressed and not sidecar_forgotten:
+            sidecar_forgotten = True
+            with contextlib.suppress(OSError):
+                _remove_cache_entry_file(sidecar_path)
+        if on_download is not None:
+            on_download(label, chunk, total)
+
+    local = manager.ensure_image(source.name, on_download=_forget_decompressed)
 
     # Wire-format short-circuit: nothing to decompress.
-    if not source.rootfs_filename.endswith(".zst"):
+    if not compressed:
         return local
 
-    # Decompress alongside. We invalidate the decompressed file when the
-    # source ``.zst`` SHA changes (e.g. between a manifest version bump or
-    # an in-place rootfs republish) by stamping the source SHA into a
-    # sidecar file. Without this, a refreshed ``.zst`` was silently served
-    # alongside a stale ``.ext4`` from the previous SHA — first surfaced
-    # while diagnosing the openclaw uid bake regression.
-    decompressed_path = local.rootfs_path.with_suffix("")
-    sidecar_path = decompressed_path.with_name(decompressed_path.name + ".from-sha256")
+    # Decompress alongside. The sidecar stamps which source ``.zst`` SHA the
+    # decompressed file came from, so a manifest version bump or in-place
+    # rootfs republish invalidates it (without this, a refreshed ``.zst``
+    # was silently served alongside a stale ``.ext4`` — first surfaced
+    # while diagnosing the openclaw uid bake regression). The sidecar is a
+    # writable cache key, not proof: whenever ensure_image replaced the
+    # ``.zst`` the decompressed copy is rebuilt regardless of what the
+    # sidecar claims (security audit run-1).
     expected_sha = _decompressed_rootfs_sidecar_value(entry.rootfs_sha256)
-    sidecar_sha = sidecar_path.read_text().strip() if sidecar_path.is_file() else None
-    if not decompressed_path.is_file() or sidecar_sha != expected_sha:
+    sidecar_sha = read_rootfs_sidecar(sidecar_path) if sidecar_path.is_file() else None
+    if local.downloaded or not decompressed_path.is_file() or sidecar_sha != expected_sha:
+        _remove_cache_entry_file(sidecar_path)
+        if decompressed_path.is_dir():
+            _remove_cache_entry_file(decompressed_path)
         _decompress_zstd(local.rootfs_path, decompressed_path)
         sidecar_path.write_text(expected_sha)
 

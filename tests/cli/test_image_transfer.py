@@ -724,3 +724,328 @@ class TestUpstreamReviewRegressions:
         assert ret == 2
         payload = json.loads(capsys.readouterr().out)
         assert payload["error"]["code"] == "invalid_input"
+
+
+class TestLoadDoesNotTrustArchiveProvenance:
+    """An archive may describe the files it carries, never where they came from.
+
+    The decompressed rootfs and its ``rootfs.ext4.from-sha256`` sidecar are
+    the only binding between ``rootfs.ext4`` and the SHA-256-pinned
+    ``rootfs.ext4.zst`` that ``ensure_published_image`` verifies. Both are
+    always regenerated on load from the bytes actually installed, so a
+    crafted archive cannot claim a tampered rootfs was produced from the
+    pinned compressed bytes (security audit run-1).
+    """
+
+    @staticmethod
+    def _members(zst: bytes, kernel: bytes = b"kernel") -> list[tuple[str, bytes]]:
+        return [("files/vmlinux.bin", kernel), ("files/rootfs.ext4.zst", zst)]
+
+    @staticmethod
+    def _files(members: list[tuple[str, bytes]]) -> list[dict[str, Any]]:
+        return [
+            {
+                "path": name.removeprefix("files/"),
+                "encoding": "raw",
+                "size": len(data),
+                "sha256": hashlib.sha256(data).hexdigest(),
+            }
+            for name, data in members
+        ]
+
+    def test_manifest_sidecar_claim_is_ignored(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        zst = zstandard.compress(b"rootfs bytes")
+        members = self._members(zst)
+        archive = tmp_path / "claim.tar"
+        _write_archive(
+            archive,
+            {
+                "schema_version": 1,
+                "name": "entry",
+                "rootfs_sidecar": "sparse-v1:" + "0" * 64,
+                "files": self._files(members),
+            },
+            members,
+        )
+        dest = tmp_path / "dest"
+        assert main(["image", "load", "-i", str(archive), "--image-dir", str(dest), "--json"]) == 0
+        capsys.readouterr()
+        installed_sha = hashlib.sha256(
+            (dest / "entry" / "rootfs.ext4.zst").read_bytes()
+        ).hexdigest()
+        assert (dest / "entry" / "rootfs.ext4.from-sha256").read_text() == (
+            f"sparse-v1:{installed_sha}"
+        )
+        assert (dest / "entry" / "rootfs.ext4").read_bytes() == b"rootfs bytes"
+
+    @pytest.mark.parametrize(
+        "extra",
+        [
+            ("files/rootfs.ext4", b"tampered"),
+            ("files/Rootfs.EXT4", b"tampered"),
+            ("files/.fingerprint", b"forged"),
+            ("files/sub/.hidden", b"forged"),
+        ],
+        ids=[
+            "decompressed-rootfs",
+            "decompressed-rootfs-case-variant",
+            "dot-file",
+            "nested-dot-file",
+        ],
+    )
+    def test_members_save_never_emits_are_rejected(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture, extra: tuple[str, bytes]
+    ) -> None:
+        members = [*self._members(zstandard.compress(b"rootfs bytes")), extra]
+        archive = tmp_path / "forged.tar"
+        _write_archive(
+            archive,
+            {"schema_version": 1, "name": "entry", "files": self._files(members)},
+            members,
+        )
+        dest = tmp_path / "dest"
+        ret = main(["image", "load", "-i", str(archive), "--image-dir", str(dest), "--json"])
+        assert ret == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["ok"] is False
+        assert payload["error"]["code"] == "invalid_input"
+        assert "celesto image save" in payload["error"]["recovery"]
+        assert not dest.exists() or not any(dest.iterdir())
+
+    def test_forged_archive_under_published_name_never_serves_tampered_rootfs(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """End-to-end: load a forged archive named like the published cache
+        entry, then start-path resolution must boot the pinned rootfs."""
+        from unittest.mock import MagicMock, patch
+
+        from celesto import __version__
+        from celesto.images.published import (
+            PublishedImage,
+            _decompressed_rootfs_sidecar_value,
+            cache_name,
+            ensure_published_image,
+        )
+
+        genuine = b"GENUINE ROOTFS " * 64
+        genuine_zst = zstandard.compress(genuine)
+        kernel = b"GENUINE KERNEL " * 16
+        tampered = b"TAMPERED ROOTFS " * 64
+        entry = PublishedImage(
+            preset="codex",
+            arch="arm64",
+            vmm="qemu",
+            os="ubuntu",
+            kernel_url="https://example.invalid/vmlinux-arm64.image",
+            kernel_sha256=hashlib.sha256(kernel).hexdigest(),
+            rootfs_url="https://example.invalid/codex-arm64-rootfs.ext4.zst",
+            rootfs_sha256=hashlib.sha256(genuine_zst).hexdigest(),
+        )
+        manifest = {("codex", "arm64", "qemu", "ubuntu"): entry}
+        name = cache_name("codex", "arm64", "qemu", __version__)
+        members = self._members(zstandard.compress(tampered), kernel)
+        archive = tmp_path / "forged.tar"
+        _write_archive(
+            archive,
+            {
+                "schema_version": 1,
+                "name": name,
+                "rootfs_sidecar": _decompressed_rootfs_sidecar_value(entry.rootfs_sha256),
+                "files": self._files(members),
+            },
+            members,
+        )
+        dest = tmp_path / "images"
+        assert main(["image", "load", "-i", str(archive), "--image-dir", str(dest), "--json"]) == 0
+        capsys.readouterr()
+
+        bodies = {entry.kernel_url: kernel, entry.rootfs_url: genuine_zst}
+        downloads: list[str] = []
+
+        def fake_get(url: str, *_args: object, **_kwargs: object) -> MagicMock:
+            downloads.append(url)
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            resp.headers.get.return_value = None
+            resp.iter_content = lambda chunk_size, body=bodies[url]: iter([body])
+            return resp
+
+        with patch("celesto.images.manager.requests.get", side_effect=fake_get):
+            local = ensure_published_image(
+                "codex", "arm64", "qemu", cache_dir=dest, manifest=manifest, version=__version__
+            )
+            assert downloads == [entry.kernel_url, entry.rootfs_url]
+            assert local.rootfs_path.read_bytes() == genuine
+            downloads.clear()
+            again = ensure_published_image(
+                "codex", "arm64", "qemu", cache_dir=dest, manifest=manifest, version=__version__
+            )
+            assert downloads == []
+            assert again.rootfs_path.read_bytes() == genuine
+
+    def test_sidecar_member_is_discarded_not_installed(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Archives saved by older Celesto versions could carry the sidecar
+        (for entries without a .zst). It is a local cache key, so load
+        drops it and never installs the archive's value, whatever its case."""
+        zst = zstandard.compress(b"rootfs bytes")
+        members = [
+            ("files/vmlinux.bin", b"kernel"),
+            ("files/rootfs.ext4.zst", zst),
+            ("files/ROOTFS.EXT4.FROM-SHA256", b"sparse-v1:" + b"0" * 64),
+        ]
+        archive = tmp_path / "old.tar"
+        _write_archive(
+            archive,
+            {"schema_version": 1, "name": "entry", "files": self._files(members)},
+            members,
+        )
+        dest = tmp_path / "dest"
+        assert main(["image", "load", "-i", str(archive), "--image-dir", str(dest), "--json"]) == 0
+        capsys.readouterr()
+        installed = sorted(p.name for p in (dest / "entry").iterdir())
+        assert installed == [
+            "rootfs.ext4",
+            "rootfs.ext4.from-sha256",
+            "rootfs.ext4.zst",
+            "vmlinux.bin",
+        ]
+        zst_sha = hashlib.sha256((dest / "entry" / "rootfs.ext4.zst").read_bytes()).hexdigest()
+        assert (dest / "entry" / "rootfs.ext4.from-sha256").read_text() == f"sparse-v1:{zst_sha}"
+        assert (dest / "entry" / "rootfs.ext4").read_bytes() == b"rootfs bytes"
+
+    def test_case_variant_members_cannot_forge_rootfs(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """On a case-insensitive filesystem 'rootfs.ext4.ZST' lands as
+        rootfs.ext4.zst, so reserved-name rules must compare case-folded
+        names and the archive must be refused."""
+        genuine_zst = zstandard.compress(b"GENUINE")
+        members = [
+            ("files/vmlinux.bin", b"kernel"),
+            ("files/rootfs.ext4.ZST", genuine_zst),
+            ("files/rootfs.ext4", b"TAMPERED"),
+        ]
+        archive = tmp_path / "forged.tar"
+        _write_archive(
+            archive,
+            {"schema_version": 1, "name": "entry", "files": self._files(members)},
+            members,
+        )
+        dest = tmp_path / "dest"
+        ret = main(["image", "load", "-i", str(archive), "--image-dir", str(dest), "--json"])
+        assert ret == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["error"]["code"] == "invalid_input"
+        assert not dest.exists() or not any(dest.iterdir())
+
+    def test_paths_that_collide_on_case_insensitive_filesystems_are_rejected(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        members = [("files/config.json", b"a"), ("files/Config.JSON", b"b")]
+        archive = tmp_path / "collide.tar"
+        _write_archive(
+            archive,
+            {"schema_version": 1, "name": "entry", "files": self._files(members)},
+            members,
+        )
+        dest = tmp_path / "dest"
+        assert main(["image", "load", "-i", str(archive), "--image-dir", str(dest), "--json"]) == 2
+        capsys.readouterr()
+        assert not dest.exists() or not any(dest.iterdir())
+
+    def test_stray_sidecar_without_zst_is_not_saved_and_archive_loads(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        src = tmp_path / "src"
+        entry = src / "entry"
+        entry.mkdir(parents=True)
+        (entry / "rootfs.ext4").write_bytes(b"decompressed")
+        (entry / "rootfs.ext4.from-sha256").write_text("sparse-v1:" + "0" * 64)
+        (entry / "vmlinux.bin").write_bytes(b"kernel")
+        archive = tmp_path / "e.tar"
+        assert (
+            main(["image", "save", "entry", "--image-dir", str(src), "-o", str(archive), "--json"])
+            == 0
+        )
+        capsys.readouterr()
+        with tarfile.open(archive) as tar:
+            assert "files/rootfs.ext4.from-sha256" not in tar.getnames()
+        dest = tmp_path / "dest"
+        assert main(["image", "load", "-i", str(archive), "--image-dir", str(dest), "--json"]) == 0
+        capsys.readouterr()
+        assert (dest / "entry" / "rootfs.ext4").read_bytes() == b"decompressed"
+        assert not (dest / "entry" / "rootfs.ext4.from-sha256").exists()
+
+    @pytest.mark.parametrize(
+        "path",
+        ["rootfs.ext4/x", "ROOTFS.EXT4.ZST/x", "rootfs.ext4.from-sha256/x"],
+    )
+    def test_directories_at_reserved_rootfs_names_are_rejected(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture, path: str
+    ) -> None:
+        """A directory planted where rootfs.ext4 or its siblings live would
+        make every later start of a published image fail until the entry
+        is removed, so those names are reserved as path prefixes too."""
+        members = [("files/vmlinux.bin", b"kernel"), (f"files/{path}", b"x")]
+        archive = tmp_path / "dir.tar"
+        _write_archive(
+            archive,
+            {"schema_version": 1, "name": "entry", "files": self._files(members)},
+            members,
+        )
+        dest = tmp_path / "dest"
+        assert main(["image", "load", "-i", str(archive), "--image-dir", str(dest), "--json"]) == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["error"]["code"] == "invalid_input"
+        assert not dest.exists() or not any(dest.iterdir())
+
+    def test_duplicate_tar_members_are_rejected(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        zst = zstandard.compress(b"rootfs bytes")
+        members = [("files/vmlinux.bin", b"kernel"), ("files/rootfs.ext4.zst", zst)]
+        archive = tmp_path / "dup.tar"
+        _write_archive(
+            archive,
+            {"schema_version": 1, "name": "entry", "files": self._files(members)},
+            [*members, ("files/rootfs.ext4.zst", zst)],
+        )
+        dest = tmp_path / "dest"
+        assert main(["image", "load", "-i", str(archive), "--image-dir", str(dest), "--json"]) == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["error"]["code"] == "invalid_input"
+        assert not dest.exists() or not any(dest.iterdir())
+
+    def test_corrupt_zstd_member_is_reported_as_damage(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A zstd-encoded member whose bytes are not a zstd stream is a
+        damaged archive, not a disk-space problem."""
+        garbage = b"not a zstd frame at all"
+        archive = tmp_path / "corrupt.tar"
+        _write_archive(
+            archive,
+            {
+                "schema_version": 1,
+                "name": "entry",
+                "files": [
+                    {
+                        "path": "config.json",
+                        "encoding": "zstd",
+                        "size": 5,
+                        "sha256": hashlib.sha256(garbage).hexdigest(),
+                    }
+                ],
+            },
+            [("files/config.json", garbage)],
+        )
+        dest = tmp_path / "dest"
+        assert main(["image", "load", "-i", str(archive), "--image-dir", str(dest), "--json"]) == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["error"]["code"] == "invalid_input"
+        assert "damaged" in payload["error"]["message"]
+        assert not dest.exists() or not any(dest.iterdir())
