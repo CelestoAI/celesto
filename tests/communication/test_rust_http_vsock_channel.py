@@ -880,6 +880,22 @@ def test_guest_advertised_limits_only_lower_host_caps() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "value",
+    [0, -1, "abc", None, True, 0.25, float("inf"), float("nan")],
+    ids=["zero", "negative", "text", "null", "bool", "fraction", "infinity", "nan"],
+)
+def test_invalid_or_nonpositive_guest_limit_falls_back_to_host_default(value: Any) -> None:
+    # json.loads("1e999") yields float("inf"); int(inf) raises OverflowError,
+    # int(nan) raises ValueError. Neither may escape as a crash.
+    channel = FakeRustChannel([_capabilities({}, limits={"max_stream_size_bytes": value})])
+
+    assert (
+        channel._limit_bytes("max_stream_size_bytes", _DEFAULT_MAX_STREAM_SIZE_BYTES)
+        == _DEFAULT_MAX_STREAM_SIZE_BYTES
+    )
+
+
 def test_guest_advertised_limits_lower_than_default_still_apply() -> None:
     channel = FakeRustChannel([_capabilities({}, limits={"max_stream_size_bytes": 4})])
 

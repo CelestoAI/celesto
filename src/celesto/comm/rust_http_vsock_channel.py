@@ -716,9 +716,13 @@ class RustHttpVsockChannel:
         these caps bound host memory and disk.
         """
         value = self.capabilities.limits.get(name)
+        if isinstance(value, bool):
+            # JSON true would otherwise become a 1-byte cap.
+            return default
         try:
             limit = int(value)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
+            # Non-numeric, NaN or infinite values (JSON "1e999") fall back to the host default.
             return default
         return min(limit, default) if limit > 0 else default
 
