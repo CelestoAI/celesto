@@ -871,8 +871,9 @@ def _render_info_result(data: InfoPayload) -> None:
         "Status",
         Text(str(vm_data["status"]), style=status_style(str(vm_data["status"]))),
     )
-    # The OS name can come from the guest: render it literally, never as markup.
-    details.add_row("OS", Text(str(vm_data["os"] or "-")))
+    # The OS name can come from the guest or a persisted manifest: render it
+    # literally, never as markup, and keep control characters off the terminal.
+    details.add_row("OS", Text(display_safe(str(vm_data["os"] or "-")) or "-"))
     details.add_row("Backend", str(vm_data["backend"]))
     details.add_row("Network Mode", str(vm_data["network_mode"]))
     if vm_data["bridge"]:

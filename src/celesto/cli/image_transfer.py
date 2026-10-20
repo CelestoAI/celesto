@@ -412,7 +412,7 @@ def run_image_save(
             partial_archive.unlink(missing_ok=True)
         return _fail(
             command_name,
-            f"Could not write '{out_path}': {_brief_error(exc)}",
+            f"Could not write '{display_safe(str(out_path))}': {_brief_error(exc)}",
             json_output=json_output,
             recovery=f"Free up disk space or fix permissions, then retry '{retry_command}'.",
         )

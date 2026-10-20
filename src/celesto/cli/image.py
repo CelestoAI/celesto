@@ -161,6 +161,9 @@ def _valid_entry_name(requested: str) -> bool:
 
 
 # Shown in place of a name that has no printable characters at all.
+# A `custom/<name>` handle can exceed display_safe's default cap (255-byte
+# directory names); image handles must always be shown whole.
+_NAME_DISPLAY_LIMIT = 1024
 _UNPRINTABLE_NAME = "<unprintable name>"
 
 
@@ -1049,7 +1052,8 @@ def run_image_list(
         platform_parts = [part for part in (row["arch"], row["vmm"], row["os"]) if part]
         table.add_row(
             # Names and metadata come from disk and loaded archives: render literally.
-            literal_text(row["name"], empty=_UNPRINTABLE_NAME),
+            # The name is the handle `celesto image rm` needs, so never shorten it.
+            literal_text(row["name"], empty=_UNPRINTABLE_NAME, limit=_NAME_DISPLAY_LIMIT),
             row["kind"],
             literal_text("/".join(platform_parts)),
             _version_cell(row["version"], row["current"]),
@@ -1209,7 +1213,10 @@ def run_image_inspect(
         # Every value below comes from the entry on disk, which a loaded archive
         # controls: render it literally so markup stays visible and control
         # characters never reach the terminal.
-        table = Table(title=literal_text(entry["name"], empty=_UNPRINTABLE_NAME), show_header=False)
+        table = Table(
+            title=literal_text(entry["name"], empty=_UNPRINTABLE_NAME, limit=_NAME_DISPLAY_LIMIT),
+            show_header=False,
+        )
         table.add_column("Field")
         table.add_column("Value", overflow="fold")
         table.add_row("Kind", entry["kind"])

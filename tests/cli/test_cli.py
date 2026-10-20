@@ -3791,6 +3791,25 @@ class TestCliInfo:
         assert "\x1b" not in out
         assert "123 / 1024 MiB used" in out
 
+    def test_info_macos_guest_version_is_rendered_without_control_characters(
+        self,
+        mock_sdk_cls: MagicMock,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """The persisted macOS guest_version fallback is sanitized before rendering."""
+        vm_info = self._make_info_vm(status=VMState.STOPPED, backend="vz", guest_ip=None)
+        vm_info.config.guest_os = GuestOS.MACOS
+        vm_info.config.macos_machine.guest_version = "macOS 15\x1b]0;owned\x07"
+        vm_info.config.macos_machine.disk_size_mib = 65536
+        mock_sdk_cls.return_value.state.get_vm.return_value = vm_info
+
+        ret = main(["sandbox", "info", "sbx-pauling"])
+
+        assert ret == 0
+        out = capsys.readouterr().out
+        assert "macOS 15" in out
+        assert "\x1b" not in out
+
     def test_info_os_name_is_truncated_and_first_line_only(
         self,
         mock_sdk_cls: MagicMock,

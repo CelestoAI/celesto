@@ -861,6 +861,20 @@ class TestCustomImages:
         assert row["version"] == "abc123def456"
         assert row["arch"] == "amd64"
 
+    def test_list_keeps_long_custom_name_whole(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A custom handle longer than the default display cap is not truncated."""
+        monkeypatch.setenv("COLUMNS", "400")
+        name = "a" * 255
+        self._make_custom(tmp_path, name)
+
+        ret = main(["image", "list", "--image-dir", str(tmp_path)])
+
+        assert ret == 0
+        out = capsys.readouterr().out
+        assert "custom/" + name in "".join(out.split())
+
     def test_rm_custom_name_removes_tree(
         self, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:

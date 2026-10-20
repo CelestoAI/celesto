@@ -1390,3 +1390,30 @@ class TestSaveAndLoadAgreeOnNames:
         payload = json.loads(capsys.readouterr().out)
         assert "\x1b" not in payload["error"]["message"]
         assert "\x1b" not in payload["error"]["recovery"]
+
+    def test_save_write_error_shows_output_path_without_control_characters(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A failed archive write never echoes ESC from the -o path."""
+        self._entry(tmp_path / "src", "codex")
+        blocker = tmp_path / "blk\x1b]0;owned\x07"
+        blocker.write_bytes(b"")
+
+        ret = main(
+            [
+                "image",
+                "save",
+                "codex",
+                "--image-dir",
+                str(tmp_path / "src"),
+                "-o",
+                str(blocker / "out.tar"),
+                "--json",
+            ]
+        )
+
+        assert ret != 0
+        payload = json.loads(capsys.readouterr().out)
+        assert "Could not write" in payload["error"]["message"]
+        assert "\x1b" not in payload["error"]["message"]
+        assert "\x1b" not in payload["error"]["recovery"]
