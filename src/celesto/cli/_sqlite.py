@@ -27,6 +27,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
+from celesto.credentials.store import PROTECTION_VERSION
 from celesto.exceptions import (
     BrowserSessionAlreadyExistsError,
     BrowserSessionNotFoundError,
@@ -205,11 +206,24 @@ class SQLiteStateManager:
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_snapshots_vm_id ON snapshots(vm_id);
+
+                CREATE TABLE IF NOT EXISTS credential_placeholders (
+                    vm_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    placeholder TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (vm_id, name),
+                    FOREIGN KEY (vm_id) REFERENCES vms(id) ON DELETE CASCADE
+                );
             """
             )
             vm_columns = {row["name"] for row in conn.execute("PRAGMA table_info(vms)").fetchall()}
             if "display" not in vm_columns:
                 conn.execute("ALTER TABLE vms ADD COLUMN display TEXT")
+            if "credential_protection" not in vm_columns:
+                # Rows from earlier releases keep NULL (read as 0) so D-17
+                # cleans them on their first start.
+                conn.execute("ALTER TABLE vms ADD COLUMN credential_protection INTEGER")
             snapshot_columns = {
                 row["name"] for row in conn.execute("PRAGMA table_info(snapshots)").fetchall()
             }
@@ -255,10 +269,19 @@ class SQLiteStateManager:
 
             conn.execute(
                 """
-                INSERT INTO vms (id, status, config, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO vms (
+                    id, status, config, created_at, updated_at, credential_protection
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (config.vm_id, VMState.CREATED.value, config.model_dump_json(), now, now),
+                (
+                    config.vm_id,
+                    VMState.CREATED.value,
+                    config.model_dump_json(),
+                    now,
+                    now,
+                    PROTECTION_VERSION,
+                ),
             )
 
         logger.info("Created VM record: %s", config.vm_id)
@@ -390,6 +413,45 @@ class SQLiteStateManager:
                 )
             )
         return result
+
+    # ------------------------------------------------------------------
+    # Credential placeholders (never real values; see credentials/store.py)
+    # ------------------------------------------------------------------
+
+    def get_credential_placeholders(self, vm_id: str) -> dict[str, str]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT name, placeholder FROM credential_placeholders WHERE vm_id = ?",
+                (vm_id,),
+            ).fetchall()
+        return {str(row["name"]): str(row["placeholder"]) for row in rows}
+
+    def save_credential_placeholders(self, vm_id: str, placeholders: dict[str, str]) -> None:
+        if not placeholders:
+            return
+        now = now_iso()
+        with self._get_connection(exclusive=True) as conn:
+            conn.executemany(
+                """
+                INSERT INTO credential_placeholders (vm_id, name, placeholder, created_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(vm_id, name) DO UPDATE SET placeholder = excluded.placeholder
+                """,
+                [(vm_id, name, value, now) for name, value in placeholders.items()],
+            )
+
+    def get_credential_protection(self, vm_id: str) -> int:
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT credential_protection FROM vms WHERE id = ?", (vm_id,)
+            ).fetchone()
+        if not row or row["credential_protection"] is None:
+            return 0
+        return int(row["credential_protection"])
+
+    def set_credential_protection(self, vm_id: str, version: int) -> None:
+        with self._get_connection(exclusive=True) as conn:
+            conn.execute("UPDATE vms SET credential_protection = ? WHERE id = ?", (version, vm_id))
 
     # ------------------------------------------------------------------
     # IP allocation

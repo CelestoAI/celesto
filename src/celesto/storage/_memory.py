@@ -21,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import BinaryIO
 
+from celesto.credentials.store import PROTECTION_VERSION
 from celesto.exceptions import (
     BrowserSessionAlreadyExistsError,
     BrowserSessionNotFoundError,
@@ -70,6 +71,8 @@ class MemoryStateManager:
         self._snapshots: dict[str, SnapshotInfo] = {}
         self._browser_sessions: dict[str, BrowserSessionInfo] = {}
         self._browser_configs: dict[str, BrowserSessionConfig] = {}
+        self._credential_placeholders: dict[str, dict[str, str]] = {}
+        self._credential_protection: dict[str, int] = {}
 
     def close(self) -> None:
         """Release no VM resources; explicit VM deletion owns that lifecycle."""
@@ -104,6 +107,7 @@ class MemoryStateManager:
                 raise VMAlreadyExistsError(config.vm_id)
             info = VMInfo(vm_id=config.vm_id, status=VMState.CREATED, config=config)
             self._vms[config.vm_id] = info
+            self._credential_protection[config.vm_id] = PROTECTION_VERSION
             return info
 
     def get_vm(self, vm_id: str) -> VMInfo:
@@ -161,6 +165,8 @@ class MemoryStateManager:
             self._ssh_ports.pop(vm_id, None)
             self._vsock_cids.pop(vm_id, None)
             self._tap_allocations.pop(vm_id, None)
+            self._credential_placeholders.pop(vm_id, None)
+            self._credential_protection.pop(vm_id, None)
             for kind in ("ip", "ssh", "vsock", "tap"):
                 self._release_claim(kind, vm_id)
 
@@ -168,6 +174,22 @@ class MemoryStateManager:
         with self._lock:
             values = list(self._vms.values())
             return values if status is None else [item for item in values if item.status == status]
+
+    def get_credential_placeholders(self, vm_id: str) -> dict[str, str]:
+        with self._lock:
+            return dict(self._credential_placeholders.get(vm_id, {}))
+
+    def save_credential_placeholders(self, vm_id: str, placeholders: dict[str, str]) -> None:
+        with self._lock:
+            self._credential_placeholders.setdefault(vm_id, {}).update(placeholders)
+
+    def get_credential_protection(self, vm_id: str) -> int:
+        with self._lock:
+            return self._credential_protection.get(vm_id, 0)
+
+    def set_credential_protection(self, vm_id: str, version: int) -> None:
+        with self._lock:
+            self._credential_protection[vm_id] = version
 
     @staticmethod
     def _host_interface_names() -> set[str]:
