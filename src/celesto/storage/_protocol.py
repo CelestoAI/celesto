@@ -94,14 +94,8 @@ class StateManagerProtocol(Protocol):
         pass
 
     # ------------------------------------------------------------------
-    # Credential placeholders (never real values; see credentials/store.py)
+    # Credential-protection version (see credentials/store.py)
     # ------------------------------------------------------------------
-
-    def get_credential_placeholders(self, vm_id: str) -> dict[str, str]:
-        pass
-
-    def save_credential_placeholders(self, vm_id: str, placeholders: dict[str, str]) -> None:
-        pass
 
     def get_credential_protection(self, vm_id: str) -> int:
         pass

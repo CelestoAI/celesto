@@ -209,14 +209,6 @@ class SQLiteStateManager:
 
                 CREATE INDEX IF NOT EXISTS idx_snapshots_vm_id ON snapshots(vm_id);
 
-                CREATE TABLE IF NOT EXISTS credential_placeholders (
-                    vm_id TEXT NOT NULL,
-                    name TEXT NOT NULL,
-                    placeholder TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    PRIMARY KEY (vm_id, name),
-                    FOREIGN KEY (vm_id) REFERENCES vms(id) ON DELETE CASCADE
-                );
                 CREATE TABLE IF NOT EXISTS user_secrets (
                     vm_id TEXT NOT NULL,
                     name TEXT NOT NULL,
@@ -443,30 +435,8 @@ class SQLiteStateManager:
         return result
 
     # ------------------------------------------------------------------
-    # Credential placeholders (never real values; see credentials/store.py)
+    # Credential-protection version (see credentials/store.py)
     # ------------------------------------------------------------------
-
-    def get_credential_placeholders(self, vm_id: str) -> dict[str, str]:
-        with self._get_connection() as conn:
-            rows = conn.execute(
-                "SELECT name, placeholder FROM credential_placeholders WHERE vm_id = ?",
-                (vm_id,),
-            ).fetchall()
-        return {str(row["name"]): str(row["placeholder"]) for row in rows}
-
-    def save_credential_placeholders(self, vm_id: str, placeholders: dict[str, str]) -> None:
-        if not placeholders:
-            return
-        now = now_iso()
-        with self._get_connection(exclusive=True) as conn:
-            conn.executemany(
-                """
-                INSERT INTO credential_placeholders (vm_id, name, placeholder, created_at)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(vm_id, name) DO UPDATE SET placeholder = excluded.placeholder
-                """,
-                [(vm_id, name, value, now) for name, value in placeholders.items()],
-            )
 
     def get_credential_protection(self, vm_id: str) -> int:
         with self._get_connection() as conn:
