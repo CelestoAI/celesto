@@ -1,10 +1,10 @@
 #!/bin/sh
-# Celesto PID 1 init for layered presets (codex, claude-code, hermes, pi).
+# Celesto PID 1 init for the bare Ubuntu image.
 #
-# These presets boot off a generic Ubuntu rootfs that doesn't have a
-# preset-specific /init like openclaw does. Rather than running systemd
+# The bare Ubuntu image boots off a generic rootfs that doesn't ship its
+# own /init. Rather than running systemd
 # (which adds 5–15s of boot overhead and isn't needed for a sandbox VM
-# whose only job is to host an agent CLI behind SSH), we replace it with
+# whose only job is to host an agent behind SSH), we replace it with
 # this minimal script that:
 #
 #   1. mounts the essential virtual filesystems
@@ -12,7 +12,7 @@
 #   3. brings up loopback + eth0 (DHCP-style static IP from kernel cmdline)
 #   4. generates a lightweight SSH host key on first boot
 #   5. injects the launching user's pubkey from the kernel cmdline param
-#      celesto.authorized_key_b64=<base64> (matches openclaw's mechanism)
+#      celesto.authorized_key_b64=<base64>
 #   6. starts sshd
 #   7. parks PID 1 in a sleep loop, signal-handling Firecracker shutdown
 #

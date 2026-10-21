@@ -17,7 +17,6 @@
 import ast
 import json
 import os
-from collections.abc import Iterator
 from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
@@ -3248,7 +3247,7 @@ class TestCliList:
         assert "12345" in out
         assert "Celesto Computers" in out
         assert "Name" in out
-        assert "Preset" in out
+        assert "Preset" not in out
         assert "Status" in out
         assert "PID" in out
         assert "Total: 1 computer(s)." in out
@@ -3327,7 +3326,6 @@ class TestCliList:
         assert payload["data"]["filters"] == {
             "all": False,
             "status": "running",
-            "preset": None,
         }
         assert payload["data"]["vms"] == [
             {
@@ -3358,7 +3356,6 @@ class TestCliList:
         assert payload["data"]["filters"] == {
             "all": False,
             "status": "running",
-            "preset": None,
         }
         mock_sdk_cls.return_value.list_vms.assert_called_once_with(status=VMState.RUNNING)
 
@@ -3377,199 +3374,11 @@ class TestCliList:
 
         assert ret == 0
         payload = json.loads(capsys.readouterr().out)
-        assert payload["data"]["filters"] == {"all": True, "status": None, "preset": None}
+        assert payload["data"]["filters"] == {"all": True, "status": None}
         assert payload["data"]["vms"][0]["name"] == "vm-abc123"
         assert payload["data"]["vms"][1]["status"] == "stopped"
         assert payload["data"]["vms"][1]["ssh_port"] is None
         mock_sdk_cls.return_value.list_vms.assert_called_once_with(status=None)
-
-    def test_list_preset_filters_before_refreshing_status(
-        self,
-        mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
-    ) -> None:
-        """Preset filtering uses stored provenance and ignores legacy rows."""
-        openclaw = _make_vm_info("claw", preset="openclaw")
-        codex = _make_vm_info("code", preset="codex")
-        legacy = _make_vm_info("legacy")
-        mock_sdk_cls.return_value.list_vms.return_value = [openclaw, codex, legacy]
-
-        ret = main(["sandbox", "list", "--preset", "openclaw", "--all"])
-
-        assert ret == 0
-        out = capsys.readouterr().out
-        assert "claw" in out
-        assert "openclaw" in out
-        assert "code" not in out
-        assert "legacy" not in out
-        mock_sdk_cls.return_value.refresh_status.assert_called_once_with(openclaw)
-
-    def test_list_preset_alias_uses_canonical_json_value(
-        self,
-        mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
-    ) -> None:
-        """The public `claude` spelling filters on canonical provenance."""
-        mock_sdk_cls.return_value.list_vms.return_value = [
-            _make_vm_info("claude-work", preset="claude-code")
-        ]
-
-        ret = main(["sandbox", "list", "--preset", "claude", "--json"])
-
-        assert ret == 0
-        payload = json.loads(capsys.readouterr().out)
-        assert payload["data"]["filters"]["preset"] == "claude-code"
-        assert payload["data"]["vms"][0]["preset"] == "claude-code"
-
-    def test_list_preset_uses_public_name_in_human_output(
-        self,
-        mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
-    ) -> None:
-        mock_sdk_cls.return_value.list_vms.return_value = [
-            _make_vm_info("agent-work", preset="claude-code")
-        ]
-
-        ret = main(["sandbox", "list", "--preset", "claude"])
-
-        assert ret == 0
-        output = capsys.readouterr().out
-        assert "claude" in output
-        assert "claude-code" not in output
-
-    def test_list_preset_composes_with_status_filter(
-        self,
-        mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
-    ) -> None:
-        openclaw = _make_vm_info("claw", VMState.STOPPED, preset="openclaw")
-        codex = _make_vm_info("code", VMState.STOPPED, preset="codex")
-        mock_sdk_cls.return_value.list_vms.return_value = [openclaw, codex]
-
-        ret = main(["sandbox", "list", "--preset", "openclaw", "--status", "stopped", "--json"])
-
-        assert ret == 0
-        payload = json.loads(capsys.readouterr().out)
-        assert payload["data"]["filters"] == {
-            "all": False,
-            "status": "stopped",
-            "preset": "openclaw",
-        }
-        assert [row["name"] for row in payload["data"]["vms"]] == ["claw"]
-        mock_sdk_cls.return_value.list_vms.assert_called_once_with(status=VMState.STOPPED)
-
-    def test_openclaw_list_error_reconciles_stale_running_sandboxes(
-        self,
-        mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
-    ) -> None:
-        stale = _make_vm_info("claw", VMState.RUNNING, preset="openclaw")
-        reconciled = _make_vm_info("claw", VMState.ERROR, preset="openclaw", pid=None)
-        mock_sdk_cls.return_value.list_vms.return_value = [stale]
-        mock_sdk_cls.return_value.refresh_status.side_effect = lambda _vm: reconciled
-
-        ret = main(["openclaw", "list", "--status", "error", "--json"])
-
-        assert ret == 0
-        payload = json.loads(capsys.readouterr().out)
-        assert [row["name"] for row in payload["data"]["vms"]] == ["claw"]
-        mock_sdk_cls.return_value.list_vms.assert_called_once_with(status=None)
-        mock_sdk_cls.return_value.refresh_status.assert_called_once_with(stale)
-
-    def test_openclaw_list_matches_the_generic_filter(
-        self,
-        mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
-    ) -> None:
-        mock_sdk_cls.return_value.list_vms.return_value = [
-            _make_vm_info("claw", preset="openclaw"),
-            _make_vm_info("code", preset="codex"),
-        ]
-
-        ret = main(["openclaw", "list", "--all", "--json"])
-
-        assert ret == 0
-        payload = json.loads(capsys.readouterr().out)
-        assert payload["command"] == "openclaw.list"
-        assert payload["data"]["filters"]["preset"] == "openclaw"
-        assert [row["name"] for row in payload["data"]["vms"]] == ["claw"]
-
-    def test_openclaw_list_omits_the_redundant_preset_column(
-        self,
-        mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
-    ) -> None:
-        mock_sdk_cls.return_value.list_vms.return_value = [_make_vm_info("claw", preset="openclaw")]
-
-        ret = main(["openclaw", "list"])
-
-        assert ret == 0
-        output = capsys.readouterr().out
-        assert "claw" in output
-        assert "Preset" not in output
-
-    @pytest.mark.parametrize(
-        ("argv", "expected", "expected_recoveries"),
-        [
-            (
-                ["openclaw", "list"],
-                "No running 'openclaw' computers found.",
-                ("celesto openclaw list --all",),
-            ),
-            (
-                ["openclaw", "list", "--all"],
-                "No 'openclaw' computers found.",
-                (
-                    "To include older or manually prepared computers, run",
-                    "'celesto computer list --all'; to create one, run 'celesto openclaw start'.",
-                ),
-            ),
-            (
-                ["openclaw", "list", "--status", "stopped"],
-                "No 'openclaw' computers with status 'stopped'.",
-                ("celesto openclaw list --all",),
-            ),
-        ],
-    )
-    def test_openclaw_list_empty_state_names_recovery(
-        self,
-        argv: list[str],
-        expected: str,
-        expected_recoveries: tuple[str, ...],
-        mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
-    ) -> None:
-        mock_sdk_cls.return_value.list_vms.return_value = []
-
-        ret = main(argv)
-
-        assert ret == 0
-        output = " ".join(capsys.readouterr().out.split())
-        assert expected in output
-        for recovery in expected_recoveries:
-            assert recovery in output
-
-    def test_generic_preset_empty_state_uses_generic_list_recovery(
-        self,
-        mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
-    ) -> None:
-        mock_sdk_cls.return_value.list_vms.return_value = []
-
-        ret = main(["sandbox", "list", "--preset", "codex"])
-
-        assert ret == 0
-        output = " ".join(capsys.readouterr().out.split())
-        assert "celesto computer list --preset codex --all" in output
-        assert "celesto codex list" not in output
-
-    def test_list_rejects_unknown_preset(self, capsys: pytest.CaptureFixture) -> None:
-        ret = main(["sandbox", "list", "--preset", "unknown"])
-
-        assert ret == 2
-        error = capsys.readouterr().err
-        assert "Invalid value for '--preset'" in error
-        assert "openclaw" in error
 
     def test_list_status_filter_empty(
         self,
@@ -3901,31 +3710,8 @@ class TestCliInfo:
         assert payload["data"]["vm"]["disk_size"] == 8192
 
 
-class TestCliStart:
-    """Tests for `celesto <preset> start`."""
-
-    def _make_vm_mock(self, vm_id: str = "sbx-codex") -> MagicMock:
-        vm = MagicMock()
-        vm.vm_id = vm_id
-        vm.info.status = VMState.RUNNING
-        vm.info.config.backend = "qemu"
-        vm.info.network = MagicMock(spec=NetworkConfig)
-        vm.info.network.guest_ip = "172.16.0.2"
-        vm.info.network.ssh_host_port = 2200
-        return vm
-
-    def test_top_level_help_lists_known_presets(self, capsys: pytest.CaptureFixture) -> None:
-        """`celesto --help` should list every registered preset as a top-level command."""
-        ret = main(["--help"])
-        assert ret == 0
-        out = capsys.readouterr().out
-        assert "codex" in out
-        assert "claude" in out
-        assert "claude-code" not in out
-        assert "\n  env" not in out
-        assert "\n  file" not in out
-        assert "\n  snapshot" not in out
-        assert "\n  port" not in out
+class TestCliHelp:
+    """Help output for the top-level command groups."""
 
     def test_sandbox_help_lists_nested_resource_groups(
         self,
@@ -3952,1108 +3738,9 @@ class TestCliStart:
         assert ret == 2
         assert "No such command" in capsys.readouterr().err
 
-    def test_preset_help_lists_start_action(self, capsys: pytest.CaptureFixture) -> None:
-        """`celesto codex --help` should list the `start` action."""
-        ret = main(["codex", "--help"])
-        assert ret == 0
-        out = capsys.readouterr().out
-        assert "start" in out
 
-    def test_unknown_preset_errors(self, capsys: pytest.CaptureFixture) -> None:
-        """An unknown preset name should fail at Click parse time."""
-        ret = main(["nonexistent-agent", "start"])
-        assert ret == 2
-        err = capsys.readouterr().err
-        assert "No such command" in err
-
-    def test_launch_snippet_runs_when_env_file_missing(self, tmp_path: Path) -> None:
-        """The remote command built by `_exec_launch_command` must exec the
-        harness even when /etc/profile.d/celesto_env.sh does not exist —
-        regression for claude-code with subscription auth where no
-        ANTHROPIC_API_KEY is set on the host, so env injection writes
-        nothing and the file is never created."""
-        import subprocess
-
-        from celesto.cli.main import _exec_launch_command
-
-        captured: list[list[str]] = []
-
-        class _StubSshVm:
-            def _ssh_attach_command(self) -> list[str]:
-                return ["sandbox", "ssh", "-p", "2200", "root@127.0.0.1"]
-
-        def fake_run(*args: object, **_kwargs: object) -> MagicMock:
-            # Tolerate future kwargs (e.g. text=, env=) on the real
-            # subprocess.run call without rewriting the stub.
-            captured.append(args[0])  # type: ignore[arg-type]
-            result = MagicMock()
-            result.returncode = 0
-            return result
-
-        with patch("celesto.cli.main.subprocess.run", side_effect=fake_run):
-            _exec_launch_command(_StubSshVm(), "claude")
-
-        remote = captured[0][-1]
-        # Now actually evaluate the remote snippet under bash with a
-        # path that does not exist — the launch (here a `:` no-op
-        # standing in for `exec claude`) must still execute.
-        missing_env_file = tmp_path / "definitely-not-here.sh"
-        # The snippet calls `exec claude`; for the runtime check we
-        # substitute a benign command we can verify ran.
-        snippet = remote.replace("exec claude", "echo LAUNCHED")
-        snippet = snippet.replace("/etc/profile.d/celesto_env.sh", str(missing_env_file))
-        completed = subprocess.run(
-            ["bash", "-c", snippet], capture_output=True, text=True, check=False
-        )
-        assert completed.returncode == 0
-        assert "LAUNCHED" in completed.stdout
-        assert "No such file" not in completed.stderr
-
-    def test_launch_snippet_prepends_local_bin_to_path(self, tmp_path: Path) -> None:
-        """The launch snippet must prepend ``~/.local/bin`` to PATH so a
-        harness that self-installed there (claude-code's npm postinstall
-        migrates to ``~/.local/bin/claude``) is found by the non-login
-        SSH shell, which otherwise inherits root's default PATH."""
-        import subprocess
-
-        from celesto.cli.main import _exec_launch_command
-
-        captured: list[list[str]] = []
-
-        class _StubSshVm:
-            def _ssh_attach_command(self) -> list[str]:
-                return ["sandbox", "ssh", "-p", "2200", "root@127.0.0.1"]
-
-        def fake_run(*args: object, **_kwargs: object) -> MagicMock:
-            captured.append(args[0])  # type: ignore[arg-type]
-            result = MagicMock()
-            result.returncode = 0
-            return result
-
-        with patch("celesto.cli.main.subprocess.run", side_effect=fake_run):
-            _exec_launch_command(_StubSshVm(), "claude")
-
-        remote = captured[0][-1]
-        # Drop a fake binary at $HOME/.local/bin/claude and verify the
-        # snippet would resolve `claude` from there. We swap `exec` for a
-        # `command -v` probe so the test stays in-process.
-        home = tmp_path / "home"
-        local_bin = home / ".local" / "bin"
-        local_bin.mkdir(parents=True)
-        (local_bin / "claude").write_text("#!/bin/sh\necho FROM_LOCAL_BIN\n")
-        (local_bin / "claude").chmod(0o755)
-
-        missing_env_file = tmp_path / "missing.sh"
-        snippet = remote.replace("exec claude", "command -v claude")
-        snippet = snippet.replace("/etc/profile.d/celesto_env.sh", str(missing_env_file))
-        completed = subprocess.run(
-            ["bash", "-c", snippet],
-            capture_output=True,
-            text=True,
-            check=False,
-            env={"HOME": str(home), "PATH": "/usr/bin:/bin"},
-        )
-        assert completed.returncode == 0
-        assert str(local_bin / "claude") in completed.stdout
-
-    def test_top_level_help_lists_canonical_claude_only(
-        self,
-        capsys: pytest.CaptureFixture,
-    ) -> None:
-        """The public CLI should expose `claude`, not the old internal preset key."""
-        ret = main(["--help"])
-        assert ret == 0
-        out = capsys.readouterr().out
-        assert "claude" in out
-        assert "claude-code" not in out
-
-    def test_old_claude_code_command_is_removed(self, capsys: pytest.CaptureFixture) -> None:
-        """The alpha redesign intentionally removes `claude-code` as a CLI command."""
-        ret = main(["claude-code", "start", "--help"])
-
-        assert ret == 2
-        assert "No such command" in capsys.readouterr().err
-
-    @patch("celesto.images.published.is_preset_published", return_value=False)
-    @patch("celesto.cli.main._apply_preset_with_progress")
-    @patch("celesto.facade._build_auto_config")
-    @patch("celesto.facade.Celesto")
-    def test_start_codex_default_path(
-        self,
-        mock_vm_cls: MagicMock,
-        mock_build_auto_config: MagicMock,
-        mock_apply: MagicMock,
-        _mock_is_published: MagicMock,
-        capsys: pytest.CaptureFixture,
-    ) -> None:
-        """`celesto codex start` boots ubuntu/qemu with preset defaults and applies the preset.
-
-        Forces the install-at-boot path (is_preset_published=False) since
-        codex now has a published image and would otherwise take the fast
-        path. The published-path coverage is exercised in separate tests.
-        """
-        from celesto.types import GuestOS
-
-        config = MagicMock(vm_id="sbx-codex")
-        mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
-        vm = self._make_vm_mock("sbx-codex")
-        mock_vm_cls.return_value = vm
-        mock_apply.return_value = {
-            "preset": "codex",
-            "copied_configs": ["/root/.codex"],
-            "injected_env_keys": ["OPENAI_API_KEY"],
-        }
-
-        ret = main(["codex", "start", "--name", "sbx-codex", "--qemu-machine", "q35"])
-
-        assert ret == 0
-        mock_build_auto_config.assert_called_once_with(
-            vm_name="sbx-codex",
-            name_prefix="codex",
-            preset_name="codex",
-            os=GuestOS.UBUNTU,
-            backend="qemu",
-            qemu_machine="q35",
-            memory=2048,
-            disk_size_mib=8192,
-            ssh_key_path=None,
-            on_download=ANY,
-        )
-        mock_vm_cls.assert_called_once_with(
-            config,
-            ssh_key_path="/tmp/id_ed25519",
-            mounts=None,
-            writable_mounts=False,
-            state_manager=ANY,
-        )
-        vm.start.assert_called_once_with(boot_timeout=30.0, on_progress=ANY)
-        vm.wait_for_ready.assert_called_once_with(timeout=30.0, on_progress=ANY)
-        vm.wait_for_ssh.assert_not_called()
-        mock_apply.assert_called_once()
-        vm.close.assert_called_once()
-
-        out = capsys.readouterr().out
-        assert "sbx-codex" in out
-        assert "codex" in out
-        assert "OPENAI_API_KEY" in out
-        assert "celesto computer shell sbx-codex" in out
-        assert "celesto computer ssh sbx-codex" in out
-
-    @patch("celesto.images.published.is_preset_published", return_value=False)
-    @patch("celesto.presets.apply_preset")
-    @patch("celesto.facade._build_auto_config")
-    @patch("celesto.facade.Celesto")
-    def test_start_codex_json(
-        self,
-        mock_vm_cls: MagicMock,
-        mock_build_auto_config: MagicMock,
-        mock_apply_fn: MagicMock,
-        _mock_is_published: MagicMock,
-        capsys: pytest.CaptureFixture,
-    ) -> None:
-        """`celesto codex start --json` should emit the start envelope."""
-        config = MagicMock(vm_id="sbx-1")
-        mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
-        vm = self._make_vm_mock("sbx-1")
-        mock_vm_cls.return_value = vm
-        mock_apply_fn.return_value = {
-            "preset": "codex",
-            "copied_configs": [],
-            "injected_env_keys": ["OPENAI_API_KEY"],
-        }
-
-        ret = main(["codex", "start", "--name", "sbx-1", "--json"])
-
-        assert ret == 0
-        payload = json.loads(capsys.readouterr().out)
-        assert payload["command"] == "codex.start"
-        assert payload["ok"] is True
-        assert payload["data"]["vm"]["name"] == "sbx-1"
-        assert payload["data"]["vm"]["os"] == "ubuntu"
-        assert payload["data"]["preset"]["name"] == "codex"
-        assert payload["data"]["preset"]["injected_env_keys"] == ["OPENAI_API_KEY"]
-        assert payload["data"]["next"]["shell_command"] == "celesto computer shell sbx-1"
-        assert payload["data"]["next"]["ssh_command"] == "celesto computer ssh sbx-1"
-        assert mock_build_auto_config.call_args.kwargs["preset_name"] == "codex"
-        assert mock_apply_fn.call_args.kwargs["preset_command"] == "codex"
-        assert mock_apply_fn.call_args.kwargs["sandbox_name"] == "sbx-1"
-
-    @patch("celesto.images.published.is_preset_published", return_value=False)
-    @patch("celesto.presets.apply_preset")
-    @patch("celesto.facade._build_auto_config")
-    @patch("celesto.facade.Celesto")
-    def test_start_codex_json_threads_explicit_comm_channel(
-        self,
-        mock_vm_cls: MagicMock,
-        mock_build_auto_config: MagicMock,
-        mock_apply_fn: MagicMock,
-        _mock_is_published: MagicMock,
-        capsys: pytest.CaptureFixture,
-    ) -> None:
-        config = MagicMock(vm_id="sbx-1")
-        mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
-        vm = self._make_vm_mock("sbx-1")
-        mock_vm_cls.return_value = vm
-        mock_apply_fn.return_value = {
-            "preset": "codex",
-            "copied_configs": [],
-            "injected_env_keys": [],
-        }
-
-        ret = main(["codex", "start", "--name", "sbx-1", "--json", "--comm-channel", "ssh"])
-
-        assert ret == 0
-        mock_vm_cls.assert_called_once_with(
-            config,
-            ssh_key_path="/tmp/id_ed25519",
-            mounts=None,
-            writable_mounts=False,
-            comm_channel="ssh",
-            state_manager=ANY,
-        )
-        json.loads(capsys.readouterr().out)
-
-    def test_preset_control_channel_uses_resolved_control_without_ssh_fallback(self) -> None:
-        from celesto.cli.main import _preset_control_channel
-
-        channel = object()
-        vm = MagicMock()
-        vm._ensure_control_for_operation.return_value = channel
-
-        assert _preset_control_channel(vm, timeout=12.0) is channel
-        vm._ensure_control_for_operation.assert_called_once_with(
-            action="apply preset",
-            timeout=12.0,
-        )
-        vm.wait_for_ssh.assert_not_called()
-
-    @patch("celesto.images.published.is_preset_published", return_value=False)
-    @patch("celesto.cli.main._apply_preset_with_progress")
-    @patch("celesto.facade._build_auto_config")
-    @patch("celesto.facade.Celesto")
-    def test_start_alpine_falls_through_to_install_at_boot(
-        self,
-        mock_vm_cls: MagicMock,
-        mock_build_auto_config: MagicMock,
-        mock_apply: MagicMock,
-        _mock_is_published: MagicMock,
-        capsys: pytest.CaptureFixture,
-    ) -> None:
-        """When no Alpine row is published yet, ``--os alpine`` must thread
-        the OS through ``_build_auto_config`` (install-at-boot path) and
-        echo the flag value back in the JSON envelope."""
-        from celesto.types import GuestOS
-
-        config = MagicMock(vm_id="sbx-claude")
-        mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
-        vm = self._make_vm_mock("sbx-claude")
-        mock_vm_cls.return_value = vm
-        mock_apply.return_value = {
-            "preset": "claude-code",
-            "copied_configs": [],
-            "injected_env_keys": [],
-        }
-
-        ret = main(
-            [
-                "claude",
-                "start",
-                "--name",
-                "sbx-claude",
-                "--os",
-                "alpine",
-                "--json",
-            ]
-        )
-
-        assert ret == 0
-        kwargs = mock_build_auto_config.call_args.kwargs
-        assert kwargs["os"] is GuestOS.ALPINE
-        payload = json.loads(capsys.readouterr().out)
-        assert payload["data"]["vm"]["os"] == "alpine"
-
-    @patch("celesto.cli.main._run_start_with_published_image", return_value=0)
-    @patch("celesto.images.published.is_preset_published")
-    def test_start_alpine_uses_published_fast_path_when_available(
-        self,
-        mock_is_published: MagicMock,
-        mock_published_path: MagicMock,
-    ) -> None:
-        """When an Alpine row IS published, ``--os alpine`` must route
-        through the fast path with ``os="alpine"`` — same routing logic as
-        Ubuntu, just keyed on the user's flag.
-
-        Returning True only for the alpine query verifies the OS argument
-        is actually flowing into ``is_preset_published`` (not just lost
-        somewhere upstream).
-        """
-
-        def _published_only_for_alpine(
-            preset: str, arch: object, vmm: object, os: str, *, manifest: object = None
-        ) -> bool:
-            return os == "alpine" and preset == "claude-code"
-
-        mock_is_published.side_effect = _published_only_for_alpine
-
-        ret = main(["claude", "start", "--os", "alpine", "--json"])
-
-        assert ret == 0
-        mock_published_path.assert_called_once()
-        # is_preset_published was called with ``os="alpine"`` — locks the
-        # routing in even if a future refactor reorders the kwargs.
-        last_call = mock_is_published.call_args
-        assert "alpine" in last_call.args or last_call.kwargs.get("os") == "alpine"
-
-    @patch("celesto.images.published.is_preset_published", return_value=False)
-    @patch("celesto.cli.main._apply_preset_with_progress")
-    @patch("celesto.facade._build_auto_config")
-    @patch("celesto.facade.Celesto")
-    def test_start_default_os_is_ubuntu(
-        self,
-        mock_vm_cls: MagicMock,
-        mock_build_auto_config: MagicMock,
-        mock_apply: MagicMock,
-        _mock_is_published: MagicMock,
-    ) -> None:
-        """Omitting --os keeps the historical Ubuntu default for presets."""
-        from celesto.types import GuestOS
-
-        config = MagicMock(vm_id="sbx-claude")
-        mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
-        vm = self._make_vm_mock("sbx-claude")
-        mock_vm_cls.return_value = vm
-        mock_apply.return_value = {
-            "preset": "claude-code",
-            "copied_configs": [],
-            "injected_env_keys": [],
-        }
-
-        ret = main(["claude", "start", "--name", "sbx-claude"])
-
-        assert ret == 0
-        kwargs = mock_build_auto_config.call_args.kwargs
-        assert kwargs["os"] is GuestOS.UBUNTU
-
-    def test_start_invalid_os_choice(
-        self,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        """Click should reject unsupported --os values for preset start."""
-        ret = main(["codex", "start", "--os", "fedora"])
-
-        assert ret == 2
-        assert "Invalid value for '--os'" in capsys.readouterr().err
-
-    def test_openclaw_rejects_alpine_with_recovery_command(
-        self,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        ret = main(["openclaw", "start", "--os", "alpine", "--json"])
-
-        assert ret == 2
-        payload = json.loads(capsys.readouterr().out)
-        assert payload["exit_code"] == 2
-        assert "celesto openclaw start --os ubuntu" in payload["error"]["message"]
-
-    @patch("celesto.images.published.is_preset_published", return_value=True)
-    @patch("celesto.cli.main._run_start_with_published_image")
-    @patch("celesto.presets.apply_preset")
-    @patch("celesto.facade._build_auto_config")
-    @patch("celesto.facade.Celesto")
-    def test_openclaw_skips_the_stale_published_image(
-        self,
-        mock_vm_cls: MagicMock,
-        mock_build_auto_config: MagicMock,
-        mock_apply: MagicMock,
-        mock_published_path: MagicMock,
-        mock_is_published: MagicMock,
-    ) -> None:
-        config = MagicMock(vm_id="sbx-openclaw")
-        mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
-        mock_vm_cls.return_value = self._make_vm_mock("sbx-openclaw")
-        mock_apply.return_value = {
-            "preset": "openclaw",
-            "copied_configs": [],
-            "injected_env_keys": [],
-        }
-
-        ret = main(["openclaw", "start", "--json"])
-
-        assert ret == 0
-        mock_is_published.assert_not_called()
-        mock_published_path.assert_not_called()
-        mock_apply.assert_called_once()
-
-    @patch("celesto.images.published.is_preset_published", return_value=False)
-    @patch("celesto.cli.main._apply_preset_with_progress")
-    @patch("celesto.facade._build_auto_config")
-    @patch("celesto.facade.Celesto")
-    def test_start_claude_code_overrides_memory(
-        self,
-        mock_vm_cls: MagicMock,
-        mock_build_auto_config: MagicMock,
-        mock_apply: MagicMock,
-        _mock_is_published: MagicMock,
-    ) -> None:
-        """User --memory should override the preset default."""
-        config = MagicMock(vm_id="sbx")
-        mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
-        vm = self._make_vm_mock("sbx")
-        mock_vm_cls.return_value = vm
-        mock_apply.return_value = {
-            "preset": "claude-code",
-            "copied_configs": [],
-            "injected_env_keys": [],
-        }
-
-        ret = main(["claude", "start", "--memory", "4096", "--disk-size", "16384"])
-
-        assert ret == 0
-        kwargs = mock_build_auto_config.call_args.kwargs
-        assert kwargs["memory"] == 4096
-        assert kwargs["disk_size_mib"] == 16384
-        assert mock_apply.call_args.kwargs["preset_command"] == "claude"
-
-    @patch("celesto.images.published.is_preset_published", return_value=False)
-    @patch("celesto.facade._build_auto_config")
-    @patch("celesto.facade.Celesto")
-    def test_start_rejects_non_qemu_backend(
-        self,
-        mock_vm_cls: MagicMock,
-        mock_build_auto_config: MagicMock,
-        _mock_is_published: MagicMock,
-        capsys: pytest.CaptureFixture,
-    ) -> None:
-        """Install-at-boot path rejects non-qemu backends.
-
-        Forces is_preset_published=False so the install-at-boot fallback
-        runs (codex now has firecracker/qemu/libkrun published images,
-        which would otherwise take the fast path on Linux). The rejection
-        only fires when neither path is available.
-        """
-        ret = main(["codex", "start", "--backend", "firecracker"])
-
-        assert ret == 2
-        err = capsys.readouterr().err
-        assert "requires --backend qemu" in err
-        # Nothing should have started.
-        mock_build_auto_config.assert_not_called()
-        mock_vm_cls.assert_not_called()
-
-    @patch("celesto.images.published.is_preset_published", return_value=False)
-    @patch("celesto.cli.main.subprocess.run")
-    @patch("celesto.cli.main._apply_preset_with_progress")
-    @patch("celesto.facade._build_auto_config")
-    @patch("celesto.facade.Celesto")
-    def test_start_attach_runs_codex_via_ssh(
-        self,
-        mock_vm_cls: MagicMock,
-        mock_build_auto_config: MagicMock,
-        mock_apply: MagicMock,
-        mock_subprocess_run: MagicMock,
-        _mock_is_published: MagicMock,
-    ) -> None:
-        """`--attach` should ssh into the box and exec the launch command."""
-        config = MagicMock(vm_id="sbx")
-        mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
-        vm = self._make_vm_mock("sbx")
-        vm._ssh_attach_command.return_value = [
-            "ssh",
-            "-p",
-            "2200",
-            "root@127.0.0.1",
-        ]
-        mock_vm_cls.return_value = vm
-        mock_apply.return_value = {
-            "preset": "codex",
-            "copied_configs": [],
-            "injected_env_keys": ["OPENAI_API_KEY"],
-        }
-        completed = MagicMock()
-        completed.returncode = 0
-        mock_subprocess_run.return_value = completed
-
-        ret = main(["codex", "start", "--attach"])
-
-        assert ret == 0
-        mock_subprocess_run.assert_called_once()
-        cmd = mock_subprocess_run.call_args.args[0]
-        # `-t` must come before user@host so OpenSSH allocates a TTY.
-        assert "-t" in cmd
-        assert cmd.index("-t") < cmd.index("root@127.0.0.1")
-        # Remote command must guard the env-file source and still exec the
-        # harness if the file is missing (preset may inject zero env vars).
-        remote = cmd[-1]
-        assert "/etc/profile.d/celesto_env.sh" in remote
-        assert remote.endswith("; exec codex"), (
-            "exec must chain with ';' not '&&' so a missing env file does "
-            f"not abort the launch — got {remote!r}"
-        )
-        assert "[ -r " in remote, "env file source must be guarded with a file-existence check"
-
-    @patch("celesto.images.published.is_preset_published", return_value=False)
-    @patch("celesto.cli.main.subprocess.run")
-    @patch("celesto.cli.main._apply_preset_with_progress")
-    @patch("celesto.facade._build_auto_config")
-    @patch("celesto.facade.Celesto")
-    def test_start_no_attach_skips_subprocess(
-        self,
-        mock_vm_cls: MagicMock,
-        mock_build_auto_config: MagicMock,
-        mock_apply: MagicMock,
-        mock_subprocess_run: MagicMock,
-        _mock_is_published: MagicMock,
-    ) -> None:
-        """`--no-attach` should skip both the prompt and the ssh launch."""
-        config = MagicMock(vm_id="sbx")
-        mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
-        mock_vm_cls.return_value = self._make_vm_mock("sbx")
-        mock_apply.return_value = {
-            "preset": "codex",
-            "copied_configs": [],
-            "injected_env_keys": [],
-        }
-
-        ret = main(["codex", "start", "--no-attach"])
-
-        assert ret == 0
-        mock_subprocess_run.assert_not_called()
-
-    @patch("celesto.images.published.is_preset_published", return_value=False)
-    @patch("celesto.cli.main.subprocess.run")
-    @patch("celesto.cli.main.sys.stdin")
-    @patch("builtins.input", return_value="y")
-    @patch("celesto.cli.main._apply_preset_with_progress")
-    @patch("celesto.facade._build_auto_config")
-    @patch("celesto.facade.Celesto")
-    def test_start_prompt_yes_attaches(
-        self,
-        mock_vm_cls: MagicMock,
-        mock_build_auto_config: MagicMock,
-        mock_apply: MagicMock,
-        mock_input: MagicMock,
-        mock_stdin: MagicMock,
-        mock_subprocess_run: MagicMock,
-        _mock_is_published: MagicMock,
-    ) -> None:
-        """Default behavior on a TTY: prompt; ``y`` answer attaches."""
-        mock_stdin.isatty.return_value = True
-
-        config = MagicMock(vm_id="sbx")
-        mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
-        vm = self._make_vm_mock("sbx")
-        vm._ssh_attach_command.return_value = ["sandbox", "ssh", "root@127.0.0.1"]
-        mock_vm_cls.return_value = vm
-        mock_apply.return_value = {
-            "preset": "codex",
-            "copied_configs": [],
-            "injected_env_keys": [],
-        }
-        completed = MagicMock()
-        completed.returncode = 0
-        mock_subprocess_run.return_value = completed
-
-        ret = main(["codex", "start"])
-
-        assert ret == 0
-        mock_input.assert_called_once()
-        mock_subprocess_run.assert_called_once()
-
-    @patch("celesto.images.published.is_preset_published", return_value=False)
-    @patch("celesto.cli.main.subprocess.run")
-    @patch("celesto.cli.main.sys.stdin")
-    @patch("builtins.input", return_value="n")
-    @patch("celesto.cli.main._apply_preset_with_progress")
-    @patch("celesto.facade._build_auto_config")
-    @patch("celesto.facade.Celesto")
-    def test_start_prompt_no_skips_attach(
-        self,
-        mock_vm_cls: MagicMock,
-        mock_build_auto_config: MagicMock,
-        mock_apply: MagicMock,
-        mock_input: MagicMock,
-        mock_stdin: MagicMock,
-        mock_subprocess_run: MagicMock,
-        _mock_is_published: MagicMock,
-    ) -> None:
-        """A ``n`` answer should skip the ssh launch."""
-        mock_stdin.isatty.return_value = True
-
-        config = MagicMock(vm_id="sbx")
-        mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
-        mock_vm_cls.return_value = self._make_vm_mock("sbx")
-        mock_apply.return_value = {
-            "preset": "codex",
-            "copied_configs": [],
-            "injected_env_keys": [],
-        }
-
-        ret = main(["codex", "start"])
-
-        assert ret == 0
-        mock_input.assert_called_once()
-        mock_subprocess_run.assert_not_called()
-
-    @patch("celesto.images.published.is_preset_published", return_value=False)
-    @patch("celesto.cli.main.subprocess.run")
-    @patch("celesto.presets.apply_preset")
-    @patch("celesto.facade._build_auto_config")
-    @patch("celesto.facade.Celesto")
-    def test_start_json_never_attaches(
-        self,
-        mock_vm_cls: MagicMock,
-        mock_build_auto_config: MagicMock,
-        mock_apply_fn: MagicMock,
-        mock_subprocess_run: MagicMock,
-        _mock_is_published: MagicMock,
-    ) -> None:
-        """JSON mode should never prompt or attach, even when a launch command exists."""
-        config = MagicMock(vm_id="sbx")
-        mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
-        mock_vm_cls.return_value = self._make_vm_mock("sbx")
-        mock_apply_fn.return_value = {
-            "preset": "codex",
-            "copied_configs": [],
-            "injected_env_keys": [],
-        }
-
-        ret = main(["codex", "start", "--json"])
-
-        assert ret == 0
-        mock_subprocess_run.assert_not_called()
-
-
-class TestOpenClawCommands:
-    """Tests for OpenClaw-specific commands."""
-
-    def test_openclaw_help_describes_available_actions(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        ret = main(["openclaw", "--help"])
-
-        assert ret == 0
-        output = capsys.readouterr().out
-        assert "Create and manage OpenClaw computers." in output
-        assert "list" in output
-        assert "open-ui" in output
-
-    def test_openclaw_list_help_explains_filters(self, capsys: pytest.CaptureFixture[str]) -> None:
-        ret = main(["openclaw", "list", "--help"])
-
-        assert ret == 0
-        output = " ".join(capsys.readouterr().out.split())
-        assert "List your OpenClaw computers." in output
-        assert "Include OpenClaw computers in every state." in output
-        assert "Show only OpenClaw computers in this state." in output
-
-    @patch("celesto.cli.main._run_list", return_value=0)
-    def test_list_rejects_conflicting_filters(self, mock_run: MagicMock) -> None:
-        ret = main(["openclaw", "list", "--all", "--status", "running"])
-
-        assert ret == 2
-        mock_run.assert_not_called()
-
-    def test_start_help_only_offers_supported_os_and_explains_slow_install(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        ret = main(["openclaw", "start", "--help"])
-
-        assert ret == 0
-        output = capsys.readouterr().out
-        normalized_output = " ".join(output.split())
-        assert "Installation may take several minutes" in normalized_output
-        assert "--os [ubuntu]" in output
-        assert "alpine" not in output
-        assert "windows" not in output
-        assert "Computer name; Celesto generates one when omitted." in normalized_output
-        assert "Seconds to wait for each agent installation step." in normalized_output
-
-    def test_open_command_has_been_replaced_by_open_ui(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        ret = main(["openclaw", "open", "sbx-claw"])
-
-        assert ret == 2
-        assert "No such command 'open'" in capsys.readouterr().err
-
-    @patch("celesto.cli.main._cli_vm_from_id", side_effect=VMNotFoundError("missing-claw"))
-    @pytest.mark.parametrize("json_output", [False, True])
-    def test_open_ui_missing_sandbox_names_recovery_commands(
-        self,
-        _mock_vm_from_id: MagicMock,
-        json_output: bool,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        argv = ["openclaw", "open-ui", "missing-claw"]
-        if json_output:
-            argv.append("--json")
-
-        ret = main(argv)
-
-        assert ret == 1
-        captured = capsys.readouterr()
-        error = json.loads(captured.out)["error"]["message"] if json_output else captured.err
-        assert "Computer 'missing-claw' was not found" in error
-        assert "celestocomputerlist--all" in "".join(error.split()).replace("│", "")
-        assert "celestoopenclawstart--namemissing-claw--no-attach" in (
-            "".join(error.split()).replace("│", "")
-        )
-
-    @patch("celesto.cli.main._run_openclaw_open_ui", return_value=0)
-    def test_open_ui_routes_options_to_handler(self, mock_run: MagicMock) -> None:
-        ret = main(
-            [
-                "openclaw",
-                "open-ui",
-                "sbx-claw",
-                "--host-port",
-                "19876",
-                "--no-browser",
-                "--comm-channel",
-                "ssh",
-                "--json",
-            ]
-        )
-
-        assert ret == 0
-        args = mock_run.call_args.args[0]
-        assert args.vm_id == "sbx-claw"
-        assert args.host_port == 19876
-        assert args.no_browser is True
-        assert args.comm_channel == "ssh"
-        assert args.json is True
-
-    @patch("celesto.cli.main.webbrowser.open", return_value=True)
-    @patch("celesto.cli.main._track_port_forward")
-    @patch("celesto.cli.main._cli_vm_from_id")
-    def test_open_starts_gateway_and_hides_one_time_token_after_browser_opens(
-        self,
-        mock_vm_from_id: MagicMock,
-        mock_track: MagicMock,
-        mock_browser_open: MagicMock,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        dashboard = {
-            "ok": True,
-            "browserUrl": "http://127.0.0.1:18789/#token=one-time-secret",
-            "httpUrl": "http://127.0.0.1:18789/",
-            "wsUrl": "ws://127.0.0.1:18789/ws",
-        }
-        vm = MagicMock()
-        vm.run.side_effect = [
-            CommandResult(exit_code=0, stdout="OpenClaw 2026.9.1 (ad6fe23)", stderr=""),
-            CommandResult(exit_code=0, stdout="", stderr=""),
-            CommandResult(exit_code=0, stdout=json.dumps(dashboard), stderr=""),
-        ]
-        vm.expose_local.return_value = 39876
-        mock_vm_from_id.return_value = vm
-
-        ret = main(["openclaw", "open-ui", "sbx-claw"])
-
-        assert ret == 0
-        mock_browser_open.assert_called_once_with("http://127.0.0.1:39876/#token=one-time-secret")
-        vm.expose_local.assert_called_once_with(18789, None, guest_loopback=True)
-        mock_track.assert_called_once_with(vm, "sbx-claw", 39876, 18789)
-        assert vm.run.call_args_list[0].args[0] == "openclaw --version"
-        assert "--bind loopback" in vm.run.call_args_list[1].args[0]
-        assert "/etc/profile.d/celesto_env.sh" in vm.run.call_args_list[1].args[0]
-        assert "https://127.0.0.1:18789/" in vm.run.call_args_list[1].args[0]
-        assert "--insecure" in vm.run.call_args_list[1].args[0]
-        assert 'kill "$gateway_pid"' in vm.run.call_args_list[1].args[0]
-        assert vm.run.call_args_list[2].args[0] == (
-            "OPENCLAW_GATEWAY_PORT=18789 openclaw dashboard --json --no-open"
-        )
-        output = capsys.readouterr().out
-        assert "http://127.0.0.1:39876/" in output
-        assert "one-time-secret" not in output
-        assert "celesto computer port close sbx-claw 39876:18789" in output
-        vm.close.assert_called_once()
-
-    @patch("celesto.cli.main.webbrowser.open")
-    @patch("celesto.cli.main._track_port_forward")
-    @patch("celesto.cli.main._cli_vm_from_id")
-    def test_json_returns_rewritten_dashboard_links_without_opening_browser(
-        self,
-        mock_vm_from_id: MagicMock,
-        mock_track: MagicMock,
-        mock_browser_open: MagicMock,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        dashboard = {
-            "ok": True,
-            "browserUrl": "http://localhost:18789/#token=secret",
-            "httpUrl": "http://localhost:18789/?token=also-secret",
-        }
-        vm = MagicMock()
-        vm.run.side_effect = [
-            CommandResult(exit_code=0, stdout="OpenClaw 2026.9.1", stderr=""),
-            CommandResult(exit_code=0, stdout="", stderr=""),
-            CommandResult(exit_code=0, stdout=json.dumps(dashboard), stderr=""),
-        ]
-        vm.expose_local.return_value = 39877
-        mock_vm_from_id.return_value = vm
-
-        ret = main(["openclaw", "open-ui", "sbx-claw", "--json"])
-
-        assert ret == 0
-        mock_browser_open.assert_not_called()
-        mock_track.assert_called_once()
-        payload = json.loads(capsys.readouterr().out)
-        assert payload["command"] == "openclaw.open-ui"
-        assert payload["data"] == {
-            "sandbox": "sbx-claw",
-            "guest_port": 18789,
-            "host_port": 39877,
-            "url": "http://127.0.0.1:39877/",
-            "browser_url": "http://127.0.0.1:39877/#token=secret",
-            "ws_url": None,
-            "opened": False,
-            "close_command": "celesto computer port close sbx-claw 39877:18789",
-        }
-        vm.close.assert_called_once()
-
-    @patch("celesto.cli.main.webbrowser.open")
-    @patch("celesto.cli.main._track_port_forward")
-    @patch("celesto.cli.main._cli_vm_from_id")
-    def test_no_browser_prints_the_one_time_link(
-        self,
-        mock_vm_from_id: MagicMock,
-        _mock_track: MagicMock,
-        mock_browser_open: MagicMock,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        vm = MagicMock()
-        vm.run.side_effect = [
-            CommandResult(exit_code=0, stdout="OpenClaw 2026.9.1", stderr=""),
-            CommandResult(exit_code=0, stdout="", stderr=""),
-            CommandResult(
-                exit_code=0,
-                stdout=json.dumps(
-                    {
-                        "ok": True,
-                        "browserUrl": "http://127.0.0.1:18789/#token=one-time-secret",
-                    }
-                ),
-                stderr="",
-            ),
-        ]
-        vm.expose_local.return_value = 39876
-        mock_vm_from_id.return_value = vm
-
-        ret = main(["openclaw", "open-ui", "sbx-claw", "--no-browser"])
-
-        assert ret == 0
-        mock_browser_open.assert_not_called()
-        assert "http://127.0.0.1:39876/#token=one-time-secret" in capsys.readouterr().out
-
-    @patch("celesto.cli.main._cli_vm_from_id")
-    def test_open_rejects_non_loopback_dashboard_url_before_exposing_port(
-        self,
-        mock_vm_from_id: MagicMock,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        vm = MagicMock()
-        vm.run.side_effect = [
-            CommandResult(exit_code=0, stdout="OpenClaw 2026.9.1", stderr=""),
-            CommandResult(exit_code=0, stdout="", stderr=""),
-            CommandResult(
-                exit_code=0,
-                stdout=json.dumps({"ok": True, "browserUrl": "https://example.com/token"}),
-                stderr="",
-            ),
-        ]
-        mock_vm_from_id.return_value = vm
-
-        ret = main(["openclaw", "open-ui", "sbx-claw", "--json"])
-
-        assert ret == 1
-        message = json.loads(capsys.readouterr().out)["error"]["message"]
-        assert "unexpected dashboard address" in message
-        assert "celesto computer shell sbx-claw" in message
-        vm.expose_local.assert_not_called()
-        vm.close.assert_called_once()
-
-    @patch("celesto.cli.main._cli_vm_from_id")
-    def test_open_rejects_the_wrong_loopback_port_before_exposing(
-        self,
-        mock_vm_from_id: MagicMock,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        vm = MagicMock()
-        vm.run.side_effect = [
-            CommandResult(exit_code=0, stdout="OpenClaw 2026.9.1", stderr=""),
-            CommandResult(exit_code=0, stdout="", stderr=""),
-            CommandResult(
-                exit_code=0,
-                stdout=json.dumps(
-                    {"ok": True, "browserUrl": "http://127.0.0.1:19999/#token=secret"}
-                ),
-                stderr="",
-            ),
-        ]
-        mock_vm_from_id.return_value = vm
-
-        ret = main(["openclaw", "open-ui", "sbx-claw", "--json"])
-
-        assert ret == 1
-        message = json.loads(capsys.readouterr().out)["error"]["message"]
-        assert "unexpected dashboard address" in message
-        vm.expose_local.assert_not_called()
-        vm.close.assert_called_once()
-
-    @pytest.mark.parametrize(
-        "results,message",
-        [
-            (
-                [CommandResult(exit_code=1, stdout="", stderr="missing")],
-                "OpenClaw is not installed",
-            ),
-            (
-                [CommandResult(exit_code=0, stdout="OpenClaw 2026.8.8", stderr="")],
-                "requires OpenClaw 2026.9.1",
-            ),
-            (
-                [
-                    CommandResult(exit_code=0, stdout="OpenClaw 2026.9.1", stderr=""),
-                    CommandResult(exit_code=1, stdout="", stderr="gateway failed"),
-                ],
-                "OpenClaw did not become ready",
-            ),
-            (
-                [
-                    CommandResult(exit_code=0, stdout="OpenClaw 2026.9.1", stderr=""),
-                    CommandResult(exit_code=0, stdout="", stderr=""),
-                    CommandResult(exit_code=1, stdout="", stderr="dashboard failed"),
-                ],
-                "OpenClaw could not create a dashboard link",
-            ),
-            (
-                [
-                    CommandResult(exit_code=0, stdout="OpenClaw 2026.9.1", stderr=""),
-                    CommandResult(exit_code=0, stdout="", stderr=""),
-                    CommandResult(exit_code=0, stdout="{", stderr=""),
-                ],
-                "OpenClaw returned an unreadable dashboard link",
-            ),
-            (
-                [
-                    CommandResult(exit_code=0, stdout="OpenClaw 2026.9.1", stderr=""),
-                    CommandResult(exit_code=0, stdout="", stderr=""),
-                    CommandResult(exit_code=0, stdout="[]", stderr=""),
-                ],
-                "OpenClaw returned an unreadable dashboard link",
-            ),
-            (
-                [
-                    CommandResult(exit_code=0, stdout="OpenClaw 2026.9.1", stderr=""),
-                    CommandResult(exit_code=0, stdout="", stderr=""),
-                    CommandResult(
-                        exit_code=0,
-                        stdout=json.dumps({"ok": False}),
-                        stderr="",
-                    ),
-                ],
-                "OpenClaw could not create a dashboard link",
-            ),
-            (
-                [
-                    CommandResult(exit_code=0, stdout="OpenClaw 2026.9.1", stderr=""),
-                    CommandResult(exit_code=0, stdout="", stderr=""),
-                    CommandResult(exit_code=0, stdout=json.dumps({"ok": True}), stderr=""),
-                ],
-                "OpenClaw did not return a dashboard link",
-            ),
-        ],
-    )
-    @patch("celesto.cli.main._cli_vm_from_id")
-    def test_open_failure_paths_are_actionable_and_do_not_expose_a_port(
-        self,
-        mock_vm_from_id: MagicMock,
-        results: list[CommandResult],
-        message: str,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        vm = MagicMock()
-        vm.run.side_effect = results
-        mock_vm_from_id.return_value = vm
-
-        ret = main(["openclaw", "open-ui", "sbx-claw", "--json"])
-
-        assert ret == 1
-        error = json.loads(capsys.readouterr().out)["error"]["message"]
-        assert message in error
-        assert "sbx-claw" in error
-        if message in {"OpenClaw is not installed", "requires OpenClaw 2026.9.1"}:
-            assert "celesto computer snapshot create sbx-claw" in error
-            assert "celesto computer delete sbx-claw" in error
-            assert "celesto openclaw start --name sbx-claw --no-attach" in error
-        vm.expose_local.assert_not_called()
-        vm.close.assert_called_once()
-
-    @patch("celesto.cli.main._remove_port_forward")
-    @patch("celesto.cli.main._track_port_forward", side_effect=RuntimeError("state corrupt"))
-    @patch("celesto.cli.main._cli_vm_from_id")
-    def test_open_rolls_back_exposure_when_tracking_fails(
-        self,
-        mock_vm_from_id: MagicMock,
-        _mock_track: MagicMock,
-        mock_remove: MagicMock,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        vm = MagicMock()
-        vm.run.side_effect = [
-            CommandResult(exit_code=0, stdout="OpenClaw 2026.9.1", stderr=""),
-            CommandResult(exit_code=0, stdout="", stderr=""),
-            CommandResult(
-                exit_code=0,
-                stdout=json.dumps(
-                    {"ok": True, "browserUrl": "http://127.0.0.1:18789/#token=secret"}
-                ),
-                stderr="",
-            ),
-        ]
-        vm.expose_local.return_value = 39876
-        mock_vm_from_id.return_value = vm
-
-        ret = main(["openclaw", "open-ui", "sbx-claw", "--json"])
-
-        assert ret == 1
-        assert "state corrupt" in json.loads(capsys.readouterr().out)["error"]["message"]
-        vm.unexpose_local.assert_called_once_with(39876, 18789)
-        mock_remove.assert_called_once_with("sbx-claw", 39876, 18789)
-        vm.close.assert_called_once()
-
-    @patch("celesto.cli.main.webbrowser.open", side_effect=OSError("no browser"))
-    @patch("celesto.cli.main._track_port_forward")
-    @patch("celesto.cli.main._cli_vm_from_id")
-    def test_open_prints_link_when_browser_launch_fails(
-        self,
-        mock_vm_from_id: MagicMock,
-        _mock_track: MagicMock,
-        _mock_browser_open: MagicMock,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        vm = MagicMock()
-        vm.run.side_effect = [
-            CommandResult(exit_code=0, stdout="OpenClaw 2026.9.1", stderr=""),
-            CommandResult(exit_code=0, stdout="", stderr=""),
-            CommandResult(
-                exit_code=0,
-                stdout=json.dumps(
-                    {"ok": True, "browserUrl": "http://127.0.0.1:18789/#token=secret"}
-                ),
-                stderr="",
-            ),
-        ]
-        vm.expose_local.return_value = 39876
-        mock_vm_from_id.return_value = vm
-
-        ret = main(["openclaw", "open-ui", "sbx-claw"])
-
-        assert ret == 0
-        assert "http://127.0.0.1:39876/#token=secret" in capsys.readouterr().out
-        vm.unexpose_local.assert_not_called()
-        vm.close.assert_called_once()
+class TestPortForwardState:
+    """Persistence of local port forwards."""
 
     @patch("celesto.cli.main._port_forwards_path")
     def test_track_port_forward_persists_transport_pid_and_replaces_stale_pair(
@@ -5155,31 +3842,8 @@ class TestOpenClawCommands:
         assert str(raised.value) == expected
 
 
-class TestPublishedImageLaunchPath:
-    """Tests for the published-image launch path.
-
-    ``celesto <preset> start`` uses a pre-built rootfs from GitHub Releases
-    via ensure_published_image, then boots directly. Tooling assumed to be
-    preinstalled in the image.
-    """
-
-    @pytest.fixture(autouse=True)
-    def _enable_the_published_path_for_legacy_path_tests(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> Iterator[None]:
-        """Exercise the path directly while production skips the stale OpenClaw image."""
-        from dataclasses import replace
-
-        from celesto.presets import OPENCLAW_PRESET
-
-        for key in OPENCLAW_PRESET.host_env_vars:
-            monkeypatch.delenv(key, raising=False)
-        with patch.dict(
-            "celesto.presets._REGISTRY",
-            {"openclaw": replace(OPENCLAW_PRESET, prefer_published_image=True)},
-        ):
-            yield
+class TestPublishedHostHelpers:
+    """Host detection helpers used when pulling published images."""
 
     @patch("celesto.cli.main.platform.machine")
     def test_arch_helper_normalizes(self, mock_machine: MagicMock) -> None:
@@ -5200,274 +3864,15 @@ class TestPublishedImageLaunchPath:
     def test_arch_helper_rejects_unsupported(self, _mock_machine: MagicMock) -> None:
         from celesto.cli.main import _host_arch_for_published
 
-        with pytest.raises(RuntimeError, match="Agent presets need an amd64 or arm64 processor"):
+        with pytest.raises(RuntimeError, match="Published images need an amd64 or arm64 processor"):
             _host_arch_for_published()
-
-    @patch("celesto.utils.ensure_ssh_key")
-    @patch("celesto.cli.main.platform.system", return_value="Linux")
-    @patch("celesto.images.published.ensure_published_image")
-    def test_published_path_surfaces_missing_manifest_error(
-        self,
-        mock_ensure: MagicMock,
-        _mock_system: MagicMock,
-        mock_ensure_ssh_key: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        """An empty manifest entry should produce a clean CLI error, not a crash.
-
-        ``ensure_ssh_key`` is mocked because the published-image launch
-        path resolves keys before the manifest lookup runs; on hosts
-        without ssh-keygen on PATH the test would fail there instead of
-        reaching the ImageError it's meant to verify.
-        """
-        from celesto.exceptions import ImageError
-
-        priv = tmp_path / "id_ed25519"
-        pub = tmp_path / "id_ed25519.pub"
-        priv.touch()
-        pub.write_text("ssh-ed25519 AAAAExampleKey test@host\n")
-        mock_ensure_ssh_key.return_value = (priv, pub)
-
-        mock_ensure.side_effect = ImageError(
-            "No published image for preset 'openclaw' on arch 'amd64' (available: (none))."
-        )
-
-        ret = main(["openclaw", "start", "--json"])
-
-        assert ret == 1
-        mock_ensure.assert_called_once()
 
     @patch("celesto.cli.main.platform.system", return_value="FreeBSD")
     def test_vmm_for_host_rejects_unsupported_os(self, _mock_system: MagicMock) -> None:
         from celesto.cli.main import _vmm_for_host
 
-        with pytest.raises(RuntimeError, match="Agent presets need Linux or macOS"):
+        with pytest.raises(RuntimeError, match="Published images need Linux or macOS"):
             _vmm_for_host()
-
-    def test_boot_args_for_firecracker_omits_console_arg(self) -> None:
-        from celesto.cli.main import _boot_args_for
-
-        # Firecracker's base string already disables 8250 and uses its own
-        # console wiring — no console= should be added by the helper.
-        for arch in ("amd64", "arm64"):
-            result = _boot_args_for("openclaw", "firecracker", arch)  # type: ignore[arg-type]
-            assert "console=" not in result
-            assert "8250.nr_uarts=0" in result
-
-    @patch("celesto.cli.main.platform.system", return_value="Linux")
-    @patch(
-        "celesto.cli.main._PUBLISHED_IMAGE_BOOT_ARGS",
-        new={},  # nothing registered → unconditional miss
-    )
-    def test_published_path_rejects_unconfigured_preset_vmm(
-        self,
-        _mock_system: MagicMock,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        """A preset with no boot_args entry for the resolved vmm must
-        produce a clean exit-2 error, not a KeyError further down."""
-        ret = main(["openclaw", "start", "--json"])
-
-        envelope = json.loads(capsys.readouterr().out)
-        assert ret == 2
-        assert envelope["exit_code"] == 2
-        assert "isn't available as a prebuilt image" in envelope["error"]["message"]
-
-    @pytest.mark.parametrize(
-        "system,machine,expected_arch,expected_vmm,expected_backend",
-        [
-            ("Linux", "x86_64", "amd64", "firecracker", "firecracker"),
-            ("Linux", "aarch64", "arm64", "firecracker", "firecracker"),
-            ("Darwin", "arm64", "arm64", "qemu", "qemu"),
-            ("Darwin", "x86_64", "amd64", "qemu", "qemu"),
-        ],
-    )
-    @patch("celesto.cli.main.subprocess.run")
-    @patch("celesto.facade.Celesto")
-    @patch("celesto.utils.ensure_ssh_key")
-    @patch("celesto.images.published.ensure_published_image")
-    @patch("celesto.cli.main.platform.machine")
-    @patch("celesto.cli.main.platform.system")
-    def test_published_path_happy_path_skips_apply_preset(
-        self,
-        mock_system: MagicMock,
-        mock_machine: MagicMock,
-        mock_ensure_image: MagicMock,
-        mock_ensure_ssh_key: MagicMock,
-        mock_vm_cls: MagicMock,
-        _mock_subprocess: MagicMock,
-        tmp_path: Path,
-        system: str,
-        machine: str,
-        expected_arch: str,
-        expected_vmm: str,
-        expected_backend: str,
-        monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        """End-to-end: download → VMConfig → start, no apply_preset call."""
-        from celesto.images.manager import LocalImage
-
-        mock_system.return_value = system
-        mock_machine.return_value = machine
-
-        kernel = tmp_path / "vmlinux.bin"
-        rootfs = tmp_path / "rootfs.ext4"
-        priv = tmp_path / "id_ed25519"
-        pub = tmp_path / "id_ed25519.pub"
-        kernel.touch()
-        rootfs.touch()
-        priv.touch()
-        pub.write_text("ssh-ed25519 AAAAExampleKey user@host\n")
-
-        mock_ensure_image.return_value = LocalImage(
-            name=f"openclaw-v0.0.13-{expected_arch}-{expected_vmm}",
-            kernel_path=kernel,
-            rootfs_path=rootfs,
-        )
-        mock_ensure_ssh_key.return_value = (priv, pub)
-        mock_vm = MagicMock()
-        mock_vm.vm_id = "sbx-published-1"
-        mock_vm.info.status = VMState.RUNNING
-        mock_vm.info.config.backend = expected_backend
-        mock_vm.info.network = MagicMock(spec=NetworkConfig)
-        mock_vm.info.network.guest_ip = "172.16.0.2"
-        mock_vm.info.network.ssh_host_port = 2200
-        channel = MagicMock()
-        channel.supports.return_value = True
-        channel.set_managed_env.return_value = {"OPENAI_API_KEY": "published-secret"}
-        mock_vm._ensure_control_for_file_transfer.return_value = channel
-        mock_vm_cls.return_value = mock_vm
-        monkeypatch.setenv("OPENAI_API_KEY", "published-secret")
-
-        # If apply_preset gets called, this test should fail loudly.
-        with patch("celesto.presets.apply_preset") as mock_apply:
-            ret = main(["openclaw", "start", "--json"])
-
-            mock_apply.assert_not_called()
-
-        assert ret == 0
-        mock_ensure_image.assert_called_once_with("openclaw", expected_arch, expected_vmm, "ubuntu")
-        channel.set_managed_env.assert_called_once_with({"OPENAI_API_KEY": "published-secret"})
-        payload = json.loads(capsys.readouterr().out)
-        assert payload["data"]["preset"]["injected_env_keys"] == ["OPENAI_API_KEY"]
-
-        # Verify VMConfig was built with the right wiring.
-        config_arg = mock_vm_cls.call_args[0][0]
-        assert config_arg.preset == "openclaw"
-        assert config_arg.kernel_path == kernel
-        assert config_arg.rootfs_path == rootfs
-        assert config_arg.backend == expected_backend
-        assert config_arg.ssh_public_key == "ssh-ed25519 AAAAExampleKey user@host"
-        assert "init=/init" in config_arg.boot_args
-        if expected_vmm == "qemu":
-            expected_console = "ttyAMA0" if expected_arch == "arm64" else "ttyS0"
-            assert f"console={expected_console}" in config_arg.boot_args
-
-        # Success path: VM is left running so the user can ssh in. stop()
-        # and delete() must NOT have been called — only close() to release
-        # SDK handles.
-        mock_vm.stop.assert_not_called()
-        mock_vm.delete.assert_not_called()
-        mock_vm.close.assert_called_once()
-
-    @patch("celesto.cli.main.subprocess.run")
-    @patch("celesto.facade.Celesto")
-    @patch("celesto.utils.ensure_ssh_key")
-    @patch("celesto.images.published.ensure_published_image")
-    @patch("celesto.cli.main.platform.machine", return_value="x86_64")
-    @patch("celesto.cli.main.platform.system", return_value="Linux")
-    def test_published_path_threads_explicit_comm_channel(
-        self,
-        _mock_system: MagicMock,
-        _mock_machine: MagicMock,
-        mock_ensure_image: MagicMock,
-        mock_ensure_ssh_key: MagicMock,
-        mock_vm_cls: MagicMock,
-        _mock_subprocess: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        """Published images must honor an explicit control-channel choice."""
-        from celesto.images.manager import LocalImage
-
-        kernel = tmp_path / "vmlinux.bin"
-        rootfs = tmp_path / "rootfs.ext4"
-        priv = tmp_path / "id_ed25519"
-        pub = tmp_path / "id_ed25519.pub"
-        for path in (kernel, rootfs, priv):
-            path.touch()
-        pub.write_text("ssh-ed25519 AAAAExampleKey user@host\n")
-
-        mock_ensure_image.return_value = LocalImage(
-            name="openclaw-v0.0.13-amd64-firecracker",
-            kernel_path=kernel,
-            rootfs_path=rootfs,
-        )
-        mock_ensure_ssh_key.return_value = (priv, pub)
-        mock_vm = MagicMock()
-        mock_vm.vm_id = "sbx-published-1"
-        mock_vm.info.status = VMState.RUNNING
-        mock_vm.info.config.backend = "firecracker"
-        mock_vm.info.network = MagicMock(spec=NetworkConfig)
-        mock_vm.info.network.guest_ip = "172.16.0.2"
-        mock_vm.info.network.ssh_host_port = 2200
-        mock_vm_cls.return_value = mock_vm
-
-        ret = main(["openclaw", "start", "--json", "--comm-channel", "ssh"])
-
-        assert ret == 0
-        assert mock_vm_cls.call_args.kwargs["comm_channel"] == "ssh"
-
-    @patch("celesto.cli.main.subprocess.run")
-    @patch("celesto.facade.Celesto")
-    @patch("celesto.utils.ensure_ssh_key")
-    @patch("celesto.images.published.ensure_published_image")
-    @patch("celesto.cli.main.platform.machine", return_value="arm64")
-    @patch("celesto.cli.main.platform.system", return_value="Darwin")
-    def test_published_path_reaps_vm_on_failure(
-        self,
-        _mock_system: MagicMock,
-        _mock_machine: MagicMock,
-        mock_ensure_image: MagicMock,
-        mock_ensure_ssh_key: MagicMock,
-        mock_vm_cls: MagicMock,
-        _mock_subprocess: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        """If wait_for_ssh fails, the VM (and its QEMU process) must be
-        stopped and deleted — not just close()d, which only releases SDK
-        handles and leaves the runtime burning CPU."""
-        from celesto.exceptions import OperationTimeoutError
-        from celesto.images.manager import LocalImage
-
-        kernel = tmp_path / "vmlinux.bin"
-        rootfs = tmp_path / "rootfs.ext4"
-        priv = tmp_path / "id_ed25519"
-        pub = tmp_path / "id_ed25519.pub"
-        for p in (kernel, rootfs, priv):
-            p.touch()
-        pub.write_text("ssh-ed25519 AAAAExampleKey user@host\n")
-
-        mock_ensure_image.return_value = LocalImage(
-            name="openclaw-v0.0.13-arm64-qemu",
-            kernel_path=kernel,
-            rootfs_path=rootfs,
-        )
-        mock_ensure_ssh_key.return_value = (priv, pub)
-        mock_vm = MagicMock()
-        mock_vm.vm_id = "sbx-published-leak"
-        mock_vm.wait_for_ssh.side_effect = OperationTimeoutError(
-            "wait_for_ssh: simulated timeout", 30.0
-        )
-        mock_vm_cls.return_value = mock_vm
-
-        ret = main(["openclaw", "start", "--json"])
-
-        assert ret == 1  # OperationTimeoutError → exit 1
-        mock_vm.start.assert_called_once()
-        mock_vm.stop.assert_called_once()
-        mock_vm.delete.assert_called_once()
-        mock_vm.close.assert_called_once()
 
 
 class TestCliImage:
@@ -5495,31 +3900,31 @@ class TestCliImage:
         kernel.touch()
         rootfs.touch()
         # The cache dir must pre-exist for the pull to count as a no-op.
-        (tmp_path / cache_name("codex", "amd64", "firecracker")).mkdir()
+        (tmp_path / cache_name("ubuntu", "amd64", "firecracker")).mkdir()
         mock_ensure_published.return_value = LocalImage(
-            name="codex-cache",
+            name="ubuntu-cache",
             kernel_path=kernel,
             rootfs_path=rootfs,
         )
 
-        ret = main(["image", "pull", "codex", "--image-dir", str(tmp_path), "--json"])
+        ret = main(["image", "pull", "ubuntu", "--image-dir", str(tmp_path), "--json"])
 
         assert ret == 0
         payload = json.loads(capsys.readouterr().out)
         assert payload["command"] == "image.pull"
         assert payload["ok"] is True
-        assert payload["data"]["preset"] == "codex"
+        assert payload["data"]["preset"] == "ubuntu"
         assert payload["data"]["arch"] == "amd64"
         assert payload["data"]["vmm"] == "firecracker"
         assert payload["data"]["os"] == "ubuntu"
-        assert payload["data"]["name"] == cache_name("codex", "amd64", "firecracker")
+        assert payload["data"]["name"] == cache_name("ubuntu", "amd64", "firecracker")
         assert payload["data"]["already_cached"] is True
         # tmp_path is not where sandbox starts look for images.
         assert len(payload["data"]["warnings"]) == 1
         assert "CELESTO_IMAGE_DIR" in payload["data"]["warnings"][0]
         mock_ensure_published.assert_called_once()
         call = mock_ensure_published.call_args
-        assert call.args == ("codex", "amd64", "firecracker", "ubuntu")
+        assert call.args == ("ubuntu", "amd64", "firecracker", "ubuntu")
         assert call.kwargs["cache_dir"] == tmp_path
 
     @patch("celesto.images.published.ensure_published_image")
@@ -5538,7 +3943,7 @@ class TestCliImage:
         from celesto.images.manager import LocalImage
         from celesto.images.published import cache_name
 
-        cache_dir = tmp_path / cache_name("codex", "amd64", "firecracker")
+        cache_dir = tmp_path / cache_name("ubuntu", "amd64", "firecracker")
         cache_dir.mkdir()
         dir_mtime_ns = cache_dir.stat().st_mtime_ns
 
@@ -5552,12 +3957,12 @@ class TestCliImage:
             # so this regression cannot pass by winning a timing race.
             os.utime(cache_dir, ns=(dir_mtime_ns, dir_mtime_ns))
             return LocalImage(
-                name="codex-cache", kernel_path=cache_dir / "vmlinux.bin", rootfs_path=rootfs
+                name="ubuntu-cache", kernel_path=cache_dir / "vmlinux.bin", rootfs_path=rootfs
             )
 
         mock_ensure_published.side_effect = fake_ensure
 
-        ret = main(["image", "pull", "codex", "--image-dir", str(tmp_path), "--json"])
+        ret = main(["image", "pull", "ubuntu", "--image-dir", str(tmp_path), "--json"])
 
         assert ret == 0
         payload = json.loads(capsys.readouterr().out)
@@ -5583,13 +3988,13 @@ class TestCliImage:
         from celesto.images.manager import LocalImage
         from celesto.images.published import cache_name
 
-        cache_dir = tmp_path / cache_name("codex", "amd64", "firecracker")
+        cache_dir = tmp_path / cache_name("ubuntu", "amd64", "firecracker")
         cache_dir.mkdir()
         rootfs = cache_dir / "rootfs.ext4"
         rootfs.write_text("cached")
 
         mock_ensure_published.side_effect = lambda *a, **k: LocalImage(
-            name="codex-cache", kernel_path=cache_dir / "vmlinux.bin", rootfs_path=rootfs
+            name="ubuntu-cache", kernel_path=cache_dir / "vmlinux.bin", rootfs_path=rootfs
         )
 
         real_stat = Path.stat
@@ -5600,7 +4005,7 @@ class TestCliImage:
             return real_stat(self, *args, **kwargs)  # type: ignore[arg-type]
 
         with patch.object(Path, "stat", unreadable):
-            ret = main(["image", "pull", "codex", "--image-dir", str(tmp_path), "--json"])
+            ret = main(["image", "pull", "ubuntu", "--image-dir", str(tmp_path), "--json"])
 
         assert ret == 0
         payload = json.loads(capsys.readouterr().out)
@@ -5626,7 +4031,7 @@ class TestCliImage:
         from celesto.images.manager import LocalImage
         from celesto.images.published import cache_name
 
-        cache_dir = tmp_path / cache_name("codex", "amd64", "firecracker")
+        cache_dir = tmp_path / cache_name("ubuntu", "amd64", "firecracker")
         layers = cache_dir / "layers"
         layers.mkdir(parents=True)
         rootfs = cache_dir / "rootfs.ext4"
@@ -5634,7 +4039,7 @@ class TestCliImage:
         (layers / "layer0.bin").write_text("cached")
 
         mock_ensure_published.side_effect = lambda *a, **k: LocalImage(
-            name="codex-cache", kernel_path=cache_dir / "vmlinux.bin", rootfs_path=rootfs
+            name="ubuntu-cache", kernel_path=cache_dir / "vmlinux.bin", rootfs_path=rootfs
         )
 
         real_scandir = os.scandir
@@ -5647,7 +4052,7 @@ class TestCliImage:
             return real_scandir(path)
 
         with patch("celesto.cli.image.os.scandir", side_effect=unreadable):
-            ret = main(["image", "pull", "codex", "--image-dir", str(tmp_path), "--json"])
+            ret = main(["image", "pull", "ubuntu", "--image-dir", str(tmp_path), "--json"])
 
         assert ret == 0
         payload = json.loads(capsys.readouterr().out)
@@ -5667,7 +4072,7 @@ class TestCliImage:
         """Disk failures must not be blamed on the network (regression)."""
         mock_ensure_published.side_effect = OSError(28, "No space left on device")
 
-        ret = main(["image", "pull", "codex", "--image-dir", str(tmp_path), "--json"])
+        ret = main(["image", "pull", "ubuntu", "--image-dir", str(tmp_path), "--json"])
 
         assert ret == 1
         payload = json.loads(capsys.readouterr().out)
@@ -5692,12 +4097,12 @@ class TestCliImage:
         mock_ensure_published.side_effect = ImageError("Download failed")
 
         ret = main(
-            ["image", "pull", "codex", "--os", "alpine", "--image-dir", str(tmp_path), "--json"]
+            ["image", "pull", "ubuntu", "--os", "ubuntu", "--image-dir", str(tmp_path), "--json"]
         )
 
         assert ret == 1
         payload = json.loads(capsys.readouterr().out)
-        assert "--os alpine" in payload["error"]["recovery"]
+        assert "--os ubuntu" in payload["error"]["recovery"]
         assert "--image-dir" in payload["error"]["recovery"]
 
     @patch("celesto.images.published.ensure_published_image")
@@ -5724,79 +4129,15 @@ class TestCliImage:
             assert callable(on_download)
             on_download("kernel", 1024, 2048)
             on_download("rootfs", 512, 512)
-            return LocalImage(name="codex-cache", kernel_path=kernel, rootfs_path=rootfs)
+            return LocalImage(name="ubuntu-cache", kernel_path=kernel, rootfs_path=rootfs)
 
         mock_ensure_published.side_effect = fake_ensure
 
-        ret = main(["image", "pull", "codex", "--image-dir", str(tmp_path), "--json"])
+        ret = main(["image", "pull", "ubuntu", "--image-dir", str(tmp_path), "--json"])
 
         assert ret == 0
         payload = json.loads(capsys.readouterr().out)
         assert payload["data"]["already_cached"] is False
-
-    @patch("celesto.images.published.ensure_published_image")
-    @patch("celesto.cli.main._vmm_for_host", return_value="qemu")
-    @patch("celesto.cli.main._host_arch_for_published", return_value="arm64")
-    def test_image_pull_claude_alias(
-        self,
-        mock_arch: MagicMock,
-        mock_vmm: MagicMock,
-        mock_ensure_published: MagicMock,
-        tmp_path: Path,
-        capsys: pytest.CaptureFixture,
-    ) -> None:
-        """The public `claude` name maps to the claude-code manifest preset."""
-        from celesto.images.manager import LocalImage
-
-        kernel = tmp_path / "vmlinux.bin"
-        rootfs = tmp_path / "rootfs.ext4"
-        kernel.touch()
-        rootfs.touch()
-        mock_ensure_published.return_value = LocalImage(
-            name="claude-cache", kernel_path=kernel, rootfs_path=rootfs
-        )
-
-        ret = main(["image", "pull", "claude", "--image-dir", str(tmp_path), "--json"])
-
-        assert ret == 0
-        payload = json.loads(capsys.readouterr().out)
-        assert payload["data"]["preset"] == "claude-code"
-        assert mock_ensure_published.call_args.args == ("claude-code", "arm64", "qemu", "ubuntu")
-
-    @patch("celesto.images.published.ensure_published_image")
-    @patch("celesto.cli.main._vmm_for_host", return_value="firecracker")
-    @patch("celesto.cli.main._host_arch_for_published", return_value="amd64")
-    def test_image_pull_registry_alias(
-        self,
-        mock_arch: MagicMock,
-        mock_vmm: MagicMock,
-        mock_ensure_published: MagicMock,
-        tmp_path: Path,
-        capsys: pytest.CaptureFixture,
-    ) -> None:
-        """Aliases resolve from the presets registry, so openclaw's 'claw'
-        works without a hand-maintained map (regression)."""
-        from celesto.images.manager import LocalImage
-
-        kernel = tmp_path / "vmlinux.bin"
-        rootfs = tmp_path / "rootfs.ext4"
-        kernel.touch()
-        rootfs.touch()
-        mock_ensure_published.return_value = LocalImage(
-            name="claw-cache", kernel_path=kernel, rootfs_path=rootfs
-        )
-
-        ret = main(["image", "pull", "claw", "--image-dir", str(tmp_path), "--json"])
-
-        assert ret == 0
-        payload = json.loads(capsys.readouterr().out)
-        assert payload["data"]["preset"] == "openclaw"
-        assert mock_ensure_published.call_args.args == (
-            "openclaw",
-            "amd64",
-            "firecracker",
-            "ubuntu",
-        )
 
     @patch("celesto.cli.main._vmm_for_host", return_value="firecracker")
     @patch("celesto.cli.main._host_arch_for_published", return_value="amd64")
@@ -5813,7 +4154,7 @@ class TestCliImage:
         assert payload["command"] == "image.pull"
         assert payload["ok"] is False
         assert payload["error"]["code"] == "invalid_input"
-        assert "codex" in payload["error"]["message"]
+        assert "ubuntu" in payload["error"]["message"]
 
     @patch("celesto.cli.main._vmm_for_host", return_value="firecracker")
     @patch("celesto.cli.main._host_arch_for_published", return_value="amd64")
@@ -5824,12 +4165,12 @@ class TestCliImage:
         capsys: pytest.CaptureFixture,
     ) -> None:
         """A valid preset with an unpublished os flavour names the default recovery."""
-        ret = main(["image", "pull", "hermes", "--os", "alpine", "--json"])
+        ret = main(["image", "pull", "ubuntu", "--os", "alpine", "--json"])
 
         assert ret == 2
         payload = json.loads(capsys.readouterr().out)
         assert payload["error"]["code"] == "invalid_input"
-        assert "celesto image pull hermes" in payload["error"]["message"]
+        assert "celesto image pull ubuntu" in payload["error"]["message"]
 
     @patch(
         "celesto.cli.main._host_arch_for_published",
@@ -5841,7 +4182,7 @@ class TestCliImage:
         capsys: pytest.CaptureFixture,
     ) -> None:
         """An undetectable host platform asks for explicit --arch/--vmm."""
-        ret = main(["image", "pull", "codex", "--json"])
+        ret = main(["image", "pull", "ubuntu", "--json"])
 
         assert ret == 2
         payload = json.loads(capsys.readouterr().out)
@@ -5863,12 +4204,12 @@ class TestCliImage:
 
         mock_ensure_published.side_effect = ImageError("Download failed for https://…: 403")
 
-        ret = main(["image", "pull", "codex", "--image-dir", str(tmp_path), "--json"])
+        ret = main(["image", "pull", "ubuntu", "--image-dir", str(tmp_path), "--json"])
 
         assert ret == 1
         payload = json.loads(capsys.readouterr().out)
         assert payload["ok"] is False
-        assert "celesto image pull codex" in payload["error"]["recovery"]
+        assert "celesto image pull ubuntu" in payload["error"]["recovery"]
 
     def test_image_pull_parse_error_command_name(self, capsys: pytest.CaptureFixture) -> None:
         """Parse-time errors carry the dotted image.pull command name."""
@@ -5919,7 +4260,6 @@ class TestCliExec:
         capsys: pytest.CaptureFixture,
     ) -> None:
         """`sandbox exec` runs the command and passes output/exit code through."""
-        from celesto.types import CommandResult
 
         vm = self._setup_vm(mock_vm_cls)
         vm.run.return_value = CommandResult(exit_code=0, stdout="hi\n", stderr="")
@@ -5934,7 +4274,6 @@ class TestCliExec:
 
     def test_exec_preserves_quoting(self, mock_vm_cls: MagicMock) -> None:
         """Command tokens are re-joined with shell quoting preserved."""
-        from celesto.types import CommandResult
 
         vm = self._setup_vm(mock_vm_cls)
         vm.run.return_value = CommandResult(exit_code=0, stdout="", stderr="")
@@ -5949,7 +4288,6 @@ class TestCliExec:
         capsys: pytest.CaptureFixture,
     ) -> None:
         """A failing guest command surfaces its exit code and stderr."""
-        from celesto.types import CommandResult
 
         vm = self._setup_vm(mock_vm_cls)
         vm.run.return_value = CommandResult(exit_code=3, stdout="", stderr="boom\n")
@@ -5965,7 +4303,6 @@ class TestCliExec:
         capsys: pytest.CaptureFixture,
     ) -> None:
         """`--json` emits the command result as a JSON envelope."""
-        from celesto.types import CommandResult
 
         vm = self._setup_vm(mock_vm_cls)
         vm.run.return_value = CommandResult(exit_code=0, stdout="out", stderr="err")
@@ -5979,7 +4316,6 @@ class TestCliExec:
 
     def test_exec_custom_timeout(self, mock_vm_cls: MagicMock) -> None:
         """`--timeout` is forwarded to the facade run call."""
-        from celesto.types import CommandResult
 
         vm = self._setup_vm(mock_vm_cls)
         vm.run.return_value = CommandResult(exit_code=0, stdout="", stderr="")
@@ -6041,7 +4377,6 @@ class TestCliExec:
         mock_vm_cls: MagicMock,
     ) -> None:
         """`--start` starts a stopped sandbox before running the command."""
-        from celesto.types import CommandResult
 
         vm = self._setup_vm(mock_vm_cls)
         vm.status = VMState.STOPPED
@@ -6059,7 +4394,6 @@ class TestCliExec:
         capsys: pytest.CaptureFixture,
     ) -> None:
         """A non-zero guest exit keeps the envelope's ok<->error invariant."""
-        from celesto.types import CommandResult
 
         vm = self._setup_vm(mock_vm_cls)
         vm.run.return_value = CommandResult(exit_code=2, stdout="partial", stderr="nope")
@@ -6076,7 +4410,6 @@ class TestCliExec:
 
     def test_exec_broken_pipe_exits_cleanly(self, mock_vm_cls: MagicMock) -> None:
         """A reader closing the pipe (`| head`) does not surface as an error."""
-        from celesto.types import CommandResult
 
         vm = self._setup_vm(mock_vm_cls)
         vm.run.return_value = CommandResult(exit_code=0, stdout="data", stderr="")
@@ -6098,7 +4431,6 @@ class TestCliExec:
         capsys: pytest.CaptureFixture,
     ) -> None:
         """A closed stdout pipe must not swallow the command's stderr."""
-        from celesto.types import CommandResult
 
         vm = self._setup_vm(mock_vm_cls)
         vm.run.return_value = CommandResult(exit_code=0, stdout="out", stderr="err\n")
@@ -6117,7 +4449,6 @@ class TestCliExec:
 
     def test_exec_json_broken_pipe_suppressed(self, mock_vm_cls: MagicMock) -> None:
         """A closed pipe during the JSON emit is handled, not left to noise at exit."""
-        from celesto.types import CommandResult
 
         vm = self._setup_vm(mock_vm_cls)
         vm.run.return_value = CommandResult(exit_code=0, stdout="x", stderr="")

@@ -95,10 +95,10 @@ class TestStateManagerVMOperations:
         state_manager: StateManager,
         sample_config: VMConfig,
     ) -> None:
-        config = sample_config.model_copy(update={"preset": "openclaw"})
+        config = sample_config.model_copy(update={"preset": "ubuntu"})
         state_manager.create_vm(config)
 
-        assert state_manager.get_vm("vm001").config.preset == "openclaw"
+        assert state_manager.get_vm("vm001").config.preset == "ubuntu"
 
     def test_get_legacy_vm_without_preset_defaults_to_none(
         self,

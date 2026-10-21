@@ -385,7 +385,7 @@ class TestVMInit:
         config, _ = _build_auto_config(
             os="ubuntu",
             backend=backend,
-            preset_name="codex",
+            preset_name="ubuntu",
             on_download=on_download,
         )
 
@@ -394,7 +394,7 @@ class TestVMInit:
         assert mock_ensure_published.call_args.kwargs["on_download"] is on_download
 
         assert config.backend == backend
-        assert config.preset == "codex"
+        assert config.preset == "ubuntu"
         assert config.guest_os is GuestOS.UBUNTU
         assert config.rootfs_path == rootfs
         assert config.rootfs_format == "raw-ext4"
@@ -580,11 +580,11 @@ class TestVMInit:
 
         config, ssh_key_path = _build_auto_config(
             vm_name="project-spacex",
-            preset_name="openclaw",
+            preset_name="ubuntu",
         )
 
         assert config.vm_id == "project-spacex"
-        assert config.preset == "openclaw"
+        assert config.preset == "ubuntu"
         assert ssh_key_path == str(private_key)
         assert config.guest_managed_networking is True
         assert "init=/init" in config.boot_args
