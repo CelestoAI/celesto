@@ -164,6 +164,31 @@ CommandEvent = CommandStartedEvent | CommandOutputEvent | CommandExitEvent
 """An event yielded by :meth:`celesto.Computer.run_stream`."""
 
 
+class TemplateBuildFailure(BaseModel):
+    """Where a custom template's build script failed.
+
+    ``line`` and ``line_number`` point into the build script. All fields are
+    ``None`` when the failure came from a build step outside the script.
+    """
+
+    line: str | None = None
+    line_number: int | None = None
+    exit_code: int | None = None
+    hint: str | None = None
+
+    model_config = {"frozen": True}
+
+
+class TemplateLintWarning(BaseModel):
+    """A warning about one build script line. Warnings never block a build."""
+
+    line: int
+    code: str
+    message: str
+
+    model_config = {"frozen": True}
+
+
 class PublishedPort(BaseModel):
     """A public HTTP route to an application inside a computer.
 
