@@ -1,6 +1,6 @@
 # Sandbox credential injection
 
-Status: building
+Status: building (rebasing onto e05f3e9, #677)
 Acceptance target: local stack on the user's Mac — QEMU slirp and libkrun
 (`uv run celesto codex start`, `uv run celesto claude-code start`). Linux
 backends (Firecracker, QEMU TAP, bridge) are deferred until a Linux host is
@@ -44,7 +44,7 @@ against its bound host (D-01).
   zero hits. Artifact: scan report JSON.
 - Acceptance: A-08
 
-### D-02: Protect API keys, subscription logins, GitHub HTTPS tokens, and SSH keys
+### D-02 (superseded by D-20): Protect API keys, subscription logins, GitHub HTTPS tokens, and SSH keys
 
 - Scope: everything the presets copy into the guest today
   (`src/celesto/presets/*.py`, `presets/_git.py:37`).
@@ -194,7 +194,7 @@ against its bound host (D-01).
   across headers or repeated; (7) WebSocket Upgrade not injected; (8) SSE
   buffered instead of streamed; (9) real value written to the log; (10) panic
   in one connection kills the process.
-- Acceptance: covered by A-01–A-03
+- Acceptance: A-03, A-09
 
 ### D-09: Re-read real secrets from their source on every sandbox start; store nothing
 
@@ -220,7 +220,7 @@ against its bound host (D-01).
   injection happens.
 - Acceptance: none — covered by E2E tests
 
-### D-10: The proxy owns login refresh and writes new tokens back to the host's login
+### D-10 (superseded by D-22): The proxy owns login refresh and writes new tokens back to the host's login
 
 - Applies to: Codex ChatGPT login (`~/.codex/auth.json`, refresh at
   `auth.openai.com/oauth/token`) and Claude Pro/Max (macOS Keychain item or
@@ -340,7 +340,7 @@ against its bound host (D-01).
 - Tests: E2E: after a restart the guest's installed CA differs and no CA
   private key exists on host disk or in the guest; Codex (REST and WebSocket)
   and Claude Code connect through the proxy without TLS errors.
-- Acceptance: A-01, A-02
+- Acceptance: A-03, A-09
 
 ### D-15: Secret changes apply live to a running sandbox
 
@@ -377,7 +377,7 @@ against its bound host (D-01).
   shows the message (human and JSON). Kill the VM; the proxy exits.
 - Acceptance: none — covered by E2E tests
 
-### D-17: Clean up pre-release sandboxes automatically on their first start
+### D-17 (superseded by D-21): Clean up pre-release sandboxes automatically on their first start
 
 - Celesto knows what it copied (each preset's env and file lists, plus
   `GIT_HOST_CONFIGS`). On the first start after upgrade it replaces each real
@@ -395,7 +395,7 @@ against its bound host (D-01).
   with the new release; D-01 scan passes and the message prints once.
 - Acceptance: A-07
 
-### D-18: Show what is protected, never the values
+### D-18 (superseded by D-23): Show what is protected, never the values
 
 - Start summary: preset starts print each protected credential and its hosts,
   plus credentials that were not set.
@@ -416,7 +416,7 @@ against its bound host (D-01).
   the D-01 scan also runs over CLI output and logs.
 - Acceptance: none — covered by E2E tests
 
-### D-19: Built-in host bindings for preset credentials; inject into headers only
+### D-19 (superseded by D-20): Built-in host bindings for preset credentials; inject into headers only
 
 | Credential | Bound hosts | Injected as |
 |---|---|---|
@@ -445,6 +445,67 @@ against its bound host (D-01).
 - Tests: Covered by the per-preset E2E runs and the Rust tests in D-08.
 - Acceptance: A-01, A-02
 
+### D-20: After presets were removed (#677), protect user secrets and SSH keys only
+
+- Context: main commit `e05f3e9` (#677) removed the preset system
+  (`celesto <agent> start`, `src/celesto/presets/`). Nothing copies preset
+  credentials into a computer any more, so D-02's preset scope and D-19's
+  built-in host table have no code path left.
+- Scope now: user secrets bound to hosts (D-11, D-12, D-15), SSH keys through
+  the filtered agent and the GitHub SSH-to-HTTPS rewrite (D-13), and cleanup of
+  computers the old presets created (D-21).
+- User secrets name their own host. Default injection: `Authorization`
+  (Bearer, or Basic password) and `x-api-key`; `--header` / `header=`
+  overrides. Headers only, never body or query (unchanged from D-19).
+- Removed from the branch: preset credential specs, `build_plan` preset
+  parts, placeholder login files, the start summary (W2), and login refresh
+  (W5). `credentials/plan.py` remains for user secrets only.
+- Implementation: rebase onto `e05f3e9`; drop preset-only code; keep
+  `credentials/plan.build_plan(sandbox_id, state, env)` building the plan from
+  user secrets so `runtime.attach_on_start` keeps working.
+- Tests: user-secrets and runtime E2E on QEMU; no preset E2E.
+- Acceptance: A-03, A-06, A-08, A-09
+
+### D-21: One-time cleanup of copied keys in computers made by the old presets
+
+- Supersedes D-17. Computers created before this release by a preset (their
+  stored VM record still carries `preset`) may hold real keys the old presets
+  copied. On their first start after upgrade, Celesto removes them from a
+  fixed list of paths the presets wrote:
+  - managed env entries in `/etc/profile.d/celesto_env.sh` for the old preset
+    variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`,
+    `GOOGLE_API_KEY`, `GEMINI_API_KEY`, `HF_TOKEN`, `OPENCLAW_GATEWAY_TOKEN`,
+    `OPENCLAW_GATEWAY_PASSWORD`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+    `AWS_SESSION_TOKEN`);
+  - login and token files: `/root/.codex/auth.json`,
+    `/root/.claude/.credentials.json`, opencode/pi/hermes auth files,
+    `/root/.git-credentials`, `/root/.config/gh/hosts.yml`;
+  - private keys under `/root/.ssh` (public keys and `known_hosts` stay).
+- They are deleted, not replaced with placeholders: no proxy binding exists
+  for them any more. Users re-add what they need with `computer secret set`.
+- One-time message: `Celesto removed copied keys from old-codex. If an agent may have copied them elsewhere in the computer, rotate them or recreate the computer.`
+- Rejected: Keeping D-17's placeholder replacement — nothing would inject them.
+- Implementation: `credentials/migrate.py` with the fixed path list, gated
+  by the stored credential-protection version.
+- Tests: E2E: plant those files and env entries in a computer whose record has
+  `preset` and an old version; start; they are gone, others untouched, message
+  once.
+- Acceptance: A-07
+
+### D-22: Subscription logins are out of scope
+
+- Supersedes D-10. No preset delivers a Codex or Claude login into a computer
+  any more, so login placeholders and host-side refresh have no caller. W5's
+  `credentials/logins.py` and its launcher hook are removed.
+- A generic login feature (e.g. `celesto computer login add codex`) can come
+  back as its own design.
+
+### D-23: Show what is protected without the preset start summary
+
+- Supersedes D-18's start summary only; `computer secret list [--json]`, the
+  credentials log (`computer logs --credentials`), and the no-values invariant
+  stay as in D-18.
+
 ## Open questions
 
 - Q-01 (deferred by user): Linux host for Firecracker / QEMU TAP / bridge
@@ -454,22 +515,6 @@ against its bound host (D-01).
 
 Only what the E2E tests cannot prove: real CLIs with real logins, real
 GitHub, Linux backends, and upgrading from the previous release.
-
-### A-01 (D-02, D-08, D-14, D-19): Codex works with an API key and a ChatGPT login
-
-- Steps: `uv run celesto codex start`, once with `OPENAI_API_KEY` and once
-  with a ChatGPT login; ask Codex a question that streams a reply.
-- Expect: Replies stream over REST and WebSocket; guest `env` and
-  `/root/.codex/auth.json` hold placeholders only.
-- Result: pending
-
-### A-02 (D-02, D-08, D-14, D-19): Claude Code works with an API key and a Pro/Max login
-
-- Steps: `uv run celesto claude-code start`, once with `ANTHROPIC_API_KEY` and
-  once with the Keychain login; run a prompt.
-- Expect: Reply streams; no approval prompt for the key; guest holds
-  placeholders only.
-- Result: pending
 
 ### A-03 (D-04, D-07, D-08): Routing works on every supported backend
 
@@ -484,14 +529,6 @@ GitHub, Linux backends, and upgrading from the previous release.
 - Expect: Starts, prints the recovery message, guest scan finds nothing.
 - Result: pending
 
-### A-05 (D-10): Login refresh keeps both host and sandbox logged in
-
-- Steps: Bring the real access token near expiry; use Codex in the sandbox
-  and on the host; repeat for Claude Code with the Keychain login.
-- Expect: Both keep working; host login file and Keychain updated; record
-  whether macOS showed a Keychain prompt.
-- Result: pending
-
 ### A-06 (D-13): Git over an SSH URL works against real GitHub; only allowed keys sign
 
 - Steps: Clone and push a private repo via `git@github.com:`; `ssh-key add`
@@ -499,15 +536,22 @@ GitHub, Linux backends, and upgrading from the previous release.
 - Expect: Clone and push succeed over HTTPS; only the allowed key is listed.
 - Result: pending
 
-### A-07 (D-17): Old sandboxes are cleaned on first start after upgrade
+### A-07 (D-21): Computers made by old presets lose their copied keys on first start
 
 - Steps: Create a codex sandbox with the previous release (`uv tool install celesto==<previous>`); upgrade; start it.
 - Expect: Guest scan passes; the one-time message prints once.
 - Result: pending
 
-### A-08 (D-01, D-02): No real value anywhere after real sessions
+### A-08 (D-01, D-20): No real value anywhere after real sessions
 
-- Steps: After A-01, A-02, and A-06, run the guest-wide scan for the real
+- Steps: After A-06 and A-09, run the guest-wide scan for the real
   values used.
 - Expect: Zero hits; scan report saved.
+- Result: pending
+
+### A-09 (D-11, D-15, D-20): A user secret works against a real API
+
+- Steps: `celesto computer secret set my-pc OPENAI_API_KEY --host api.openai.com` with a real key; from the guest, `curl` the models endpoint
+  with the placeholder; then `secret remove`.
+- Expect: Authorized while set; unauthorized right after remove.
 - Result: pending
