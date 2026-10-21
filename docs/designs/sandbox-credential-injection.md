@@ -156,7 +156,7 @@ against its bound host (D-01).
   the cloud design. Shipping Celesto and backend together — one release
   across two repos, an API change, an image change, and a fleet rollout.
 
-### D-07: Support every NAT backend; fail closed on bridge mode
+### D-07 (amended by D-26, D-27): Support every NAT backend; fail closed on bridge mode
 
 - Supported: QEMU slirp (macOS default), Firecracker (Linux default), QEMU
   TAP, libkrun with gvproxy on macOS. Each gets a per-VM forward from the
@@ -206,12 +206,12 @@ against its bound host (D-01).
   next start; logins stay consistent with the host's own login.
 - A credential missing at start is not injected, and the start prints a
   warning naming the variable, the sandbox, and the recovery command, e.g.
-  `OPENAI_API_KEY isn't set in this terminal, so Codex in my-codex can't use it. Set it, then run 'celesto sandbox stop my-codex' and 'celesto sandbox start my-codex'.`
+  `OPENAI_API_KEY isn't set in this terminal, so Codex in my-codex can't use it. Set it, then run 'celesto computer stop my-codex' and 'celesto computer start my-codex'.`
 - Rejected: Snapshotting into the Keychain or a 0600 file at creation — an
   extra long-lived copy (plaintext on Linux), stale after rotation, and it
   forks the login from the host's.
 - Implementation: Credential resolution runs at every start (preset start,
-  `celesto sandbox start`, SDK `start()`), reusing the readers in
+  `celesto computer start`, SDK `start()`), reusing the readers in
   `presets/_install.py` (env, files, Keychain at `:468`), and hands values to
   the proxy over its private channel only. `VMConfig.env_vars` no longer
   persists secret values in SQLite (`cli/_sqlite.py:261`).
@@ -255,7 +255,7 @@ against its bound host (D-01).
 - Principle: every secret a user gives Celesto — preset credentials (D-02) or
   their own — stays on the host. The guest only ever sees placeholders.
 - User secrets: a first-class, host-bound secret.
-  - CLI: `celesto sandbox secret set <sandbox> STRIPE_KEY --host api.stripe.com`.
+  - CLI: `celesto computer secret set <sandbox> STRIPE_KEY --host api.stripe.com`.
     The value comes from the host env var of the same name or a prompt,
     never from the command line.
   - Python SDK: `secrets={"STRIPE_KEY": Secret(host="api.stripe.com")}`;
@@ -268,21 +268,21 @@ against its bound host (D-01).
   be used inside the sandbox.
 - Rejected: Presets only, with a docs note that `env set` values are visible —
   leaves users' own secrets exposed.
-- Implementation: `celesto sandbox secret set|remove|list` beside
+- Implementation: `celesto computer secret set|remove|list` beside
   `sandbox env` (`cli/commands/app.py:1549`); `Secret` type and `secrets`
   field on `VMConfig` (`types.py:711`); TS SDK option in `ts/src/types.ts`.
 - Tests: E2E: `secret set` with a stub upstream at a bound test host;
   the guest sees a placeholder and the stub receives the real value.
 - Acceptance: none — covered by E2E tests
 
-### D-12: Refuse secret-looking values on the plain env paths
+### D-12 (amended by D-29): Refuse secret-looking values on the plain env paths
 
-- Paths: `celesto sandbox env set`, SDK `VMConfig.env_vars` and
+- Paths: `celesto computer env set`, SDK `VMConfig.env_vars` and
   `Celesto.browser/desktop(env_vars=…)`, TS SDK `exec(cmd, {env})`.
 - Detection: names matching `*_KEY`, `*_TOKEN`, `*_SECRET`, `*PASSWORD*`,
   `*CREDENTIAL*`; values shaped like known secrets (`sk-`, `ghp_`,
   `github_pat_`, `xox…`, `AKIA…`, JWTs).
-- Error, e.g.: `OPENAI_API_KEY looks like a secret, so Celesto won't place it inside the sandbox. Run 'celesto sandbox secret set my-sbx OPENAI_API_KEY --host api.openai.com' instead.`
+- Error, e.g.: `OPENAI_API_KEY looks like a secret, so Celesto won't place it inside the computer. Run 'celesto computer secret set my-sbx OPENAI_API_KEY --host api.openai.com' instead.`
 - Escape hatch for false positives: CLI `--not-secret NAME`; SDK
   `not_secret=["NAME"]`.
 - Why: Enforces D-11 where people make the mistake; the error teaches the
@@ -294,7 +294,7 @@ against its bound host (D-01).
   the exact message; `--not-secret` passes; nothing reached the guest.
 - Acceptance: none — covered by E2E tests
 
-### D-13: GitHub SSH URLs go over HTTPS; other SSH uses a filtered agent with chosen keys
+### D-13 (amended by D-30, D-31): GitHub SSH URLs go over HTTPS; other SSH uses a filtered agent with chosen keys
 
 - GitHub: the guest's global git config rewrites `git@github.com:` and
   `ssh://git@github.com/` to `https://github.com/` (`url.<base>.insteadOf`).
@@ -303,7 +303,7 @@ against its bound host (D-01).
   `SSH_AUTH_SOCK` (ssh-agent, 1Password, etc.). It exposes only keys the user
   allowed and only signing — no listing of other keys, add, remove, or lock.
   Unlock (passphrase, Keychain, 1Password) stays on the host.
-  - Allow a key: `celesto sandbox ssh-key add my-sbx ~/.ssh/id_work.pub`.
+  - Allow a key: `celesto computer ssh-key add my-sbx ~/.ssh/id_work.pub`.
   - Default: no keys allowed.
 - Why: The common case (push to GitHub) needs no setup and no SSH key; the
   sandbox can never sign with a key the user didn't choose, such as a
@@ -319,7 +319,7 @@ against its bound host (D-01).
   signing with a non-allowed key fails.
 - Acceptance: A-06
 
-### D-14: A fresh per-sandbox CA on every start; private key only in proxy memory
+### D-14 (amended by D-25): A fresh per-sandbox CA on every start; private key only in proxy memory
 
 - At each start the proxy generates a new CA. Before any user process runs,
   Celesto installs its certificate into the guest trust store
@@ -344,7 +344,7 @@ against its bound host (D-01).
 
 ### D-15: Secret changes apply live to a running sandbox
 
-- `celesto sandbox secret set|remove` (and the SDK equivalent) update the
+- `celesto computer secret set|remove` (and the SDK equivalent) update the
   running proxy over a local control channel, then the guest `/etc/hosts`
   and placeholder env file.
 - Remove is an immediate kill switch: the next request with that placeholder
@@ -367,11 +367,11 @@ against its bound host (D-01).
   and other traffic is unaffected (D-04).
 - The proxy watches the VM process and exits when it exits, so no orphaned
   proxy holds secrets.
-- `celesto sandbox info` and `celesto sandbox list` show: `Credential protection stopped for my-sbx. Run 'celesto sandbox stop my-sbx' and 'celesto sandbox start my-sbx' to restore it.`
+- `celesto computer info` and `celesto computer list` show: `Credential protection stopped for my-sbx. Run 'celesto computer stop my-sbx' and 'celesto computer start my-sbx' to restore it.`
 - Rejected: Auto-restart with the same CA — a second long-lived process holds
   the key. Auto-restart with a new CA — running clients keep failing TLS.
   Revisit only if crashes appear in practice.
-- Implementation: Proxy health from PID + control socket in `sandbox info` /
+- Implementation: Proxy health from PID + control socket in `computer info` /
   `list`; parent-death watch in the launcher.
 - Tests: E2E: kill the proxy; secret host fails, `pypi.org` works, `info`
   shows the message (human and JSON). Kill the VM; the proxy exits.
@@ -399,12 +399,12 @@ against its bound host (D-01).
 
 - Start summary: preset starts print each protected credential and its hosts,
   plus credentials that were not set.
-- `celesto sandbox secret list <sandbox> [--json]`: name, hosts, source (env
+- `celesto computer secret list <sandbox> [--json]`: name, hosts, source (env
   var or file), status (active / missing / proxy stopped), last used. Never
   values or placeholders.
 - Proxy log: one line per injection (time, secret name, host, method, path,
   status) and per refusal (e.g. placeholder sent to a non-bound host). Shown
-  by `celesto sandbox logs <sandbox> --credentials` (`cli/commands/app.py:783`).
+  by `celesto computer logs <sandbox> --credentials` (`cli/commands/app.py:783`).
 - Invariant: no real value ever appears in output or logs; a test scans
   logs and CLI output for the real values.
 - Why: Builds trust, answers "is it set up?", and shows what the agent did
@@ -416,7 +416,7 @@ against its bound host (D-01).
   the D-01 scan also runs over CLI output and logs.
 - Acceptance: none — covered by E2E tests
 
-### D-19 (superseded by D-20): Built-in host bindings for preset credentials; inject into headers only
+### D-19 (superseded by D-20, amended by D-24): Built-in host bindings for preset credentials; inject into headers only
 
 | Credential | Bound hosts | Injected as |
 |---|---|---|
@@ -445,7 +445,7 @@ against its bound host (D-01).
 - Tests: Covered by the per-preset E2E runs and the Rust tests in D-08.
 - Acceptance: A-01, A-02
 
-### D-20: After presets were removed (#677), protect user secrets and SSH keys only
+### D-20 (amended by D-24): After presets were removed (#677), protect user secrets and SSH keys only
 
 - Context: main commit `e05f3e9` (#677) removed the preset system
   (`celesto <agent> start`, `src/celesto/presets/`). Nothing copies preset
@@ -505,6 +505,95 @@ against its bound host (D-01).
 - Supersedes D-18's start summary only; `computer secret list [--json]`, the
   credentials log (`computer logs --credentials`), and the no-values invariant
   stay as in D-18.
+
+### D-24: Accept the `token` header form for `Authorization`
+
+- Amends D-19 and D-20. A new header form `token`: the header value is
+  `token <placeholder>`.
+- An `Authorization` binding (a user secret's default, or `--header authorization`) accepts the bearer, basic-password, and token forms.
+- Why: The gh CLI sends `Authorization: token <t>`, so a GitHub token set
+  with `computer secret set` would otherwise never be swapped.
+- Rejected: Matching any scheme word before the placeholder — a looser rule
+  for no known client.
+- Implementation: `HeaderForm::Token` in `celesto-core` `credential_proxy`
+  (`mod.rs`, `inject.rs`); `token` in `credentials/types.py` `HeaderForm`;
+  `user_secrets.header_rules`.
+- Tests: Rust test for the form (swapped; no-space, longer-token and
+  wrong-header cases untouched); runtime E2E sends `token <placeholder>` from
+  the guest and the stub receives the real value.
+- Acceptance: none — covered by E2E tests
+
+### D-25: Set `REQUESTS_CA_BUNDLE` too
+
+- Amends D-14. The guest managed env also sets `REQUESTS_CA_BUNDLE` to the
+  full system bundle, next to `NODE_EXTRA_CA_CERTS` and `SSL_CERT_FILE`.
+- Why: Python `requests` ignores `SSL_CERT_FILE` and uses its own `certifi`
+  bundle, so it would reject the proxy's certificate.
+- Implementation: `CA_ENV` in `credentials/guest.py`.
+- Tests: Runtime E2E checks all three variables in a login shell.
+- Acceptance: none — covered by E2E tests
+
+### D-26: libkrun fails closed and points to `--backend qemu`
+
+- Amends D-07: libkrun is not supported yet. Credentials are not delivered;
+  the message names the recovery: `Credentials can't be protected in my-pc on the libkrun backend yet, so Celesto didn't put any in it. Run 'celesto computer delete my-pc' and create it again with '--backend qemu' to use them.`
+- Why: gvproxy can only forward to a host loopback TCP port, which other
+  guests could reach, breaking D-05's network lock.
+- Rejected: A loopback port with a placeholder check only — leaves one lock.
+- Implementation: Backend check in `credentials/runtime.py` before attach.
+- Tests: Covered by the runtime route checks; libkrun E2E not run.
+- Acceptance: A-03 (libkrun half now expects the message)
+
+### D-27: Computers with internet off or restricted fail closed
+
+- Amends D-07. A computer whose internet access is off or limited gets no
+  credentials and a message: `Credentials can't be protected in my-pc because its internet access is limited, so Celesto didn't put any in it. Run 'celesto computer delete my-pc' and create it again with full internet access to use them.`
+- Why: Routing secret hosts to the proxy would open a hole in the
+  restriction the user chose.
+- Implementation: Network settings check in `credentials/runtime.py`.
+- Tests: Covered by the runtime route checks.
+- Acceptance: none — covered by tests
+
+### D-28: User-facing text says "computer"
+
+- Every new credential message, CLI help, and doc example says "computer"
+  and `celesto computer …`, per `GLOSSARY.md`. `celesto sandbox …` stays a
+  working alias. The message examples in this log follow it.
+- Why: One name across the CLI and docs (#665).
+- Implementation: Messages in `credentials/`, `cli/main.py`,
+  `cli/commands/app.py`, `facade.py`, `server/models.py`, and the TS SDK
+  docs.
+- Tests: CLI and E2E tests assert the exact `celesto computer …` messages.
+- Acceptance: none — covered by tests
+
+### D-29: Refusal recovery names the fix for the interface in use
+
+- Amends D-12. The CLI names `celesto computer secret set …`; the Python
+  SDK names `secrets={"NAME": Secret(host="…")}`; the TS SDK names the
+  `secrets` option.
+- Why: A recovery the reader cannot run where they are is no recovery.
+- Implementation: `detect.refusal_message(..., surface=...)`.
+- Tests: CLI, SDK and server tests assert each surface's message.
+- Acceptance: none — covered by tests
+
+### D-30: `computer ssh-key add` requires the key in the host agent
+
+- Amends D-13. Adding a key that the host's SSH agent has not loaded fails
+  with the exact command: `Your SSH agent doesn't have the key '~/.ssh/id_work.pub' loaded. Run 'ssh-add ~/.ssh/id_work', then run 'celesto computer ssh-key add my-pc ~/.ssh/id_work.pub' again.`
+- Why: The filter can only sign with keys the agent holds; failing at add
+  time beats a confusing failure later in the guest.
+- Implementation: `cli/_ssh_keys.py`.
+- Tests: `tests/credentials/test_ssh_key_cli.py`.
+- Acceptance: A-06
+
+### D-31: The guest SSH agent socket serves root only
+
+- Amends D-13. Only root in the guest can use the filtered agent socket.
+- Why: Other guest users should not sign with the user's keys.
+- Implementation: The guest socket links to the agent socket sshd forwards
+  for root (`credentials/ssh.py`).
+- Tests: Not yet automated; follow-up: a non-root guest user is refused.
+- Acceptance: A-06
 
 ## Open questions
 
