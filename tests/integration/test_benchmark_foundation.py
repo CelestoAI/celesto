@@ -24,7 +24,6 @@ from scripts.benchmarks import (
     disk_io,
     file_transfer,
     networking,
-    preset_start,
     runtime_control,
 )
 
@@ -48,35 +47,6 @@ def test_artifacts_dry_run_json_reports_scan_plan(capsys, tmp_path: Path) -> Non
             "would_scan": True,
         }
     ]
-
-
-def test_preset_start_dry_run_json_plans_preset_start_and_cleanup(capsys) -> None:
-    rc = preset_start.main(
-        [
-            "--dry-run",
-            "--json",
-            "--preset",
-            "codex",
-            "--comm-channel",
-            "vsock",
-            "--iterations",
-            "1",
-            "--name-prefix",
-            "bench",
-        ]
-    )
-
-    assert rc == 0
-    report = json.loads(capsys.readouterr().out)
-    record = report["records"][0]
-    assert record["start"]["command"][:3] == ["celesto", "codex", "start"]
-    assert "--no-attach" in record["start"]["command"]
-    assert (
-        record["start"]["command"][record["start"]["command"].index("--comm-channel") + 1]
-        == "vsock"
-    )
-    assert report["parameters"]["comm_channel"] == "vsock"
-    assert record["cleanup"]["command"][:3] == ["celesto", "sandbox", "delete"]
 
 
 def test_networking_arg_parser_and_human_lines_use_shared_report_shape() -> None:
@@ -205,31 +175,6 @@ def test_file_transfer_dry_run_json_reports_files_and_directory(capsys) -> None:
     assert report["records"][2]["file_size_bytes"] == 4096
 
 
-def test_preset_start_attempts_cleanup_after_start_failure(monkeypatch, capsys) -> None:
-    calls: list[str] = []
-
-    def fake_run_command(plan: Any, *, dry_run: bool = False) -> dict[str, Any]:
-        calls.append(plan.label)
-        return {
-            "label": plan.label,
-            "ok": False,
-            "status": "failed",
-            "duration_ms": 1.0,
-            "dry_run": dry_run,
-        }
-
-    monkeypatch.setattr(preset_start, "run_command", fake_run_command)
-
-    rc = preset_start.main(["--json", "--preset", "codex", "--iterations", "1"])
-
-    assert rc == 1
-    report = json.loads(capsys.readouterr().out)
-    record = report["records"][0]
-    assert calls == ["preset_start", "sandbox_delete"]
-    assert record["cleanup_expected"] is True
-    assert record["cleanup"]["label"] == "sandbox_delete"
-
-
 def test_browser_ready_attempts_cleanup_after_start_failure(monkeypatch, capsys) -> None:
     calls: list[str] = []
 
@@ -313,9 +258,6 @@ def test_runtime_control_attempts_cleanup_after_create_failure(monkeypatch, caps
 def test_expected_cleanup_failure_marks_records_failed() -> None:
     cleanup_failed = {"ok": False}
 
-    assert not preset_start._record_ok(
-        {"start": {"ok": True}, "cleanup_expected": True, "cleanup": cleanup_failed}
-    )
     assert not browser_ready._record_ok(
         {"start": {"ok": True}, "cleanup_expected": True, "cleanup": cleanup_failed}
     )

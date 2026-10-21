@@ -1,13 +1,11 @@
-# Build Celesto preset images and upload them to a draft GitHub Release.
+# Build Celesto published images and upload them to a draft GitHub Release.
 #
 # Two-stage layered build:
 #   1. base-rootfs: builds a shared Ubuntu 24.04 rootfs with Node 22,
 #      Python 3, uv, git, curl, openssh — once per architecture.
-#   2. preset: layers the preset-specific install on top of the base
-#      rootfs (npm install, git clone, etc.) — one job per (preset, arch).
+#   2. preset: finalizes the bare Ubuntu image on top of the base rootfs —
+#      one job per arch.
 #
-# The layered approach means adding a new preset costs ~60s of CI time
-# (just the npm install / pip install), not ~5 min (full apt + Node setup).
 # The base rootfs is passed between stages as a GitHub Actions artifact.
 #
 # The release stays in DRAFT until a human reviews and publishes it. Drafts
@@ -26,7 +24,7 @@ on:
     inputs:
       presets:
         description: >-
-          Comma-separated presets to build (e.g. "linux-desktop,openclaw,codex,opencode").
+          Comma-separated presets to build (e.g. "linux-desktop,ubuntu").
           Use "all" to build every preset, or "guest-agent" to publish only
           the standalone Rust guest-agent binaries.
         type: string
@@ -57,41 +55,48 @@ jobs:
   # Skipped when only a custom image is requested — neither custom builder
   # consumes the layered base, so building it would waste runner time.
   base-rootfs:
-    if: >-
-      ${{ inputs.presets == 'all' ||
-          contains(format(',{0},', inputs.presets), ',codex,') ||
-          contains(format(',{0},', inputs.presets), ',claude-code,') ||
-          contains(format(',{0},', inputs.presets), ',hermes,') ||
-          contains(format(',{0},', inputs.presets), ',opencode,') ||
-          contains(format(',{0},', inputs.presets), ',pi,') ||
-          contains(format(',{0},', inputs.presets), ',ubuntu,') }}
     strategy:
       fail-fast: false
       matrix:
         arch: [amd64, arm64]
-        # Two flavours per arch: Ubuntu 24.04 (current default) and Alpine
-        # 3.20 (smaller footprint, opt-in via ``celesto <preset> start --os
-        # alpine``). Same kernel boots both — only the rootfs differs.
-        os: [ubuntu, alpine]
+        os: [ubuntu]
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     timeout-minutes: 15
 
     steps:
+      - name: Check preset filter
+        id: filter
+        env:
+          INPUT_PRESETS: ${{ inputs.presets }}
+        run: |
+          # Strip whitespace so "linux-desktop, ubuntu" matches "ubuntu".
+          normalized=$(printf '%s' "$INPUT_PRESETS" | tr -d '[:space:]')
+          if [ "$normalized" = "all" ] || echo ",$normalized," | grep -q ",ubuntu,"; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Skipping base rootfs (not in filter: $INPUT_PRESETS)"
+          fi
+
       - name: Check out repository
+        if: steps.filter.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
           persist-credentials: false
 
       - name: Confirm Docker is available
+        if: steps.filter.outputs.skip != 'true'
         run: docker info >/dev/null
 
       - name: Build base rootfs
+        if: steps.filter.outputs.skip != 'true'
         env:
           OS: ${{ matrix.os }}
         run: |
           sudo OS="$OS" bash scripts/ci/build-base-rootfs.sh /tmp/base
 
       - name: Upload base rootfs artifact
+        if: steps.filter.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: base-rootfs-${{ matrix.os }}-${{ matrix.arch }}
@@ -239,226 +244,7 @@ jobs:
             echo "| ${ASSET_NAME} | $(numfmt --to=iec-i --suffix=B ${BINARY_SIZE}) | \`${BINARY_SHA}\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # ── Stage 2a: Build openclaw (custom builder, not layered) ────
-  #
-  # openclaw pins its supported Node runtime and CLI version in a custom
-  # Dockerfile. It uses builder.build_openclaw_rootfs() rather than the
-  # layered path.
-  openclaw:
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [amd64, arm64]
-    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
-    timeout-minutes: 30
-
-    steps:
-      - name: Check preset filter
-        id: filter
-        env:
-          INPUT_PRESETS: ${{ inputs.presets }}
-        run: |
-          # Strip whitespace so "openclaw, codex" matches "openclaw".
-          normalized=$(printf '%s' "$INPUT_PRESETS" | tr -d '[:space:]')
-          if [ "$normalized" = "all" ] || echo ",$normalized," | grep -q ",openclaw,"; then
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Skipping openclaw (not in filter: $INPUT_PRESETS)"
-          fi
-
-      - name: Check out repository
-        if: steps.filter.outputs.skip != 'true'
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - name: Set up Python 3.13
-        if: steps.filter.outputs.skip != 'true'
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Install Rust toolchain
-        if: steps.filter.outputs.skip != 'true'
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install Rust musl target
-        if: steps.filter.outputs.skip != 'true'
-        env:
-          ARCH: ${{ matrix.arch }}
-        run: |
-          case "$ARCH" in
-            amd64) target="x86_64-unknown-linux-musl" ;;
-            arm64) target="aarch64-unknown-linux-musl" ;;
-            *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;;
-          esac
-          rustup target add "$target"
-
-      - name: Cache Rust build
-        if: steps.filter.outputs.skip != 'true'
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: rust-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'celesto-core/Cargo.toml', 'guest-agent/Cargo.toml') }}
-          restore-keys: rust-${{ runner.os }}-${{ matrix.arch }}-
-
-      - name: Install uv
-        if: steps.filter.outputs.skip != 'true'
-        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3.2.4
-
-      - name: Install dependencies
-        if: steps.filter.outputs.skip != 'true'
-        run: uv sync --extra dev
-
-      - name: Confirm Docker is available
-        if: steps.filter.outputs.skip != 'true'
-        run: docker info >/dev/null
-
-      - name: Resolve release tag
-        if: steps.filter.outputs.skip != 'true'
-        id: release
-        env:
-          INPUT_TAG: ${{ inputs.release_tag }}
-        run: |
-          if [ -n "$INPUT_TAG" ]; then
-            tag="$INPUT_TAG"
-          else
-            # Single source of truth — published.py::IMAGES_RELEASE_TAG.
-            # Read as string rather than importing: avoids forcing every
-            # job to install celesto's Python deps just to print one tag.
-            tag=$(awk -F'"' '/^IMAGES_RELEASE_TAG[[:space:]]*=/{print $2; exit}' src/celesto/images/published.py)
-          fi
-          if [ -z "$tag" ]; then
-            echo "ERROR: IMAGES_RELEASE_TAG could not be parsed from src/celesto/images/published.py" >&2
-            exit 1
-          fi
-          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-          echo "Release tag: ${tag}"
-
-      - name: Download OpenClaw kernel
-        if: steps.filter.outputs.skip != 'true'
-        id: openclaw_kernel
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.release.outputs.tag }}
-          ARCH: ${{ matrix.arch }}
-        run: |
-          mkdir -p kernel-assets
-          gh release download "$TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --pattern "vmlinux-${ARCH}.elf" \
-            -D kernel-assets
-          kernel_path="$PWD/kernel-assets/vmlinux-${ARCH}.elf"
-          test -s "$kernel_path"
-          echo "path=$kernel_path" >> "$GITHUB_OUTPUT"
-
-      - name: Build openclaw image
-        if: steps.filter.outputs.skip != 'true'
-        id: build
-        env:
-          ARCH: ${{ matrix.arch }}
-          KERNEL_PATH: ${{ steps.openclaw_kernel.outputs.path }}
-        run: |
-          uv run python <<'PY'
-          import os
-          from pathlib import Path
-          from celesto.images.builder import ImageBuilder
-
-          arch = os.environ["ARCH"]
-          kernel_url = Path(os.environ["KERNEL_PATH"]).resolve().as_uri()
-          name = f"openclaw-{arch}"
-
-          builder = ImageBuilder()
-          kernel, rootfs = builder.build_openclaw_rootfs(
-              name=name,
-              rootfs_size_mb=4096,
-              kernel_url=kernel_url,
-          )
-
-          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as fh:
-              fh.write(f"rootfs_path={rootfs}\n")
-              fh.write(f"name={name}\n")
-          print(f"rootfs: {rootfs} ({rootfs.stat().st_size:,} bytes)")
-          PY
-
-      - name: Stage release assets
-        if: steps.filter.outputs.skip != 'true'
-        id: stage
-        env:
-          NAME: ${{ steps.build.outputs.name }}
-          ROOTFS_PATH: ${{ steps.build.outputs.rootfs_path }}
-        run: |
-          zstd -19 -T0 --rm -o "${NAME}-rootfs.ext4.zst" "$ROOTFS_PATH"
-          ls -lh "${NAME}-rootfs.ext4.zst"
-
-      - name: Compute SHA-256
-        if: steps.filter.outputs.skip != 'true'
-        id: sha
-        env:
-          NAME: ${{ steps.build.outputs.name }}
-        run: |
-          rootfs_sha=$(sha256sum "${NAME}-rootfs.ext4.zst" | cut -d' ' -f1)
-          rootfs_size=$(stat -c '%s' "${NAME}-rootfs.ext4.zst")
-          {
-            echo "rootfs_sha=${rootfs_sha}"
-            echo "rootfs_size=${rootfs_size}"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Upload to GitHub Releases (draft)
-        if: steps.filter.outputs.skip != 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.release.outputs.tag }}
-          NAME: ${{ steps.build.outputs.name }}
-          FORCE_OVERWRITE: ${{ inputs.force_overwrite }}
-        run: |
-          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --draft \
-              --title "Published images $TAG" \
-              --notes "Auto-generated draft release for Celesto published images. Verify SHA-256 sums and content before publishing." \
-              || echo "Draft already exists (race with another matrix cell), continuing."
-          fi
-
-          # Default (no --clobber): `gh release upload` returns non-zero
-          # on a same-name collision. Forces the dev to bump
-          # IMAGES_RELEASE_TAG (or pass a fresh `release_tag` input)
-          # rather than silently swapping published bytes that the
-          # shipped CLI's MANIFEST SHAs depend on.
-          # `force_overwrite=true` opts back in for intentional re-bakes.
-          upload_args=()
-          if [ "${FORCE_OVERWRITE:-false}" = "true" ]; then
-            upload_args+=(--clobber)
-          fi
-          gh release upload "$TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            "${upload_args[@]}" \
-            "${NAME}-rootfs.ext4.zst"
-
-      - name: Step summary
-        if: steps.filter.outputs.skip != 'true'
-        env:
-          NAME: ${{ steps.build.outputs.name }}
-          TAG: ${{ steps.release.outputs.tag }}
-          ROOTFS_SHA: ${{ steps.sha.outputs.rootfs_sha }}
-          ROOTFS_SIZE: ${{ steps.sha.outputs.rootfs_size }}
-        run: |
-          {
-            echo "## Build summary: \`${NAME}\`"
-            echo ""
-            echo "Uploaded to draft release [\`${TAG}\`](https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG})."
-            echo ""
-            echo "| File | Size | SHA-256 |"
-            echo "| --- | --- | --- |"
-            echo "| ${NAME}-rootfs.ext4.zst | $(numfmt --to=iec-i --suffix=B ${ROOTFS_SIZE}) | \`${ROOTFS_SHA}\` |"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  # ── Stage 2b: Build Linux desktop (custom builder) ────────────
+  # ── Stage 2a: Build Linux desktop (custom builder) ────────────
   #
   # This is the ready-to-use computer image behind Celesto.computer(). It
   # includes Chromium, Openbox, a panel, terminal, file manager, and editor.
@@ -667,9 +453,9 @@ jobs:
             echo "| ${NAME}-rootfs.ext4.zst | $(numfmt --to=iec-i --suffix=B ${ROOTFS_SIZE}) | \`${ROOTFS_SHA}\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # ── Stage 2c: Layer presets on top of base ────────────────────
+  # ── Stage 2b: Layer the bare Ubuntu image on top of base ────────────────────
   #
-  # codex, claude-code, hermes, opencode, and pi use the shared base rootfs.
+  # ubuntu uses the shared base rootfs.
   # Each job copies the base, chroots in, runs the preset's install.
   preset:
     needs: base-rootfs
@@ -679,19 +465,8 @@ jobs:
         arch: [amd64, arm64]
         # "ubuntu" is the bare base image (no preset install) — gives
         # firecracker a raw-ext4 Ubuntu for `create --os ubuntu`.
-        preset: [codex, claude-code, hermes, opencode, pi, ubuntu]
-        os: [ubuntu, alpine]
-        # Phase 1 of the Alpine rollout (#264) excludes hermes — its
-        # ``[all]`` extras pull manylinux2014 wheels that don't have
-        # musllinux variants, so the install would fall back to slow
-        # source builds with sometimes-broken results. Re-enable when
-        # we have a curated minimal extras set. The bare "ubuntu" image is
-        # Ubuntu-only — there's no bare-Alpine published image yet.
-        exclude:
-          - preset: hermes
-            os: alpine
-          - preset: ubuntu
-            os: alpine
+        preset: [ubuntu]
+        os: [ubuntu]
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     timeout-minutes: 20
 
@@ -702,7 +477,7 @@ jobs:
           INPUT_PRESETS: ${{ inputs.presets }}
           PRESET: ${{ matrix.preset }}
         run: |
-          # Strip whitespace so "openclaw, codex" matches each preset.
+          # Strip whitespace so "linux-desktop, ubuntu" matches each preset.
           normalized=$(printf '%s' "$INPUT_PRESETS" | tr -d '[:space:]')
           if [ "$normalized" = "all" ] || echo ",$normalized," | grep -q ",$PRESET,"; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -796,19 +571,7 @@ jobs:
           ARCH: ${{ matrix.arch }}
           OS: ${{ matrix.os }}
         run: |
-          # Hermes needs more disk (Python deps are heavier)
           SIZE=4096
-          if [ "$PRESET" = "hermes" ]; then
-            SIZE=6144
-          fi
-          # Alpine + JS preset is ~half the Ubuntu equivalent. OpenCode's
-          # native package downloads need extra workspace during npm install.
-          if [ "$OS" = "alpine" ]; then
-            SIZE=2048
-          fi
-          if [ "$OS" = "alpine" ] && [ "$PRESET" = "opencode" ]; then
-            SIZE=4096
-          fi
 
           sudo ARCH="$ARCH" OS="$OS" bash scripts/ci/build-preset.sh \
             "$PRESET" /tmp/base/base-rootfs.ext4 /tmp/out "$SIZE"
