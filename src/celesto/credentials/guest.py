@@ -27,8 +27,13 @@ SYSTEM_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
 HOSTS_BEGIN = "# BEGIN celesto-credentials (managed; do not edit)"
 HOSTS_END = "# END celesto-credentials"
 
-CA_ENV = {"NODE_EXTRA_CA_CERTS": SYSTEM_BUNDLE, "SSL_CERT_FILE": SYSTEM_BUNDLE}
-"""``SSL_CERT_FILE`` replaces a client's whole store, so it must be the bundle."""
+CA_ENV = {
+    "NODE_EXTRA_CA_CERTS": SYSTEM_BUNDLE,
+    "SSL_CERT_FILE": SYSTEM_BUNDLE,
+    "REQUESTS_CA_BUNDLE": SYSTEM_BUNDLE,
+}
+"""``SSL_CERT_FILE`` and ``REQUESTS_CA_BUNDLE`` replace a client's whole store,
+so they must be the bundle. Python ``requests`` reads only the latter (D-25)."""
 
 
 def _b64(data: str | bytes) -> str:

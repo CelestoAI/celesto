@@ -234,9 +234,11 @@ def test_credential_proxy_lifecycle_on_real_sandbox(tmp_path: Path, stub: tuple[
         checks["hosts_block_ipv4_ipv6"] = True
 
         login_env = vm.run(
-            "printenv STUB_TOKEN; printenv SSL_CERT_FILE; printenv NODE_EXTRA_CA_CERTS"
+            "printenv STUB_TOKEN; printenv SSL_CERT_FILE; printenv NODE_EXTRA_CA_CERTS;"
+            " printenv REQUESTS_CA_BUNDLE"
         )
-        assert login_env.stdout.split() == [PH, *(["/etc/ssl/certs/ca-certificates.crt"] * 2)]
+        # D-14, D-25: every CA variable names the full system bundle.
+        assert login_env.stdout.split() == [PH, *(["/etc/ssl/certs/ca-certificates.crt"] * 3)]
         assert json.loads(raw("cat /root/.stub/auth.json").stdout) == {"token": PH}
         assert raw("stat -c %a /root/.stub/auth.json").stdout.strip() == "600"
         checks["managed_env_and_guest_files"] = True
