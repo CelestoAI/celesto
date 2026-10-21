@@ -38,7 +38,12 @@ from contextlib import suppress
 from pathlib import Path
 
 import pytest
-from _util import BOOT_TIMEOUT, _qemu_binary_available, require_backend_available
+from _util import (
+    BOOT_TIMEOUT,
+    _qemu_binary_available,
+    require_backend_available,
+    selected_backend,
+)
 
 from celesto.runtime.backends import BACKEND_QEMU
 
@@ -55,6 +60,12 @@ def _celesto(*args: str, timeout: float = BOOT_TIMEOUT + 60) -> subprocess.Compl
 
 
 def _require_qemu(config: pytest.Config) -> None:
+    selected = selected_backend(config)
+    if selected not in ("all", BACKEND_QEMU):
+        pytest.skip(
+            f"This QEMU test is skipped because this run selected '{selected}'; "
+            "rerun with: pytest -m e2e tests/e2e/test_stop_start.py --e2e-backend qemu."
+        )
     # The bug was reported on macOS, where QEMU uses Hypervisor.framework
     # instead of /dev/kvm, so do not demand KVM there.
     if platform.system() == "Darwin" and _qemu_binary_available():

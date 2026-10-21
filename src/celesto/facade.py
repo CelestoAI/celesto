@@ -3144,9 +3144,12 @@ class Celesto:
         import asyncio
 
         self._cleanup_local_forwards()
-        await asyncio.to_thread(self._sync_guest_before_stop)
-        self._info = await self._sdk.async_stop(self._vm_id, timeout=timeout)
-        self._reset_runtime_state()
+        try:
+            await asyncio.to_thread(self._sync_guest_before_stop)
+        finally:
+            # Cancelling during the flush must still stop the computer.
+            self._info = await asyncio.shield(self._sdk.async_stop(self._vm_id, timeout=timeout))
+            self._reset_runtime_state()
         return self
 
     async def async_delete(self) -> None:
