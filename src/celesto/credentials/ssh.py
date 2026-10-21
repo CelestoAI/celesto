@@ -96,7 +96,7 @@ def guest_files() -> list[GuestFile]:
 def guest_setup_script() -> str:
     """Idempotent shell script that installs the guest side of D-13.
 
-    Run it as root after preset host configs are copied (so a copied
+    Run it as root after any host config is copied in (so a copied
     ``~/.gitconfig`` cannot drop the rewrite). It adds the GitHub rewrite to
     the global git config without touching other entries, and writes the
     OpenSSH client config. ``SSH_AUTH_SOCK`` itself goes into the managed env

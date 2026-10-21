@@ -98,7 +98,7 @@ def write_hosts(channel: Any, hosts: Iterable[str], *, sandbox_id: str) -> None:
 
 
 def write_files(channel: Any, files: Iterable[GuestFile], *, sandbox_id: str) -> None:
-    """Write placeholder files (e.g. login files) atomically with their modes."""
+    """Write placeholder files atomically with their modes."""
     for item in files:
         if not posixpath.isabs(item.path) or ".." in item.path.split("/"):
             raise ValueError(f"Guest file path must be absolute: {item.path!r}")

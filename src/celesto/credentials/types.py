@@ -45,17 +45,17 @@ class Binding:
 
 @dataclass(frozen=True)
 class LocalRoute:
-    """A request the proxy answers itself and never forwards, e.g. OAuth refresh."""
+    """A request the proxy answers itself and never forwards."""
 
     host: str
     path: str
     handler: str
-    """Registered handler id, e.g. ``codex-refresh``."""
+    """Registered handler id."""
 
 
 @dataclass(frozen=True)
 class GuestFile:
-    """A placeholder file written into the guest, e.g. a login file."""
+    """A file holding only placeholders, written into the guest."""
 
     path: str
     content: bytes
