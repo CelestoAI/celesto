@@ -284,7 +284,7 @@ class LiveResult:
 def _control(sandbox_id: str, op: str, **kw: Any) -> dict[str, Any] | None:
     """Call the proxy control channel; return None when it is not reachable."""
     try:
-        from celesto.credentials import runtime  # type: ignore[attr-defined]
+        from celesto.credentials import runtime
     except ImportError:
         return None
     try:
