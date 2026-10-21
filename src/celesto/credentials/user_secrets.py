@@ -103,7 +103,7 @@ class Secret(BaseModel):
         host: The exact host name (or several) the real value may be sent to,
             such as ``"api.stripe.com"``.
         header: Optional header the program sends the placeholder in. By
-            default Celesto looks in ``Authorization`` (Bearer or Basic) and
+            default Celesto looks in ``Authorization`` (Bearer, Basic or token) and
             ``x-api-key``.
     """
 
@@ -134,17 +134,15 @@ class Secret(BaseModel):
 
 def header_rules(header: str | None) -> tuple[HeaderRule, ...]:
     """Return where the proxy looks for a user secret's placeholder."""
+    authorization = (
+        HeaderRule("authorization", "bearer"),
+        HeaderRule("authorization", "basic_password"),
+        HeaderRule("authorization", "token"),
+    )
     if header is None:
-        return (
-            HeaderRule("authorization", "bearer"),
-            HeaderRule("authorization", "basic_password"),
-            HeaderRule("x-api-key", "raw"),
-        )
+        return (*authorization, HeaderRule("x-api-key", "raw"))
     if header == "authorization":
-        return (
-            HeaderRule("authorization", "bearer"),
-            HeaderRule("authorization", "basic_password"),
-        )
+        return authorization
     return (HeaderRule(header, "raw"),)
 
 

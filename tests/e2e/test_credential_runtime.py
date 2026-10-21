@@ -175,8 +175,8 @@ def _scan_command() -> str:
 
 def test_credential_proxy_lifecycle_on_real_sandbox(tmp_path: Path, stub: tuple[int, str]) -> None:
     from celesto.cli.service import CLIService
-    from celesto.credentials import runtime
-    from celesto.credentials.types import Binding, CredentialPlan, GuestFile, HeaderRule
+    from celesto.credentials import runtime, user_secrets
+    from celesto.credentials.types import Binding, CredentialPlan, GuestFile
 
     port, stub_ca = stub
     data_dir = tmp_path / "data"
@@ -198,7 +198,8 @@ def test_credential_proxy_lifecycle_on_real_sandbox(tmp_path: Path, stub: tuple[
                 name="STUB_TOKEN",
                 placeholder=PH,
                 hosts=(HOST,),
-                headers=(HeaderRule("authorization", "bearer"),),
+                # A user secret's default rules (D-20, D-24).
+                headers=user_secrets.header_rules(None),
                 source="env:STUB_TOKEN",
             )
         ],
@@ -220,6 +221,12 @@ def test_credential_proxy_lifecycle_on_real_sandbox(tmp_path: Path, stub: tuple[
         assert raw(curl).stdout == "200"
         assert _Stub.seen == [f"Bearer {REAL}"]
         checks["raw_exec_injected"] = True
+
+        # D-24: gh sends `Authorization: token <t>`.
+        _Stub.seen.clear()
+        assert raw(curl.replace("Bearer ", "token ")).stdout == "200"
+        assert _Stub.seen == [f"token {REAL}"]
+        checks["token_form_injected"] = True
 
         hosts_file = raw("cat /etc/hosts").stdout
         assert f"10.0.2.100 {HOST}" in hosts_file

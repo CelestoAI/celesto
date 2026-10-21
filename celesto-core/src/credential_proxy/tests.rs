@@ -825,6 +825,66 @@ async fn fm05_basic_password_is_decoded_swapped_and_reencoded() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn fm05b_token_form_is_swapped_like_gh_sends_it() {
+    // gh sends `Authorization: token <t>` (D-24). One Authorization binding
+    // accepts bearer, basic-password and token forms.
+    let up = start_upstream().await;
+    let h = start_proxy(&up, true);
+    let mut bindings = default_bindings();
+    for b in bindings.iter_mut().filter(|b| b.name == "GH_TOKEN") {
+        b.headers = vec![
+            header_rule("authorization", HeaderForm::Bearer),
+            header_rule("authorization", HeaderForm::BasicPassword),
+            header_rule("authorization", HeaderForm::Token),
+        ];
+    }
+    h.proxy.set_bindings(bindings).unwrap();
+
+    let sent = [
+        (format!("token {PH_GH}"), format!("token {REAL_GH}")),
+        (format!("Token {PH_GH}"), format!("token {REAL_GH}")),
+        (format!("Bearer {PH_GH}"), format!("Bearer {REAL_GH}")),
+        (
+            basic("x-access-token", PH_GH),
+            basic("x-access-token", REAL_GH),
+        ),
+    ];
+    for (value, expected) in sent {
+        send_h1(
+            &h.info,
+            HOST_GH,
+            get(HOST_GH, "/user")
+                .header("authorization", value.as_str())
+                .body(full(""))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(up.last().header("authorization").unwrap(), expected);
+    }
+
+    // Not injected: no space, a longer token, or the token form on another header.
+    let cases: Vec<(&str, String)> = vec![
+        ("authorization", format!("token{PH_GH}")),
+        ("authorization", format!("token {PH_GH}x")),
+        ("x-api-key", format!("token {PH_GH}")),
+    ];
+    for (header, value) in cases {
+        send_h1(
+            &h.info,
+            HOST_GH,
+            get(HOST_GH, "/")
+                .header(header, value.as_str())
+                .body(full(""))
+                .unwrap(),
+        )
+        .await;
+        let seen = up.last();
+        assert_eq!(seen.header(header).unwrap(), value, "header {header}");
+        assert_no_secret(&seen.all_text());
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn fm06_split_or_repeated_placeholder_is_not_injected() {
     let up = start_upstream().await;
     let h = start_proxy(&up, true);

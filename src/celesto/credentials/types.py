@@ -12,12 +12,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-HeaderForm = Literal["bearer", "raw", "basic_password"]
+HeaderForm = Literal["bearer", "raw", "basic_password", "token"]
 """How a placeholder appears in a header.
 
 - ``bearer``: ``Bearer <placeholder>``
 - ``raw``: ``<placeholder>``
 - ``basic_password``: ``Basic base64(user:<placeholder>)``
+- ``token``: ``token <placeholder>``, as the gh CLI sends it (D-24)
 """
 
 

@@ -1,4 +1,4 @@
-//! Header injection rules (D-05 lock 2, D-19).
+//! Header injection rules (D-05 lock 2, D-19, D-24).
 //!
 //! A real value replaces a placeholder only when a header named by one of the
 //! binding's rules carries exactly the placeholder in that rule's form, and
@@ -50,6 +50,7 @@ fn matches_form(value: &[u8], form: HeaderForm, placeholder: &str) -> Option<Opt
     match form {
         HeaderForm::Raw => (value == ph).then_some(None),
         HeaderForm::Bearer => (strip_scheme(value, b"bearer")? == ph).then_some(None),
+        HeaderForm::Token => (strip_scheme(value, b"token")? == ph).then_some(None),
         HeaderForm::BasicPassword => {
             let decoded = decode_basic(value)?;
             let colon = decoded.iter().position(|&b| b == b':')?;
@@ -142,6 +143,7 @@ pub(crate) fn apply(headers: &mut HeaderMap, m: &Match, real: &str) -> Result<()
     let text = match m.form {
         HeaderForm::Raw => real.to_string(),
         HeaderForm::Bearer => format!("Bearer {real}"),
+        HeaderForm::Token => format!("token {real}"),
         HeaderForm::BasicPassword => {
             let mut creds = m.basic_user.clone().unwrap_or_default();
             creds.push(b':');

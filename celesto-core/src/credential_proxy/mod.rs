@@ -37,6 +37,8 @@ pub enum HeaderForm {
     Raw,
     /// `Basic base64(user:<placeholder>)`
     BasicPassword,
+    /// `token <placeholder>`, as the gh CLI sends it (D-24)
+    Token,
 }
 
 #[derive(Clone, Debug, Deserialize)]
