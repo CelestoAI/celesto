@@ -1710,7 +1710,7 @@ def _run_vm_start(args: SimpleNamespace) -> int:
         vm.start(boot_timeout=args.boot_timeout)
 
         data = _vm_lifecycle_payload(vm.vm_id, VMState.RUNNING)
-        # D-17 cleanup notice and D-09 / D-07 credential warnings from start.
+        # D-21 cleanup notice and D-09 / D-07 credential warnings from start.
         notes = [
             str(note)
             for attr in ("credential_notices", "credential_warnings")

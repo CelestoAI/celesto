@@ -1,19 +1,15 @@
 # Copyright 2026 Celesto AI
 # Licensed under the Apache License, Version 2.0
-"""Clean real credentials out of sandboxes created before this release (D-17).
+"""Remove keys the old presets copied into a computer (D-21).
 
-Earlier releases copied real API keys into the guest's env file, copied login
-files, ``~/.git-credentials``, gh's token file and ``~/.ssh`` private keys.
-On the first start after upgrade, :func:`migrate_if_needed` removes all of
-it from the running guest. The caller then attaches the credential plan,
-which writes placeholders in their place.
-
-Call order at ``celesto computer start`` (W3, ``facade.start``):
-
-1. boot and wait for the guest's control channel,
-2. ``message = migrate_if_needed(vm, state=state)``,
-3. ``plan = build_plan(...)`` and ``runtime.attach(vm, plan)``,
-4. show ``message`` (once) when it is not None.
+Computers created by a preset before this release (their stored record
+still carries ``preset``) may hold real keys: API keys in the guest's env
+file, login and token files, ``~/.git-credentials``, gh's token file, and
+``~/.ssh`` private keys. On their first start after upgrade,
+:func:`migrate_on_start` deletes exactly that fixed list. Nothing replaces
+them: no proxy binding exists for them any more, so users re-add what they
+need with ``celesto computer secret set``. The stored credential-protection
+version makes this run once.
 """
 
 from __future__ import annotations
@@ -28,7 +24,7 @@ from celesto.exceptions import CelestoError
 
 logger = logging.getLogger(__name__)
 
-# Env vars any earlier preset copied into the guest.
+# Env vars the old presets copied into the guest.
 COPIED_ENV_VARS: tuple[str, ...] = (
     "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY",
@@ -43,7 +39,7 @@ COPIED_ENV_VARS: tuple[str, ...] = (
     "AWS_SESSION_TOKEN",
 )
 
-# Login and token files any earlier preset (or GIT_HOST_CONFIGS) copied in.
+# Login and token files the old presets copied in.
 COPIED_SECRET_FILES: tuple[str, ...] = (
     "/root/.codex/auth.json",
     "/root/.claude/.credentials.json",
@@ -93,27 +89,26 @@ def cleanup_script() -> str:
 
 
 def migration_message(sandbox_id: str) -> str:
-    """Return the one-time D-17 message for *sandbox_id*."""
+    """Return the one-time D-21 message for *sandbox_id*."""
     return (
-        f"Celesto removed the real keys from {sandbox_id} and now protects them."
-        " If an agent may have copied them elsewhere in the computer, rotate them"
-        " or recreate the computer."
+        f"Celesto removed copied keys from {sandbox_id}. If an agent may have copied"
+        " them elsewhere in the computer, rotate them or recreate the computer."
     )
 
 
 def needs_migration(state: Any, sandbox_id: str) -> bool:
-    """Return True when the sandbox was created before credential protection."""
+    """Return True when the computer was created before credential protection."""
     from celesto.credentials.store import PROTECTION_VERSION
 
     return protection_version(state, sandbox_id) < PROTECTION_VERSION
 
 
 def migrate_if_needed(vm: Any, *, state: Any) -> str | None:
-    """Remove copied real credentials from a pre-release sandbox's guest.
+    """Delete the keys the old presets copied into a running computer.
 
     *vm* is a running :class:`celesto.Celesto` whose guest accepts commands.
     Returns the one-time message when anything was removed, else None.
-    Marks the sandbox as protected either way, so this runs once.
+    Marks the computer as protected either way, so this runs once.
     """
     sandbox_id = vm.vm_id
     if not needs_migration(state, sandbox_id):
@@ -145,12 +140,12 @@ def migrate_if_needed(vm: Any, *, state: Any) -> str | None:
 
 
 def migrate_on_start(vm: Any) -> str | None:
-    """Run :func:`migrate_if_needed` for a just-started sandbox, when it applies.
+    """Run :func:`migrate_if_needed` for a just-started computer, when it applies.
 
-    Only preset sandboxes on Linux guests that accept commands had credentials
-    copied in. Others are just marked protected. A failed cleanup is raised
-    as :class:`CelestoError` and leaves the sandbox unmarked, so the next
-    start tries again.
+    Only computers made by a preset, on Linux guests that accept commands,
+    had keys copied in. Others are just marked protected. A failed cleanup is
+    raised as :class:`CelestoError` and leaves the computer unmarked, so the
+    next start tries again.
     """
     state = vm._sdk.state
     if not needs_migration(state, vm.vm_id):
