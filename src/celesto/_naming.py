@@ -139,8 +139,7 @@ def generate_sandbox_name(
             scientist-style name and rely on the storage layer to reject
             duplicates).
         prefix: Namespace prefix for the generated name. Defaults to ``"sbx"``.
-            Presets pass their own name (e.g. ``"pi"``) so sandboxes are
-            visually grouped by harness type.
+            Callers can pass their own namespace to group sandboxes visually.
         rng: Optional ``random.Random`` for deterministic tests.
 
     Strategy:

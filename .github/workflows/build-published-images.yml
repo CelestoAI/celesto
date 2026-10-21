@@ -55,9 +55,6 @@ jobs:
   # Skipped when only a custom image is requested — neither custom builder
   # consumes the layered base, so building it would waste runner time.
   base-rootfs:
-    if: >-
-      ${{ inputs.presets == 'all' ||
-          contains(format(',{0},', inputs.presets), ',ubuntu,') }}
     strategy:
       fail-fast: false
       matrix:
@@ -67,21 +64,39 @@ jobs:
     timeout-minutes: 15
 
     steps:
+      - name: Check preset filter
+        id: filter
+        env:
+          INPUT_PRESETS: ${{ inputs.presets }}
+        run: |
+          # Strip whitespace so "linux-desktop, ubuntu" matches "ubuntu".
+          normalized=$(printf '%s' "$INPUT_PRESETS" | tr -d '[:space:]')
+          if [ "$normalized" = "all" ] || echo ",$normalized," | grep -q ",ubuntu,"; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Skipping base rootfs (not in filter: $INPUT_PRESETS)"
+          fi
+
       - name: Check out repository
+        if: steps.filter.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
           persist-credentials: false
 
       - name: Confirm Docker is available
+        if: steps.filter.outputs.skip != 'true'
         run: docker info >/dev/null
 
       - name: Build base rootfs
+        if: steps.filter.outputs.skip != 'true'
         env:
           OS: ${{ matrix.os }}
         run: |
           sudo OS="$OS" bash scripts/ci/build-base-rootfs.sh /tmp/base
 
       - name: Upload base rootfs artifact
+        if: steps.filter.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: base-rootfs-${{ matrix.os }}-${{ matrix.arch }}
