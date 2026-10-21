@@ -1511,7 +1511,7 @@
               }
             ],
             "title": "Secrets",
-            "description": "Secrets by env var name. The sandbox sees a placeholder; the real value is read from the runtime's env var of the same name."
+            "description": "Secrets by env var name. The computer sees a placeholder; the real value is read from the runtime's env var of the same name."
           }
         },
         "type": "object",

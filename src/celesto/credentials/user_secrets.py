@@ -97,7 +97,7 @@ class Secret(BaseModel):
     """A secret that stays on your machine and is sent only to *host*.
 
     The real value comes from the env var with the same name as the secret, in
-    the process that starts the sandbox. The sandbox sees only a placeholder.
+    the process that starts the sandbox. The computer sees only a placeholder.
 
     Args:
         host: The exact host name (or several) the real value may be sent to,
@@ -189,7 +189,7 @@ def missing_warning(name: str, sandbox: str) -> str:
     """Return the D-09 warning for a secret whose env var is not set."""
     return (
         f"{name} isn't set in this terminal, so {sandbox} can't use it. Set it, then run "
-        f"'celesto sandbox stop {sandbox}' and 'celesto sandbox start {sandbox}'."
+        f"'celesto computer stop {sandbox}' and 'celesto computer start {sandbox}'."
     )
 
 

@@ -103,8 +103,8 @@ class ProxyStatus:
 def stopped_message(sandbox_id: str) -> str:
     """D-16 message for a sandbox whose proxy is gone while it runs."""
     return (
-        f"Credential protection stopped for {sandbox_id}. Run 'celesto sandbox stop "
-        f"{sandbox_id}' and 'celesto sandbox start {sandbox_id}' to restore it."
+        f"Credential protection stopped for {sandbox_id}. Run 'celesto computer stop "
+        f"{sandbox_id}' and 'celesto computer start {sandbox_id}' to restore it."
     )
 
 
@@ -126,7 +126,7 @@ def _resolve_route(vm_info: Any, backend: str) -> _Route:
     if network is not None and network.mode == "bridge":
         raise CredentialsUnsupported(
             f"Credentials can't be protected in {name} because it uses bridge networking, "
-            f"so Celesto didn't put any in it. Run 'celesto sandbox delete {name}' and create "
+            f"so Celesto didn't put any in it. Run 'celesto computer delete {name}' and create "
             "it again without '--network bridge' to use them.",
             {"vm_id": name, "reason": "bridge"},
         )
@@ -137,7 +137,7 @@ def _resolve_route(vm_info: Any, backend: str) -> _Route:
     if network is None or restricted:
         raise CredentialsUnsupported(
             f"Credentials can't be protected in {name} because its internet access is "
-            f"limited, so Celesto didn't put any in it. Run 'celesto sandbox delete {name}' "
+            f"limited, so Celesto didn't put any in it. Run 'celesto computer delete {name}' "
             "and create it again with full internet access to use them.",
             {"vm_id": name, "reason": "restricted_network"},
         )
@@ -147,7 +147,7 @@ def _resolve_route(vm_info: Any, backend: str) -> _Route:
         return _Route("tap", tap_device=network.tap_device, host_ip=network.gateway_ip)
     raise CredentialsUnsupported(
         f"Credentials can't be protected in {name} on the {backend} backend yet, so "
-        f"Celesto didn't put any in it. Run 'celesto sandbox delete {name}' and create it "
+        f"Celesto didn't put any in it. Run 'celesto computer delete {name}' and create it "
         "again with '--backend qemu' to use them.",
         {"vm_id": name, "reason": "backend", "backend": backend},
     )
@@ -278,8 +278,8 @@ def _spawn(
             process.wait(timeout=_STOP_TIMEOUT)
         raise CelestoError(
             f"Celesto couldn't start credential protection for {spec['sandbox_id']}. "
-            f"Run 'celesto sandbox stop {spec['sandbox_id']}' and "
-            f"'celesto sandbox start {spec['sandbox_id']}' to try again.",
+            f"Run 'celesto computer stop {spec['sandbox_id']}' and "
+            f"'celesto computer start {spec['sandbox_id']}' to try again.",
             {"vm_id": spec["sandbox_id"], "launcher_log": str(paths.launcher_log)},
         )
     return process, {"address": str(info["address"]), "ca_cert_pem": str(info["ca_cert_pem"])}
@@ -368,7 +368,7 @@ def attach(
     route = _resolve_route(vm_info, backend)
     if vm_info.pid is None or not _pid_alive(vm_info.pid):
         raise CelestoError(
-            f"{sandbox_id} isn't running. Run 'celesto sandbox start {sandbox_id}' first.",
+            f"{sandbox_id} isn't running. Run 'celesto computer start {sandbox_id}' first.",
             {"vm_id": sandbox_id},
         )
     _require_proxy_build(sandbox_id)

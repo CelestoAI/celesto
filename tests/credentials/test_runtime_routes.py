@@ -76,7 +76,7 @@ def test_unsupported_networks_fail_closed_with_recovery(vm, backend, reason) -> 
     with pytest.raises(CredentialsUnsupported) as caught:
         _resolve_route(vm, backend)
     assert caught.value.details["reason"] == reason
-    assert "'celesto sandbox delete my-sbx'" in caught.value.message
+    assert "'celesto computer delete my-sbx'" in caught.value.message
 
 
 def test_supported_networks_pick_their_route() -> None:

@@ -1003,8 +1003,8 @@ test("sends host-bound secrets on create and notSecret on exec", async () => {
 });
 
 test("process transport preserves the secret_refused code from the runtime", async () => {
-  const detail = "OPENAI_API_KEY looks like a secret, so Celesto won't place it inside the sandbox. "
-    + 'Create the sandbox with secrets: { OPENAI_API_KEY: { host: "api.openai.com" } } instead.';
+  const detail = "OPENAI_API_KEY looks like a secret, so Celesto won't place it inside the computer. "
+    + 'Create the computer with secrets: { OPENAI_API_KEY: { host: "api.openai.com" } } instead.';
   const server = createServer((_request, response) => {
     response.statusCode = 400;
     response.setHeader("content-type", "application/json");

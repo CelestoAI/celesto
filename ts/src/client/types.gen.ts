@@ -304,7 +304,7 @@ export type CreateSandboxRequest = {
     /**
      * Secrets
      *
-     * Secrets by env var name. The sandbox sees a placeholder; the real value is read from the runtime's env var of the same name.
+     * Secrets by env var name. The computer sees a placeholder; the real value is read from the runtime's env var of the same name.
      */
     secrets?: {
         [key: string]: SecretRequest;

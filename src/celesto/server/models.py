@@ -77,7 +77,7 @@ class CreateSandboxRequest(BaseModel):
     )
     secrets: dict[str, SecretRequest] | None = Field(
         default=None,
-        description="Secrets by env var name. The sandbox sees a placeholder; the real value "
+        description="Secrets by env var name. The computer sees a placeholder; the real value "
         "is read from the runtime's env var of the same name.",
     )
 

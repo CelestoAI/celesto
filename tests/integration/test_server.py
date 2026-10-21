@@ -1313,8 +1313,8 @@ def test_exec_refuses_secret_env_before_running(app: FastAPI) -> None:
     assert caught.value.status_code == 400
     assert caught.value.headers["X-Celesto-Error-Code"] == "secret_refused"
     assert caught.value.detail == (
-        "OPENAI_API_KEY looks like a secret, so Celesto won't place it inside the sandbox. "
-        'Create the sandbox with secrets: { OPENAI_API_KEY: { host: "api.openai.com" } } '
+        "OPENAI_API_KEY looks like a secret, so Celesto won't place it inside the computer. "
+        'Create the computer with secrets: { OPENAI_API_KEY: { host: "api.openai.com" } } '
         "instead."
     )
     assert FakeCelesto.last_run_args is None
@@ -1345,7 +1345,7 @@ def test_computer_exec_refuses_secret_env(app: FastAPI) -> None:
 
     assert caught.value.headers["X-Celesto-Error-Code"] == "secret_refused"
     assert caught.value.detail == (
-        "GH_TOKEN looks like a secret, so Celesto won't place it inside the sandbox. "
+        "GH_TOKEN looks like a secret, so Celesto won't place it inside the computer. "
         "TypeScript computers and browser sessions can't hold secrets yet; if it isn't "
         'one, pass notSecret: ["GH_TOKEN"].'
     )

@@ -105,8 +105,8 @@ def test_env_set_refuses_secret_name_with_exact_message(
     _save(artifact_dir, "env_set_refusal", [payload, {"human": human}])
 
     expected = (
-        "OPENAI_API_KEY looks like a secret, so Celesto won't place it inside the sandbox. "
-        "Run 'celesto sandbox secret set my-sbx OPENAI_API_KEY --host api.openai.com' instead."
+        "OPENAI_API_KEY looks like a secret, so Celesto won't place it inside the computer. "
+        "Run 'celesto computer secret set my-sbx OPENAI_API_KEY --host api.openai.com' instead."
     )
     assert code == 1 and code_h == 1
     assert payload["ok"] is False
@@ -123,8 +123,8 @@ def test_env_set_refuses_secret_shaped_value_under_plain_name(
 
     assert code == 1
     assert payload["error"]["message"] == (
-        "MODEL_CFG looks like a secret, so Celesto won't place it inside the sandbox. "
-        "Run 'celesto sandbox secret set my-sbx MODEL_CFG --host <the API's host name>' instead."
+        "MODEL_CFG looks like a secret, so Celesto won't place it inside the computer. "
+        "Run 'celesto computer secret set my-sbx MODEL_CFG --host <the API's host name>' instead."
     )
 
 
@@ -224,7 +224,7 @@ def test_secret_set_without_value_on_stopped_sandbox_warns(
     assert code == 0
     assert payload["data"]["warnings"] == [
         "STRIPE_KEY isn't set in this terminal, so w4-stopped can't use it. "
-        "Set it before you run 'celesto sandbox start w4-stopped'."
+        "Set it before you run 'celesto computer start w4-stopped'."
     ]
     state = SQLiteStateManager(data_dir / "celesto.db")
     _, _, missing = user_secrets.plan_for(stopped_vm, state, environ={})
@@ -269,7 +269,7 @@ def test_secret_remove_unknown_name(
     assert code == 1
     assert payload["error"]["message"] == (
         "STRIPE_KEY isn't a secret in w4-stopped. "
-        "Run 'celesto sandbox secret list w4-stopped' to see its secrets."
+        "Run 'celesto computer secret list w4-stopped' to see its secrets."
     )
 
 

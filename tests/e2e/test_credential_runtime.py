@@ -47,8 +47,8 @@ ROOT = Path(__file__).resolve().parents[2]
 ARTIFACT = ROOT / "artifacts" / "credential-runtime" / "e2e-summary.json"
 CELESTO = str(Path(sys.executable).with_name("celesto"))
 D16 = (
-    "Credential protection stopped for {name}. Run 'celesto sandbox stop {name}' "
-    "and 'celesto sandbox start {name}' to restore it."
+    "Credential protection stopped for {name}. Run 'celesto computer stop {name}' "
+    "and 'celesto computer start {name}' to restore it."
 )
 
 

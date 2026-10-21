@@ -141,8 +141,8 @@ def test_env_set_refuses_secret_and_nothing_reaches_the_guest(
     assert code == 1
     assert payload["error"]["code"] == "secret_refused"
     assert payload["error"]["message"] == (
-        "OPENAI_API_KEY looks like a secret, so Celesto won't place it inside the sandbox. "
-        f"Run 'celesto sandbox secret set {computer} OPENAI_API_KEY --host api.openai.com' "
+        "OPENAI_API_KEY looks like a secret, so Celesto won't place it inside the computer. "
+        f"Run 'celesto computer secret set {computer} OPENAI_API_KEY --host api.openai.com' "
         "instead."
     )
     guest = _guest_env_text(transcript, computer)
@@ -176,7 +176,7 @@ def test_sdk_set_env_vars_refuses_secret(computer: str, transcript: Transcript) 
             vm.set_env_vars({"GITHUB_TOKEN": SENTINEL_GITHUB})
         transcript.note(sdk_refusal=str(caught.value))
         assert str(caught.value) == (
-            "GITHUB_TOKEN looks like a secret, so Celesto won't place it inside the sandbox. "
+            "GITHUB_TOKEN looks like a secret, so Celesto won't place it inside the computer. "
             'Pass secrets={"GITHUB_TOKEN": Secret(host="api.github.com")} instead.'
         )
     finally:

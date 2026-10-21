@@ -46,8 +46,8 @@ def run_script(channel: Any, script: str, *, what: str, sandbox_id: str, timeout
     if result.exit_code != 0:
         raise CelestoError(
             f"Celesto couldn't finish setting up credential protection in {sandbox_id} "
-            f"({what}). Run 'celesto sandbox stop {sandbox_id}' and "
-            f"'celesto sandbox start {sandbox_id}' to try again.",
+            f"({what}). Run 'celesto computer stop {sandbox_id}' and "
+            f"'celesto computer start {sandbox_id}' to try again.",
             {"vm_id": sandbox_id, "step": what, "exit_code": result.exit_code},
         )
     return str(result.stdout)

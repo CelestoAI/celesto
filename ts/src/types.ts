@@ -39,9 +39,9 @@ export interface CreateSandboxOptions {
   /** Outbound network access. Defaults to open. */
   network?: NetworkPolicy;
   /**
-   * Secrets that stay on your machine, by env var name. The sandbox sees only a
+   * Secrets that stay on your machine, by env var name. The computer sees only a
    * placeholder; Celesto reads the real value from the env var of the same name
-   * when the sandbox starts and sends it only to `host`.
+   * when the computer starts and sends it only to `host`.
    */
   secrets?: Readonly<Record<string, SecretOptions>>;
 }

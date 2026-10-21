@@ -86,7 +86,7 @@ def looks_like_secret(name: str, value: str) -> bool:
 def refusal_message(name: str, *, sandbox: str, surface: Surface = "cli") -> str:
     """Return the user-facing refusal for *name*, with a recovery for *surface*."""
     host = KNOWN_SECRET_HOSTS.get(name.upper(), _UNKNOWN_HOST)
-    lead = f"{name} looks like a secret, so Celesto won't place it inside the sandbox."
+    lead = f"{name} looks like a secret, so Celesto won't place it inside the computer."
     if surface == "python":
         return f'{lead} Pass secrets={{"{name}": Secret(host="{host}")}} instead.'
     if surface == "typescript_no_secrets":
@@ -96,9 +96,9 @@ def refusal_message(name: str, *, sandbox: str, surface: Surface = "cli") -> str
         )
     if surface == "typescript":
         return (
-            f'{lead} Create the sandbox with secrets: {{ {name}: {{ host: "{host}" }} }} instead.'
+            f'{lead} Create the computer with secrets: {{ {name}: {{ host: "{host}" }} }} instead.'
         )
-    return f"{lead} Run 'celesto sandbox secret set {sandbox} {name} --host {host}' instead."
+    return f"{lead} Run 'celesto computer secret set {sandbox} {name} --host {host}' instead."
 
 
 def check_env(

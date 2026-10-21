@@ -2098,7 +2098,7 @@ def _run_env(args: SimpleNamespace) -> int:
 
 
 def _render_secret_list(vm_id: str, rows: list[dict[str, Any]]) -> None:
-    """Render ``celesto sandbox secret list`` for humans; never values."""
+    """Render ``celesto computer secret list`` for humans; never values."""
     if not rows:
         render_empty("Secrets", f"No secrets on '{vm_id}'.")
         return
@@ -2123,11 +2123,11 @@ def _render_secret_list(vm_id: str, rows: list[dict[str, Any]]) -> None:
 
 def _secret_set_command(vm_id: str, name: str, hosts: list[str]) -> str:
     host_flags = " ".join(f"--host {host}" for host in hosts)
-    return f"celesto sandbox secret set {vm_id} {name} {host_flags}"
+    return f"celesto computer secret set {vm_id} {name} {host_flags}"
 
 
 def _run_secret(args: SimpleNamespace) -> int:
-    """Handle ``celesto sandbox secret set|remove|list`` (D-11, D-15, D-18)."""
+    """Handle ``celesto computer secret set|remove|list`` (D-11, D-15, D-18)."""
     from celesto.credentials import user_secrets
     from celesto.exceptions import ValidationError
     from celesto.facade import Celesto
@@ -2163,13 +2163,13 @@ def _run_secret(args: SimpleNamespace) -> int:
             if removed is None:
                 raise ValidationError(
                     f"{name} isn't a secret in {vm_id}. "
-                    f"Run 'celesto sandbox secret list {vm_id}' to see its secrets."
+                    f"Run 'celesto computer secret list {vm_id}' to see its secrets."
                 )
             warnings: list[str] = []
             if removed.applied == "not_applied":
                 warnings.append(
                     f"Removed {name} from {vm_id}, but Celesto couldn't confirm that its "
-                    f"credential protection stopped using it. Run 'celesto sandbox stop {vm_id}' "
+                    f"credential protection stopped using it. Run 'celesto computer stop {vm_id}' "
                     "to be sure."
                 )
             data = {
@@ -2219,17 +2219,18 @@ def _run_secret(args: SimpleNamespace) -> int:
         if change.applied == "next_start" and not change.value_found:
             warnings.append(
                 f"{name} isn't set in this terminal, so {vm_id} can't use it. "
-                f"Set it before you run 'celesto sandbox start {vm_id}'."
+                f"Set it before you run 'celesto computer start {vm_id}'."
             )
         if change.applied == "not_applied":
             warnings.append(
                 f"Credential protection isn't running in {vm_id}, so {name} isn't in use yet. "
-                f"Run 'celesto sandbox stop {vm_id}' and 'celesto sandbox start {vm_id}' to use it."
+                f"Run 'celesto computer stop {vm_id}' and 'celesto computer start {vm_id}'"
+                " to use it."
             )
         if prompted and change.applied == "live":
             warnings.append(
                 f"The value you typed lasts until {vm_id} stops. Set {name} in this terminal "
-                f"before you run 'celesto sandbox start {vm_id}' again."
+                f"before you run 'celesto computer start {vm_id}' again."
             )
         data = {
             "vm_id": vm_id,
@@ -2250,7 +2251,7 @@ def _run_secret(args: SimpleNamespace) -> int:
         else:
             message = (
                 f"Saved {name} for '{vm_id}'. It will be sent only to {hosts_text}, "
-                f"starting with 'celesto sandbox start {vm_id}'."
+                f"starting with 'celesto computer start {vm_id}'."
             )
         _render_env_change(
             title="Secret Saved",
@@ -2614,7 +2615,7 @@ def _run_logs(args: SimpleNamespace) -> int:
             if not log_path.exists():
                 message = (
                     f"No credential activity for computer '{args.vm_id}' yet. "
-                    f"Run 'celesto sandbox logs {args.vm_id} --credentials' again after "
+                    f"Run 'celesto computer logs {args.vm_id} --credentials' again after "
                     "the computer uses a credential."
                 )
                 if json_output:

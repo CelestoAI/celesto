@@ -1052,7 +1052,7 @@ class Celesto:
     ) -> None:
         if secrets and vm_id is not None:
             raise ValidationError(
-                "Secrets can't be passed when reconnecting; call set_secret() on the sandbox."
+                "Secrets can't be passed when reconnecting; call set_secret() on the computer."
             )
         if internet_settings is not None:
             if vm_id is not None:
@@ -2257,7 +2257,7 @@ class Celesto:
 
         Values that look like secrets are refused with
         :class:`~celesto.SecretRefusedError`, because plain env vars are
-        readable inside the sandbox. Use :meth:`set_secret` for those, or
+        readable inside the computer. Use :meth:`set_secret` for those, or
         list a false positive in *not_secret*.
 
         On Linux guests the variables are persisted in

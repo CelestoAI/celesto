@@ -33,7 +33,7 @@ def test_vmconfig_refuses_secret_env_var(boot_files: dict[str, Path]) -> None:
         VMConfig(vm_id="w4-sdk", env_vars={"OPENAI_API_KEY": SENTINEL}, **boot_files)
 
     assert str(caught.value) == (
-        "OPENAI_API_KEY looks like a secret, so Celesto won't place it inside the sandbox. "
+        "OPENAI_API_KEY looks like a secret, so Celesto won't place it inside the computer. "
         'Pass secrets={"OPENAI_API_KEY": Secret(host="api.openai.com")} instead.'
     )
     assert SENTINEL not in repr(caught.value.details)
@@ -88,7 +88,7 @@ def test_browser_refuses_secret_env_before_boot() -> None:
         Celesto.browser(session_id="w4-browser", env_vars={"GITHUB_TOKEN": SENTINEL})
 
     assert str(caught.value).startswith(
-        "GITHUB_TOKEN looks like a secret, so Celesto won't place it inside the sandbox."
+        "GITHUB_TOKEN looks like a secret, so Celesto won't place it inside the computer."
     )
 
 
