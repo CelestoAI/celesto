@@ -40,9 +40,9 @@ from celesto.images.manager import IMAGE_DIR_ENV, ImageManager, resolve_image_di
 def _make_cache_dirs(root: Path) -> None:
     """Populate an image dir with representative cache entries."""
     entries = {
-        "codex-v0.0.1-amd64-firecracker": 5,
-        "claude-code-v0.0.1-arm64-qemu-alpine": 3,
-        f"codex-v{__version__}-arm64-qemu": 7,
+        "ubuntu-v0.0.1-amd64-firecracker": 5,
+        "linux-desktop-v0.0.1-arm64-qemu-alpine": 3,
+        f"ubuntu-v{__version__}-arm64-qemu": 7,
         "base-kernel-v0.0.1-amd64": 2,
     }
     for name, size in entries.items():
@@ -166,7 +166,7 @@ class TestResolveImageDir:
     def test_find_stale_caches_honors_env(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        stale = tmp_path / "codex-v0.0.1-amd64-firecracker"
+        stale = tmp_path / "ubuntu-v0.0.1-amd64-firecracker"
         stale.mkdir()
         monkeypatch.setenv(IMAGE_DIR_ENV, str(tmp_path))
         assert find_stale_caches(current_version="9.9.9") == [stale]
@@ -218,7 +218,7 @@ class TestCacheNameParsing:
 
     def test_prune_matches_dotted_suffix_versions(self, tmp_path: Path) -> None:
         """Shipped 0.0.24.postN caches must be prunable (regression)."""
-        stale = tmp_path / "codex-v0.0.24.post3-amd64-firecracker"
+        stale = tmp_path / "ubuntu-v0.0.24.post3-amd64-firecracker"
         stale.mkdir()
         assert find_stale_caches(cache_dir=tmp_path, current_version="9.9.9") == [stale]
 
@@ -240,23 +240,23 @@ class TestImageList:
         # The stray file is skipped; the six directories are classified.
         assert len(rows) == 6
 
-        codex = rows["codex-v0.0.1-amd64-firecracker"]
-        assert codex["kind"] == "image"
-        assert codex["preset"] == "codex"
-        assert codex["arch"] == "amd64"
-        assert codex["vmm"] == "firecracker"
-        assert codex["os"] == "ubuntu"
-        assert codex["current"] is False
-        assert codex["size_bytes"] == _total_size(tmp_path / "codex-v0.0.1-amd64-firecracker")
-        assert codex["size_bytes"] > 0
+        ubuntu = rows["ubuntu-v0.0.1-amd64-firecracker"]
+        assert ubuntu["kind"] == "image"
+        assert ubuntu["preset"] == "ubuntu"
+        assert ubuntu["arch"] == "amd64"
+        assert ubuntu["vmm"] == "firecracker"
+        assert ubuntu["os"] == "ubuntu"
+        assert ubuntu["current"] is False
+        assert ubuntu["size_bytes"] == _total_size(tmp_path / "ubuntu-v0.0.1-amd64-firecracker")
+        assert ubuntu["size_bytes"] > 0
 
         # Non-greedy preset parse: hyphenated preset with alpine suffix.
-        claude = rows["claude-code-v0.0.1-arm64-qemu-alpine"]
-        assert claude["preset"] == "claude-code"
+        claude = rows["linux-desktop-v0.0.1-arm64-qemu-alpine"]
+        assert claude["preset"] == "linux-desktop"
         assert claude["os"] == "alpine"
         assert claude["vmm"] == "qemu"
 
-        current = rows[f"codex-v{__version__}-arm64-qemu"]
+        current = rows[f"ubuntu-v{__version__}-arm64-qemu"]
         assert current["current"] is True
 
         kernel = rows["base-kernel-v0.0.1-amd64"]
@@ -276,7 +276,7 @@ class TestImageList:
         self, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:
         """Shipped 0.0.24.postN caches parse as images, not 'other' (regression)."""
-        (tmp_path / "codex-v0.0.24.post3-amd64-firecracker").mkdir(parents=True)
+        (tmp_path / "ubuntu-v0.0.24.post3-amd64-firecracker").mkdir(parents=True)
 
         ret = main(["image", "list", "--image-dir", str(tmp_path), "--json"])
 
@@ -284,7 +284,7 @@ class TestImageList:
         payload = json.loads(capsys.readouterr().out)
         row = payload["data"]["images"][0]
         assert row["kind"] == "image"
-        assert row["preset"] == "codex"
+        assert row["preset"] == "ubuntu"
         assert row["version"] == "0.0.24.post3"
         assert row["current"] is False
 
@@ -305,7 +305,7 @@ class TestImageList:
         # Rich wraps the panel mid-word with box-drawing borders; strip
         # everything but letters/digits so the recovery command is findable.
         flattened = re.sub(r"[^a-z0-9]+", "", capsys.readouterr().out.lower())
-        assert "celestoimagepullcodex" in flattened
+        assert "celestoimagepullubuntu" in flattened
 
     def test_list_env_var_default(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
@@ -341,13 +341,13 @@ class TestImageList:
 class TestImageRm:
     def test_rm_exact_name(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
         _make_cache_dirs(tmp_path)
-        expected_freed = _total_size(tmp_path / "codex-v0.0.1-amd64-firecracker")
+        expected_freed = _total_size(tmp_path / "ubuntu-v0.0.1-amd64-firecracker")
 
         ret = main(
             [
                 "image",
                 "rm",
-                "codex-v0.0.1-amd64-firecracker",
+                "ubuntu-v0.0.1-amd64-firecracker",
                 "--image-dir",
                 str(tmp_path),
                 "--json",
@@ -357,12 +357,14 @@ class TestImageRm:
         assert ret == 0
         payload = json.loads(capsys.readouterr().out)
         assert payload["command"] == "image.rm"
-        assert [e["name"] for e in payload["data"]["removed"]] == ["codex-v0.0.1-amd64-firecracker"]
+        assert [e["name"] for e in payload["data"]["removed"]] == [
+            "ubuntu-v0.0.1-amd64-firecracker"
+        ]
         assert payload["data"]["freed_bytes"] == expected_freed
         assert expected_freed > 0
-        assert not (tmp_path / "codex-v0.0.1-amd64-firecracker").exists()
-        # The other codex version is untouched by an exact-name removal.
-        assert (tmp_path / f"codex-v{__version__}-arm64-qemu").exists()
+        assert not (tmp_path / "ubuntu-v0.0.1-amd64-firecracker").exists()
+        # The other ubuntu version is untouched by an exact-name removal.
+        assert (tmp_path / f"ubuntu-v{__version__}-arm64-qemu").exists()
 
     def test_rm_accepts_trailing_slash_and_list_path(
         self, tmp_path: Path, capsys: pytest.CaptureFixture
@@ -374,7 +376,7 @@ class TestImageRm:
             [
                 "image",
                 "rm",
-                "codex-v0.0.1-amd64-firecracker/",
+                "ubuntu-v0.0.1-amd64-firecracker/",
                 "--image-dir",
                 str(tmp_path),
                 "--json",
@@ -382,7 +384,7 @@ class TestImageRm:
         )
         assert ret == 0
         capsys.readouterr()
-        assert not (tmp_path / "codex-v0.0.1-amd64-firecracker").exists()
+        assert not (tmp_path / "ubuntu-v0.0.1-amd64-firecracker").exists()
 
         full_path = str(tmp_path / "base-kernel-v0.0.1-amd64")
         ret = main(["image", "rm", full_path, "--image-dir", str(tmp_path), "--json"])
@@ -394,57 +396,37 @@ class TestImageRm:
         self, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:
         _make_cache_dirs(tmp_path)
-        (tmp_path / "codex-v0.0.24.post3-amd64-firecracker").mkdir()
+        (tmp_path / "ubuntu-v0.0.24.post3-amd64-firecracker").mkdir()
 
-        ret = main(["image", "rm", "codex", "--image-dir", str(tmp_path), "--json"])
+        ret = main(["image", "rm", "ubuntu", "--image-dir", str(tmp_path), "--json"])
 
         assert ret == 0
         payload = json.loads(capsys.readouterr().out)
         removed = {e["name"] for e in payload["data"]["removed"]}
         assert removed == {
-            "codex-v0.0.1-amd64-firecracker",
-            f"codex-v{__version__}-arm64-qemu",
-            "codex-v0.0.24.post3-amd64-firecracker",
+            "ubuntu-v0.0.1-amd64-firecracker",
+            f"ubuntu-v{__version__}-arm64-qemu",
+            "ubuntu-v0.0.24.post3-amd64-firecracker",
         }
         assert payload["data"]["freed_bytes"] > 0
         # Unrelated entries survive preset-wide removal.
         assert (tmp_path / "s3").exists()
         assert (tmp_path / "_guest-agent").exists()
         assert (tmp_path / "base-kernel-v0.0.1-amd64").exists()
-        assert (tmp_path / "claude-code-v0.0.1-arm64-qemu-alpine").exists()
-
-    @pytest.mark.parametrize(
-        ("alias", "expected"),
-        [
-            ("claude", "claude-code-v0.0.1-arm64-qemu-alpine"),
-            ("claw", "openclaw-v0.0.1-amd64-firecracker"),
-        ],
-    )
-    def test_rm_preset_aliases(
-        self, alias: str, expected: str, tmp_path: Path, capsys: pytest.CaptureFixture
-    ) -> None:
-        """Aliases come from the presets registry, not a hardcoded map."""
-        _make_cache_dirs(tmp_path)
-        (tmp_path / "openclaw-v0.0.1-amd64-firecracker").mkdir()
-
-        ret = main(["image", "rm", alias, "--image-dir", str(tmp_path), "--json"])
-
-        assert ret == 0
-        payload = json.loads(capsys.readouterr().out)
-        assert [e["name"] for e in payload["data"]["removed"]] == [expected]
+        assert (tmp_path / "linux-desktop-v0.0.1-arm64-qemu-alpine").exists()
 
     def test_rm_dry_run_removes_nothing(
         self, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:
         _make_cache_dirs(tmp_path)
 
-        ret = main(["image", "rm", "codex", "--dry-run", "--image-dir", str(tmp_path), "--json"])
+        ret = main(["image", "rm", "ubuntu", "--dry-run", "--image-dir", str(tmp_path), "--json"])
 
         assert ret == 0
         payload = json.loads(capsys.readouterr().out)
         assert payload["data"]["dry_run"] is True
         assert payload["data"]["would_free_bytes"] > 0
-        assert (tmp_path / "codex-v0.0.1-amd64-firecracker").exists()
+        assert (tmp_path / "ubuntu-v0.0.1-amd64-firecracker").exists()
 
     def test_rm_unknown_name_fails_with_recovery(
         self, tmp_path: Path, capsys: pytest.CaptureFixture
@@ -478,18 +460,18 @@ class TestImageRm:
         rmtree'd (regression: rmtree on a symlink used to crash)."""
         root = tmp_path / "images"
         root.mkdir()
-        real = root / "codex-v0.0.1-amd64-firecracker"
+        real = root / "ubuntu-v0.0.1-amd64-firecracker"
         real.mkdir()
         (real / "rootfs.ext4").write_text("data")
-        (root / "old-codex").symlink_to(real)
+        (root / "old-ubuntu").symlink_to(real)
 
-        ret = main(["image", "rm", "old-codex", "--image-dir", str(root), "--json"])
+        ret = main(["image", "rm", "old-ubuntu", "--image-dir", str(root), "--json"])
 
         assert ret == 0
         payload = json.loads(capsys.readouterr().out)
-        assert [e["name"] for e in payload["data"]["removed"]] == ["old-codex"]
+        assert [e["name"] for e in payload["data"]["removed"]] == ["old-ubuntu"]
         assert payload["data"]["freed_bytes"] == 0
-        assert not (root / "old-codex").exists()
+        assert not (root / "old-ubuntu").exists()
         assert (real / "rootfs.ext4").exists()
 
     def test_rm_symlink_outside_root_only_removes_link(
@@ -516,7 +498,7 @@ class TestPruneAlias:
         self, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:
         """The documented alias takes the same --image-dir flag as the group."""
-        stale = tmp_path / "codex-v0.0.1-amd64-firecracker"
+        stale = tmp_path / "ubuntu-v0.0.1-amd64-firecracker"
         stale.mkdir()
 
         ret = main(["prune", "--image-dir", str(tmp_path), "--dry-run", "--json"])
@@ -538,9 +520,9 @@ class TestPruneAlias:
         assert payload["command"] == "image.prune"
         assert payload["ok"] is True
         # Stale-versioned dirs go; current-version and unversioned stay.
-        assert not (tmp_path / "codex-v0.0.1-amd64-firecracker").exists()
+        assert not (tmp_path / "ubuntu-v0.0.1-amd64-firecracker").exists()
         assert not (tmp_path / "base-kernel-v0.0.1-amd64").exists()
-        assert (tmp_path / f"codex-v{__version__}-arm64-qemu").exists()
+        assert (tmp_path / f"ubuntu-v{__version__}-arm64-qemu").exists()
         assert (tmp_path / "s3").exists()
 
 
@@ -659,7 +641,7 @@ class TestImageInspect:
         hole_bytes, supports_sparse_allocation = sparse_test_config
         _make_published_entry(
             tmp_path,
-            "codex-v0.0.1-amd64-firecracker",
+            "ubuntu-v0.0.1-amd64-firecracker",
             hole_bytes=hole_bytes,
         )
 
@@ -667,7 +649,7 @@ class TestImageInspect:
             [
                 "image",
                 "inspect",
-                "codex-v0.0.1-amd64-firecracker",
+                "ubuntu-v0.0.1-amd64-firecracker",
                 "--image-dir",
                 str(tmp_path),
                 "--json",
@@ -699,9 +681,9 @@ class TestImageInspect:
     ) -> None:
         from celesto.images.published import IMAGES_RELEASE_TAG, cache_name
 
-        _make_published_entry(tmp_path, cache_name("codex", "amd64", "firecracker"))
+        _make_published_entry(tmp_path, cache_name("ubuntu", "amd64", "firecracker"))
 
-        ret = main(["image", "inspect", "codex", "--image-dir", str(tmp_path), "--json"])
+        ret = main(["image", "inspect", "ubuntu", "--image-dir", str(tmp_path), "--json"])
 
         assert ret == 0
         payload = json.loads(capsys.readouterr().out)
@@ -718,7 +700,7 @@ class TestImageInspect:
     ) -> None:
         _make_cache_dirs(tmp_path)
 
-        ret = main(["image", "inspect", "codex", "--image-dir", str(tmp_path), "--json"])
+        ret = main(["image", "inspect", "ubuntu", "--image-dir", str(tmp_path), "--json"])
 
         assert ret == 0
         payload = json.loads(capsys.readouterr().out)
@@ -733,7 +715,7 @@ class TestImageInspect:
 
 
 class TestImagePullAll:
-    @pytest.mark.parametrize("argv", [["image", "pull"], ["image", "pull", "codex", "--all"]])
+    @pytest.mark.parametrize("argv", [["image", "pull"], ["image", "pull", "ubuntu", "--all"]])
     def test_mutual_exclusion(self, argv: list[str], capsys: pytest.CaptureFixture) -> None:
         ret = main([*argv, "--json"])
 
@@ -794,7 +776,7 @@ class TestImagePullAll:
         rootfs.touch()
 
         def flaky(preset: str, *args: object, **kwargs: object) -> LocalImage:
-            if preset == "codex":
+            if preset == "ubuntu":
                 raise ImageError("boom")
             return LocalImage(name="x", kernel_path=kernel, rootfs_path=rootfs)
 
@@ -806,14 +788,14 @@ class TestImagePullAll:
         payload = json.loads(capsys.readouterr().out)
         assert payload["ok"] is False
         details = payload["error"]["details"]
-        assert {f["preset"] for f in details["failed"]} == {"codex"}
+        assert {f["preset"] for f in details["failed"]} == {"ubuntu"}
         assert details["pulled"]  # other presets still downloaded
         assert "celesto image pull --all" in payload["error"]["recovery"]
 
     @patch("celesto.images.published.ensure_published_image")
     @patch("celesto.cli.main._vmm_for_host", return_value="firecracker")
     @patch("celesto.cli.main._host_arch_for_published", return_value="amd64")
-    def test_pull_all_os_filter(
+    def test_pull_all_os_filter_reports_no_match_when_nothing_is_published(
         self,
         mock_arch: MagicMock,
         mock_vmm: MagicMock,
@@ -821,22 +803,13 @@ class TestImagePullAll:
         tmp_path: Path,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        from celesto.images.manager import LocalImage
-
-        kernel = tmp_path / "vmlinux.bin"
-        rootfs = tmp_path / "rootfs.ext4"
-        kernel.touch()
-        rootfs.touch()
-        mock_ensure.return_value = LocalImage(name="x", kernel_path=kernel, rootfs_path=rootfs)
-
         ret = main(
             ["image", "pull", "--all", "--os", "alpine", "--image-dir", str(tmp_path), "--json"]
         )
 
-        assert ret == 0
-        capsys.readouterr()
-        assert mock_ensure.call_args_list
-        assert all(c.args[3] == "alpine" for c in mock_ensure.call_args_list)
+        assert ret == 2
+        assert "No published images match this machine" in capsys.readouterr().out
+        mock_ensure.assert_not_called()
 
 
 class TestCustomImages:
@@ -918,7 +891,7 @@ class TestRmSafety:
     ) -> None:
         """A symlinked component under custom/ must not redirect the delete
         at a different entry (regression)."""
-        published = tmp_path / "codex-v9.9.9-amd64-firecracker"
+        published = tmp_path / "ubuntu-v9.9.9-amd64-firecracker"
         published.mkdir()
         (published / "rootfs.ext4").write_bytes(b"keep me")
         (tmp_path / "custom").mkdir()
@@ -928,7 +901,7 @@ class TestRmSafety:
             [
                 "image",
                 "rm",
-                "custom/link/codex-v9.9.9-amd64-firecracker",
+                "custom/link/ubuntu-v9.9.9-amd64-firecracker",
                 "--image-dir",
                 str(tmp_path),
                 "--json",
@@ -992,7 +965,7 @@ class TestRmSafety:
         self, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:
         """Orphaned staging dirs must not be invisible disk usage."""
-        staging = tmp_path / ".codex-v0.0.1-amd64-firecracker.partial"
+        staging = tmp_path / ".ubuntu-v0.0.1-amd64-firecracker.partial"
         staging.mkdir()
         (staging / "rootfs.ext4").write_bytes(b"x" * 10)
 
@@ -1087,13 +1060,13 @@ class TestUpstreamReviewRegressions:
         real = tmp_path / "real-data"
         real.mkdir()
         (real / "keep").write_text("keep")
-        (tmp_path / "codex-v0.0.1-amd64-firecracker").symlink_to(real)
+        (tmp_path / "ubuntu-v0.0.1-amd64-firecracker").symlink_to(real)
 
         ret = main(["prune", "--image-dir", str(tmp_path), "--json"])
 
         assert ret == 0
         capsys.readouterr()
-        assert not (tmp_path / "codex-v0.0.1-amd64-firecracker").exists()
+        assert not (tmp_path / "ubuntu-v0.0.1-amd64-firecracker").exists()
         assert (real / "keep").exists()
 
     def test_guest_agent_cache_dir_honors_explicit_cache_dir(self, tmp_path: Path) -> None:

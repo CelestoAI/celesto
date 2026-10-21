@@ -58,7 +58,6 @@ check the command plan before starting any sandbox:
 uv run python scripts/benchmarks/artifacts.py --dry-run --json
 uv run python scripts/benchmarks/disk_io.py --dry-run --json
 uv run python scripts/benchmarks/file_transfer.py --dry-run --json
-uv run python scripts/benchmarks/preset_start.py --preset codex --comm-channel vsock --dry-run --json
 uv run python scripts/benchmarks/browser_ready.py --dry-run --json
 uv run python scripts/benchmarks/runtime_control.py --operations info,stop,start --dry-run --json
 ```
@@ -71,10 +70,7 @@ off. `file_transfer.py` starts one sandbox and times upload/download for several
 file sizes plus a directory tar round trip, meaning pack a folder into one tar
 archive, send it, and unpack or fetch it again, when the selected control
 channel supports it.
-`preset_start.py` times `celesto <preset> start` and cleans up the sandbox unless
-`--keep` is set. Use `--comm-channel vsock` or `--comm-channel ssh` when you
-want preset startup numbers for a specific control path. `browser_ready.py`
-starts a browser sandbox, then polls the CDP endpoint, which is the local
+`browser_ready.py` starts a browser sandbox, then polls the CDP endpoint, which is the local
 browser debugging URL, when it is available.
 `runtime_control.py` measures public lifecycle commands such as
 `celesto sandbox pause`, `resume`, `stop`, and `start`.
@@ -86,7 +82,6 @@ sandboxes and clean them up unless `--keep` is set:
 ```bash
 uv run python scripts/benchmarks/disk_io.py --json --output /tmp/celesto-disk-io.json
 uv run python scripts/benchmarks/file_transfer.py --backend qemu --comm-channel vsock --json --output /tmp/celesto-file-transfer.json
-uv run python scripts/benchmarks/preset_start.py --preset codex --backend qemu --comm-channel vsock --json --output /tmp/celesto-preset-codex.json
 uv run python scripts/benchmarks/browser_ready.py --backend qemu --json --output /tmp/celesto-browser-ready.json
 ```
 

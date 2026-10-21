@@ -166,7 +166,7 @@ slow boot.
 ```sh
 qemu-system-aarch64 -machine virt,accel=hvf -cpu host -smp 2 -m 1024 \
     -kernel vmlinux-arm64.image \
-    -drive file=/path/to/openclaw/rootfs.ext4,format=raw,if=none,id=root \
+    -drive file=/path/to/rootfs.ext4,format=raw,if=none,id=root \
     -device virtio-blk-pci,drive=root \
     -netdev user,id=net0 -device virtio-net-pci,netdev=net0 \
     -append "console=ttyAMA0 reboot=k panic=1 init=/init root=/dev/vda rw" \

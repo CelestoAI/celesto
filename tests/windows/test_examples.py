@@ -32,7 +32,6 @@ AGENT_TOOL_EXAMPLES_DIR = TOP_LEVEL_EXAMPLES_DIR / "agent_tools"
 EXPECTED_TOP_LEVEL_EXAMPLES = {
     "browser_sandbox.py",
     "env_injection.py",
-    "openclaw.py",
     "quickstart_sandbox.py",
 }
 EXPECTED_AGENT_TOOL_EXAMPLES = {
@@ -76,16 +75,6 @@ def test_agent_tool_examples_import_without_optional_dependencies(example_name: 
 def test_top_level_examples_import_without_optional_dependencies(example_name: str) -> None:
     """Import top-level examples without requiring optional dependencies."""
     _load_module(TOP_LEVEL_EXAMPLES_DIR / example_name)
-
-
-def test_openclaw_example_handles_custom_ports_and_tls_config() -> None:
-    """Keep the SDK example aligned with the CLI dashboard compatibility fixes."""
-    source = (TOP_LEVEL_EXAMPLES_DIR / "openclaw.py").read_text(encoding="utf-8")
-
-    assert "OPENCLAW_GATEWAY_PORT={GUEST_DASHBOARD_PORT}" in source
-    assert "https://127.0.0.1:{GUEST_DASHBOARD_PORT}/" in source
-    assert "--insecure" in source
-    assert "parsed.port != GUEST_DASHBOARD_PORT" in source
 
 
 def test_langchain_tool_import_without_pydantic_v1_warning() -> None:

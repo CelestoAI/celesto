@@ -55,10 +55,6 @@ _Avoid_: rootfs, base box
 A saved copy of a computer's state that you can restore later.
 _Avoid_: checkpoint, backup
 
-**Agent preset**:
-A computer with a coding agent such as Codex or Claude Code already installed.
-_Avoid_: harness sandbox
-
 ## Older names you will still see
 
 Some commands and API names predate this glossary. They mean **computer**:
