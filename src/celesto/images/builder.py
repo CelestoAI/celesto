@@ -39,7 +39,6 @@ from celesto.exceptions import CelestoError, ImageError
 from celesto.images.boot import BootImage, DirectKernelBoot
 from celesto.images.manager import resolve_image_dir
 from celesto.kernels import KernelArch, ensure_base_kernel_for_backend
-from celesto.presets.openclaw import OPENCLAW_NODE_VERSION, OPENCLAW_VERSION
 from celesto.runtime.backends import resolve_backend
 from celesto.runtime.boot_profiles import (
     KernelBootProfile,
@@ -52,11 +51,6 @@ logger = logging.getLogger(__name__)
 
 # Default boot args that include init=/init for our custom init script
 SSH_BOOT_ARGS = "console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw init=/init"
-
-# Boot args for OpenClaw VMs — 8250.nr_uarts=0 disables serial UART to avoid
-# vCPU exits on /dev/ttyS0 writes, which become a measurable host CPU tax at
-# 200+ VMs.  No console= since we don't need serial output in production.
-OPENCLAW_BOOT_ARGS = "reboot=k panic=1 pci=off init=/init 8250.nr_uarts=0"
 
 LOOPFS_HELPER_PATH = Path("/var/lib/celesto/libexec/celesto-loopfs-helper")
 LEGACY_LOOPFS_HELPER_PATH = Path("/usr/local/libexec/celesto-loopfs-helper")
@@ -1479,175 +1473,6 @@ RUN chmod +x /init
         logger.info("Image '%s' built successfully at %s", name, image_dir)
         return (kernel_path, rootfs_path)
 
-    def build_openclaw_rootfs(
-        self,
-        name: str = "openclaw",
-        ssh_public_key: str | Path | None = None,
-        rootfs_size_mb: int = 2048,
-        kernel_url: str | None = None,
-        extra_packages: list[str] | None = None,
-    ) -> tuple[Path, Path]:
-        """Build an OpenClaw rootfs with a supported Node.js runtime.
-
-        The resulting image contains:
-
-        - Node.js 24.15.0 (``node:24.15.0-bookworm-slim`` base)
-        - OpenClaw pre-installed at ``/opt/openclaw/`` (symlinked to ``/usr/local/bin/openclaw``)
-        - SSH server for ``vm.run()`` management commands
-        - Custom ``/init`` that boots networking and sshd
-        - Custom system packages like `git` (for npm source dependencies)
-
-        Boot the resulting VM with :data:`OPENCLAW_BOOT_ARGS`.
-
-        Args:
-            name: Image name for caching.
-            ssh_public_key: Public key content or path to a public key file.
-            rootfs_size_mb: Size of rootfs in MB (default: 2048).
-            kernel_url: Optional kernel URL override.
-            extra_packages: List of apt packages to install (defaults to ['git']).
-
-        Returns:
-            Tuple of (kernel_path, rootfs_path).
-
-        Raises:
-            ImageError: If Docker is not available or build fails.
-        """
-        if not self.check_docker():
-            raise self.docker_requirement_error()
-
-        if extra_packages is None:
-            extra_packages = ["git"]
-
-        # Validate package names to prevent Dockerfile string-interpolation injection
-        valid_pkg_regex = re.compile(r"^[a-z0-9\.\+\-]+$")
-        for pkg in extra_packages:
-            if not valid_pkg_regex.match(pkg):
-                raise ImageError(f"Invalid package name requested for installation: '{pkg}'")
-
-        if ssh_public_key is None:
-            key_path = Path.home() / ".celesto" / "keys" / "id_ed25519.pub"
-            try:
-                key_value = key_path.read_text().strip()
-            except OSError:
-                key_value = ""
-        else:
-            key_value = self._resolve_public_key(ssh_public_key)
-
-        image_dir = self.cache_dir / name
-        kernel_path = image_dir / "vmlinux.bin"
-        rootfs_path = image_dir / "rootfs.ext4"
-
-        packages_str = " ".join(extra_packages)
-
-        init_script = self._openclaw_init_script()
-
-        dockerfile_content = f"""
-FROM node:{".".join(str(part) for part in OPENCLAW_NODE_VERSION)}-bookworm-slim
-
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN apt-get update && apt-get install -y --no-install-recommends \\
-    openssh-server \\
-    iproute2 \\
-    curl \\
-    bash \\
-    ca-certificates \\
-    {packages_str} \\
-    && rm -rf /var/lib/apt/lists/*
-
-# Host keys generated at first boot in /init so each VM has unique identity.
-# 'rm -f' purges keys planted by the openssh-server postinst on Debian.
-RUN rm -f /etc/ssh/ssh_host_* && \\
-    mkdir -p /run/sshd /root/.ssh && chmod 700 /root/.ssh && \\
-    sed -ri 's/^#?PermitRootLogin .*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config && \\
-    sed -ri 's/^#?PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config && \\
-    sed -ri 's/^#?PubkeyAuthentication .*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
-
-# Prepare OpenClaw directories and workspace. Celesto attaches as root, so the
-# CLI, copied configuration, and dashboard gateway share one state directory.
-RUN mkdir -p /opt/openclaw /root/.openclaw /workspace
-
-WORKDIR /opt/openclaw
-RUN npm init -y && \\
-    npm_version=$(npm --version) && \\
-    npm_major=${{npm_version%%.*}} && \\
-    npm_rest=${{npm_version#*.}} && \\
-    npm_minor=${{npm_rest%%.*}} && \\
-    npm_lifecycle_arg="" && \\
-    if [ "$npm_major" -ge 12 ] || {{ [ "$npm_major" -eq 11 ] && [ "$npm_minor" -ge 16 ]; }}; \\
-        then npm_lifecycle_arg="--allow-scripts=openclaw"; fi && \\
-    npm --prefix /opt/openclaw install -g $npm_lifecycle_arg openclaw@{OPENCLAW_VERSION} && \\
-    ln -sf /opt/openclaw/bin/openclaw /usr/local/bin/openclaw && \\
-    openclaw --version | grep -F {OPENCLAW_VERSION} && \\
-    npm cache clean --force >/dev/null 2>&1
-
-# Strip @node-llama-cpp GPU and non-host-arch backends. Inside Firecracker
-# there is no GPU passthrough, so the CUDA/Vulkan binaries are dead weight
-# (~600+ MiB on amd64). On arm64 only the matching arch package exists, so
-# the rm calls are no-ops there. The path reflects npm's `-g --prefix`
-# layout: /opt/openclaw/lib/node_modules/openclaw/node_modules/...
-RUN rm -rf \\
-    /opt/openclaw/lib/node_modules/openclaw/node_modules/@node-llama-cpp/linux-x64-cuda \\
-    /opt/openclaw/lib/node_modules/openclaw/node_modules/@node-llama-cpp/linux-x64-cuda-ext \\
-    /opt/openclaw/lib/node_modules/openclaw/node_modules/@node-llama-cpp/linux-x64-vulkan \\
-    /opt/openclaw/lib/node_modules/openclaw/node_modules/@node-llama-cpp/linux-armv7l
-
-# Init script
-COPY init /init
-RUN chmod +x /init
-"""
-
-        # ssh_public_key is intentionally not in the fingerprint and not baked
-        # into the rootfs — see VMConfig.ssh_public_key + /init parser.
-        _ = key_value
-        fingerprint_data = self._fingerprint_with_content(
-            {
-                "rootfs_size_mb": rootfs_size_mb,
-                "kernel_url": kernel_url,
-                "extra_packages": extra_packages,
-            },
-            dockerfile_content,
-            init_script,
-        )
-
-        if kernel_path.exists() and rootfs_path.exists():
-            if self._check_fingerprint(image_dir, fingerprint_data):
-                logger.info(
-                    "Image '%s' already exists and fingerprint matches at %s", name, image_dir
-                )
-                return (kernel_path, rootfs_path)
-
-            logger.info("Inputs changed for OpenClaw image '%s'. Rebuilding...", name)
-            kernel_path.unlink(missing_ok=True)
-            rootfs_path.unlink(missing_ok=True)
-
-        logger.info("Building OpenClaw image '%s' with extra packages: %s...", name, packages_str)
-        image_dir.mkdir(parents=True, exist_ok=True)
-
-        try:
-            self._do_build(
-                name,
-                dockerfile_content,
-                init_script,
-                image_dir,
-                kernel_path,
-                rootfs_path,
-                rootfs_size_mb,
-                kernel_url=kernel_url,
-                fingerprint_data=fingerprint_data,
-            )
-        except (subprocess.CalledProcessError, ImageError) as e:
-            if rootfs_path.exists():
-                rootfs_path.unlink()
-            if kernel_path.exists():
-                kernel_path.unlink()
-            if isinstance(e, ImageError):
-                raise
-            raise ImageError(f"Image build failed: {e}") from e
-
-        logger.info("Image '%s' built successfully at %s", name, image_dir)
-        return (kernel_path, rootfs_path)
-
     def _resolve_public_key(self, ssh_public_key: str | Path) -> str:
         """Resolve a public key from inline content or file path."""
         key_text = str(ssh_public_key).strip()
@@ -1950,14 +1775,6 @@ done
     def _default_init_script(self) -> str:
         """Default PID 1 init script used by SSH-capable images."""
         return self._base_init_script()
-
-    def _openclaw_init_script(self) -> str:
-        """PID 1 init script for OpenClaw images.
-
-        OpenClaw 2.0 owns browser pairing in SQLite, so the image only needs
-        the shared Celesto init behavior and an identifiable hostname.
-        """
-        return self._base_init_script(custom_hostname="openclaw")
 
     def _loopfs_helper_path(self) -> Path | None:
         """Return the preferred or legacy privileged helper when executable."""

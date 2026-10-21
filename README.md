@@ -162,14 +162,6 @@ celesto computer delete agent-job --json
 
 Use unique names for concurrent jobs. Prefer `exec` for automation; reserve `shell`, `ssh`, and `desktop` for interactive work. Commands return a nonzero exit code on failure, and JSON errors include a recovery command when Celesto can provide one.
 
-For a coding agent with its CLI already installed, start a preset directly:
-
-```bash
-celesto codex start
-```
-
-Celesto also provides presets for Claude Code, Pi, Hermes, OpenCode, and OpenClaw. See the [agent presets guide](docs/guides/agent-presets.md) for credentials, naming, and unattended usage.
-
 ## Inspect and connect
 
 Use `celesto computer list` to see computers, `celesto computer logs my-computer` to inspect startup output, or `celesto computer shell my-computer` to open a fast interactive shell.
@@ -379,29 +371,6 @@ with Celesto(
 Use `mode="restricted"` with `allowed_cidrs` to allow specific IPv4 addresses or ranges. The restricted modes require private network mode and do not support shared folders or exposed ports. Explicit command output and file downloads still work when outbound access is off.
 
 An `allowed_domains` list resolves domains during setup and permits the resulting IP addresses. It does not check the hostname on each connection. DNS servers do not receive automatic access. See the [network guide](docs/guides/networking.md) for supported combinations.
-
-### Start a code agent
-
-Run a supported code agent in its own computer so it can edit and execute code without direct access to your machine:
-
-```bash
-celesto codex start
-celesto claude start
-celesto pi start
-celesto hermes start
-celesto opencode start
-celesto openclaw start --name openclaw-work --no-attach
-```
-
-Open the private OpenClaw dashboard after the computer starts:
-
-```bash
-celesto openclaw open-ui openclaw-work
-```
-
-The first OpenClaw start can take several minutes while Celesto installs its supported Node.js runtime and pinned OpenClaw release. See the [agent presets guide](docs/guides/agent-presets.md) for credentials and dashboard access.
-
-<a href="https://youtu.be/j1qyrTsI0Jw"><img src="https://img.youtube.com/vi/j1qyrTsI0Jw/maxresdefault.jpg" alt="Code agents in a Celesto computer" width="480" /></a>
 
 ## Examples
 

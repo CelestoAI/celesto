@@ -4,8 +4,8 @@
 # one of the published images — otherwise only discovered by the first
 # user trying `celesto create`.
 #
-# Each cell tests a *real* published Celesto image (including the Alpine
-# OpenCode image), exactly how the runtime boots them:
+# Each cell tests a *real* published Celesto image (the bare Ubuntu
+# image and the Linux desktop), exactly how the runtime boots them:
 #   - Downloads the published kernel + ``<rootfs>-<arch>-rootfs.ext4.zst``
 #     from the release, verifies the rootfs against the bundled manifest,
 #     and decompresses it.
@@ -62,15 +62,8 @@ jobs:
       fail-fast: false
       matrix:
         arch: [amd64, arm64]
-        rootfs: [openclaw, opencode, ubuntu, linux-desktop]
-        os: [ubuntu, alpine]
-        exclude:
-          - rootfs: openclaw
-            os: alpine
-          - rootfs: ubuntu
-            os: alpine
-          - rootfs: linux-desktop
-            os: alpine
+        rootfs: [ubuntu, linux-desktop]
+        os: [ubuntu]
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     timeout-minutes: 20
 

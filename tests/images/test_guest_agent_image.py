@@ -122,28 +122,8 @@ def test_ci_build_preset_bakes_guest_agent() -> None:
     assert "/usr/local/bin/celesto-guest-agent" in script
 
 
-def test_ci_build_preset_preinstalls_stable_opencode() -> None:
-    """The published OpenCode layer follows the existing npm preset process."""
-    script = (_REPO_ROOT / "scripts" / "ci" / "build-preset.sh").read_text()
-    workflow = (_REPO_ROOT / ".github" / "workflows" / "build-published-images.yml").read_text()
-
-    assert "npm install -g --silent opencode-ai" in script
-    assert "preset: [codex, claude-code, hermes, opencode, pi, ubuntu]" in workflow
-    assert "- preset: opencode\n            os: alpine" not in workflow
-    assert "codex|claude-code|opencode|pi" in script
-    assert "SIZE=4096" in workflow
-
-
-def test_published_image_smoke_matrix_includes_opencode() -> None:
-    workflow = (_REPO_ROOT / ".github" / "workflows" / "smoke-published-images.yml").read_text()
-
-    assert "rootfs: [openclaw, opencode, ubuntu, linux-desktop]" in workflow
-    assert "os: [ubuntu, alpine]" in workflow
-    assert 'suffix="-alpine"' in workflow
-
-
 def test_published_image_workflow_builds_and_smokes_linux_desktop() -> None:
-    """The computer image should be published and boot-tested like other presets."""
+    """The computer image should be published and boot-tested like the other images."""
     build = (_REPO_ROOT / ".github" / "workflows" / "build-published-images.yml").read_text()
     smoke = (_REPO_ROOT / ".github" / "workflows" / "smoke-published-images.yml").read_text()
 
@@ -153,7 +133,6 @@ def test_published_image_workflow_builds_and_smokes_linux_desktop() -> None:
     assert "desktop=True" in build
     assert "linux-desktop-amd64-rootfs.ext4.zst" not in build
     assert "inputs.presets != 'linux-desktop'" not in build
-    assert "contains(format(',{0},', inputs.presets), ',codex,')" in build
     assert "celesto-browser-session start computer" in smoke
     assert "command -v lxterminal" in smoke
     assert "command -v pcmanfm" in smoke
@@ -172,15 +151,6 @@ def test_published_image_workflow_uploads_guest_agent_binaries() -> None:
     assert "celesto-guest-agent-linux-arm64" in workflow
     assert '"$ASSET_NAME"' in workflow
     assert '"${ASSET_NAME}.sha256"' in workflow
-
-
-def test_published_image_workflow_openclaw_uses_authenticated_kernel_download() -> None:
-    """OpenClaw builds must not fetch draft kernel assets via public URLs."""
-    workflow = (_REPO_ROOT / ".github" / "workflows" / "build-published-images.yml").read_text()
-    assert "Download OpenClaw kernel" in workflow
-    assert "vmlinux-${ARCH}.elf" in workflow
-    assert "KERNEL_PATH: ${{ steps.openclaw_kernel.outputs.path }}" in workflow
-    assert "kernel_url=kernel_url" in workflow
 
 
 def test_e2e_uses_image_release_fallback_until_pinned_release_is_public() -> None:

@@ -83,13 +83,13 @@ class TestSaveLoadRoundTrip:
         src = tmp_path / "src"
         entry = _make_published_entry(
             src,
-            "codex-v0.0.1-amd64-firecracker",
+            "ubuntu-v0.0.1-amd64-firecracker",
             hole_bytes=hole_bytes,
         )
-        archive = tmp_path / "codex.tar"
+        archive = tmp_path / "ubuntu.tar"
 
         ret = main(
-            ["image", "save", "codex", "--image-dir", str(src), "-o", str(archive), "--json"]
+            ["image", "save", "ubuntu", "--image-dir", str(src), "-o", str(archive), "--json"]
         )
         assert ret == 0
         payload = json.loads(capsys.readouterr().out)
@@ -110,7 +110,7 @@ class TestSaveLoadRoundTrip:
         payload = json.loads(capsys.readouterr().out)
         assert payload["command"] == "image.load"
 
-        loaded = dest / "codex-v0.0.1-amd64-firecracker"
+        loaded = dest / "ubuntu-v0.0.1-amd64-firecracker"
         assert sorted(p.name for p in loaded.iterdir()) == [
             "rootfs.ext4",
             "rootfs.ext4.from-sha256",
@@ -171,9 +171,9 @@ class TestSaveLoadRoundTrip:
         self, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:
         src = tmp_path / "src"
-        _make_published_entry(src, "codex-v0.0.1-amd64-firecracker")
-        archive = tmp_path / "codex.tar"
-        assert main(["image", "save", "codex", "--image-dir", str(src), "-o", str(archive)]) == 0
+        _make_published_entry(src, "ubuntu-v0.0.1-amd64-firecracker")
+        archive = tmp_path / "ubuntu.tar"
+        assert main(["image", "save", "ubuntu", "--image-dir", str(src), "-o", str(archive)]) == 0
         capsys.readouterr()
 
         dest = tmp_path / "dest"
@@ -194,14 +194,14 @@ class TestSaveLoadRoundTrip:
         self, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:
         src = tmp_path / "src"
-        _make_published_entry(src, "codex-v0.0.1-amd64-firecracker")
-        _make_published_entry(src, "codex-v0.0.2-amd64-qemu")
+        _make_published_entry(src, "ubuntu-v0.0.1-amd64-firecracker")
+        _make_published_entry(src, "ubuntu-v0.0.2-amd64-qemu")
 
         ret = main(
             [
                 "image",
                 "save",
-                "codex",
+                "ubuntu",
                 "--image-dir",
                 str(src),
                 "-o",
@@ -211,8 +211,8 @@ class TestSaveLoadRoundTrip:
         )
         assert ret == 2
         payload = json.loads(capsys.readouterr().out)
-        assert "codex-v0.0.1-amd64-firecracker" in payload["error"]["message"]
-        assert "codex-v0.0.2-amd64-qemu" in payload["error"]["message"]
+        assert "ubuntu-v0.0.1-amd64-firecracker" in payload["error"]["message"]
+        assert "ubuntu-v0.0.2-amd64-qemu" in payload["error"]["message"]
 
 
 class TestLoadRejectsMaliciousArchives:
@@ -390,14 +390,14 @@ class TestArchiveRobustness:
         not travel; archiving them would install a half-written rootfs on
         the target machine."""
         src = tmp_path / "src"
-        entry = _make_published_entry(src, "codex-v0.0.1-amd64-firecracker")
+        entry = _make_published_entry(src, "ubuntu-v0.0.1-amd64-firecracker")
         (entry / ".rootfs.tmp.ext4").write_bytes(b"half-written")
         context_dir = entry / ".build-abc123"
         context_dir.mkdir()
         (context_dir / "Dockerfile").write_text("FROM scratch")
-        archive = tmp_path / "codex.tar"
+        archive = tmp_path / "ubuntu.tar"
 
-        assert main(["image", "save", "codex", "--image-dir", str(src), "-o", str(archive)]) == 0
+        assert main(["image", "save", "ubuntu", "--image-dir", str(src), "-o", str(archive)]) == 0
         capsys.readouterr()
 
         with tarfile.open(archive) as tar:
@@ -412,13 +412,13 @@ class TestArchiveRobustness:
         with a clear message instead of archiving a mix of two builds."""
         fcntl = pytest.importorskip("fcntl")
         src = tmp_path / "src"
-        entry = _make_published_entry(src, "codex-v0.0.1-amd64-firecracker")
-        archive = tmp_path / "codex.tar"
+        entry = _make_published_entry(src, "ubuntu-v0.0.1-amd64-firecracker")
+        archive = tmp_path / "ubuntu.tar"
 
         with (entry / ".build.lock").open("w") as lock:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
             ret = main(
-                ["image", "save", "codex", "--image-dir", str(src), "-o", str(archive), "--json"]
+                ["image", "save", "ubuntu", "--image-dir", str(src), "-o", str(archive), "--json"]
             )
 
         assert ret == 1
@@ -433,12 +433,12 @@ class TestArchiveRobustness:
         """Raw members are streamed from an open fd; the tar header must
         still carry the source file's mtime, like every other member."""
         src = tmp_path / "src"
-        entry = _make_published_entry(src, "codex-v0.0.1-amd64-firecracker")
+        entry = _make_published_entry(src, "ubuntu-v0.0.1-amd64-firecracker")
         stamp = 1_700_000_000
         os.utime(entry / "rootfs.ext4.zst", (stamp, stamp))
-        archive = tmp_path / "codex.tar"
+        archive = tmp_path / "ubuntu.tar"
 
-        assert main(["image", "save", "codex", "--image-dir", str(src), "-o", str(archive)]) == 0
+        assert main(["image", "save", "ubuntu", "--image-dir", str(src), "-o", str(archive)]) == 0
         capsys.readouterr()
 
         with tarfile.open(archive) as tar:
@@ -452,9 +452,9 @@ class TestArchiveRobustness:
         """A cut-off transfer must produce the error envelope, not a
         traceback (regression)."""
         src = tmp_path / "src"
-        _make_published_entry(src, "codex-v0.0.1-amd64-firecracker")
-        archive = tmp_path / "codex.tar"
-        assert main(["image", "save", "codex", "--image-dir", str(src), "-o", str(archive)]) == 0
+        _make_published_entry(src, "ubuntu-v0.0.1-amd64-firecracker")
+        archive = tmp_path / "ubuntu.tar"
+        assert main(["image", "save", "ubuntu", "--image-dir", str(src), "-o", str(archive)]) == 0
         capsys.readouterr()
         # Cut into the first member's data (small archives are mostly
         # zero padding, so a percentage cut may remove nothing real).
@@ -480,7 +480,7 @@ class TestArchiveRobustness:
             archive,
             {
                 "schema_version": 1,
-                "name": "codex-v0.0.1-amd64-firecracker",
+                "name": "ubuntu-v0.0.1-amd64-firecracker",
                 "rootfs_sidecar": None,
                 "files": [
                     {
@@ -507,7 +507,7 @@ class TestArchiveRobustness:
         assert ret == 2
         payload = json.loads(capsys.readouterr().out)
         assert "incomplete" in payload["error"]["message"]
-        assert not (tmp_path / "dest" / "codex-v0.0.1-amd64-firecracker").exists()
+        assert not (tmp_path / "dest" / "ubuntu-v0.0.1-amd64-firecracker").exists()
 
     def test_size_mismatch_is_rejected(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
         archive = tmp_path / "lying.tar"
@@ -544,9 +544,9 @@ class TestArchiveRobustness:
         """--force onto a symlinked entry must replace the link, not crash
         (regression: rmtree refused symlinks)."""
         src = tmp_path / "src"
-        _make_published_entry(src, "codex-v0.0.1-amd64-firecracker")
-        archive = tmp_path / "codex.tar"
-        assert main(["image", "save", "codex", "--image-dir", str(src), "-o", str(archive)]) == 0
+        _make_published_entry(src, "ubuntu-v0.0.1-amd64-firecracker")
+        archive = tmp_path / "ubuntu.tar"
+        assert main(["image", "save", "ubuntu", "--image-dir", str(src), "-o", str(archive)]) == 0
         capsys.readouterr()
 
         dest = tmp_path / "dest"
@@ -554,7 +554,7 @@ class TestArchiveRobustness:
         outside = tmp_path / "outside"
         outside.mkdir()
         (outside / "keep").write_text("keep")
-        (dest / "codex-v0.0.1-amd64-firecracker").symlink_to(outside)
+        (dest / "ubuntu-v0.0.1-amd64-firecracker").symlink_to(outside)
 
         ret = main(
             ["image", "load", "-i", str(archive), "--image-dir", str(dest), "--force", "--json"]
@@ -562,7 +562,7 @@ class TestArchiveRobustness:
 
         assert ret == 0
         capsys.readouterr()
-        loaded = dest / "codex-v0.0.1-amd64-firecracker"
+        loaded = dest / "ubuntu-v0.0.1-amd64-firecracker"
         assert not loaded.is_symlink()
         assert (loaded / "vmlinux.bin").is_file()
         assert (outside / "keep").exists()
@@ -573,10 +573,10 @@ class TestArchiveRobustness:
         """-o pointing at a folder must error cleanly, not traceback in
         cleanup (regression)."""
         src = tmp_path / "src"
-        _make_published_entry(src, "codex-v0.0.1-amd64-firecracker")
+        _make_published_entry(src, "ubuntu-v0.0.1-amd64-firecracker")
 
         ret = main(
-            ["image", "save", "codex", "--image-dir", str(src), "-o", str(tmp_path), "--json"]
+            ["image", "save", "ubuntu", "--image-dir", str(src), "-o", str(tmp_path), "--json"]
         )
 
         assert ret == 2
@@ -834,17 +834,17 @@ class TestLoadDoesNotTrustArchiveProvenance:
         kernel = b"GENUINE KERNEL " * 16
         tampered = b"TAMPERED ROOTFS " * 64
         entry = PublishedImage(
-            preset="codex",
+            preset="ubuntu",
             arch="arm64",
             vmm="qemu",
             os="ubuntu",
             kernel_url="https://example.invalid/vmlinux-arm64.image",
             kernel_sha256=hashlib.sha256(kernel).hexdigest(),
-            rootfs_url="https://example.invalid/codex-arm64-rootfs.ext4.zst",
+            rootfs_url="https://example.invalid/ubuntu-arm64-rootfs.ext4.zst",
             rootfs_sha256=hashlib.sha256(genuine_zst).hexdigest(),
         )
-        manifest = {("codex", "arm64", "qemu", "ubuntu"): entry}
-        name = cache_name("codex", "arm64", "qemu", __version__)
+        manifest = {("ubuntu", "arm64", "qemu", "ubuntu"): entry}
+        name = cache_name("ubuntu", "arm64", "qemu", __version__)
         members = self._members(zstandard.compress(tampered), kernel)
         archive = tmp_path / "forged.tar"
         _write_archive(
@@ -874,13 +874,13 @@ class TestLoadDoesNotTrustArchiveProvenance:
 
         with patch("celesto.images.manager.requests.get", side_effect=fake_get):
             local = ensure_published_image(
-                "codex", "arm64", "qemu", cache_dir=dest, manifest=manifest, version=__version__
+                "ubuntu", "arm64", "qemu", cache_dir=dest, manifest=manifest, version=__version__
             )
             assert downloads == [entry.kernel_url, entry.rootfs_url]
             assert local.rootfs_path.read_bytes() == genuine
             downloads.clear()
             again = ensure_published_image(
-                "codex", "arm64", "qemu", cache_dir=dest, manifest=manifest, version=__version__
+                "ubuntu", "arm64", "qemu", cache_dir=dest, manifest=manifest, version=__version__
             )
             assert downloads == []
             assert again.rootfs_path.read_bytes() == genuine
