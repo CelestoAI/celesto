@@ -80,8 +80,10 @@ from _celesto_cloud_api.types import UNSET, Unset
 from celesto._cloud import _CloudComputer
 from celesto._providers.options import CloudOptions
 from celesto.exceptions import (
+    _MAX_CLOUD_ERROR_DETAIL_LENGTH,
     CelestoError,
     CloudAPIError,
+    OperationTimeoutError,
     TemplateBuildError,
     ValidationError,
 )
@@ -98,8 +100,8 @@ _MIN_POLL_INTERVAL = 1.0
 # keeps the backoff arithmetic finite.
 _MAX_RETRY_BACKOFF = 30.0
 _MAX_BACKOFF_EXPONENT = 16
-# API messages copied into errors are capped like other cloud error details.
-_MAX_MESSAGE_LENGTH = 500
+# The options that pick the account and API a template or computer talks to.
+_CONNECTION_KEYS = ("api_key", "base_url", "organization_id")
 # Where a 422 field error came from; the field path after it is what users wrote.
 _REQUEST_PARTS = {"body", "query", "path", "header", "cookie"}
 # The template name rule the API enforces with a pattern, in plain words.
@@ -107,9 +109,6 @@ _NAME_RULE = (
     "use only letters, digits, spaces, dots, underscores and dashes, "
     "without a space at the start or end"
 )
-
-# The connection options a template keeps and hands to computers created from it.
-_CONNECTION_OPTIONS = ("api_key", "base_url", "organization_id")
 
 
 class _CloudNetworkError(CelestoError):
@@ -150,6 +149,7 @@ class _Connection:
         *,
         collection: bool = False,
         template_id: str | None = None,
+        uncertain: str | None = None,
         **kwargs: Any,
     ) -> Any:
         """Call a generated endpoint module and turn failures into Celesto errors.
@@ -159,9 +159,12 @@ class _Connection:
         body (``detail`` plus ``errors``) does not fit the generated
         validation-error model, which would otherwise fail to parse it.
 
-        ``collection`` marks routes (create, list, lint) whose 404 means
-        custom templates are not enabled; ``template_id`` is the
+        ``collection`` marks routes (create, list, lint) whose 404 means the
+        API answering has no custom templates; ``template_id`` is the
         single-template route's path parameter, also named in its 404.
+        ``uncertain`` is set for calls that change something: it says what to
+        check when the request may have been applied but the answer was lost
+        or unreadable. Such calls are never retried.
         """
         if template_id is not None:
             kwargs["template_id"] = template_id
@@ -172,18 +175,24 @@ class _Connection:
         try:
             response = client.get_httpx_client().request(**request)
         except httpx.TransportError as exc:
-            raise _CloudNetworkError(
-                f"Cloud request failed ({type(exc).__name__}); its outcome may be unknown. "
-                "Check your templates with Template.list() before retrying."
-            ) from None
+            failure = f"Cloud request failed ({type(exc).__name__})"
+            if uncertain is not None:
+                raise _CloudNetworkError(
+                    f"{failure}; its outcome may be unknown. {uncertain}"
+                ) from None
+            raise _CloudNetworkError(f"{failure}; check your connection and retry.") from None
         if response.status_code >= 400:
             raise _api_error(response.status_code, response.content, collection, template_id)
         try:
             parsed = endpoint._build_response(client=client, response=response).parsed
+            if expected is not None and not isinstance(parsed, expected):
+                raise TypeError("unexpected response type")
         except (ValueError, KeyError, TypeError, UnexpectedStatus):
-            raise _invalid_response() from None
-        if expected is not None and not isinstance(parsed, expected):
-            raise _invalid_response()
+            # A newer API can send values this SDK doesn't know yet, such as a
+            # new lint code, after the change was already applied.
+            if uncertain is not None:
+                raise CelestoError(f"Cloud returned an invalid response. {uncertain}") from None
+            raise _CloudComputer._invalid_response() from None
         return parsed
 
 
@@ -245,9 +254,9 @@ class Template:
                 the template. At most 64 KB.
             base_template_id: The built-in template to start from. The API
                 uses ``coding-agent`` when omitted.
-            vcpus, ram_mb, disk_size_mb: The size of computers created from
-                this template, unless a computer asks for another. Pass all
-                three or none; they must match a sandbox size. The base
+            vcpus, ram_mb, disk_size_mb: The size of every computer created
+                from this template. Pass all three or none; they must match a
+                sandbox size. The base
                 template's size is used when omitted. The finished image must
                 fit in ``disk_size_mb``.
             api_key, base_url, organization_id: Connection options, as for
@@ -256,9 +265,8 @@ class Template:
 
         Raises:
             CloudAPIError: The API refused the template, for example because
-                custom templates are not enabled for the account (404), the
-                name is taken (409) or the organization already has 2 builds
-                running (429).
+                the name is taken (409) or the organization already has the
+                most builds it can run at once (429).
         """
         size = _size_fields(vcpus, ram_mb, disk_size_mb)
         body = CustomTemplateCreate(
@@ -270,7 +278,13 @@ class Template:
         connection = _Connection(_connection_options(api_key, base_url, organization_id))
         try:
             data = connection.call(
-                create_endpoint, CustomTemplateResponse, collection=True, body=body
+                create_endpoint,
+                CustomTemplateResponse,
+                collection=True,
+                uncertain=(
+                    "The template may have been created; check Template.list() before retrying."
+                ),
+                body=body,
             )
         except BaseException:
             connection.close()
@@ -370,7 +384,7 @@ class Template:
 
     @property
     def vcpus(self) -> int:
-        """vCPUs of computers created from this template, unless they ask for another size."""
+        """vCPUs of every computer created from this template."""
         return self._data.default_vcpus
 
     @property
@@ -420,9 +434,9 @@ class Template:
         )
         return self
 
-    def logs(self, *, known_size: int | None = None) -> str:
+    def logs(self) -> str:
         """Return the end of the latest build's log (at most the last 256 KB)."""
-        return self._read_log(known_size).log or ""
+        return self._read_log(None).log
 
     def _read_log(self, known_size: int | None) -> _LogPage:
         result = self._connection.call(
@@ -456,8 +470,9 @@ class Template:
         Raises:
             TemplateBuildError: The build failed or the template needs a
                 rebuild. ``failure`` names the failing script line when known.
-            TimeoutError: The build was still running after ``timeout``, or
-                polls kept failing until then (the last error is the cause).
+            OperationTimeoutError: The build was still running after
+                ``timeout``, or polls kept failing until then (the last error
+                is the cause).
             ValidationError: ``poll_interval`` is under 1 second, or either
                 argument is NaN.
         """
@@ -480,9 +495,8 @@ class Template:
                 failed_polls += 1
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise TimeoutError(
-                        f"Template {self.id} could not be checked before the "
-                        f"{timeout:g}s timeout: {error}"
+                    raise OperationTimeoutError(
+                        f"checking template {self.id} (last error: {error})", timeout
                     ) from error
                 time.sleep(min(_retry_delay(poll_interval, failed_polls), remaining))
                 continue
@@ -493,7 +507,9 @@ class Template:
                 _raise_build_error(self._data)
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise TimeoutError(f"Template {self.id} was still {status} after {timeout:g}s.")
+                raise OperationTimeoutError(
+                    f"waiting for template {self.id} (still {status})", timeout
+                )
             time.sleep(min(poll_interval, remaining))
 
     def _poll(self, follower: _LogFollower | None) -> str:
@@ -543,6 +559,7 @@ class Template:
             update_endpoint,
             CustomTemplateResponse,
             template_id=self.id,
+            uncertain="The change may have been saved; call refresh() before retrying.",
             body=body,
         )
         return self
@@ -557,6 +574,7 @@ class Template:
             rebuild_endpoint,
             CustomTemplateResponse,
             template_id=self.id,
+            uncertain="The rebuild may have started; call refresh() before retrying.",
         )
         return self
 
@@ -565,7 +583,12 @@ class Template:
 
         Computers already created from it keep running.
         """
-        self._connection.call(delete_endpoint, None, template_id=self.id)
+        self._connection.call(
+            delete_endpoint,
+            None,
+            template_id=self.id,
+            uncertain="The template may have been deleted; check Template.list() before retrying.",
+        )
 
     # --- computers --------------------------------------------------------
 
@@ -573,9 +596,10 @@ class Template:
         """Return a cloud computer that starts from this template.
 
         Like ``CloudComputer(...)``, the computer is created on first use or
-        when entering a ``with`` block. It reuses this template's connection
-        options unless you pass your own. Other options, such as ``vcpus``,
-        override the template's size for this computer.
+        when entering a ``with`` block, with the template's size. When you
+        pass none of ``api_key``, ``base_url`` and ``organization_id``, it
+        reuses this template's; pass any of them and it uses only yours, so
+        the template's API key is never sent to another address.
 
         Raises:
             CelestoError: The template has no ready build yet.
@@ -586,8 +610,8 @@ class Template:
                 "create_computer() uses this template's ID; remove the template_id option."
             )
         self._check_usable_build()
-        for key, value in self._connection.options.items():
-            options.setdefault(key, value)  # type: ignore[misc]
+        if not any(key in options for key in _CONNECTION_KEYS):
+            options.update(self._connection.options)  # type: ignore[typeddict-item]
         options["template_id"] = self.id
         return CloudComputer(**options)
 
@@ -787,24 +811,20 @@ def _raise_build_error(data: CustomTemplateResponse) -> NoReturn:
             "call rebuild(), then wait()."
         )
     else:
+        # The failing command itself stays on ``failure.line``: build scripts
+        # can hold credentials, and error messages end up in logs.
         message = f"Template {data.id} build {status}"
-        if failure and failure.line:
-            message += f" at line {failure.line_number}: {failure.line!r}"
+        if failure and failure.line_number is not None:
+            message += f" at script line {failure.line_number}"
             if failure.exit_code is not None:
                 message += f" (exit code {failure.exit_code})"
         elif not isinstance(data.error, Unset) and data.error:
-            message += f": {data.error}"
+            message += f": {data.error[:_MAX_CLOUD_ERROR_DETAIL_LENGTH]}"
         message += "."
         if failure and failure.hint:
-            message += f" Hint: {failure.hint}"
+            message += f" Hint: {failure.hint[:_MAX_CLOUD_ERROR_DETAIL_LENGTH]}"
         message += " Fix the script with edit(), then call rebuild()."
     raise TemplateBuildError(message, template_id=data.id, status=status, failure=failure)
-
-
-def _invalid_response() -> CelestoError:
-    return CelestoError(
-        "Cloud returned an invalid response; check the API version before retrying."
-    )
 
 
 def _api_error(
@@ -817,17 +837,16 @@ def _api_error(
     detail = body.get("detail") if isinstance(body, dict) else None
     code = detail.get("error_code") if isinstance(detail, dict) else None
     message = detail.get("message") if isinstance(detail, dict) else detail
-    message = message[:_MAX_MESSAGE_LENGTH] if isinstance(message, str) else None
+    message = message[:_MAX_CLOUD_ERROR_DETAIL_LENGTH] if isinstance(message, str) else None
     field_errors = body.get("errors") if isinstance(body, dict) else None
     if not isinstance(field_errors, list):
         field_errors = detail if isinstance(detail, list) else None
 
     recovery: str | None = None
     if status_code == 404 and collection:
-        recovery = (
-            "Custom templates are not enabled for this account; "
-            "contact support@celesto.ai to turn them on."
-        )
+        # Custom templates are open to every account, so the API answering
+        # does not have them: a wrong base_url, or an older API.
+        recovery = "This Celesto API has no custom templates; check base_url."
     elif status_code == 404:
         recovery = f"Template '{template_id}' was not found; run Template.list() to see yours."
     elif status_code == 409 and code == "template_build_in_progress":
@@ -841,10 +860,8 @@ def _api_error(
             "Your organization already has 2 template builds queued or running; "
             "wait for one to finish."
         )
-    elif status_code == 422 and field_errors:
-        described = _describe_field_errors(field_errors)
-        if described:
-            recovery = f"Fix these fields: {described}"
+    elif status_code == 422 and (described := _describe_field_errors(field_errors or [])):
+        recovery = f"Fix these fields: {described}"
     elif status_code in (400, 422) and message:
         recovery = f"{message}."
     return CloudAPIError(
@@ -868,4 +885,4 @@ def _describe_field_errors(errors: list[Any]) -> str:
             # The API states the rule as a regular expression; say it in words.
             text = _NAME_RULE
         parts.append(f"{'.'.join(location)}: {text}" if location else text)
-    return "; ".join(parts)[:_MAX_MESSAGE_LENGTH]
+    return "; ".join(parts)[:_MAX_CLOUD_ERROR_DETAIL_LENGTH]

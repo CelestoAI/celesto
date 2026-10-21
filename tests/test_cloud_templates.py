@@ -12,6 +12,7 @@ from celesto import (
     CelestoError,
     CloudAPIError,
     CloudComputer,
+    OperationTimeoutError,
     Template,
     TemplateBuildError,
     ValidationError,
@@ -186,13 +187,16 @@ def test_constructing_a_template_directly_is_not_supported():
     ],
     ids=["list", "lint", "create"],
 )
-def test_collection_404_says_templates_are_not_enabled(cloud, call):
+def test_collection_404_points_at_the_api_address(cloud, call):
+    # Custom templates are open to every account, so a 404 on these routes
+    # means the API answering has no templates: a wrong base_url or old API.
     _, replies, _ = cloud
     replies.append((404, {"detail": "Not Found"}))
 
-    with pytest.raises(CloudAPIError, match="not enabled") as excinfo:
+    with pytest.raises(CloudAPIError, match="base_url") as excinfo:
         call()
     assert excinfo.value.status_code == 404
+    assert "support" not in str(excinfo.value)
 
 
 def test_get_404_names_the_missing_template(cloud):
@@ -292,6 +296,7 @@ def test_duplicate_name_says_to_choose_another(cloud):
     with pytest.raises(CloudAPIError, match="already exists") as excinfo:
         Template.create(name="x", build_script="true")
     assert excinfo.value.status_code == 409
+    assert "choose another name" in str(excinfo.value)
 
 
 # --- wait() and log following -------------------------------------------------
@@ -502,7 +507,7 @@ def test_wait_times_out_while_still_building(cloud):
     _, replies, _ = cloud
     replies.append((200, template("building")))
 
-    with pytest.raises(TimeoutError, match="still building"):
+    with pytest.raises(OperationTimeoutError, match="still building"):
         t.wait(timeout=0)
 
 
@@ -511,7 +516,7 @@ def test_wait_times_out_naming_the_last_error_while_retrying(cloud):
     _, replies, _ = cloud
     replies.append((503, {"detail": "unavailable"}))
 
-    with pytest.raises(TimeoutError) as excinfo:
+    with pytest.raises(OperationTimeoutError) as excinfo:
         t.wait(timeout=0)
     assert isinstance(excinfo.value.__cause__, CloudAPIError)
 
@@ -521,7 +526,7 @@ def test_wait_never_sleeps_past_the_deadline(cloud):
     _, replies, sleeps = cloud
     replies.extend([(200, template("building")), (200, template("building"))])
 
-    with pytest.raises(TimeoutError):
+    with pytest.raises(OperationTimeoutError):
         t.wait(timeout=2, poll_interval=60)
     assert sleeps and all(s <= 2 for s in sleeps)
 
@@ -554,8 +559,12 @@ def test_failed_build_names_the_line_exit_code_and_hint(cloud):
         t.wait()
 
     message = str(excinfo.value)
-    assert "line 2" in message and "pip install nope" in message and "exit code 1" in message
+    assert "line 2" in message and "exit code 1" in message
     assert "check the package name" in message
+    # The failing command can hold a secret, so it stays out of the message
+    # (which ends up in logs) and is kept on the error for callers to read.
+    assert "pip install nope" not in message
+    assert excinfo.value.failure.line == "pip install nope"
     assert excinfo.value.failure.line_number == 2
     assert excinfo.value.template_id == "tpl_abc123"
 
@@ -638,38 +647,54 @@ def test_edit_needs_a_change_and_a_whole_size(cloud):
 # --- computers from a template ------------------------------------------------
 
 
-def test_create_computer_uses_the_template_and_its_connection(cloud):
-    t = loaded(cloud, "ready")
-    requests, replies, _ = cloud
+COMPUTER = {
+    "id": "cloud-test",
+    "name": "trial",
+    "status": "running",
+    "vcpus": 2,
+    "ram_mb": 4096,
+    "disk_size_mb": 30720,
+    "image": "ubuntu-desktop-24.04",
+    "compute_location": {"provider": "aws", "region": "us-east-1", "country_code": "US"},
+    "created_at": "2026-10-21T00:00:00Z",
+}
 
-    computer = t.create_computer(vcpus=4)
+
+def test_create_computer_uses_the_template_and_its_organization(cloud):
+    requests, replies, _ = cloud
+    replies.append((200, template("ready")))
+    t = Template.get("tpl_abc123", organization_id="org-9")
+    requests.clear()
+
+    computer = t.create_computer()
 
     assert isinstance(computer, CloudComputer)
     assert computer.id is None and requests == []
-    replies.append(
-        (
-            201,
-            {
-                "id": "cloud-test",
-                "name": "trial",
-                "status": "running",
-                "vcpus": 4,
-                "ram_mb": 4096,
-                "disk_size_mb": 30720,
-                "image": "ubuntu-desktop-24.04",
-                "compute_location": {
-                    "provider": "aws",
-                    "region": "us-east-1",
-                    "country_code": "US",
-                },
-                "created_at": "2026-10-21T00:00:00Z",
-            },
-        )
-    )
+    replies.append((201, COMPUTER))
     computer.start()
-    body = json.loads(requests[0].content)
-    assert body["template_id"] == "tpl_abc123"
-    assert body["vcpus"] == 4
+    assert json.loads(requests[0].content)["template_id"] == "tpl_abc123"
+    assert requests[0].headers["x-current-organization"] == "org-9"
+
+
+def test_create_computer_inherits_connection_options_only_as_a_whole(cloud, monkeypatch):
+    requests, replies, _ = cloud
+    replies.append((200, template("ready")))
+    t = Template.get("tpl_abc123", api_key="test-key", organization_id="org-9")
+    made = []
+    monkeypatch.setattr("celesto.templates.CloudComputer", lambda **options: made.append(options))
+
+    t.create_computer()
+    t.create_computer(base_url="https://staging.example.test")
+
+    # No connection options passed: the template's are reused.
+    assert made[0] == {
+        "api_key": "test-key",
+        "organization_id": "org-9",
+        "template_id": "tpl_abc123",
+    }
+    # Any connection option passed: none are inherited, so the template's
+    # key is never sent to a different address.
+    assert made[1] == {"base_url": "https://staging.example.test", "template_id": "tpl_abc123"}
 
 
 def test_create_computer_before_the_first_build_says_to_wait(cloud):
@@ -697,3 +722,98 @@ def test_create_computer_refuses_another_template_id(cloud):
 
     with pytest.raises(ValidationError, match="template_id"):
         t.create_computer(template_id="coding-agent")
+
+
+# --- error paths --------------------------------------------------------------
+
+
+def test_malformed_template_body_says_invalid_response(cloud):
+    _, replies, _ = cloud
+    replies.append((200, {"id": "tpl_abc123"}))
+
+    with pytest.raises(CelestoError, match="invalid response"):
+        Template.get("tpl_abc123")
+
+
+def test_unreadable_create_answer_says_the_template_may_exist(cloud):
+    # A lint code this SDK doesn't know yet: the template was created anyway.
+    requests, replies, _ = cloud
+    replies.append(
+        (201, template(warnings=[{"line": 1, "code": "brand_new_check", "message": "new"}]))
+    )
+
+    with pytest.raises(CelestoError, match=r"may have been created.*Template\.list\(\)"):
+        Template.create(name="x", build_script="true")
+    assert len(requests) == 1
+
+
+def test_network_error_on_create_is_not_retried_and_says_the_outcome_is_unknown(cloud):
+    requests, replies, _ = cloud
+    replies.append(httpx.ConnectError("connection reset"))
+
+    with pytest.raises(CelestoError, match="outcome may be unknown"):
+        Template.create(name="x", build_script="true")
+    assert len(requests) == 1
+
+
+def test_network_error_on_a_read_says_to_retry(cloud):
+    _, replies, _ = cloud
+    replies.append(httpx.ConnectError("connection reset"))
+
+    with pytest.raises(CelestoError) as excinfo:
+        Template.list()
+    assert "outcome may be unknown" not in str(excinfo.value)
+    assert "retry" in str(excinfo.value)
+
+
+def test_logs_returns_the_end_of_the_build_log(cloud):
+    t = loaded(cloud, "building")
+    requests, replies, _ = cloud
+    replies.append((200, log("building", "step 1\n", 0, 7)))
+
+    assert t.logs() == "step 1\n"
+    assert "known_size" not in requests[0].url.params
+
+
+def test_forbidden_edit_and_wait_are_not_retried(cloud):
+    t = loaded(cloud)
+    requests, replies, _ = cloud
+    replies.extend([(403, {"detail": "Forbidden"}), (403, {"detail": "Forbidden"})])
+
+    with pytest.raises(CloudAPIError) as excinfo:
+        t.edit(name="renamed")
+    assert excinfo.value.status_code == 403
+    with pytest.raises(CloudAPIError):
+        t.wait()
+    assert len(requests) == 2
+
+
+def test_validation_errors_in_fastapis_default_shape(cloud):
+    _, replies, _ = cloud
+    replies.append(
+        (
+            422,
+            {
+                "detail": [
+                    {
+                        "loc": ["body", "build_script"],
+                        "msg": "too long",
+                        "type": "string_too_long",
+                    }
+                ]
+            },
+        )
+    )
+
+    with pytest.raises(CloudAPIError, match="build_script: too long"):
+        Template.create(name="x", build_script="true")
+
+
+def test_retry_backoff_is_capped_at_thirty_seconds(cloud):
+    t = loaded(cloud)
+    _, replies, sleeps = cloud
+    replies.extend([(503, {"detail": "unavailable"})] * 6 + [(200, template("ready"))])
+
+    t.wait()
+
+    assert sleeps == [3, 6, 12, 24, 30, 30]

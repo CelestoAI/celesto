@@ -1,6 +1,7 @@
 """Opt-in smoke test that builds one custom template and boots a billable computer from it."""
 
 import contextlib
+import json
 import os
 import time
 
@@ -13,13 +14,14 @@ from celesto import CloudAPIError, Template
     os.getenv("CELESTO_LIVE_TEMPLATE_TEST") != "1",
     reason="Set CELESTO_LIVE_TEMPLATE_TEST=1 to build a template and create a billable computer.",
 )
-def test_template_live_build_and_boot():
+def test_template_live_build_and_boot(tmp_path):
     if not os.getenv("CELESTO_API_KEY"):
         pytest.fail("Set CELESTO_API_KEY before running the live template test.")
 
     marker = f"celesto-template-smoke-{int(time.time())}"
     warnings = Template.lint("apt-get install cowsay")
-    assert [w.code for w in warnings] == ["apt_without_yes"]
+    # The API may add lint checks; this one must stay.
+    assert "apt_without_yes" in [w.code for w in warnings]
 
     template = Template.create(
         name=marker,
@@ -38,6 +40,15 @@ def test_template_live_build_and_boot():
             result = computer.run("cat /etc/celesto-template-smoke")
         assert result.stdout.strip() == marker
     finally:
+        # Keep a record of the run: which template, how it ended, and its log.
+        artifact = tmp_path / "template-live-run.json"
+        artifact.write_text(
+            json.dumps(
+                {"template_id": template.id, "status": template.status, "log": "".join(log)},
+                indent=2,
+            )
+        )
+        print(f"Live template run recorded at {artifact}")
         with contextlib.suppress(CloudAPIError):
             template.delete()
         template.close()

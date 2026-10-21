@@ -149,7 +149,7 @@ with template.create_computer() as computer:
     print(computer.run("ffmpeg -version").stdout)
 ```
 
-The build script runs once, as root, and stops at the first failing command. Files can't be uploaded with it, so list packages directly instead of using `pip install -r requirements.txt`. Check a script first with `Template.lint(script)`, load a template with `Template.get("tpl_...")`, or pass its ID as `CloudComputer(template_id="tpl_...")`. Custom templates are turned on per account; see the [custom templates guide](https://docs.celesto.ai/cloud/features/custom-templates) for limits, errors, and rebuilding.
+The build script runs once, as root, and stops at the first failing command. Files can't be uploaded with it, so list packages directly instead of using `pip install -r requirements.txt`. Check a script first with `Template.lint(script)`, load a template with `Template.get("tpl_...")`, or pass its ID as `CloudComputer(template_id="tpl_...")`. See the [custom templates guide](https://docs.celesto.ai/cloud/features/custom-templates) for limits, errors, and rebuilding.
 
 ## Agents and automation
 
