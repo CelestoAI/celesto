@@ -14,7 +14,10 @@
 
 """Exception hierarchy for Celesto SDK."""
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from celesto.types import TemplateBuildFailure
 
 _MAX_CLOUD_ERROR_DETAIL_LENGTH = 500
 
@@ -58,6 +61,30 @@ class ValidationError(CelestoError):
     """Raised when input validation fails."""
 
     pass
+
+
+class TemplateBuildError(CelestoError):
+    """A custom template build ended without a usable image.
+
+    The build failed, or the template needs a rebuild because its base
+    template changed. ``failure`` names the failing script line when known.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        template_id: str,
+        status: str,
+        failure: "TemplateBuildFailure | None" = None,
+    ) -> None:
+        super().__init__(
+            message,
+            details={"template_id": template_id, "status": status},
+        )
+        self.template_id = template_id
+        self.status = status
+        self.failure = failure
 
 
 class VMAlreadyExistsError(CelestoError):
