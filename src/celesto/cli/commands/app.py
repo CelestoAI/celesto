@@ -33,26 +33,6 @@ from celesto.types import BrowserSessionState, GuestFlushPolicy, GuestOS, Snapsh
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
 
-class _PresetOSChoice(click.Choice):
-    """Advertise supported OSes while preserving actionable runtime errors.
-
-    Known Celesto operating systems that a specific preset does not support
-    still reach the preset handler. That handler can then return the same
-    recovery command in both terminal and JSON output. Help text and shell
-    completion only expose the choices that will work.
-    """
-
-    def convert(
-        self,
-        value: object,
-        param: click.Parameter | None,
-        ctx: click.Context | None,
-    ) -> str | None:
-        if value is not None and str(value) in {guest_os.value for guest_os in GuestOS}:
-            return str(value)
-        return super().convert(value, param, ctx)
-
-
 def _handlers() -> Any:
     from celesto.cli import main
 

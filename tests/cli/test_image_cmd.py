@@ -251,10 +251,10 @@ class TestImageList:
         assert ubuntu["size_bytes"] > 0
 
         # Non-greedy preset parse: hyphenated preset with alpine suffix.
-        claude = rows["linux-desktop-v0.0.1-arm64-qemu-alpine"]
-        assert claude["preset"] == "linux-desktop"
-        assert claude["os"] == "alpine"
-        assert claude["vmm"] == "qemu"
+        alpine_row = rows["linux-desktop-v0.0.1-arm64-qemu-alpine"]
+        assert alpine_row["preset"] == "linux-desktop"
+        assert alpine_row["os"] == "alpine"
+        assert alpine_row["vmm"] == "qemu"
 
         current = rows[f"ubuntu-v{__version__}-arm64-qemu"]
         assert current["current"] is True
