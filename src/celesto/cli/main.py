@@ -211,6 +211,7 @@ class StopPayload(TypedDict):
     """JSON payload for VM lifecycle commands."""
 
     vm: StopVmPayload
+    warnings: NotRequired[list[str]]
 
 
 class SnapshotArtifactsRow(TypedDict):
@@ -1709,6 +1710,15 @@ def _run_vm_start(args: SimpleNamespace) -> int:
         vm.start(boot_timeout=args.boot_timeout)
 
         data = _vm_lifecycle_payload(vm.vm_id, VMState.RUNNING)
+        # D-17 cleanup notice and D-09 / D-07 credential warnings from start.
+        notes = [
+            str(note)
+            for attr in ("credential_notices", "credential_warnings")
+            for note in (getattr(vm, attr, None) or [])
+            if isinstance(note, str)
+        ]
+        if notes:
+            data["warnings"] = notes
         if args.json:
             emit_json(command_name, 0, data=data)
         else:
@@ -1718,6 +1728,8 @@ def _run_vm_start(args: SimpleNamespace) -> int:
                 title="Computer Started",
                 border_style="green",
             )
+            for note in notes:
+                console_stdout().print(f"[yellow]{escape(note)}[/yellow]")
         return 0
     except Exception as exc:
         return _emit_cli_error(command_name, 1, exc, json_output=args.json)

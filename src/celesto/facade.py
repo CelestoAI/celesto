@@ -1873,14 +1873,30 @@ class Celesto:
         (D-07) leaves the sandbox running with no credentials and records the
         message in :attr:`credential_warnings`.
         """
+        from celesto.credentials import migrate as credential_migrate
+        from celesto.credentials import plan as credential_plan
         from celesto.credentials import runtime as credential_runtime
 
         self.credential_warnings: list[str] = []
+        # One-time notices such as the old-preset cleanup message.
+        self.credential_notices: list[str] = []
+        try:
+            notice = credential_migrate.migrate_on_start(self)
+        except CelestoError as exc:
+            self.credential_warnings.append(exc.message)
+        else:
+            if notice:
+                self.credential_notices.append(notice)
+        unsupported: list[str] = []
         try:
             credential_runtime.attach_on_start(self)
         except credential_runtime.CredentialsUnsupported as exc:
-            self.credential_warnings.append(exc.message)
+            unsupported.append(exc.message)
             logger.warning("%s", exc.message)
+        plan = credential_plan.take_last_plan(self._vm_id)
+        if plan is not None:
+            self.credential_warnings.extend(plan.missing)
+        self.credential_warnings.extend(unsupported)
 
     def stop(self, timeout: float = 3.0) -> Celesto:
         """Stop the VM.
