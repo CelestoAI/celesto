@@ -837,6 +837,75 @@ def test_other_error_statuses_do_not_retain_detail(cloud, status):
     assert exc.value.details == {}
 
 
+@pytest.mark.parametrize(
+    "status,detail,expected",
+    [
+        (
+            403,
+            {"error_code": "api_key_scope_required", "required_scope": "computers:exec"},
+            "Create, start, stop computers and run commands",
+        ),
+        (
+            403,
+            {"error_code": "api_key_scope_required", "required_scope": "computers:admin"},
+            "Delete computers",
+        ),
+        (
+            403,
+            {"error_code": "api_key_scope_required", "required_scope": "computers:read"},
+            "See your computers",
+        ),
+        (403, {"error_code": "organization_access_denied"}, "organization"),
+        (403, "Scoped credentials are restricted to MCP", "MCP"),
+        (403, "Account suspended. Contact support.", "suspended"),
+        (403, {"error_code": "trial_micro_only"}, "Micro"),
+        (403, {"error_code": "promotional_size_not_allowed"}, "credit"),
+        (402, {"error_code": "trial_expired"}, "trial"),
+        (402, {"error_code": "prepaid_credit_depleted"}, "credit"),
+    ],
+)
+def test_cloud_errors_explain_known_public_refusals_without_forwarding_body(
+    cloud, status, detail, expected
+):
+    # Failure modes: permission and billing denials look like invalid keys;
+    # raw diagnostics or echoed credentials leak through structured messages.
+    requests, replies = cloud
+    if isinstance(detail, dict):
+        detail = {**detail, "message": "credential-secret"}
+    replies.append((status, {"detail": detail, "private": "credential-secret"}))
+    with pytest.raises(CloudAPIError) as exc:
+        Computer().run("echo hi")
+    assert expected in str(exc.value)
+    assert "credential-secret" not in str(exc.value) + repr(exc.value.details)
+    assert exc.value.status_code == status
+    assert len(requests) == 1
+
+
+def test_port_scope_errors_keep_actionable_reason(cloud):
+    requests, replies = cloud
+    replies.extend(
+        [
+            (201, computer()),
+            (
+                403,
+                {
+                    "detail": {
+                        "error_code": "api_key_scope_required",
+                        "required_scope": "computers:exec",
+                        "message": "credential-secret",
+                    }
+                },
+            ),
+        ]
+    )
+    with pytest.raises(
+        CloudAPIError, match="Create, start, stop computers and run commands"
+    ) as exc:
+        Computer().publish_port(8080)
+    assert "credential-secret" not in str(exc.value) + repr(exc.value.details)
+    assert len(requests) == 2
+
+
 def test_cloud_error_bounds_direct_constructor_detail():
     assert CloudAPIError(400, detail="x" * 501).details == {"detail": "x" * 500}
     assert CloudAPIError(500, detail="hidden").details == {}

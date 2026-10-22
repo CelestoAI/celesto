@@ -192,9 +192,26 @@ inspect `published_ports()` or the cloud dashboard before retrying.
 
 Pass `api_key=` to override `CELESTO_API_KEY`, and `organization_id=` to select an organization. `base_url=` defaults to `https://api.celesto.ai` and must be the server origin without `/v1`. HTTPS is required except for localhost development servers. Credentials go only to that explicitly selected origin; redirects are not followed.
 
+Named API keys work with the Python SDK. For a complete `with Computer()`
+session, enable all three permissions in the dashboard: **See your computers**,
+**Create, start, stop computers and run commands**, and **Delete computers**.
+The block creates a computer, checks its state, and deletes it on exit. A key
+with fewer permissions can perform only the corresponding operations; stopping
+a computer does not require delete permission.
+
+If you use `celesto auth login`, its saved key is used only when neither
+`api_key=` nor `CELESTO_API_KEY` supplies a key. Updating the saved login does
+not replace a key supplied by your script or environment. Named keys stay
+restricted to their organization and their owner's organization role.
+
 Cloud creation accepts `vcpus`, `ram_mb`, `disk_size_mb`, `image`, `template_id`, `template_version`, and `external_volume_enabled`. Local options such as `mounts` and `data_dir` are not cloud options and are rejected. `startup_timeout` and `cleanup_timeout` default to 120 seconds and bound polling; individual network timeout limits are not a guarantee against every stalled or trickling response.
 
 HTTP failures raise `CloudAPIError` with a `status_code`. Missing computers raise `VMNotFoundError`. Transport failures raise `CelestoError`: creation or command execution may have succeeded even when its response was lost. No creation or command request is automatically replayed. Inspect the cloud dashboard before retrying an operation with an unknown outcome.
+
+Recognized permission and billing errors explain the required permission or
+account action. Unknown responses use a generic message to avoid exposing
+private server diagnostics. A server that still restricts named keys to MCP
+needs a backend update; until then, use the dashboard's default API key.
 
 Cloud creation supplies a unique idempotency key, as required by the pool API.
 The Scratch template uses its advertised disk default when `disk_size_mb` is omitted.
