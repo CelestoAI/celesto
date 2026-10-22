@@ -247,13 +247,14 @@ class _CloudComputer:
             if isinstance(public_detail, dict):
                 code = public_detail.get("error_code")
                 if code == "api_key_scope_required":
+                    required_scope = public_detail.get("required_scope")
                     permission = (
                         {
                             "computers:read": "See your computers",
                             "computers:exec": "Create, start, stop computers and run commands",
                             "computers:admin": "Delete computers",
-                        }.get(public_detail.get("required_scope"))
-                        if isinstance(public_detail.get("required_scope"), str)
+                        }.get(required_scope)
+                        if isinstance(required_scope, str)
                         else None
                     )
                     if permission:
