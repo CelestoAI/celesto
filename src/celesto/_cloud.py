@@ -197,7 +197,7 @@ class _CloudComputer:
                     self.vm_id, list_command="celesto computer list --cloud"
                 ) from None
             raise self._api_error(
-                exc.status_code, exc.content if retain_error_detail else b""
+                exc.status_code, exc.content, retain_error_detail=retain_error_detail
             ) from None
         except httpx.TransportError as exc:
             raise CelestoError(
@@ -208,7 +208,7 @@ class _CloudComputer:
             raise self._invalid_response(uncertain_mutation) from None
         if response.status_code >= 400:
             raise self._api_error(
-                response.status_code, response.content if retain_error_detail else b""
+                response.status_code, response.content, retain_error_detail=retain_error_detail
             )
         if not isinstance(response.parsed, expected):
             raise self._invalid_response(uncertain_mutation)
@@ -229,17 +229,89 @@ class _CloudComputer:
         )
 
     @staticmethod
-    def _api_error(status_code: int, content: bytes) -> CloudAPIError:
+    def _api_error(
+        status_code: int, content: bytes, *, retain_error_detail: bool = True
+    ) -> CloudAPIError:
         detail = None
-        if status_code == 400:
-            try:
-                body = json.loads(content)
-            except (ValueError, RecursionError):
-                pass
-            else:
-                if isinstance(body, dict) and isinstance(body.get("detail"), str):
-                    detail = body["detail"]
-        return CloudAPIError(status_code, detail=detail)
+        recovery = None
+        try:
+            body = json.loads(content)
+        except (ValueError, RecursionError):
+            body = None
+        public_detail = body.get("detail") if isinstance(body, dict) else None
+        if status_code == 400 and retain_error_detail and isinstance(public_detail, str):
+            detail = public_detail
+        # Interpret only known public codes and exact legacy messages. Never
+        # print arbitrary server text: responses can echo credentials or commands.
+        if status_code == 403:
+            if isinstance(public_detail, dict):
+                code = public_detail.get("error_code")
+                if code == "api_key_scope_required":
+                    permission = (
+                        {
+                            "computers:read": "See your computers",
+                            "computers:exec": "Create, start, stop computers and run commands",
+                            "computers:admin": "Delete computers",
+                        }.get(public_detail.get("required_scope"))
+                        if isinstance(public_detail.get("required_scope"), str)
+                        else None
+                    )
+                    if permission:
+                        recovery = (
+                            f"This API key needs '{permission}' permission; create a key with "
+                            "that permission in the dashboard and update "
+                            "CELESTO_API_KEY or api_key=."
+                        )
+                elif code == "organization_access_denied":
+                    recovery = (
+                        "This API key's owner cannot access its organization; ask an "
+                        "organization owner to restore membership."
+                    )
+                elif code == "api_key_endpoint_not_allowed":
+                    recovery = (
+                        "This API key cannot access this endpoint; use the dashboard's "
+                        "default API key for this operation."
+                    )
+                elif code == "trial_micro_only":
+                    recovery = (
+                        "The free trial allows Micro computers only; choose Micro in the "
+                        "dashboard or add prepaid credit."
+                    )
+                elif code == "promotional_size_not_allowed":
+                    recovery = (
+                        "Your promotional credit does not cover this computer size; "
+                        "choose an eligible size in the dashboard or add prepaid credit."
+                    )
+            elif public_detail == "Scoped credentials are restricted to MCP":
+                recovery = (
+                    "This server accepts scoped keys through MCP only; use the dashboard's "
+                    "default API key for the Python SDK."
+                )
+            elif public_detail == "Account suspended. Contact support.":
+                recovery = "Your account is suspended; contact Celesto support to restore access."
+            elif isinstance(public_detail, str) and public_detail.startswith(
+                "Access denied to organization "
+            ):
+                recovery = (
+                    "This API key cannot access the selected organization; use the key's "
+                    "organization or update organization_id=."
+                )
+            elif public_detail == "Insufficient permissions. Required: write":
+                recovery = (
+                    "Your organization role cannot change computers; "
+                    "ask an owner to grant write access."
+                )
+        elif status_code == 402 and isinstance(public_detail, dict):
+            code = public_detail.get("error_code")
+            if code in ("trial_expired", "trial_credit_depleted", "prepaid_credit_depleted"):
+                recovery = (
+                    "Your trial has ended or credit has run out; add credit in the cloud dashboard."
+                )
+            elif code in ("trial_not_started", "usage_subscription_required"):
+                recovery = "Start the free trial or add prepaid credit in the cloud dashboard."
+            elif code in ("prepaid_credit_required", "payment_failed", "payment_pending"):
+                recovery = "Complete payment or add prepaid credit in the cloud dashboard."
+        return CloudAPIError(status_code, detail=detail, recovery=recovery)
 
     def _get(self) -> ComputerResponse:
         return self._call(retrieve.sync_detailed, ComputerResponse, computer_id=self.vm_id)
