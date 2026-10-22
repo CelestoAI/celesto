@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 0.1.7 — 2026-10-21
+
+### Fixed
+
+- Free-trial sandbox limits explain that stopped sandboxes still count, with options to reuse the sandbox, delete it, or add prepaid credit. Running-sandbox limits report the allowed count when available.
+- Stop/resume errors tell you to inspect the computer's state rather than delete it or check published ports.
+- Browser and display connection errors retain recognized permission guidance while keeping connection credentials private.
+- Unreadable creation responses warn that creation may have succeeded and include the creation request's support reference.
+- Validation errors identify safe field names and recognized constraints instead of discarding them behind a generic HTTP 422.
+
+### Added
+
+- Cloud HTTP errors expose stable codes, operation and computer context, safe request references, and recovery fields. `CloudOperationError` identifies transport, unreadable-response, and lifecycle-timeout failures and remains catchable as `CelestoError`. Existing `CloudAPIError` and HTTP status handling remain compatible.
+- Document structured error handling and operation-specific recovery. State-changing requests are never automatically replayed.
+
 ## 0.1.6 — 2026-10-21
 
 ### Fixed

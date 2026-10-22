@@ -26,6 +26,7 @@ from celesto.callbacks import Callback, CommandBlockedError, RunContext
 from celesto.exceptions import (
     CelestoError,
     CloudAPIError,
+    CloudOperationError,
     CommandExecutionUnavailableError,
     FirecrackerAPIError,
     HostError,
@@ -160,6 +161,7 @@ __all__ = [
     # Exceptions
     "CelestoError",
     "CloudAPIError",
+    "CloudOperationError",
     "TemplateBuildError",
     "CommandExecutionUnavailableError",
     "SnapshotAlreadyExistsError",
