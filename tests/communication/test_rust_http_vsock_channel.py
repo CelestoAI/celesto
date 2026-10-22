@@ -25,6 +25,7 @@ import tarfile
 import tempfile
 import threading
 from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,9 @@ import pytest
 import celesto.comm.rust_http_vsock_channel as vsock_channel
 from celesto.comm.base import CommChannel
 from celesto.comm.rust_http_vsock_channel import (
+    _DEFAULT_MAX_STREAM_SIZE_BYTES,
+    _DEFAULT_MAX_TAR_SIZE_BYTES,
+    _DEFAULT_MAX_TERMINAL_FRAME_BYTES,
     CELESTO_TERMINAL_PORT,
     ControlCapabilities,
     RustHttpVsockChannel,
@@ -125,10 +129,11 @@ class FakeRustChannel(RustHttpVsockChannel):
 
 
 class FakeTerminalChannel(FakeRustChannel):
-    def __init__(self, handlers: list[Handler]) -> None:
+    def __init__(self, handlers: list[Handler], *, output: bytes = b"ok\r\n") -> None:
         super().__init__(handlers)
         self.terminal_requests: list[dict[str, Any]] = []
         self.terminal_stdin: list[bytes] = []
+        self.terminal_output = output
 
     def _open_port(self, port: int) -> socket.socket:
         if port != CELESTO_TERMINAL_PORT:
@@ -146,8 +151,12 @@ class FakeTerminalChannel(FakeRustChannel):
                 frame_type, payload = _read_terminal_frame(guest)
                 assert frame_type == 1
                 self.terminal_stdin.append(payload)
-                guest.sendall(_pack_terminal_frame(101, b"ok\r\n"))
-                guest.sendall(_pack_terminal_frame(102, json.dumps({"exit_code": 7}).encode()))
+                with suppress(BrokenPipeError, ConnectionResetError):
+                    # Framed by hand so the fake guest can send frames the
+                    # host-side packer would refuse to build.
+                    header = bytes([101]) + len(self.terminal_output).to_bytes(4, "big")
+                    guest.sendall(header + self.terminal_output)
+                    guest.sendall(_pack_terminal_frame(102, json.dumps({"exit_code": 7}).encode()))
 
         threading.Thread(target=_serve, daemon=True).start()
         return host
@@ -841,6 +850,126 @@ def test_wait_for_ports_preserves_guest_timeout_validation_errors() -> None:
 
     with pytest.raises(CelestoError, match="timeout_ms must be at most"):
         channel.wait_for_ports([3000])
+
+
+def test_guest_advertised_limits_only_lower_host_caps() -> None:
+    channel = FakeRustChannel(
+        [
+            _capabilities(
+                {"file_raw": True, "dir_tar": True, "terminal": True},
+                limits={
+                    "max_stream_size_bytes": 10**15,
+                    "max_tar_size_bytes": 10**15,
+                    "terminal_frame_bytes": 2**32,
+                },
+            )
+        ]
+    )
+
+    assert (
+        channel._limit_bytes("max_stream_size_bytes", _DEFAULT_MAX_STREAM_SIZE_BYTES)
+        == _DEFAULT_MAX_STREAM_SIZE_BYTES
+    )
+    assert (
+        channel._limit_bytes("max_tar_size_bytes", _DEFAULT_MAX_TAR_SIZE_BYTES)
+        == _DEFAULT_MAX_TAR_SIZE_BYTES
+    )
+    assert (
+        channel._limit_bytes("terminal_frame_bytes", _DEFAULT_MAX_TERMINAL_FRAME_BYTES)
+        == _DEFAULT_MAX_TERMINAL_FRAME_BYTES
+    )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [0, -1, "abc", None, True, 0.25, float("inf"), float("nan")],
+    ids=["zero", "negative", "text", "null", "bool", "fraction", "infinity", "nan"],
+)
+def test_invalid_or_nonpositive_guest_limit_falls_back_to_host_default(value: Any) -> None:
+    # json.loads("1e999") yields float("inf"); int(inf) raises OverflowError,
+    # int(nan) raises ValueError. Neither may escape as a crash.
+    channel = FakeRustChannel([_capabilities({}, limits={"max_stream_size_bytes": value})])
+
+    assert (
+        channel._limit_bytes("max_stream_size_bytes", _DEFAULT_MAX_STREAM_SIZE_BYTES)
+        == _DEFAULT_MAX_STREAM_SIZE_BYTES
+    )
+
+
+def test_guest_advertised_limits_lower_than_default_still_apply() -> None:
+    channel = FakeRustChannel([_capabilities({}, limits={"max_stream_size_bytes": 4})])
+
+    assert channel._limit_bytes("max_stream_size_bytes", _DEFAULT_MAX_STREAM_SIZE_BYTES) == 4
+    assert channel._limit_bytes("missing", 7) == 7
+    assert channel._limit_bytes("max_stream_size_bytes", 2) == 2
+
+
+def test_get_file_rejects_declared_size_over_host_cap_despite_guest_limit(
+    tmp_path: Path,
+) -> None:
+    declared = _DEFAULT_MAX_STREAM_SIZE_BYTES + 1
+
+    def _raw_get(method: str, path: str, body: bytes) -> tuple[int, bytes, dict[str, str]]:
+        return (200, b"payload", {"x-celesto-file-size": str(declared)})
+
+    channel = FakeRustChannel(
+        [_capabilities({"file_raw": True}, limits={"max_stream_size_bytes": 10**15}), _raw_get]
+    )
+
+    with pytest.raises(CelestoError, match=f"exceeded {_DEFAULT_MAX_STREAM_SIZE_BYTES} bytes"):
+        channel.get_file("/tmp/source.txt", tmp_path / "download.txt")
+    assert not (tmp_path / "download.txt").exists()
+
+
+def test_get_directory_rejects_declared_size_over_host_cap_despite_guest_limit(
+    tmp_path: Path,
+) -> None:
+    declared = _DEFAULT_MAX_TAR_SIZE_BYTES + 1
+
+    def _tar_get(method: str, path: str, body: bytes) -> tuple[int, bytes, dict[str, str]]:
+        # The fake transport sets the real Content-Length; the file-size header
+        # is the second declared-size check the channel honours.
+        return (200, b"", {"x-celesto-file-size": str(declared)})
+
+    channel = FakeRustChannel(
+        [_capabilities({"dir_tar": True}, limits={"max_tar_size_bytes": 10**15}), _tar_get]
+    )
+
+    with pytest.raises(CelestoError, match=f"exceeded {_DEFAULT_MAX_TAR_SIZE_BYTES} bytes"):
+        channel.get_directory("/tmp/data", tmp_path / "download")
+
+
+def test_attach_terminal_rejects_frame_over_host_cap_despite_guest_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, b"exit\n")
+    os.close(write_fd)
+
+    class _PipeInput:
+        buffer: _PipeInput
+
+        def __init__(self, fd: int) -> None:
+            self.fd = fd
+            self.buffer = self
+
+        def fileno(self) -> int:
+            return self.fd
+
+    monkeypatch.setattr("celesto.comm.rust_http_vsock_channel.sys.stdin", _PipeInput(read_fd))
+    monkeypatch.setattr("celesto.comm.rust_http_vsock_channel.sys.stdout", io.BytesIO())
+
+    channel = FakeTerminalChannel(
+        [_capabilities({"terminal": True}, limits={"terminal_frame_bytes": 2**32})],
+        output=b"y" * (_DEFAULT_MAX_TERMINAL_FRAME_BYTES + 1),
+    )
+    try:
+        with pytest.raises(
+            CelestoError, match=f"exceeded {_DEFAULT_MAX_TERMINAL_FRAME_BYTES} bytes"
+        ):
+            channel.attach_terminal()
+    finally:
+        os.close(read_fd)
 
 
 def _capabilities(features: dict[str, bool], *, limits: dict[str, Any] | None = None) -> Handler:
