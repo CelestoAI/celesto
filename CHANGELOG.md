@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.1.6 — 2026-10-21
+
+### Fixed
+
+- Cloud API errors explain missing API key permissions, organization access, and recognized billing restrictions instead of showing the same message for every HTTP 403.
+- Document the named API key permissions needed to create, use, and clean up cloud computers.
+
 ### Added
 
 - Build custom templates for Celesto Cloud with `Template`. Create one from a built-in template and a setup script with `Template.create()`, follow its build with `wait(on_log=print)`, and start computers from it with `create_computer()`. `Template.get()`, `Template.list()`, `Template.lint()`, `edit()`, `rebuild()`, `logs()` and `delete()` manage templates. A failed build raises `TemplateBuildError`, which names the failing script line and its exit code.
