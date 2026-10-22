@@ -23,6 +23,7 @@ from pydantic import ValidationError
 from celesto.facade import Celesto
 from celesto.types import CommandResult, VMConfig, VMState, WorkspaceMount
 from celesto.vm import CelestoManager
+from tests.lifecycle_decision import use_real_start_decision
 
 # ── WorkspaceMount validation ───────────────────────────────────────
 
@@ -839,6 +840,7 @@ class TestFacadeWorkspaceGuards:
             running_info.network.guest_ip = "127.0.0.1"
             running_info.network.ssh_host_port = 2200
             mock_sdk.start.return_value = running_info
+            use_real_start_decision(mock_sdk)
             mock_sdk_cls.return_value = mock_sdk
 
             vm = Celesto(config, ssh_user="agent")

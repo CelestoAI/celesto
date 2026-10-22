@@ -348,6 +348,35 @@ class SQLiteStateManager:
         logger.info("Updated VM %s: status=%s, pid=%s", vm_id, status, pid)
         return self.get_vm(vm_id)
 
+    def mark_vm_error_if_pid(self, vm_id: str, pid: int) -> tuple[VMInfo, bool]:
+        """Mark a computer as failed only if its row still records *pid*.
+
+        A health check that saw *pid* die must not overwrite a newer
+        runtime that replaced it. Returns the current row and whether it
+        was changed.
+        """
+        if not vm_id:
+            raise ValueError("vm_id cannot be empty")
+
+        with self._get_connection(exclusive=True) as conn:
+            result = conn.execute(
+                "UPDATE vms SET status = ?, pid = NULL, updated_at = ? "
+                "WHERE id = ? AND pid = ? AND status IN (?, ?)",
+                (
+                    VMState.ERROR.value,
+                    now_iso(),
+                    vm_id,
+                    pid,
+                    VMState.RUNNING.value,
+                    VMState.PAUSED.value,
+                ),
+            )
+            changed = result.rowcount > 0
+
+        if changed:
+            logger.info("Marked VM %s as error after pid %s exited", vm_id, pid)
+        return self.get_vm(vm_id), changed
+
     def delete_vm(self, vm_id: str) -> None:
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
