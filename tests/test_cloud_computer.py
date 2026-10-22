@@ -1340,3 +1340,30 @@ def test_port_error_conversion_retains_safe_context(cloud, operation, status):
     assert "credential-secret" not in str(error)
     assert len(requests) == 2
     comp.close()
+
+
+def test_sdk_create_names_sdk_as_the_client(cloud):
+    requests, replies = cloud
+    replies.append((201, computer()))
+
+    Computer(lifetime="persistent").start()
+
+    # The backend records which surface made the computer from this header.
+    assert requests[0].headers["x-celesto-client"] == "sdk"
+
+
+def test_cli_create_names_cli_as_the_client_without_leaking(cloud, monkeypatch, tmp_path, capsys):
+    from celesto.cli.main import main
+
+    monkeypatch.setenv("CELESTO_DATA_DIR", str(tmp_path))
+    requests, replies = cloud
+    replies.extend([(201, computer()), (201, computer())])
+
+    assert main(["computer", "create", "--cloud", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["data"]["computer_id"] == "cloud-test"
+    assert requests[0].method == "POST"
+    assert requests[0].headers["x-celesto-client"] == "cli"
+
+    # A later SDK create in the same process is still reported as the SDK.
+    Computer(lifetime="persistent").start()
+    assert requests[1].headers["x-celesto-client"] == "sdk"

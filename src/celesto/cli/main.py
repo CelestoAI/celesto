@@ -48,6 +48,7 @@ from rich.progress import (
 from rich.table import Table
 from rich.text import Text
 
+from celesto._client_origin import client_origin
 from celesto.cli._kvm_session import maybe_reexec_for_kvm_group
 from celesto.cli.output import (
     console_stderr,
@@ -3699,6 +3700,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     args = list(argv) if argv is not None else sys.argv[1:]
     cli = build_cli()
+    # Cloud computers created by this command are reported as made by the CLI.
+    # Reset afterwards so in-process callers (tests, embedders) stay "sdk".
+    origin_token = client_origin.set("cli")
     try:
         result = cli.main(
             args=args,
@@ -3721,3 +3725,5 @@ def main(argv: Sequence[str] | None = None) -> int:
         return exc.exit_code
     except click.Abort:
         return 130
+    finally:
+        client_origin.reset(origin_token)
