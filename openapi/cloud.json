@@ -12470,6 +12470,65 @@
                 }
             }
         },
+        "/v1/internal/fleet/platform-analytics": {
+            "get": {
+                "tags": [
+                    "Internal fleet"
+                ],
+                "summary": "Get Platform Analytics",
+                "operationId": "get_platform_analytics_v1_internal_fleet_platform_analytics_get",
+                "parameters": [
+                    {
+                        "name": "exclude_internal",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "default": true,
+                            "title": "Exclude Internal"
+                        }
+                    },
+                    {
+                        "name": "authorization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Authorization"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PlatformAnalytics"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/internal/fleet-releases/hosts/{host_id}/drain": {
             "post": {
                 "tags": [
@@ -17248,6 +17307,67 @@
                 ],
                 "title": "CustomerOrganizationAnalytics"
             },
+            "DailyPlatformActivity": {
+                "properties": {
+                    "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "title": "Started At"
+                    },
+                    "ended_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "title": "Ended At"
+                    },
+                    "active_users": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Active Users"
+                    },
+                    "ci_runtime_minutes": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Ci Runtime Minutes"
+                    },
+                    "sandbox_runtime_minutes": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Sandbox Runtime Minutes"
+                    },
+                    "history_complete": {
+                        "type": "boolean",
+                        "title": "History Complete"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "started_at",
+                    "ended_at",
+                    "active_users",
+                    "ci_runtime_minutes",
+                    "sandbox_runtime_minutes",
+                    "history_complete"
+                ],
+                "title": "DailyPlatformActivity"
+            },
             "DelegatedAccessConnectRequest": {
                 "properties": {
                     "subject": {
@@ -20507,6 +20627,178 @@
                     "recent_post": "revops tooling debt",
                     "role": "VP Sales"
                 }
+            },
+            "PlatformActivityWindow": {
+                "properties": {
+                    "days": {
+                        "type": "integer",
+                        "enum": [
+                            1,
+                            7,
+                            30
+                        ],
+                        "title": "Days"
+                    },
+                    "new_users": {
+                        "type": "integer",
+                        "title": "New Users"
+                    },
+                    "daily_new_users": {
+                        "type": "number",
+                        "title": "Daily New Users"
+                    },
+                    "active_users": {
+                        "type": "integer",
+                        "title": "Active Users"
+                    },
+                    "active_accounts": {
+                        "type": "integer",
+                        "title": "Active Accounts"
+                    },
+                    "daily_active_users": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Daily Active Users"
+                    },
+                    "ci_runtime_minutes": {
+                        "type": "number",
+                        "title": "Ci Runtime Minutes"
+                    },
+                    "sandbox_runtime_minutes": {
+                        "type": "number",
+                        "title": "Sandbox Runtime Minutes"
+                    },
+                    "unclassified_runtime_minutes": {
+                        "type": "number",
+                        "title": "Unclassified Runtime Minutes"
+                    },
+                    "daily_ci_runtime_minutes": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Daily Ci Runtime Minutes"
+                    },
+                    "daily_sandbox_runtime_minutes": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Daily Sandbox Runtime Minutes"
+                    },
+                    "sandboxes_created": {
+                        "type": "integer",
+                        "title": "Sandboxes Created"
+                    },
+                    "total_running_seconds": {
+                        "type": "number",
+                        "title": "Total Running Seconds"
+                    },
+                    "history_complete": {
+                        "type": "boolean",
+                        "title": "History Complete"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "days",
+                    "new_users",
+                    "daily_new_users",
+                    "active_users",
+                    "active_accounts",
+                    "daily_active_users",
+                    "ci_runtime_minutes",
+                    "sandbox_runtime_minutes",
+                    "unclassified_runtime_minutes",
+                    "daily_ci_runtime_minutes",
+                    "daily_sandbox_runtime_minutes",
+                    "sandboxes_created",
+                    "total_running_seconds",
+                    "history_complete"
+                ],
+                "title": "PlatformActivityWindow"
+            },
+            "PlatformAnalytics": {
+                "properties": {
+                    "daily_activity": {
+                        "items": {
+                            "$ref": "#/components/schemas/DailyPlatformActivity"
+                        },
+                        "type": "array",
+                        "title": "Daily Activity"
+                    },
+                    "observed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "title": "Observed At"
+                    },
+                    "runtime_coverage_started_at": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Runtime Coverage Started At"
+                    },
+                    "registered_users": {
+                        "type": "integer",
+                        "title": "Registered Users"
+                    },
+                    "ci_installed_users": {
+                        "type": "integer",
+                        "title": "Ci Installed Users"
+                    },
+                    "ci_installed_accounts": {
+                        "type": "integer",
+                        "title": "Ci Installed Accounts"
+                    },
+                    "ci_installations": {
+                        "type": "integer",
+                        "title": "Ci Installations"
+                    },
+                    "ci_executing_accounts": {
+                        "type": "integer",
+                        "title": "Ci Executing Accounts"
+                    },
+                    "windows": {
+                        "items": {
+                            "$ref": "#/components/schemas/PlatformActivityWindow"
+                        },
+                        "type": "array",
+                        "title": "Windows"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "daily_activity",
+                    "observed_at",
+                    "runtime_coverage_started_at",
+                    "registered_users",
+                    "ci_installed_users",
+                    "ci_installed_accounts",
+                    "ci_installations",
+                    "ci_executing_accounts",
+                    "windows"
+                ],
+                "title": "PlatformAnalytics"
             },
             "PollRequest": {
                 "properties": {
