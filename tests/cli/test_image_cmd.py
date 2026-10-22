@@ -834,6 +834,20 @@ class TestCustomImages:
         assert row["version"] == "abc123def456"
         assert row["arch"] == "amd64"
 
+    def test_list_keeps_long_custom_name_whole(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A custom handle longer than the default display cap is not truncated."""
+        monkeypatch.setenv("COLUMNS", "400")
+        name = "a" * 255
+        self._make_custom(tmp_path, name)
+
+        ret = main(["image", "list", "--image-dir", str(tmp_path)])
+
+        assert ret == 0
+        out = capsys.readouterr().out
+        assert "custom/" + name in "".join(out.split())
+
     def test_rm_custom_name_removes_tree(
         self, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:
@@ -1086,3 +1100,60 @@ class TestUpstreamReviewRegressions:
         assert ret == 2
         payload = json.loads(capsys.readouterr().out)
         assert payload["error"]["code"] == "invalid_input"
+
+
+class TestHostileEntryNames:
+    """Cache entry names come from disk and loaded archives: render them literally."""
+
+    HOSTILE = "[link=mailto:owner@attacker.example]codex-v0.0.1-amd64-firecracker\x1b]0;owned\x07"
+
+    def _make_entry(self, root: Path) -> Path:
+        """Create a cache entry whose directory name carries markup and ESC."""
+        entry = root / self.HOSTILE
+        entry.mkdir(parents=True)
+        (entry / "rootfs.ext4").write_bytes(b"x" * 10)
+        return entry
+
+    def test_list_renders_name_literally(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`image list` shows the hostile name as text and emits no ESC."""
+        monkeypatch.setenv("COLUMNS", "200")  # keep the name on one line
+        self._make_entry(tmp_path)
+
+        ret = main(["image", "list", "--image-dir", str(tmp_path)])
+
+        assert ret == 0
+        out = capsys.readouterr().out
+        assert "[link=mailto:owner@attacker.example]" in out
+        assert "\x1b" not in out
+
+    def test_inspect_renders_name_literally(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`image inspect` shows the hostile name in the title and Path row as text."""
+        monkeypatch.setenv("COLUMNS", "200")  # keep the name on one line
+        self._make_entry(tmp_path)
+
+        ret = main(["image", "inspect", self.HOSTILE, "--image-dir", str(tmp_path)])
+
+        assert ret == 0
+        out = capsys.readouterr().out
+        # The name appears in the table title and again in the Path row.
+        assert out.count("[link=mailto:owner@attacker.example]") == 2
+        assert "\x1b" not in out
+
+    def test_list_shows_placeholder_for_unprintable_name(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A name with no printable characters gets a visible placeholder."""
+        entry = tmp_path / "\x1b\x07"
+        entry.mkdir()
+        (entry / "rootfs.ext4").write_bytes(b"x")
+
+        ret = main(["image", "list", "--image-dir", str(tmp_path)])
+
+        assert ret == 0
+        out = capsys.readouterr().out
+        assert "\x1b" not in out
+        assert "<unprintable name>" in out

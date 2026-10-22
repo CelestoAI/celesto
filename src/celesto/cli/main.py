@@ -53,6 +53,7 @@ from celesto.cli._kvm_session import maybe_reexec_for_kvm_group
 from celesto.cli.output import (
     console_stderr,
     console_stdout,
+    display_safe,
     emit_error,
     emit_json,
     render_empty,
@@ -712,8 +713,10 @@ def _query_live_vm_info(vm: VMInfo) -> dict[str, object]:
         return {}
     parts = result.stdout.split("---")
     out: dict[str, object] = {}
-    if parts and parts[0].strip():
-        out["os"] = parts[0].strip()
+    os_lines = parts[0].strip().splitlines()
+    os_name = display_safe(os_lines[0], limit=128) if os_lines else ""
+    if os_name:
+        out["os"] = os_name
     if len(parts) > 1:
         with suppress(ValueError):
             out["memory_used"] = int(parts[1].strip())
@@ -802,7 +805,9 @@ def _render_info_result(data: InfoPayload) -> None:
         "Status",
         Text(str(vm_data["status"]), style=status_style(str(vm_data["status"]))),
     )
-    details.add_row("OS", str(vm_data["os"] or "-"))
+    # The OS name can come from the guest or a persisted manifest: render it
+    # literally, never as markup, and keep control characters off the terminal.
+    details.add_row("OS", Text(display_safe(str(vm_data["os"] or "-")) or "-"))
     details.add_row("Backend", str(vm_data["backend"]))
     details.add_row("Network Mode", str(vm_data["network_mode"]))
     if vm_data["bridge"]:

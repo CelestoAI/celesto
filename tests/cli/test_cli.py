@@ -3574,6 +3574,92 @@ class TestCliInfo:
         assert "312 / 1024 MiB used" in out
         mock_query.assert_called_once_with(vm_info)
 
+    def test_info_renders_guest_os_name_literally(
+        self,
+        mock_sdk_cls: MagicMock,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """A guest-controlled OS name must not become Rich markup or terminal escapes."""
+        vm_info = self._make_info_vm(status=VMState.RUNNING)
+        mock_sdk_cls.return_value.state.get_vm.return_value = vm_info
+        hostile_name = (
+            "[link=https://attacker.example/login]Alpine Linux v3.19[/link]"
+            "\x1b]52;c;cHduZWQ=\x1b\\\x1b]0;owned\x1b\\"
+        )
+        ssh_result = MagicMock(exit_code=0, stdout=f"{hostile_name}\n---\n123\n")
+        with patch("celesto.ssh.SSHClient") as mock_ssh_cls:
+            mock_ssh_cls.return_value.run.return_value = ssh_result
+
+            ret = main(["sandbox", "info", "sbx-pauling"])
+
+        assert ret == 0
+        out = capsys.readouterr().out
+        # The cell may wrap, so check the markup survives as visible text.
+        assert "[link=https://attacker.example/login]Alpine Linux" in out
+        assert "v3.19[/link]" in out
+        assert "\x1b" not in out
+        assert "123 / 1024 MiB used" in out
+
+    def test_info_macos_guest_version_is_rendered_without_control_characters(
+        self,
+        mock_sdk_cls: MagicMock,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """The persisted macOS guest_version fallback is sanitized before rendering."""
+        vm_info = self._make_info_vm(status=VMState.STOPPED, backend="vz", guest_ip=None)
+        vm_info.config.guest_os = GuestOS.MACOS
+        vm_info.config.macos_machine.guest_version = "macOS 15\x1b]0;owned\x07"
+        vm_info.config.macos_machine.disk_size_mib = 65536
+        mock_sdk_cls.return_value.state.get_vm.return_value = vm_info
+
+        ret = main(["sandbox", "info", "sbx-pauling"])
+
+        assert ret == 0
+        out = capsys.readouterr().out
+        assert "macOS 15" in out
+        assert "\x1b" not in out
+
+    def test_info_os_name_is_truncated_and_first_line_only(
+        self,
+        mock_sdk_cls: MagicMock,
+        capsys: pytest.CaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Over-long or multi-line guest OS names are capped to one short line."""
+        monkeypatch.setenv("COLUMNS", "400")
+        vm_info = self._make_info_vm(status=VMState.RUNNING)
+        mock_sdk_cls.return_value.state.get_vm.return_value = vm_info
+        ssh_result = MagicMock(exit_code=0, stdout=f"{'A' * 300}\nSECOND LINE\n---\n1\n")
+        with patch("celesto.ssh.SSHClient") as mock_ssh_cls:
+            mock_ssh_cls.return_value.run.return_value = ssh_result
+
+            ret = main(["sandbox", "info", "sbx-pauling"])
+
+        assert ret == 0
+        out = capsys.readouterr().out
+        assert "A" * 128 in out
+        assert "A" * 129 not in out
+        assert "SECOND LINE" not in out
+
+    def test_info_all_control_os_name_falls_back_to_placeholder(
+        self,
+        mock_sdk_cls: MagicMock,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """An OS name made only of control characters is treated as missing."""
+        vm_info = self._make_info_vm(status=VMState.RUNNING)
+        mock_sdk_cls.return_value.state.get_vm.return_value = vm_info
+        ssh_result = MagicMock(exit_code=0, stdout="\x1b\x07\n---\n1\n")
+        with patch("celesto.ssh.SSHClient") as mock_ssh_cls:
+            mock_ssh_cls.return_value.run.return_value = ssh_result
+
+            ret = main(["sandbox", "info", "sbx-pauling"])
+
+        assert ret == 0
+        out = capsys.readouterr().out
+        assert "\x1b" not in out
+        assert "│ OS           │ -" in out
+
     def test_info_running_vm_with_unreachable_ssh(
         self,
         mock_sdk_cls: MagicMock,
