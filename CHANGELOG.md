@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.8 — 2026-10-22
+
+### Fixed
+
+- Cloud creates send an `X-Celesto-Client` header, `cli` from the `celesto` command and `sdk` from Python code, so Celesto Cloud can tell CLI-created computers apart from SDK-created ones. Until Celesto Cloud supports the `cli` value, CLI-created computers are still recorded as `sdk`; creates succeed either way.
+
 ## 0.1.7 — 2026-10-21
 
 ### Fixed
