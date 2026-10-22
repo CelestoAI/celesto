@@ -1068,17 +1068,37 @@ def test_connection_transport_failure_not_replayed(cloud):
     comp.close()
 
 
-def test_connection_poll_deadline_prevents_issuance(cloud, monkeypatch):
+@pytest.mark.parametrize("operation", ["browser", "display"])
+@pytest.mark.parametrize("issued", [False, True])
+def test_connection_deadline_has_structured_context_without_replay(
+    cloud, monkeypatch, operation, issued
+):
+    from celesto import CloudOperationError
+
+    # Timeout can occur before issuing credentials or after their response; the
+    # handler must preserve that distinction without exposing connection secrets.
     requests, replies = cloud
-    replies.extend([(200, computer()), (200, computer("restoring"))])
+    replies.extend([(200, computer()), (200, computer() if issued else computer("restoring"))])
+    if issued:
+        payload = connection_payload(**({"mode": "read_only"} if operation == "display" else {}))
+        replies.append(
+            httpx.Response(201, json=payload, headers={"x-cloud-trace-context": "d" * 32})
+        )
     comp = Computer.get("cloud-test")
-    ticks = iter([0, 0, 31])
+    ticks = iter([0, 0, 0, 31] if issued else [0, 0, 31])
     monkeypatch.setattr(
         "celesto._cloud.time", SimpleNamespace(monotonic=lambda: next(ticks), sleep=lambda _: None)
     )
-    with pytest.raises(CelestoError, match="not ready"):
-        comp.browser()
-    assert [r.method for r in requests] == ["GET", "GET"]
+    with pytest.raises(CloudOperationError) as caught:
+        getattr(comp, operation)()
+    error = caught.value
+    assert error.code == "cloud_operation_timeout" and error.operation == operation
+    assert error.computer_id == "cloud-test" and error.recovery_action == "inspect"
+    assert error.side_effects == ("unknown" if issued else "none")
+    assert error.request_id == ("d" * 32 if issued else None)
+    assert "secret" not in str(error) + repr(error.details)
+    assert [r.method for r in requests] == (["GET", "GET", "POST"] if issued else ["GET", "GET"])
+    assert comp._provider._client.get_httpx_client().timeout == httpx.Timeout(30)
     comp.close()
 
 

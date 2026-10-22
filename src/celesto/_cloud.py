@@ -792,17 +792,28 @@ class _CloudComputer:
         self.validate_command(command, timeout)
         return self._iter_command_events(command, timeout)
 
-    def _connection(self, endpoint: Callable[..., Any], expected: type[T], **kwargs: Any) -> T:
+    def _connection(
+        self, endpoint: Callable[..., Any], expected: type[T], *, operation: str, **kwargs: Any
+    ) -> T:
         """Poll state, then issue exactly once; never replay credential issuance."""
         deadline = time.monotonic() + _CONNECTION_TIMEOUT
         client = self._client.get_httpx_client()
         original_timeout = client.timeout
+        issued = False
+        context: dict[str, str | None] = {}
 
         def remaining() -> float:
             value = deadline - time.monotonic()
             if value <= 0:
-                raise CelestoError(
-                    f"Computer '{self.vm_id}' is not ready; request a new connection."
+                raise CloudOperationError(
+                    f"Computer '{self.vm_id}' connection did not finish in time; "
+                    "inspect its state in the cloud dashboard before requesting a new connection.",
+                    code="cloud_operation_timeout",
+                    operation=operation,
+                    computer_id=self.vm_id,
+                    request_id=context.get("request_id"),
+                    recovery_action="inspect",
+                    side_effects="unknown" if issued else "none",
                 )
             return value
 
@@ -818,8 +829,15 @@ class _CloudComputer:
                     )
                 time.sleep(min(0.5, remaining()))
             client.timeout = httpx.Timeout(remaining())
+            issued = True
             result = self._call(
-                endpoint, expected, retain_error_detail=False, computer_id=self.vm_id, **kwargs
+                endpoint,
+                expected,
+                operation=operation,
+                response_context=context,
+                retain_error_detail=False,
+                computer_id=self.vm_id,
+                **kwargs,
             )
             remaining()
             return result
