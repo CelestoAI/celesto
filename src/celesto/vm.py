@@ -358,6 +358,9 @@ class _HeldOperationLock:
 
     fcntl_module: Any | None
     lock_file: TextIO | None
+    # Kept here because a file opened with ``os.fdopen`` reports its
+    # descriptor, not its path, as ``name``.
+    path: Path | None = None
     depth: int = 1
 
 
@@ -388,9 +391,11 @@ def _record_held_lock(path: Path, token: _HeldOperationLock) -> None:
     _held_operation_locks.by_path = held
 
 
-def _forget_held_lock(path: Path) -> None:
+def _forget_held_lock(path: Path, token: _HeldOperationLock) -> None:
+    """Drop *token* from this thread's registry, but never another caller's entry."""
     held: dict[str, _HeldOperationLock] = getattr(_held_operation_locks, "by_path", {})
-    held.pop(str(path), None)
+    if held.get(str(path)) is token:
+        del held[str(path)]
 
 
 async def _finish_thread_despite_cancel(func: Any, *args: Any) -> Any:
@@ -794,7 +799,7 @@ class CelestoManager:
             while True:
                 try:
                     fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    token = _HeldOperationLock(fcntl, lock_file)
+                    token = _HeldOperationLock(fcntl, lock_file, lock_path)
                     _record_held_lock(lock_path, token)
                     return token
                 except OSError as exc:
@@ -843,7 +848,7 @@ class CelestoManager:
             while True:
                 try:
                     fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    return _HeldOperationLock(fcntl, lock_file)
+                    return _HeldOperationLock(fcntl, lock_file, lock_path)
                 except OSError as exc:
                     if not self._lock_is_busy(exc):
                         raise
@@ -865,13 +870,13 @@ class CelestoManager:
         lock.depth -= 1
         if lock.depth > 0:
             return
-        path = Path(lock_file.name)
         try:
             if fcntl_module is not None:
                 fcntl_module.flock(lock_file.fileno(), fcntl_module.LOCK_UN)
         finally:
             lock_file.close()
-            _forget_held_lock(path)
+            if lock.path is not None:
+                _forget_held_lock(lock.path, lock)
 
     def _lifecycle_lock_name(self, vm_id: str) -> str:
         """Return the name of the per-computer lifecycle lock file."""
