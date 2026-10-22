@@ -145,6 +145,7 @@ from .customer_organization_analytics_providers import (
 from .customer_organization_analytics_statuses import (
     CustomerOrganizationAnalyticsStatuses,
 )
+from .daily_platform_activity import DailyPlatformActivity
 from .delegated_access_connect_request import DelegatedAccessConnectRequest
 from .delegated_access_connect_response import DelegatedAccessConnectResponse
 from .delegated_access_connection_response import DelegatedAccessConnectionResponse
@@ -310,6 +311,9 @@ from .persona_data_professional_summary_type_0 import (
 from .persona_data_qualifying_questions_type_0_item import (
     PersonaDataQualifyingQuestionsType0Item,
 )
+from .platform_activity_window import PlatformActivityWindow
+from .platform_activity_window_days import PlatformActivityWindowDays
+from .platform_analytics import PlatformAnalytics
 from .poll_request import PollRequest
 from .poll_v1_internal_pool_hosts_host_id_poll_post_response_poll_v1_internal_pool_hosts_host_id_poll_post import (
     PollV1InternalPoolHostsHostIdPollPostResponsePollV1InternalPoolHostsHostIdPollPost,
@@ -600,6 +604,7 @@ __all__ = (
     "CustomTemplateResponse",
     "CustomTemplateStatus",
     "CustomTemplateUpdate",
+    "DailyPlatformActivity",
     "DelegatedAccessConnectionResponse",
     "DelegatedAccessConnectionResponseAccessRulesType0",
     "DelegatedAccessConnectRequest",
@@ -711,6 +716,9 @@ __all__ = (
     "PersonaDataPainPointsType0Item",
     "PersonaDataProfessionalSummaryType0",
     "PersonaDataQualifyingQuestionsType0Item",
+    "PlatformActivityWindow",
+    "PlatformActivityWindowDays",
+    "PlatformAnalytics",
     "PollRequest",
     "PollV1InternalPoolHostsHostIdPollPostResponsePollV1InternalPoolHostsHostIdPollPost",
     "PoolGitCredentialRequest",
