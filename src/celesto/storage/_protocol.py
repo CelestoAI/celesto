@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, TypedDict
 
 from celesto.types import (
     BrowserSessionConfig,
@@ -31,6 +31,19 @@ from celesto.types import (
     VMInfo,
     VMState,
 )
+
+
+class UserSecretRecord(TypedDict):
+    """A user-defined, host-bound secret stored with its sandbox (D-11).
+
+    Holds the definition and the guest placeholder only, never the real value.
+    """
+
+    name: str
+    hosts: list[str]
+    source: str
+    header: str | None
+    placeholder: str
 
 
 class StateManagerProtocol(Protocol):
@@ -78,6 +91,16 @@ class StateManagerProtocol(Protocol):
         pass
 
     def list_vms(self, status: VMState | None = None) -> list[VMInfo]:
+        pass
+
+    # ------------------------------------------------------------------
+    # Credential-protection version (see credentials/store.py)
+    # ------------------------------------------------------------------
+
+    def get_credential_protection(self, vm_id: str) -> int:
+        pass
+
+    def set_credential_protection(self, vm_id: str, version: int) -> None:
         pass
 
     # ------------------------------------------------------------------
@@ -212,6 +235,42 @@ class StateManagerProtocol(Protocol):
         self, status: BrowserSessionState | None = None
     ) -> list[BrowserSessionInfo]:
         pass
+
+    # ------------------------------------------------------------------
+    # User secrets (definitions and placeholders only, never values)
+    # ------------------------------------------------------------------
+
+    def put_user_secret(self, vm_id: str, record: UserSecretRecord) -> None:
+        """Insert or replace the secret named ``record["name"]`` for *vm_id*."""
+        ...
+
+    def delete_user_secret(self, vm_id: str, name: str) -> bool:
+        """Remove a secret; return whether it existed."""
+        ...
+
+    def list_user_secrets(self, vm_id: str) -> list[UserSecretRecord]:
+        """Return the secrets defined for *vm_id*, sorted by name."""
+        ...
+
+    def claim_user_secret_seed(self, vm_id: str) -> bool:
+        """Return True exactly once per VM, so config secrets are copied in once."""
+        ...
+
+    # ------------------------------------------------------------------
+    # Allowed SSH keys (public keys only; D-13)
+    # ------------------------------------------------------------------
+
+    def add_ssh_key(self, vm_id: str, fingerprint: str, public_key: str) -> bool:
+        """Allow a key for *vm_id*; False if it was already allowed."""
+        ...
+
+    def remove_ssh_key(self, vm_id: str, fingerprint: str) -> bool:
+        """Disallow a key; False if it was not allowed."""
+        ...
+
+    def list_ssh_keys(self, vm_id: str) -> list[tuple[str, str]]:
+        """Return ``(fingerprint, public_key_line)`` for each allowed key."""
+        ...
 
     # ------------------------------------------------------------------
     # Reconciliation

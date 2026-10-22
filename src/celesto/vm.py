@@ -45,6 +45,7 @@ from uuid import uuid4
 from celesto._compat import existing_legacy_path
 from celesto._network_policy import parse_network_policy, validate_network_policy_options
 from celesto.comm.select import ChannelResolution, VsockNotSupportedError, resolve_comm_channel
+from celesto.credentials._runtime_paths import relay_command
 from celesto.exceptions import (
     BridgeTapOwnershipError,
     CelestoError,
@@ -2456,6 +2457,7 @@ class CelestoManager:
         backend = self._backend_for_vm(vm_info)
         self._runtime_adapter_for_backend(backend).stop(vm_info, timeout=timeout)
         self._close_runtime_log(vm_id, backend, vm_info.control_socket_path)
+        self._detach_credentials(vm_id)
         vm_info = self.state.update_vm(
             vm_id,
             status=VMState.STOPPED,
@@ -2465,6 +2467,24 @@ class CelestoManager:
         )
         logger.info("VM stopped: %s (backend=%s)", vm_id, backend)
         return vm_info
+
+    def _detach_credentials(self, vm_id: str) -> None:
+        """Stop this VM's credential proxy; it must not outlive the VM (D-16)."""
+        from celesto.credentials import runtime as credential_runtime
+
+        try:
+            credential_runtime.detach(vm_id, data_dir=self.data_dir, network=self.network)
+        except Exception as exc:  # noqa: BLE001 - stopping the VM must still succeed
+            logger.warning("Could not stop credential proxy for %s: %s", vm_id, exc)
+
+    def _forget_credentials(self, vm_id: str) -> None:
+        """Remove a deleted VM's credential proxy files and log."""
+        from celesto.credentials import runtime as credential_runtime
+
+        try:
+            credential_runtime.forget(vm_id, data_dir=self.data_dir, network=self.network)
+        except Exception as exc:  # noqa: BLE001 - deleting the VM must still succeed
+            logger.warning("Could not remove credential proxy files for %s: %s", vm_id, exc)
 
     def pause(self, vm_id: str) -> VMInfo:
         """Pause a running VM."""
@@ -3243,6 +3263,8 @@ class CelestoManager:
             require_bridge_cleanup=require_bridge_cleanup,
         )
 
+        self._forget_credentials(vm_id)
+
         # Delete from database
         self.state.delete_vm(vm_id)
 
@@ -3444,6 +3466,7 @@ class CelestoManager:
             swtpm_socket=swtpm_socket,
             start_paused=start_paused,
             root_node_name=root_node_name,
+            credential_relay_command=relay_command(self.data_dir, vm_info.vm_id),
         )
 
         logger.debug("Starting QEMU: %s", " ".join(cmd))
@@ -4627,6 +4650,7 @@ class CelestoManager:
         backend = self._backend_for_vm(vm_info)
         await self._runtime_adapter_for_backend(backend).async_stop(vm_info, timeout=timeout)
         self._close_runtime_log(vm_id, backend, vm_info.control_socket_path)
+        await asyncio.to_thread(self._detach_credentials, vm_id)
         vm_info = self.state.update_vm(
             vm_id,
             status=VMState.STOPPED,
@@ -4665,6 +4689,7 @@ class CelestoManager:
             vm_id,
             require_bridge_cleanup=require_bridge_cleanup,
         )
+        await asyncio.to_thread(self._forget_credentials, vm_id)
         self.state.delete_vm(vm_id)
         logger.info("VM deleted (async): %s", vm_id)
 

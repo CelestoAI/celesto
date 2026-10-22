@@ -55,6 +55,7 @@ Run these in the order you need them:
 | --- | --- |
 | `celesto computer file upload` / `download` | Copy a file in or out. |
 | `celesto computer env set` / `unset` / `list` | Manage persistent environment variables. |
+| `celesto computer ssh-key add` / `remove` / `list` | Choose which keys in your SSH agent a computer may sign with, e.g. `celesto computer ssh-key add demo ~/.ssh/id_work.pub`. The key itself stays on your machine, and by default a computer can't use any. GitHub SSH addresses like `git@github.com:` need no key: Celesto sends them over HTTPS. |
 | `celesto computer port expose` / `close` / `list` | Manage local port forwarding. |
 | `celesto computer snapshot create` / `restore` / `list` / `delete` | Save and restore a supported computer's state. |
 

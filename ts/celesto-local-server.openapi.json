@@ -1497,6 +1497,21 @@
                 "restricted": "#/components/schemas/RestrictedNetworkPolicy"
               }
             }
+          },
+          "secrets": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/SecretRequest"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secrets",
+            "description": "Secrets by env var name. The computer sees a placeholder; the real value is read from the runtime's env var of the same name."
           }
         },
         "type": "object",
@@ -1638,6 +1653,14 @@
             },
             "type": "object",
             "title": "Env"
+          },
+          "not_secret": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Not Secret",
+            "description": "env names to pass although they look like secrets."
           }
         },
         "type": "object",
@@ -1761,6 +1784,43 @@
         ],
         "title": "SandboxResponse",
         "description": "Public state for one session-owned sandbox."
+      },
+      "SecretRequest": {
+        "properties": {
+          "host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            ],
+            "title": "Host",
+            "description": "Exact host name (or names) the real value may be sent to."
+          },
+          "header": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Header",
+            "description": "Header the program sends the placeholder in. Default: Authorization or x-api-key."
+          }
+        },
+        "type": "object",
+        "required": [
+          "host"
+        ],
+        "title": "SecretRequest",
+        "description": "A secret that stays on the host and is sent only to its hosts."
       },
       "VMState": {
         "type": "string",

@@ -2078,6 +2078,73 @@ class NetworkManager:
         await self._async_ensure_nftables_base()
         await self._async_run_nft_script(script)
 
+    @staticmethod
+    def _credential_table(tap_device: str) -> str:
+        if not re.fullmatch(r"tap[0-9]+", tap_device):
+            raise ValueError("Credential protection requires a managed NAT interface.")
+        return f"celesto_cred_{tap_device}"
+
+    def _credential_forward_script(
+        self,
+        tap_device: str,
+        *,
+        guest_proxy_ip: str,
+        proxy_host_ip: str,
+        proxy_port: int,
+    ) -> str:
+        """Send this TAP's guest ``guest_proxy_ip:443`` to its own credential proxy.
+
+        Two rules, both scoped to one TAP (D-05 lock 1): a DNAT that only this
+        TAP's traffic hits, and an input drop so packets from any other
+        interface (another guest's TAP, or loopback) never reach the proxy
+        listener even though it binds a shared host address.
+        """
+        table = self._credential_table(tap_device)
+        tap = self._quote(tap_device)
+        guest_target = str(IPv4Address(guest_proxy_ip))
+        proxy = str(IPv4Address(proxy_host_ip))
+        if not 1 <= proxy_port <= 65535:
+            raise ValueError("proxy_port must be between 1 and 65535")
+        lines = [
+            f"add table inet {table}",
+            f"flush table inet {table}",
+            f"add chain inet {table} prerouting "
+            "{ type nat hook prerouting priority -110; policy accept; }",
+            (
+                f"add rule inet {table} prerouting iifname {tap} ip daddr {guest_target} "
+                f"tcp dport 443 counter dnat ip to {proxy}:{proxy_port}"
+            ),
+            f"add chain inet {table} input "
+            "{ type filter hook input priority -20; policy accept; }",
+            (
+                f"add rule inet {table} input ip daddr {proxy} tcp dport {proxy_port} "
+                f"iifname != {tap} counter drop"
+            ),
+        ]
+        return "\n".join(lines) + "\n"
+
+    def apply_credential_forward(
+        self,
+        tap_device: str,
+        *,
+        guest_proxy_ip: str,
+        proxy_host_ip: str,
+        proxy_port: int,
+    ) -> None:
+        """Route one TAP guest's credential traffic to its own proxy listener."""
+        script = self._credential_forward_script(
+            tap_device,
+            guest_proxy_ip=guest_proxy_ip,
+            proxy_host_ip=proxy_host_ip,
+            proxy_port=proxy_port,
+        )
+        self._run_nft_script(script)
+
+    def remove_credential_forward(self, tap_device: str) -> None:
+        """Idempotently delete this TAP's credential forward."""
+        table = self._credential_table(tap_device)
+        self._run_nft_script(f"add table inet {table}\ndelete table inet {table}\n")
+
     def remove_network_policy(self, tap_device: str) -> None:
         """Idempotently delete only this managed interface's policy table."""
         table = self._policy_table(tap_device)

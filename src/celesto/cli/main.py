@@ -165,10 +165,19 @@ class InfoVmPayload(TypedDict):
     bridge: str | None
 
 
+class InfoCredentialsPayload(TypedDict):
+    """Credential protection state (D-16); present once a sandbox had a proxy."""
+
+    status: str
+    message: str | None
+
+
 class InfoPayload(TypedDict):
     """JSON payload for ``celesto sandbox info``."""
 
     vm: InfoVmPayload
+    credentials: NotRequired[InfoCredentialsPayload]
+    warnings: NotRequired[list[str]]
 
 
 class CreatePayload(TypedDict):
@@ -202,6 +211,7 @@ class StopPayload(TypedDict):
     """JSON payload for VM lifecycle commands."""
 
     vm: StopVmPayload
+    warnings: NotRequired[list[str]]
 
 
 class SnapshotArtifactsRow(TypedDict):
@@ -361,6 +371,10 @@ def _parse_env_pairs(pairs: list[str]) -> dict[str, str]:
 
 def _error_type(exc: Exception) -> str:
     """Classify a CLI exception for JSON output."""
+    from celesto.credentials.detect import SecretRefusedError
+
+    if isinstance(exc, SecretRefusedError):
+        return "secret_refused"
     if isinstance(exc, (FileNotFoundError, ImportError)):
         return "missing_dependency"
     if isinstance(exc, ValueError):
@@ -390,7 +404,22 @@ def _emit_cli_error(
     return exit_code
 
 
-def _vm_warnings(vm: VMInfo) -> list[str]:
+def _credential_status(vm: VMInfo, data_dir: Path | None) -> dict[str, object] | None:
+    """Credential protection state for info/list (D-16), or None if never set up."""
+    if data_dir is None:
+        return None
+    from celesto.credentials import runtime as credential_runtime
+
+    try:
+        status = credential_runtime.status(vm.vm_id, data_dir=data_dir, vm_info=vm)
+    except Exception:  # noqa: BLE001 - status is advisory; never break info/list
+        return None
+    if status.state == "not_configured":
+        return None
+    return {"status": status.state, "message": status.message}
+
+
+def _vm_warnings(vm: VMInfo, data_dir: Path | None = None) -> list[str]:
     """Collect human-facing warnings about a VM's persisted config.
 
     Today this only covers stale workspace-mount host paths. The
@@ -407,10 +436,13 @@ def _vm_warnings(vm: VMInfo) -> list[str]:
                 f"'{mount.host_path}'. Restore it, or run "
                 f"'celesto computer delete {vm.vm_id}' to remove the computer."
             )
+    credentials = _credential_status(vm, data_dir)
+    if credentials is not None and credentials["message"]:
+        warnings.append(str(credentials["message"]))
     return warnings
 
 
-def _vm_rows(vms: Sequence[VMInfo]) -> list[VmRow]:
+def _vm_rows(vms: Sequence[VMInfo], data_dir: Path | None = None) -> list[VmRow]:
     """Normalize VM info objects into CLI list rows."""
     rows: list[VmRow] = []
     for vm in vms:
@@ -424,7 +456,7 @@ def _vm_rows(vms: Sequence[VMInfo]) -> list[VmRow]:
                 "pid": vm.pid,
                 "ip_address": ip_address,
                 "ssh_port": network.ssh_host_port if network else None,
-                "warnings": _vm_warnings(vm),
+                "warnings": _vm_warnings(vm, data_dir),
             }
         )
     return rows
@@ -607,7 +639,7 @@ def _run_list(
             vms = [sdk.refresh_status(vm) for vm in vms]
             if state is not None:
                 vms = [vm for vm in vms if vm.status == state]
-            rows = _vm_rows(vms)
+            rows = _vm_rows(vms, getattr(sdk, "data_dir", None))
             data: ListPayload = {
                 "filters": {
                     "all": include_all,
@@ -826,6 +858,11 @@ def _render_info_result(data: InfoPayload) -> None:
         str(vm_data["pid"]) if vm_data["pid"] is not None else "-",
     )
     console.print(details)
+    credentials = data.get("credentials")
+    if credentials is not None:
+        console.print(f"Credential protection: {credentials['status']}")
+    for warning in data.get("warnings", []):
+        console.print(f"Warning: {warning}", style="yellow")
 
 
 def _run_info(*, vm_id: str, json_output: bool, command_name: str = "sandbox.info") -> int:
@@ -838,6 +875,15 @@ def _run_info(*, vm_id: str, json_output: bool, command_name: str = "sandbox.inf
             if vm.status == VMState.RUNNING:
                 live_data = _query_live_vm_info(vm)
             data = _info_payload(vm, live_data=live_data)
+            credentials = _credential_status(vm, getattr(sdk, "data_dir", None))
+            if credentials is not None:
+                data["credentials"] = {
+                    "status": str(credentials["status"]),
+                    "message": credentials["message"]
+                    if isinstance(credentials["message"], str)
+                    else None,
+                }
+                data["warnings"] = [m for m in [credentials["message"]] if isinstance(m, str)]
             if json_output:
                 emit_json(command_name, 0, data=data)
             else:
@@ -1664,6 +1710,15 @@ def _run_vm_start(args: SimpleNamespace) -> int:
         vm.start(boot_timeout=args.boot_timeout)
 
         data = _vm_lifecycle_payload(vm.vm_id, VMState.RUNNING)
+        # D-21 cleanup notice and D-09 / D-07 credential warnings from start.
+        notes = [
+            str(note)
+            for attr in ("credential_notices", "credential_warnings")
+            for note in (getattr(vm, attr, None) or [])
+            if isinstance(note, str)
+        ]
+        if notes:
+            data["warnings"] = notes
         if args.json:
             emit_json(command_name, 0, data=data)
         else:
@@ -1673,6 +1728,8 @@ def _run_vm_start(args: SimpleNamespace) -> int:
                 title="Computer Started",
                 border_style="green",
             )
+            for note in notes:
+                console_stdout().print(f"[yellow]{escape(note)}[/yellow]")
         return 0
     except Exception as exc:
         return _emit_cli_error(command_name, 1, exc, json_output=args.json)
@@ -1937,8 +1994,13 @@ def _run_env(args: SimpleNamespace) -> int:
     command_name = getattr(args, "command_name", f"sandbox.env.{args.env_action}")
     try:
         parsed_env_vars: dict[str, str] | None = None
+        not_secret: list[str] = list(getattr(args, "not_secret", None) or [])
         if args.env_action == "set":
+            from celesto.credentials.detect import check_env
+
             parsed_env_vars = _parse_env_pairs(args.pairs)
+            # Refuse before connecting so a secret never reaches the computer (D-12).
+            check_env(parsed_env_vars, sandbox=args.vm_id, not_secret=not_secret)
 
         vm = _cli_vm_from_id(
             args.vm_id,
@@ -1949,7 +2011,10 @@ def _run_env(args: SimpleNamespace) -> int:
 
         if args.env_action == "set":
             assert parsed_env_vars is not None
-            present_keys = sorted(vm.set_env_vars(parsed_env_vars))
+            if not_secret:
+                present_keys = sorted(vm.set_env_vars(parsed_env_vars, not_secret=not_secret))
+            else:
+                present_keys = sorted(vm.set_env_vars(parsed_env_vars))
             data = {
                 "vm_id": args.vm_id,
                 "requested_keys": sorted(parsed_env_vars),
@@ -2024,6 +2089,179 @@ def _run_env(args: SimpleNamespace) -> int:
             emit_json(command_name, 0, data=data)
         else:
             _render_env_list(args.vm_id, data)
+        return 0
+    except Exception as exc:
+        return _emit_cli_error(command_name, 1, exc, json_output=json_output)
+    finally:
+        if vm is not None:
+            vm.close()
+
+
+def _render_secret_list(vm_id: str, rows: list[dict[str, Any]]) -> None:
+    """Render ``celesto computer secret list`` for humans; never values."""
+    if not rows:
+        render_empty("Secrets", f"No secrets on '{vm_id}'.")
+        return
+    table = Table(title=f"Secrets for '{vm_id}'")
+    table.add_column("Name")
+    table.add_column("Hosts")
+    table.add_column("Source")
+    table.add_column("Status")
+    table.add_column("Last used")
+    for row in rows:
+        source = str(row["source"])
+        kind, _, key = source.partition(":")
+        table.add_row(
+            Text(str(row["name"])),
+            Text(", ".join(row["hosts"])),
+            Text(f"env var {key}" if kind == "env" else source),
+            Text(str(row["status"]), style=status_style(str(row["status"]))),
+            Text(str(row["last_used"] or "never")),
+        )
+    console_stdout().print(table)
+
+
+def _secret_set_command(vm_id: str, name: str, hosts: list[str]) -> str:
+    host_flags = " ".join(f"--host {host}" for host in hosts)
+    return f"celesto computer secret set {vm_id} {name} {host_flags}"
+
+
+def _run_secret(args: SimpleNamespace) -> int:
+    """Handle ``celesto computer secret set|remove|list`` (D-11, D-15, D-18)."""
+    from celesto.credentials import user_secrets
+    from celesto.exceptions import ValidationError
+    from celesto.facade import Celesto
+
+    vm: Celesto | None = None
+    json_output = getattr(args, "json", False)
+    command_name = getattr(args, "command_name", f"sandbox.secret.{args.secret_action}")
+    vm_id = args.vm_id
+    try:
+        secret: user_secrets.Secret | None = None
+        if args.secret_action == "set":
+            user_secrets.validate_secret_name(args.name)
+            secret = user_secrets.Secret(host=tuple(args.hosts), header=args.header)
+
+        vm = _cli_vm_from_id(
+            vm_id,
+            ssh_user=args.ssh_user,
+            ssh_key_path=args.ssh_key,
+            comm_channel=args.comm_channel,
+        )
+
+        if args.secret_action == "list":
+            rows = vm.list_secrets()
+            if json_output:
+                emit_json(command_name, 0, data={"vm_id": vm_id, "secrets": rows})
+            else:
+                _render_secret_list(vm_id, rows)
+            return 0
+
+        name = args.name
+        if args.secret_action == "remove":
+            removed = vm.remove_secret(name)
+            if removed is None:
+                raise ValidationError(
+                    f"{name} isn't a secret in {vm_id}. "
+                    f"Run 'celesto computer secret list {vm_id}' to see its secrets."
+                )
+            warnings: list[str] = []
+            if removed.applied == "not_applied":
+                warnings.append(
+                    f"Removed {name} from {vm_id}, but Celesto couldn't confirm that its "
+                    f"credential protection stopped using it. Run 'celesto computer stop {vm_id}' "
+                    "to be sure."
+                )
+            data = {
+                "vm_id": vm_id,
+                "name": name,
+                "applied": removed.applied,
+                "warnings": warnings,
+            }
+            if json_output:
+                emit_json(command_name, 0, data=data)
+            else:
+                _render_env_change(
+                    title="Secret Removed",
+                    border_style="yellow" if warnings else "green",
+                    message=(
+                        warnings[0]
+                        if warnings
+                        else f"Removed {name} from '{vm_id}'. Its real value is no longer sent."
+                    ),
+                    rows=[],
+                    show_reload_hint=False,
+                )
+            return 0
+
+        assert secret is not None
+        vm.refresh()
+        running = vm.status == VMState.RUNNING
+        value = os.environ.get(name) or None
+        prompted = False
+        if running and value is None:
+            if json_output or not sys.stdin.isatty():
+                raise ValidationError(
+                    f"{name} isn't set in this terminal. Set it, then run "
+                    f"'{_secret_set_command(vm_id, name, list(secret.hosts))}' again."
+                )
+            value = click.prompt(f"Value for {name}", hide_input=True, err=True) or None
+            prompted = True
+            if value is None:
+                raise ValidationError(
+                    f"No value was entered for {name}. Run "
+                    f"'{_secret_set_command(vm_id, name, list(secret.hosts))}' again."
+                )
+        change = vm._set_secret(name, secret, value)
+
+        hosts_text = ", ".join(secret.hosts)
+        warnings = []
+        if change.applied == "next_start" and not change.value_found:
+            warnings.append(
+                f"{name} isn't set in this terminal, so {vm_id} can't use it. "
+                f"Set it before you run 'celesto computer start {vm_id}'."
+            )
+        if change.applied == "not_applied":
+            warnings.append(
+                f"Credential protection isn't running in {vm_id}, so {name} isn't in use yet. "
+                f"Run 'celesto computer stop {vm_id}' and 'celesto computer start {vm_id}'"
+                " to use it."
+            )
+        if prompted and change.applied == "live":
+            warnings.append(
+                f"The value you typed lasts until {vm_id} stops. Set {name} in this terminal "
+                f"before you run 'celesto computer start {vm_id}' again."
+            )
+        data = {
+            "vm_id": vm_id,
+            "name": name,
+            "hosts": list(secret.hosts),
+            "source": user_secrets.env_source(name),
+            "applied": change.applied,
+            "warnings": warnings,
+        }
+        if json_output:
+            emit_json(command_name, 0, data=data)
+            return 0
+        if change.applied == "live":
+            message = (
+                f"{name} is protected in '{vm_id}' and sent only to {hosts_text}. "
+                "Programs started from now on see it; reopen shells that are already open."
+            )
+        else:
+            message = (
+                f"Saved {name} for '{vm_id}'. It will be sent only to {hosts_text}, "
+                f"starting with 'celesto computer start {vm_id}'."
+            )
+        _render_env_change(
+            title="Secret Saved",
+            border_style="green",
+            message=message,
+            rows=[],
+            show_reload_hint=False,
+        )
+        for warning in warnings:
+            console_stderr().print(Text(f"Warning: {warning}", style="yellow"))
         return 0
     except Exception as exc:
         return _emit_cli_error(command_name, 1, exc, json_output=json_output)
@@ -2370,6 +2608,21 @@ def _run_logs(args: SimpleNamespace) -> int:
     try:
         vm = _cli_vm_from_id(args.vm_id)
         log_path = vm.data_dir / f"{args.vm_id}.log"
+        if getattr(args, "credentials", False):
+            from celesto.credentials import runtime as credential_runtime
+
+            log_path = credential_runtime.log_path(args.vm_id, data_dir=vm.data_dir)
+            if not log_path.exists():
+                message = (
+                    f"No credential activity for computer '{args.vm_id}' yet. "
+                    f"Run 'celesto computer logs {args.vm_id} --credentials' again after "
+                    "the computer uses a credential."
+                )
+                if json_output:
+                    emit_json(command_name, 0, data={"path": None, "lines": []})
+                    return 0
+                console_stdout().print(message)
+                return 0
 
         if not log_path.exists():
             recovery = f"Start it with 'celesto computer start {args.vm_id}' to generate logs."

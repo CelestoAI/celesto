@@ -28,6 +28,8 @@ from typing import Literal, cast
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from celesto.credentials.detect import SecretRefusedError, check_env
+from celesto.credentials.user_secrets import Secret
 from celesto.exceptions import CelestoError, HostError, ImageError, OperationTimeoutError
 from celesto.facade import Celesto
 from celesto.server.models import (
@@ -74,6 +76,21 @@ def _runtime_version() -> str:
         return version("celesto")
     except PackageNotFoundError:
         return "source-checkout"
+
+
+def _refuse_secret_env(body: ExecRequest, sandbox: str, *, secrets_supported: bool) -> None:
+    """Refuse secret-looking exec env before anything reaches the guest (D-12)."""
+    if not body.env:
+        return
+    try:
+        check_env(
+            body.env,
+            sandbox=sandbox,
+            not_secret=body.not_secret,
+            surface="typescript" if secrets_supported else "typescript_no_secrets",
+        )
+    except SecretRefusedError as exc:
+        raise _sdk_error(400, "secret_refused", str(exc)) from None
 
 
 def _command_with_context(body: ExecRequest) -> tuple[str, Literal["login", "raw"]]:
@@ -648,6 +665,7 @@ def create_app(*, auth_token: str | None = None) -> FastAPI:
     )
     def exec_computer_command(computer_id: str, body: ExecRequest) -> ExecResponse:
         computer = resolve_computer(computer_id)
+        _refuse_secret_env(body, computer_id, secrets_supported=False)
         try:
             command, shell = _command_with_context(body)
             started = time.monotonic()
@@ -939,6 +957,7 @@ def create_app(*, auth_token: str | None = None) -> FastAPI:
     )
     def exec_browser_command(session_id: str, body: ExecRequest) -> ExecResponse:
         browser = resolve_browser(session_id)
+        _refuse_secret_env(body, session_id, secrets_supported=False)
         try:
             command, _shell = _command_with_context(body)
             guest_command = f"runuser -u agent -- sh -c {shlex.quote(command)}"
@@ -1035,7 +1054,7 @@ def create_app(*, auth_token: str | None = None) -> FastAPI:
         responses={400: {"model": ErrorResponse}},
     )
     def create_sandbox(body: CreateSandboxRequest) -> SandboxResponse:
-        values = body.model_dump(exclude_none=True, exclude={"network"})
+        values = body.model_dump(exclude_none=True, exclude={"network", "secrets"})
         if body.image is None and body.os is None:
             values["os"] = "ubuntu"
         network = body.network.model_dump()
@@ -1050,6 +1069,14 @@ def create_app(*, auth_token: str | None = None) -> FastAPI:
                 publish(event)
 
         try:
+            if body.secrets:
+                values["secrets"] = {
+                    name: Secret(
+                        host=spec.host if isinstance(spec.host, str) else tuple(spec.host),
+                        header=spec.header,
+                    )
+                    for name, spec in body.secrets.items()
+                }
             sandbox = Celesto(**values, on_download=on_download)
             sandboxes[sandbox.vm_id] = sandbox
             sandbox.start()
@@ -1145,6 +1172,7 @@ def create_app(*, auth_token: str | None = None) -> FastAPI:
     )
     def exec_command(sandbox_id: str, body: ExecRequest) -> ExecResponse:
         vm = resolve(sandbox_id)
+        _refuse_secret_env(body, sandbox_id, secrets_supported=True)
         try:
             command, shell = _command_with_context(body)
             started = time.monotonic()

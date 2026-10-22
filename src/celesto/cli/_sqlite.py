@@ -20,6 +20,7 @@ Uses exclusive transactions to prevent race conditions in IP assignment.
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from collections.abc import Iterator
@@ -27,6 +28,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
+from celesto.credentials.store import PROTECTION_VERSION
 from celesto.exceptions import (
     BrowserSessionAlreadyExistsError,
     BrowserSessionNotFoundError,
@@ -49,6 +51,7 @@ from celesto.storage._base import (
     snapshot_info_from_row,
     vm_config_from_json,
 )
+from celesto.storage._protocol import UserSecretRecord
 from celesto.types import (
     BrowserSessionConfig,
     BrowserSessionInfo,
@@ -205,11 +208,42 @@ class SQLiteStateManager:
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_snapshots_vm_id ON snapshots(vm_id);
+
+                CREATE TABLE IF NOT EXISTS user_secrets (
+                    vm_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    hosts TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    header TEXT,
+                    placeholder TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (vm_id, name),
+                    FOREIGN KEY (vm_id) REFERENCES vms(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS user_secret_seeds (
+                    vm_id TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (vm_id) REFERENCES vms(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS sandbox_ssh_keys (
+                    vm_id TEXT NOT NULL,
+                    fingerprint TEXT NOT NULL,
+                    public_key TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (vm_id, fingerprint),
+                    FOREIGN KEY (vm_id) REFERENCES vms(id) ON DELETE CASCADE
+                );
             """
             )
             vm_columns = {row["name"] for row in conn.execute("PRAGMA table_info(vms)").fetchall()}
             if "display" not in vm_columns:
                 conn.execute("ALTER TABLE vms ADD COLUMN display TEXT")
+            if "credential_protection" not in vm_columns:
+                # Rows from earlier releases keep NULL (read as 0) so D-17
+                # cleans them on their first start.
+                conn.execute("ALTER TABLE vms ADD COLUMN credential_protection INTEGER")
             snapshot_columns = {
                 row["name"] for row in conn.execute("PRAGMA table_info(snapshots)").fetchall()
             }
@@ -255,10 +289,19 @@ class SQLiteStateManager:
 
             conn.execute(
                 """
-                INSERT INTO vms (id, status, config, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO vms (
+                    id, status, config, created_at, updated_at, credential_protection
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (config.vm_id, VMState.CREATED.value, config.model_dump_json(), now, now),
+                (
+                    config.vm_id,
+                    VMState.CREATED.value,
+                    config.model_dump_json(),
+                    now,
+                    now,
+                    PROTECTION_VERSION,
+                ),
             )
 
         logger.info("Created VM record: %s", config.vm_id)
@@ -390,6 +433,23 @@ class SQLiteStateManager:
                 )
             )
         return result
+
+    # ------------------------------------------------------------------
+    # Credential-protection version (see credentials/store.py)
+    # ------------------------------------------------------------------
+
+    def get_credential_protection(self, vm_id: str) -> int:
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT credential_protection FROM vms WHERE id = ?", (vm_id,)
+            ).fetchone()
+        if not row or row["credential_protection"] is None:
+            return 0
+        return int(row["credential_protection"])
+
+    def set_credential_protection(self, vm_id: str, version: int) -> None:
+        with self._get_connection(exclusive=True) as conn:
+            conn.execute("UPDATE vms SET credential_protection = ? WHERE id = ?", (version, vm_id))
 
     # ------------------------------------------------------------------
     # IP allocation
@@ -1021,6 +1081,95 @@ class SQLiteStateManager:
                 rows = conn.execute("SELECT * FROM browser_sessions ORDER BY created_at").fetchall()
 
         return [browser_session_info_from_row(row) for row in rows]
+
+    # ------------------------------------------------------------------
+    # User secrets (definitions and placeholders only, never values)
+    # ------------------------------------------------------------------
+
+    def put_user_secret(self, vm_id: str, record: UserSecretRecord) -> None:
+        with self._get_connection(exclusive=True) as conn:
+            if not conn.execute("SELECT id FROM vms WHERE id = ?", (vm_id,)).fetchone():
+                raise VMNotFoundError(vm_id)
+            conn.execute(
+                "INSERT OR REPLACE INTO user_secrets "
+                "(vm_id, name, hosts, source, header, placeholder, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    vm_id,
+                    record["name"],
+                    json.dumps(list(record["hosts"])),
+                    record["source"],
+                    record["header"],
+                    record["placeholder"],
+                    now_iso(),
+                ),
+            )
+
+    def delete_user_secret(self, vm_id: str, name: str) -> bool:
+        with self._get_connection(exclusive=True) as conn:
+            cursor = conn.execute(
+                "DELETE FROM user_secrets WHERE vm_id = ? AND name = ?", (vm_id, name)
+            )
+            return cursor.rowcount > 0
+
+    def list_user_secrets(self, vm_id: str) -> list[UserSecretRecord]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM user_secrets WHERE vm_id = ? ORDER BY name", (vm_id,)
+            ).fetchall()
+        return [
+            UserSecretRecord(
+                name=row["name"],
+                hosts=list(json.loads(row["hosts"])),
+                source=row["source"],
+                header=row["header"],
+                placeholder=row["placeholder"],
+            )
+            for row in rows
+        ]
+
+    def claim_user_secret_seed(self, vm_id: str) -> bool:
+        with self._get_connection(exclusive=True) as conn:
+            if not conn.execute("SELECT id FROM vms WHERE id = ?", (vm_id,)).fetchone():
+                raise VMNotFoundError(vm_id)
+            cursor = conn.execute(
+                "INSERT OR IGNORE INTO user_secret_seeds (vm_id, created_at) VALUES (?, ?)",
+                (vm_id, now_iso()),
+            )
+            return cursor.rowcount > 0
+
+    # Allowed SSH keys (public keys only; D-13)
+    # ------------------------------------------------------------------
+
+    def add_ssh_key(self, vm_id: str, fingerprint: str, public_key: str) -> bool:
+        with self._get_connection(exclusive=True) as conn:
+            if not conn.execute("SELECT id FROM vms WHERE id = ?", (vm_id,)).fetchone():
+                raise VMNotFoundError(vm_id)
+            cursor = conn.execute(
+                """
+                INSERT OR IGNORE INTO sandbox_ssh_keys (vm_id, fingerprint, public_key, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (vm_id, fingerprint, public_key, now_iso()),
+            )
+            return cursor.rowcount > 0
+
+    def remove_ssh_key(self, vm_id: str, fingerprint: str) -> bool:
+        with self._get_connection(exclusive=True) as conn:
+            cursor = conn.execute(
+                "DELETE FROM sandbox_ssh_keys WHERE vm_id = ? AND fingerprint = ?",
+                (vm_id, fingerprint),
+            )
+            return cursor.rowcount > 0
+
+    def list_ssh_keys(self, vm_id: str) -> list[tuple[str, str]]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT fingerprint, public_key FROM sandbox_ssh_keys "
+                "WHERE vm_id = ? ORDER BY created_at, fingerprint",
+                (vm_id,),
+            ).fetchall()
+        return [(row["fingerprint"], row["public_key"]) for row in rows]
 
     # ------------------------------------------------------------------
     # Reconciliation

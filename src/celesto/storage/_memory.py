@@ -21,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import BinaryIO
 
+from celesto.credentials.store import PROTECTION_VERSION
 from celesto.exceptions import (
     BrowserSessionAlreadyExistsError,
     BrowserSessionNotFoundError,
@@ -40,6 +41,7 @@ from celesto.storage._base import (
     ip_to_pool_index,
     pool_index_to_ip,
 )
+from celesto.storage._protocol import UserSecretRecord
 from celesto.types import (
     BrowserSessionConfig,
     BrowserSessionInfo,
@@ -70,6 +72,10 @@ class MemoryStateManager:
         self._snapshots: dict[str, SnapshotInfo] = {}
         self._browser_sessions: dict[str, BrowserSessionInfo] = {}
         self._browser_configs: dict[str, BrowserSessionConfig] = {}
+        self._credential_protection: dict[str, int] = {}
+        self._user_secrets: dict[str, dict[str, UserSecretRecord]] = {}
+        self._user_secret_seeded: set[str] = set()
+        self._ssh_keys: dict[str, dict[str, str]] = {}
 
     def close(self) -> None:
         """Release no VM resources; explicit VM deletion owns that lifecycle."""
@@ -104,6 +110,7 @@ class MemoryStateManager:
                 raise VMAlreadyExistsError(config.vm_id)
             info = VMInfo(vm_id=config.vm_id, status=VMState.CREATED, config=config)
             self._vms[config.vm_id] = info
+            self._credential_protection[config.vm_id] = PROTECTION_VERSION
             return info
 
     def get_vm(self, vm_id: str) -> VMInfo:
@@ -161,13 +168,65 @@ class MemoryStateManager:
             self._ssh_ports.pop(vm_id, None)
             self._vsock_cids.pop(vm_id, None)
             self._tap_allocations.pop(vm_id, None)
+            self._credential_protection.pop(vm_id, None)
+            self._user_secrets.pop(vm_id, None)
+            self._user_secret_seeded.discard(vm_id)
+            self._ssh_keys.pop(vm_id, None)
             for kind in ("ip", "ssh", "vsock", "tap"):
                 self._release_claim(kind, vm_id)
+
+    def put_user_secret(self, vm_id: str, record: UserSecretRecord) -> None:
+        with self._lock:
+            if vm_id not in self._vms:
+                raise VMNotFoundError(vm_id)
+            stored = UserSecretRecord(
+                name=record["name"],
+                hosts=list(record["hosts"]),
+                source=record["source"],
+                header=record["header"],
+                placeholder=record["placeholder"],
+            )
+            self._user_secrets.setdefault(vm_id, {})[record["name"]] = stored
+
+    def delete_user_secret(self, vm_id: str, name: str) -> bool:
+        with self._lock:
+            return self._user_secrets.get(vm_id, {}).pop(name, None) is not None
+
+    def list_user_secrets(self, vm_id: str) -> list[UserSecretRecord]:
+        with self._lock:
+            records = self._user_secrets.get(vm_id, {})
+            return [
+                UserSecretRecord(
+                    name=item["name"],
+                    hosts=list(item["hosts"]),
+                    source=item["source"],
+                    header=item["header"],
+                    placeholder=item["placeholder"],
+                )
+                for _, item in sorted(records.items())
+            ]
+
+    def claim_user_secret_seed(self, vm_id: str) -> bool:
+        with self._lock:
+            if vm_id not in self._vms:
+                raise VMNotFoundError(vm_id)
+            if vm_id in self._user_secret_seeded:
+                return False
+            self._user_secret_seeded.add(vm_id)
+            return True
 
     def list_vms(self, status: VMState | None = None) -> list[VMInfo]:
         with self._lock:
             values = list(self._vms.values())
             return values if status is None else [item for item in values if item.status == status]
+
+    def get_credential_protection(self, vm_id: str) -> int:
+        with self._lock:
+            return self._credential_protection.get(vm_id, 0)
+
+    def set_credential_protection(self, vm_id: str, version: int) -> None:
+        with self._lock:
+            self._credential_protection[vm_id] = version
 
     @staticmethod
     def _host_interface_names() -> set[str]:
@@ -465,6 +524,24 @@ class MemoryStateManager:
         with self._lock:
             values = list(self._browser_sessions.values())
             return values if status is None else [item for item in values if item.status == status]
+
+    def add_ssh_key(self, vm_id: str, fingerprint: str, public_key: str) -> bool:
+        with self._lock:
+            if vm_id not in self._vms:
+                raise VMNotFoundError(vm_id)
+            keys = self._ssh_keys.setdefault(vm_id, {})
+            if fingerprint in keys:
+                return False
+            keys[fingerprint] = public_key
+            return True
+
+    def remove_ssh_key(self, vm_id: str, fingerprint: str) -> bool:
+        with self._lock:
+            return self._ssh_keys.get(vm_id, {}).pop(fingerprint, None) is not None
+
+    def list_ssh_keys(self, vm_id: str) -> list[tuple[str, str]]:
+        with self._lock:
+            return list(self._ssh_keys.get(vm_id, {}).items())
 
     def reconcile(self) -> list[str]:
         stale: list[str] = []

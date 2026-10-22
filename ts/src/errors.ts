@@ -24,6 +24,7 @@ export type CelestoErrorCode =
   | "bridge_exit"
   | "cleanup_failed"
   | "file_too_large"
+  | "secret_refused"
   | "transport_failed";
 
 /** Adds operation context and safe recovery details to a CelestoError. */

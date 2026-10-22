@@ -772,8 +772,15 @@ def sandbox_exec(
     help="Number of lines to show from the end of the log.",
 )
 @click.option("-f", "--follow", is_flag=True, help="Keep printing new log lines as they arrive.")
+@click.option(
+    "--credentials",
+    is_flag=True,
+    help="Show when the computer used each protected credential, instead of the boot log.",
+)
 @json_option
-def sandbox_logs(vm_id: str, provider: str, tail: int, follow: bool, json_output: bool) -> Any:
+def sandbox_logs(
+    vm_id: str, provider: str, tail: int, follow: bool, credentials: bool, json_output: bool
+) -> Any:
     """Show a computer's boot and console logs."""
     _before_command(json_output=json_output)
     return _handlers()._run_logs(
@@ -782,6 +789,7 @@ def sandbox_logs(vm_id: str, provider: str, tail: int, follow: bool, json_output
             vm_id=vm_id,
             tail=tail,
             follow=follow,
+            credentials=credentials,
             json=json_output,
         )
     )
@@ -1538,24 +1546,37 @@ def env() -> None:
 @env.command("set")
 @click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
 @click.argument("pairs", nargs=-1, required=True, metavar="KEY=VALUE...")
+@click.option(
+    "--not-secret",
+    "not_secret",
+    multiple=True,
+    metavar="NAME",
+    help="Set NAME even though it looks like a secret. Repeat for more names.",
+)
 @ssh_auth_options
 @comm_channel_option
 @json_option
 def env_set(
     vm_id: str,
     pairs: tuple[str, ...],
+    not_secret: tuple[str, ...],
     ssh_key: str | None,
     ssh_user: str,
     comm_channel: str | None,
     json_output: bool,
 ) -> Any:
-    """Set environment variables in a computer."""
+    """Set environment variables in a computer.
+
+    Values that look like secrets are refused, because anything in the
+    computer can read env vars. Use 'celesto computer secret set' for those.
+    """
     _before_command(json_output=json_output)
     return _handlers()._run_env(
         _ns(
             env_action="set",
             vm_id=vm_id,
             pairs=list(pairs),
+            not_secret=list(not_secret),
             ssh_key=ssh_key,
             ssh_user=ssh_user,
             comm_channel=comm_channel,
@@ -1620,6 +1641,160 @@ def env_list(
             ssh_user=ssh_user,
             comm_channel=comm_channel,
             command_name="sandbox.env.list",
+            json=json_output,
+        )
+    )
+
+
+@sandbox.group("ssh-key", context_settings=CONTEXT_SETTINGS)
+def ssh_key() -> None:
+    """Choose which of your SSH keys a computer may sign with.
+
+    The private key stays in your SSH agent; the computer can only ask it to
+    sign. By default a computer can't use any of your keys.
+    """
+
+
+def _run_ssh_key(**values: Any) -> Any:
+    from celesto.cli._ssh_keys import run_ssh_key
+
+    return run_ssh_key(_ns(**values))
+
+
+@ssh_key.command("add")
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
+@click.argument("key", metavar="PUBLIC-KEY")
+@json_option
+def ssh_key_add(vm_id: str, key: str, json_output: bool) -> Any:
+    """Let a computer sign with a key loaded in your SSH agent."""
+    _before_command(json_output=json_output)
+    return _run_ssh_key(ssh_key_action="add", vm_id=vm_id, key=key, json=json_output)
+
+
+@ssh_key.command("remove")
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
+@click.argument("key", metavar="KEY")
+@json_option
+def ssh_key_remove(vm_id: str, key: str, json_output: bool) -> Any:
+    """Stop a computer from signing with a key (.pub file or SHA256 fingerprint)."""
+    _before_command(json_output=json_output)
+    return _run_ssh_key(ssh_key_action="remove", vm_id=vm_id, key=key, json=json_output)
+
+
+@ssh_key.command("list")
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
+@json_option
+def ssh_key_list(vm_id: str, json_output: bool) -> Any:
+    """List the SSH keys a computer may sign with."""
+    _before_command(json_output=json_output)
+    return _run_ssh_key(ssh_key_action="list", vm_id=vm_id, json=json_output)
+
+
+@sandbox.group(context_settings=CONTEXT_SETTINGS)
+def secret() -> None:
+    """Give a computer secrets that stay on your machine.
+
+    The computer sees only a placeholder. Celesto swaps in the real value
+    only on requests to the hosts you name.
+    """
+
+
+@secret.command("set")
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
+@click.argument("name", metavar="NAME")
+@click.option(
+    "--host",
+    "hosts",
+    multiple=True,
+    required=True,
+    metavar="HOST",
+    help="Exact host the real value may be sent to, such as api.stripe.com. Repeatable.",
+)
+@click.option(
+    "--header",
+    default=None,
+    metavar="HEADER",
+    help="Header the program sends the key in (default: Authorization or x-api-key).",
+)
+@ssh_auth_options
+@comm_channel_option
+@json_option
+def secret_set(
+    vm_id: str,
+    name: str,
+    hosts: tuple[str, ...],
+    header: str | None,
+    ssh_key: str | None,
+    ssh_user: str,
+    comm_channel: str | None,
+    json_output: bool,
+) -> Any:
+    """Protect a secret for a computer.
+
+    The value comes from the env var NAME in this terminal, or a hidden
+    prompt. It is never taken from the command line.
+    """
+    _before_command(json_output=json_output)
+    return _handlers()._run_secret(
+        _ns(
+            secret_action="set",
+            vm_id=vm_id,
+            name=name,
+            hosts=list(hosts),
+            header=header,
+            ssh_key=ssh_key,
+            ssh_user=ssh_user,
+            comm_channel=comm_channel,
+            command_name="sandbox.secret.set",
+            json=json_output,
+        )
+    )
+
+
+@secret.command("remove")
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
+@click.argument("name", metavar="NAME")
+@ssh_auth_options
+@comm_channel_option
+@json_option
+def secret_remove(
+    vm_id: str,
+    name: str,
+    ssh_key: str | None,
+    ssh_user: str,
+    comm_channel: str | None,
+    json_output: bool,
+) -> Any:
+    """Stop sending a secret's real value, effective immediately."""
+    _before_command(json_output=json_output)
+    return _handlers()._run_secret(
+        _ns(
+            secret_action="remove",
+            vm_id=vm_id,
+            name=name,
+            ssh_key=ssh_key,
+            ssh_user=ssh_user,
+            comm_channel=comm_channel,
+            command_name="sandbox.secret.remove",
+            json=json_output,
+        )
+    )
+
+
+@secret.command("list")
+@click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
+@json_option
+def secret_list(vm_id: str, json_output: bool) -> Any:
+    """List a computer's secrets and their hosts. Never shows values."""
+    _before_command(json_output=json_output)
+    return _handlers()._run_secret(
+        _ns(
+            secret_action="list",
+            vm_id=vm_id,
+            ssh_key=None,
+            ssh_user="root",
+            comm_channel=None,
+            command_name="sandbox.secret.list",
             json=json_output,
         )
     )

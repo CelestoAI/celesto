@@ -1290,3 +1290,79 @@ def test_openapi_exposes_clean_operation_ids(app: FastAPI) -> None:
 
 def test_package_exports_create_app() -> None:
     assert server_pkg.create_app is create_app
+
+
+# ----------------------------------------------------------------------
+# D-11 / D-12: the TypeScript SDK bridge keeps secrets out of exec env
+# ----------------------------------------------------------------------
+
+_SENTINEL_KEY = "sk-w4sentinel-bridge-0000000000000"
+
+
+def test_exec_refuses_secret_env_before_running(app: FastAPI) -> None:
+    create = _handler(app, "/sandboxes", "POST")
+    execute = _handler(app, "/sandboxes/{sandbox_id}/exec", "POST")
+    create(CreateSandboxRequest(os="ubuntu"))
+
+    with pytest.raises(HTTPException) as caught:
+        execute(
+            "sbx-test",
+            ExecRequest(command="env", env={"OPENAI_API_KEY": _SENTINEL_KEY}),
+        )
+
+    assert caught.value.status_code == 400
+    assert caught.value.headers["X-Celesto-Error-Code"] == "secret_refused"
+    assert caught.value.detail == (
+        "OPENAI_API_KEY looks like a secret, so Celesto won't place it inside the computer. "
+        'Create the computer with secrets: { OPENAI_API_KEY: { host: "api.openai.com" } } '
+        "instead."
+    )
+    assert FakeCelesto.last_run_args is None
+
+
+def test_exec_not_secret_lets_the_name_through(app: FastAPI) -> None:
+    create = _handler(app, "/sandboxes", "POST")
+    execute = _handler(app, "/sandboxes/{sandbox_id}/exec", "POST")
+    create(CreateSandboxRequest(os="ubuntu"))
+
+    execute(
+        "sbx-test",
+        ExecRequest(command="env", env={"SORT_KEY": "name"}, not_secret=["SORT_KEY"]),
+    )
+
+    assert FakeCelesto.last_run_args is not None
+    assert "SORT_KEY=name" in FakeCelesto.last_run_args[0]
+
+
+def test_computer_exec_refuses_secret_env(app: FastAPI) -> None:
+    create = _handler(app, "/computers", "POST")
+    execute = _handler(app, "/computers/{computer_id}/exec", "POST")
+    create(CreateComputerRequest(computer_id="computer-demo"))
+    FakeCelesto.last_run_args = None
+
+    with pytest.raises(HTTPException) as caught:
+        execute("computer-demo", ExecRequest(command="env", env={"GH_TOKEN": "x"}))
+
+    assert caught.value.headers["X-Celesto-Error-Code"] == "secret_refused"
+    assert caught.value.detail == (
+        "GH_TOKEN looks like a secret, so Celesto won't place it inside the computer. "
+        "TypeScript computers and browser sessions can't hold secrets yet; if it isn't "
+        'one, pass notSecret: ["GH_TOKEN"].'
+    )
+    assert FakeCelesto.last_run_args is None
+
+
+def test_create_sandbox_forwards_host_bound_secrets(app: FastAPI) -> None:
+    from celesto import Secret
+
+    create = _handler(app, "/sandboxes", "POST")
+
+    create(
+        CreateSandboxRequest(
+            os="ubuntu",
+            secrets={"STRIPE_KEY": {"host": ["api.stripe.com"]}},
+        )
+    )
+
+    assert FakeCelesto.last_kwargs is not None
+    assert FakeCelesto.last_kwargs["secrets"] == {"STRIPE_KEY": Secret(host="api.stripe.com")}

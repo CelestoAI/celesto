@@ -27,6 +27,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 from celesto._naming import generate_sandbox_name
+from celesto.credentials.user_secrets import Secret
 
 
 @dataclass(frozen=True)
@@ -735,6 +736,10 @@ class VMConfig(BaseModel):
     grow_filesystem: bool = False
     retain_disk_on_delete: bool = False
     env_vars: dict[str, str] = {}
+    secrets: dict[str, Secret] = {}
+    """Secrets that stay on your machine, by env var name (D-11)."""
+    not_secret: list[str] = []
+    """``env_vars`` names to pass through although they look like secrets (D-12)."""
     network_rate_limit_mbps: Annotated[int, Field(ge=1)] | None = None
     port_forwards: list[PortForwardConfig] = []
     vsock: VsockConfig | None = None
@@ -917,6 +922,35 @@ class VMConfig(BaseModel):
             validate_env_key(key)
         return v
 
+    @field_validator("secrets")
+    @classmethod
+    def validate_secret_names(cls, v: dict[str, Secret]) -> dict[str, Secret]:
+        """Ensure every secret name is a valid env var name."""
+        from celesto.credentials.user_secrets import validate_secret_name
+
+        for name in v:
+            validate_secret_name(name)
+        return v
+
+    @model_validator(mode="after")
+    def _refuse_secret_env_vars(self, info: ValidationInfo) -> "VMConfig":
+        """Keep secrets out of plain ``env_vars`` (D-12).
+
+        Storage reads skip this so sandboxes created before the check stay
+        listable; their values are cleaned on the next start (D-17).
+        """
+        if not _should_validate_paths(info):
+            return self
+        both = sorted(set(self.env_vars) & set(self.secrets))
+        if both:
+            raise ValueError(
+                f"{both[0]} is both a secret and a plain env var; remove it from env_vars."
+            )
+        from celesto.credentials.detect import check_env
+
+        check_env(self.env_vars, sandbox=self.vm_id, not_secret=self.not_secret, surface="python")
+        return self
+
     @field_validator("port_forwards")
     @classmethod
     def validate_port_forwards(cls, v: list[PortForwardConfig]) -> list[PortForwardConfig]:
@@ -978,6 +1012,7 @@ class BrowserSessionConfig(BaseModel):
     internet_settings: InternetSettings | None = None
     network_policy_id: str | None = None
     env_vars: dict[str, str] = {}
+    not_secret: list[str] = []
     workspace_mounts: list[WorkspaceMount] = []
     mem_size_mib: Annotated[int, Field(ge=512, le=16384)] = 2048
     disk_size_mib: Annotated[int, Field(ge=2048, le=16384)] = 4096

@@ -38,6 +38,20 @@ export interface CreateSandboxOptions {
   image?: string;
   /** Outbound network access. Defaults to open. */
   network?: NetworkPolicy;
+  /**
+   * Secrets that stay on your machine, by env var name. The computer sees only a
+   * placeholder; Celesto reads the real value from the env var of the same name
+   * when the computer starts and sends it only to `host`.
+   */
+  secrets?: Readonly<Record<string, SecretOptions>>;
+}
+
+/** Where a secret's real value may be sent. */
+export interface SecretOptions {
+  /** Exact host name (or names) the real value may be sent to, such as `api.stripe.com`. */
+  host: string | readonly string[];
+  /** Header the program sends the key in. Defaults to `Authorization` or `x-api-key`. */
+  header?: string;
 }
 
 /** Start an isolated browser computer with the resources and live view you need. Chromium is the browser engine running inside it. */
@@ -80,6 +94,8 @@ export type ComputerBrowserStatus = "ready" | "closed" | "error";
 export interface ExecOptions {
   cwd?: string;
   env?: Readonly<Record<string, string>>;
+  /** `env` names to pass although they look like secrets. Secrets are refused otherwise. */
+  notSecret?: readonly string[];
   timeoutMs?: number;
   signal?: AbortSignal;
 }

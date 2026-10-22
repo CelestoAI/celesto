@@ -301,6 +301,14 @@ export type CreateSandboxRequest = {
     } & OffNetworkPolicy) | ({
         mode: 'restricted';
     } & RestrictedNetworkPolicy);
+    /**
+     * Secrets
+     *
+     * Secrets by env var name. The computer sees a placeholder; the real value is read from the runtime's env var of the same name.
+     */
+    secrets?: {
+        [key: string]: SecretRequest;
+    } | null;
 };
 
 /**
@@ -403,6 +411,12 @@ export type ExecRequest = {
     env?: {
         [key: string]: string;
     };
+    /**
+     * Not Secret
+     *
+     * env names to pass although they look like secrets.
+     */
+    not_secret?: Array<string>;
 };
 
 /**
@@ -490,6 +504,26 @@ export type SandboxResponse = {
      */
     id: string;
     status: VmState;
+};
+
+/**
+ * SecretRequest
+ *
+ * A secret that stays on the host and is sent only to its hosts.
+ */
+export type SecretRequest = {
+    /**
+     * Host
+     *
+     * Exact host name (or names) the real value may be sent to.
+     */
+    host: string | Array<string>;
+    /**
+     * Header
+     *
+     * Header the program sends the placeholder in. Default: Authorization or x-api-key.
+     */
+    header?: string | null;
 };
 
 /**
