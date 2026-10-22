@@ -46,6 +46,11 @@ _APT_TIMEOUT_S = 600
 # Loop sleeps up to 120s; leave headroom so the failure path can print the log.
 _DOCKERD_READY_TIMEOUT_S = 180
 _HELLO_WORLD_TIMEOUT_S = 180
+# Docker Hub rate-limits anonymous pulls (HTTP 429) on shared CI and dev IPs.
+# ECR Public mirrors the same official images without that quota.
+_IMAGE_REGISTRY = "public.ecr.aws/docker/library"
+_HELLO_WORLD_IMAGE = f"{_IMAGE_REGISTRY}/hello-world:latest"
+_BUSYBOX_IMAGE = f"{_IMAGE_REGISTRY}/busybox:1.36"
 
 
 def _ensure_cgroup_v2(sandbox: Celesto) -> None:
@@ -133,7 +138,7 @@ def test_user_installed_docker_runs_hello_world(
         _wait_for_dockerd(sandbox)
 
         hello = sandbox.run(
-            "docker run --rm hello-world",
+            f"docker run --rm {_HELLO_WORLD_IMAGE}",
             timeout=_HELLO_WORLD_TIMEOUT_S,
         )
         assert hello.exit_code == 0, (
@@ -142,7 +147,7 @@ def test_user_installed_docker_runs_hello_world(
         assert "Hello from Docker" in hello.stdout, hello.stdout
 
         cpu = sandbox.run(
-            "docker run --rm --cpus 0.25 busybox:1.36 cat /sys/fs/cgroup/cpu.max",
+            f"docker run --rm --cpus 0.25 {_BUSYBOX_IMAGE} cat /sys/fs/cgroup/cpu.max",
             timeout=_HELLO_WORLD_TIMEOUT_S,
         )
         assert cpu.exit_code == 0, (
@@ -170,7 +175,7 @@ def test_user_installed_docker_runs_hello_world(
             "docker network create -d macvlan "
             "--subnet 198.18.0.0/24 --gateway 198.18.0.1 "
             "-o parent=eth0 celesto-macvlan && "
-            "docker run --rm --network celesto-macvlan busybox:1.36 "
+            f"docker run --rm --network celesto-macvlan {_BUSYBOX_IMAGE} "
             "ip -4 -o addr show dev eth0; "
             "result=$?; docker network rm celesto-macvlan >/dev/null; exit $result",
             timeout=_HELLO_WORLD_TIMEOUT_S,
@@ -184,7 +189,7 @@ def test_user_installed_docker_runs_hello_world(
             "docker network create -d ipvlan "
             "--subnet 198.18.1.0/24 --gateway 198.18.1.1 "
             "-o parent=eth0 celesto-ipvlan && "
-            "docker run --rm --network celesto-ipvlan busybox:1.36 "
+            f"docker run --rm --network celesto-ipvlan {_BUSYBOX_IMAGE} "
             "ip -4 -o addr show dev eth0; "
             "result=$?; docker network rm celesto-ipvlan >/dev/null; exit $result",
             timeout=_HELLO_WORLD_TIMEOUT_S,
