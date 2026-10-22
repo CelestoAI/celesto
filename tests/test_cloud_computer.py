@@ -821,7 +821,7 @@ def test_bad_request_does_not_forward_arbitrary_body(cloud, body):
     assert exc.value.details == {}
 
 
-@pytest.mark.parametrize("status", [401, 403, 422, 500])
+@pytest.mark.parametrize("status", [401, 403, 422, 429, 500])
 def test_other_error_statuses_do_not_retain_detail(cloud, status):
     _, replies = cloud
     body = {
@@ -862,13 +862,34 @@ def test_other_error_statuses_do_not_retain_detail(cloud, status):
         (403, {"error_code": "promotional_size_not_allowed"}, "credit"),
         (402, {"error_code": "trial_expired"}, "trial"),
         (402, {"error_code": "prepaid_credit_depleted"}, "credit"),
+        (
+            429,
+            {"error_code": "trial_retained_sandbox_limit_reached"},
+            "The free trial allows one sandbox at a time, including stopped sandboxes. "
+            "Reuse your existing sandbox, delete it in the cloud dashboard, or add "
+            "prepaid credit before creating another.",
+        ),
+        (
+            429,
+            {"error_code": "concurrency_limit_reached", "running_limit": 10},
+            "Your organization can run at most 10 sandboxes at once; stop or delete "
+            "a running sandbox in the cloud dashboard before starting another.",
+        ),
+        (
+            429,
+            {"error_code": "concurrency_limit_reached", "running_limit": "credential-secret"},
+            "Your organization has reached its running sandbox limit; stop or delete "
+            "a running sandbox in the cloud dashboard before starting another.",
+        ),
     ],
 )
 def test_cloud_errors_explain_known_public_refusals_without_forwarding_body(
     cloud, status, detail, expected
 ):
-    # Failure modes: permission and billing denials look like invalid keys;
-    # raw diagnostics or echoed credentials leak through structured messages.
+    # Failure modes: known refusals lose their recovery guidance; trial users
+    # retry or stop a sandbox without freeing their slot; raw diagnostics or
+    # malformed limit fields leak credentials. Exercise the public create path
+    # through the generated HTTP client; existing generic tests miss these codes.
     requests, replies = cloud
     if isinstance(detail, dict):
         detail = {**detail, "message": "credential-secret"}
@@ -1047,15 +1068,275 @@ def test_connection_transport_failure_not_replayed(cloud):
     comp.close()
 
 
-def test_connection_poll_deadline_prevents_issuance(cloud, monkeypatch):
+@pytest.mark.parametrize("operation", ["browser", "display"])
+@pytest.mark.parametrize("issued", [False, True])
+def test_connection_deadline_has_structured_context_without_replay(
+    cloud, monkeypatch, operation, issued
+):
+    from celesto import CloudOperationError
+
+    # Timeout can occur before issuing credentials or after their response; the
+    # handler must preserve that distinction without exposing connection secrets.
     requests, replies = cloud
-    replies.extend([(200, computer()), (200, computer("restoring"))])
+    replies.extend([(200, computer()), (200, computer() if issued else computer("restoring"))])
+    if issued:
+        payload = connection_payload(**({"mode": "read_only"} if operation == "display" else {}))
+        replies.append(
+            httpx.Response(201, json=payload, headers={"x-cloud-trace-context": "d" * 32})
+        )
     comp = Computer.get("cloud-test")
-    ticks = iter([0, 0, 31])
+    ticks = iter([0, 0, 0, 31] if issued else [0, 0, 31])
     monkeypatch.setattr(
         "celesto._cloud.time", SimpleNamespace(monotonic=lambda: next(ticks), sleep=lambda _: None)
     )
-    with pytest.raises(CelestoError, match="not ready"):
-        comp.browser()
-    assert [r.method for r in requests] == ["GET", "GET"]
+    with pytest.raises(CloudOperationError) as caught:
+        getattr(comp, operation)()
+    error = caught.value
+    assert error.code == "cloud_operation_timeout" and error.operation == operation
+    assert error.computer_id == "cloud-test" and error.recovery_action == "inspect"
+    assert error.side_effects == ("unknown" if issued else "none")
+    assert error.request_id == ("d" * 32 if issued else None)
+    assert "secret" not in str(error) + repr(error.details)
+    assert [r.method for r in requests] == (["GET", "GET", "POST"] if issued else ["GET", "GET"])
+    assert comp._provider._client.get_httpx_client().timeout == httpx.Timeout(30)
+    comp.close()
+
+
+# Failure modes for the DX repair: destructive lifecycle recovery, lost operation
+# context after parser failures, discarded safe permission/validation fields,
+# private diagnostics escaping through headers or field names, and replaying a
+# mutation whose result is unknown. These exercise the public facade and real
+# generated HTTP parser; happy-path and generic redaction coverage cannot catch
+# the operation-specific recovery or the documented 422 parser boundary.
+@pytest.mark.parametrize("operation", ["stop", "resume"])
+@pytest.mark.parametrize("failure", ["timeout", "invalid_response"])
+def test_lifecycle_failures_preserve_files_and_reconcile_state(
+    cloud, monkeypatch, operation, failure
+):
+    requests, replies = cloud
+    replies.append((200, computer()))
+    comp = Computer.get("cloud-test", startup_timeout=0.01)
+    replies.append(
+        (200, computer("stopping" if operation == "stop" else "starting"))
+        if failure == "timeout"
+        else (200, {})
+    )
+    ticks = iter([0, 1])
+    monkeypatch.setattr(
+        "celesto._cloud.time", SimpleNamespace(monotonic=lambda: next(ticks), sleep=lambda _: None)
+    )
+    with pytest.raises(CelestoError) as caught:
+        getattr(comp, operation)()
+    error = caught.value
+    assert "delete()" not in str(error) and "published_ports()" not in str(error)
+    assert "cloud-test" in str(error) and "inspect" in str(error).lower()
+    assert error.operation == operation and error.computer_id == "cloud-test"
+    assert error.side_effects == "unknown" and error.recovery_action == "inspect"
+    assert [r.method for r in requests] == ["GET", "POST"]
+    comp.close()
+
+
+@pytest.mark.parametrize("failure", ["transport", "invalid_response", "server"])
+def test_creation_unknown_outcome_has_reconciliation_context_without_replay(cloud, failure):
+    from celesto import CloudOperationError
+
+    requests, replies = cloud
+    trace = "a" * 32
+    replies.append(
+        httpx.ReadTimeout("credential-secret")
+        if failure == "transport"
+        else httpx.Response(
+            201 if failure == "invalid_response" else 503,
+            json={} if failure == "invalid_response" else {"detail": "credential-secret"},
+            headers={"x-cloud-trace-context": trace + "/123;o=1"},
+        )
+    )
+    with pytest.raises((CloudAPIError, CloudOperationError)) as caught:
+        Computer().start()
+    error = caught.value
+    assert error.operation == "create" and error.computer_id is None
+    assert error.side_effects == "unknown" and error.recovery_action == "inspect"
+    assert error.idempotency_key == requests[0].headers["idempotency-key"]
+    assert (
+        error.code
+        == {
+            "transport": "cloud_transport_error",
+            "invalid_response": "cloud_invalid_response",
+            "server": "http_503",
+        }[failure]
+    )
+    assert "may have succeeded" in str(error) or "outcome may be unknown" in str(error)
+    assert "credential-secret" not in str(error) + repr(error.details)
+    assert error.request_id == (None if failure == "transport" else trace)
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize("operation", ["browser", "display", "terminal"])
+def test_connection_permission_recovery_is_preserved_and_safe(cloud, operation):
+    requests, replies = cloud
+    replies.append((200, computer()))
+    comp = Computer.get("cloud-test")
+    if operation != "terminal":
+        replies.append((200, computer()))
+    replies.append(
+        httpx.Response(
+            403,
+            json={
+                "detail": {
+                    "error_code": "api_key_scope_required",
+                    "required_scope": "computers:exec",
+                    "message": "credential-secret",
+                }
+            },
+            headers={"x-request-id": "12345678-1234-1234-1234-123456789012"},
+        )
+    )
+    with pytest.raises(CloudAPIError) as caught:
+        getattr(comp, operation)()
+    error = caught.value
+    assert "Create, start, stop computers and run commands" in str(error)
+    assert error.code == "api_key_scope_required" and error.required_scope == "computers:exec"
+    assert error.operation == operation and error.computer_id == "cloud-test"
+    assert error.request_id == "12345678-1234-1234-1234-123456789012"
+    assert error.side_effects == "none" and error.recovery_action == "fix_and_retry"
+    assert "credential-secret" not in str(error) + repr(error.details)
+    comp.close()
+
+
+def test_documented_validation_error_names_only_safe_fields(cloud):
+    requests, replies = cloud
+    replies.append(
+        (
+            422,
+            {
+                "detail": "Validation error",
+                "status_code": 422,
+                "errors": [
+                    {
+                        "loc": ["body", "vcpus"],
+                        "type": "greater_than",
+                        "msg": "credential-secret",
+                        "input": "credential-secret",
+                        "ctx": {"gt": 0},
+                    },
+                    {
+                        "loc": ["body", "credential-secret"],
+                        "type": "credential-secret",
+                        "input": "credential-secret",
+                    },
+                ],
+            },
+        )
+    )
+    with pytest.raises(CloudAPIError) as caught:
+        Computer(vcpus=0).start()
+    error = caught.value
+    assert error.status_code == 422 and error.code == "validation_error"
+    assert error.validation_errors == ({"field": "vcpus", "code": "greater_than"},)
+    assert "vcpus" in str(error) and "positive" in str(error)
+    assert error.side_effects == "none" and error.recovery_action == "fix_and_retry"
+    assert "credential-secret" not in str(error) + repr(error.details) + repr(
+        error.validation_errors
+    )
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize(
+    "status,detail,code,scope,limit",
+    [
+        (
+            403,
+            {"error_code": "api_key_scope_required", "required_scope": "computers:admin"},
+            "api_key_scope_required",
+            "computers:admin",
+            None,
+        ),
+        (
+            429,
+            {"error_code": "trial_retained_sandbox_limit_reached"},
+            "trial_retained_sandbox_limit_reached",
+            None,
+            None,
+        ),
+        (
+            429,
+            {"error_code": "concurrency_limit_reached", "running_limit": 10},
+            "concurrency_limit_reached",
+            None,
+            10,
+        ),
+        (401, {"error_code": "credential-secret"}, "http_401", None, None),
+    ],
+)
+def test_cloud_errors_offer_stable_safe_fields(cloud, status, detail, code, scope, limit):
+    _, replies = cloud
+    replies.append(
+        httpx.Response(
+            status, json={"detail": detail}, headers={"x-request-id": "cel_pat_credential-secret"}
+        )
+    )
+    with pytest.raises(CloudAPIError) as caught:
+        Computer().start()
+    error = caught.value
+    assert error.code == code and error.required_scope == scope and error.running_limit == limit
+    assert error.operation == "create" and error.request_id is None
+    assert error.side_effects == "none"
+    assert "credential-secret" not in str(error) + repr(error.details)
+
+
+def test_execution_transport_failure_identifies_computer_without_echoing_command(cloud):
+    from celesto import CloudOperationError
+
+    requests, replies = cloud
+    replies.extend([(200, computer()), httpx.ReadTimeout("credential-secret")])
+    comp = Computer.get("cloud-test")
+    with pytest.raises(CloudOperationError) as caught:
+        comp.run("echo credential-secret")
+    error = caught.value
+    assert error.operation == "run" and error.computer_id == "cloud-test"
+    assert error.code == "cloud_transport_error" and error.side_effects == "unknown"
+    assert "command" in str(error).lower() and "cloud-test" in str(error)
+    assert "credential-secret" not in str(error) + repr(error.details)
+    assert len(requests) == 2
+    comp.close()
+
+
+# Review regressions designed before the repair: final port-model validation/HTTP rewrapping
+# must preserve the correlation data needed to reconcile the operation.
+@pytest.mark.parametrize(
+    "operation,status",
+    [
+        ("publish_port", 400),
+        ("publish_port", 200),
+        ("published_ports", 200),
+        ("unpublish_port", 200),
+    ],
+)
+def test_port_error_conversion_retains_safe_context(cloud, operation, status):
+    from celesto import CloudOperationError
+
+    requests, replies = cloud
+    bad = {"computer_id": "cloud-test", "port": True, "status": "active"}
+    replies.extend(
+        [
+            (200, computer()),
+            httpx.Response(
+                status,
+                json={"detail": "credential-secret"}
+                if status == 400
+                else [bad]
+                if operation == "published_ports"
+                else bad,
+                headers={"x-cloud-trace-context": "b" * 32 + "/1;o=1"},
+            ),
+        ]
+    )
+    comp = Computer.get("cloud-test")
+    with pytest.raises((CloudAPIError, CloudOperationError)) as caught:
+        getattr(comp, operation)(*(() if operation == "published_ports" else (8000,)))
+    error = caught.value
+    assert error.operation == operation and error.computer_id == "cloud-test"
+    assert error.request_id == "b" * 32
+    assert "credential-secret" not in str(error)
+    assert len(requests) == 2
     comp.close()

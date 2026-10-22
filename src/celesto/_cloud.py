@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import time
 import uuid
-from collections.abc import Callable, Iterator
-from typing import Any, TypeVar
+from collections.abc import Callable, Iterator, Mapping
+from typing import Any, Literal, TypeVar
 from urllib.parse import urlsplit
 
 import httpx
@@ -80,7 +81,7 @@ from _celesto_cloud_api.models.computer_terminal_session_response import (
 from _celesto_cloud_api.types import UNSET, Unset
 from celesto._connection_info import DisplayMode, cloud_connection_info, validate_display_mode
 from celesto._terminal import TerminalConnection, cloud_terminal_connection
-from celesto.exceptions import CelestoError, CloudAPIError, VMNotFoundError
+from celesto.exceptions import CelestoError, CloudAPIError, CloudOperationError, VMNotFoundError
 from celesto.types import (
     BrowserConnection,
     CommandEvent,
@@ -185,53 +186,188 @@ class _CloudComputer:
         *,
         retain_error_detail: bool = True,
         uncertain_mutation: str | None = None,
+        response_context: dict[str, str | None] | None = None,
+        operation: str = "request",
         **kwargs: Any,
     ) -> T:
+        request_id = None
+        reference = kwargs.get("idempotency_key")
+        idem = reference if isinstance(reference, str) else None
+
+        def check_response(response: httpx.Response) -> None:
+            nonlocal request_id
+            request_id = self._request_id(response.headers)
+            if response_context is not None:
+                response_context["request_id"] = request_id
+            if response.status_code >= 400:
+                # Capture HTTP errors before a generated error-body parser can
+                # fail and hide their status. Never retain raw request/response.
+                response.read()
+                if response.status_code == 404 and self.vm_id is not None:
+                    raise VMNotFoundError(self.vm_id, list_command="celesto computer list --cloud")
+                raise self._api_error(
+                    response.status_code,
+                    response.content,
+                    retain_error_detail=retain_error_detail,
+                    operation=operation,
+                    computer_id=self.vm_id,
+                    request_id=request_id,
+                    idempotency_key=idem,
+                )
+
+        hooks = self._client.get_httpx_client().event_hooks["response"]
+        hooks.append(check_response)
         try:
-            response = endpoint(
-                client=self._client, x_current_organization=self._organization, **kwargs
-            )
-        except UnexpectedStatus as exc:
-            if exc.status_code == 404 and self.vm_id is not None:
-                raise VMNotFoundError(
-                    self.vm_id, list_command="celesto computer list --cloud"
+            try:
+                response = endpoint(
+                    client=self._client, x_current_organization=self._organization, **kwargs
+                )
+            except UnexpectedStatus as exc:
+                if exc.status_code == 404 and self.vm_id is not None:
+                    raise VMNotFoundError(
+                        self.vm_id, list_command="celesto computer list --cloud"
+                    ) from None
+                raise self._api_error(
+                    exc.status_code,
+                    exc.content,
+                    retain_error_detail=retain_error_detail,
+                    operation=operation,
+                    computer_id=self.vm_id,
+                    request_id=request_id,
+                    idempotency_key=idem,
                 ) from None
-            raise self._api_error(
-                exc.status_code, exc.content, retain_error_detail=retain_error_detail
-            ) from None
-        except httpx.TransportError as exc:
-            raise CelestoError(
-                f"Cloud request failed ({type(exc).__name__}); its outcome may be unknown. "
-                "Check your computers before retrying; no request was replayed."
-            ) from None
-        except (ValueError, KeyError, TypeError):
-            raise self._invalid_response(uncertain_mutation) from None
-        if response.status_code >= 400:
-            raise self._api_error(
-                response.status_code, response.content, retain_error_detail=retain_error_detail
-            )
-        if not isinstance(response.parsed, expected):
-            raise self._invalid_response(uncertain_mutation)
-        # Generated list parsers iterate any JSON value, including an empty object.
-        if expected is list and not isinstance(json.loads(response.content), list):
-            raise self._invalid_response(uncertain_mutation)
-        return response.parsed
+            except httpx.TransportError as exc:
+                raise self._operation_error(
+                    "cloud_transport_error",
+                    operation,
+                    computer_id=self.vm_id,
+                    request_id=request_id,
+                    idempotency_key=idem,
+                    reason=(
+                        f"Cloud {operation} request failed ({type(exc).__name__}); "
+                        "its outcome may be unknown."
+                    ),
+                ) from None
+            except (ValueError, KeyError, TypeError):
+                raise self._invalid_response(
+                    uncertain_mutation,
+                    operation=operation,
+                    computer_id=self.vm_id,
+                    request_id=request_id,
+                    idempotency_key=idem,
+                ) from None
+            if response.status_code >= 400:
+                raise self._api_error(
+                    response.status_code,
+                    response.content,
+                    retain_error_detail=retain_error_detail,
+                    operation=operation,
+                    computer_id=self.vm_id,
+                    request_id=self._request_id(getattr(response, "headers", {})),
+                    idempotency_key=idem,
+                )
+            if not isinstance(response.parsed, expected) or (
+                expected is list and not isinstance(json.loads(response.content), list)
+            ):
+                raise self._invalid_response(
+                    uncertain_mutation,
+                    operation=operation,
+                    computer_id=self.vm_id,
+                    request_id=request_id,
+                    idempotency_key=idem,
+                )
+            return response.parsed
+        finally:
+            hooks.remove(check_response)
 
     @staticmethod
-    def _invalid_response(uncertain_mutation: str | None = None) -> CelestoError:
-        if uncertain_mutation is not None:
-            return CelestoError(
-                f"Cloud returned an invalid response after trying to {uncertain_mutation}. "
-                "The operation may have succeeded; call published_ports() before retrying."
+    def _request_id(headers: Mapping[str, str]) -> str | None:
+        # Cloud trace IDs and UUID request IDs are safe correlation references;
+        # arbitrary header values (including credential-shaped ones) stay private.
+        for name in ("x-request-id", "x-cloud-trace-context"):
+            value = headers.get(name, "")
+            if re.fullmatch(r"[0-9a-fA-F]{32}(?:/\d+)?(?:;o=[01])?", value):
+                return value.split("/", 1)[0].split(";", 1)[0]
+            if re.fullmatch(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", value):
+                return value
+        return None
+
+    @staticmethod
+    def _operation_error(
+        code: str,
+        operation: str,
+        *,
+        computer_id: str | None = None,
+        request_id: str | None = None,
+        idempotency_key: str | None = None,
+        reason: str,
+    ) -> CloudOperationError:
+        idem = idempotency_key
+        target = f"computer '{computer_id}'" if computer_id else "your computers"
+        if operation in {"publish_port", "unpublish_port"}:
+            recovery = "The operation may have succeeded; call published_ports() before retrying."
+        elif operation == "run":
+            recovery = (
+                f"The command may have executed on {target}; "
+                "confirm its result before rerunning it."
             )
-        return CelestoError(
-            "Cloud returned an invalid response; check the API version before retrying."
+        elif operation == "delete":
+            recovery = f"Inspect {target} in the cloud dashboard before retrying delete()."
+        elif operation in {"request", "get", "published_ports"}:
+            recovery = f"Inspect {target} in the cloud dashboard; retry once, then contact support."
+        else:
+            recovery = (
+                f"The operation may have succeeded; inspect {target} in the cloud dashboard "
+                f"before retrying {operation}."
+            )
+        return CloudOperationError(
+            f"{reason} {recovery}",
+            code=code,
+            operation=operation,
+            computer_id=computer_id,
+            request_id=request_id,
+            idempotency_key=idem,
+            recovery_action="inspect",
+            side_effects="none"
+            if operation in {"request", "get", "published_ports"}
+            else "unknown",
+        )
+
+    @staticmethod
+    def _invalid_response(
+        uncertain_mutation: str | None = None,
+        *,
+        operation: str = "request",
+        computer_id: str | None = None,
+        request_id: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> CloudOperationError:
+        idem = idempotency_key
+        if uncertain_mutation and operation == "request":
+            operation = (
+                "unpublish_port" if uncertain_mutation.startswith("unpublish") else "publish_port"
+            )
+        return _CloudComputer._operation_error(
+            "cloud_invalid_response",
+            operation,
+            computer_id=computer_id,
+            request_id=request_id,
+            idempotency_key=idem,
+            reason="Cloud returned an invalid response.",
         )
 
     @staticmethod
     def _api_error(
-        status_code: int, content: bytes, *, retain_error_detail: bool = True
+        status_code: int,
+        content: bytes,
+        *,
+        retain_error_detail: bool = True,
+        operation: str | None = None,
+        computer_id: str | None = None,
+        request_id: str | None = None,
+        idempotency_key: str | None = None,
     ) -> CloudAPIError:
+        idem = idempotency_key
         detail = None
         recovery = None
         try:
@@ -312,16 +448,173 @@ class _CloudComputer:
                 recovery = "Start the free trial or add prepaid credit in the cloud dashboard."
             elif code in ("prepaid_credit_required", "payment_failed", "payment_pending"):
                 recovery = "Complete payment or add prepaid credit in the cloud dashboard."
-        return CloudAPIError(status_code, detail=detail, recovery=recovery)
+        elif status_code == 429 and isinstance(public_detail, dict):
+            code = public_detail.get("error_code")
+            if code == "trial_retained_sandbox_limit_reached":
+                recovery = (
+                    "The free trial allows one sandbox at a time, including stopped sandboxes. "
+                    "Reuse your existing sandbox, delete it in the cloud dashboard, or add "
+                    "prepaid credit before creating another."
+                )
+            elif code == "concurrency_limit_reached":
+                limit = public_detail.get("running_limit")
+                reason = (
+                    f"Your organization can run at most {limit} sandboxes at once"
+                    if type(limit) is int and 1 <= limit <= 1000
+                    else "Your organization has reached its running sandbox limit"
+                )
+                recovery = (
+                    f"{reason}; stop or delete a running sandbox in the cloud dashboard "
+                    "before starting another."
+                )
+        known_codes = {
+            403: {
+                "api_key_scope_required",
+                "organization_access_denied",
+                "api_key_endpoint_not_allowed",
+                "trial_micro_only",
+                "promotional_size_not_allowed",
+            },
+            402: {
+                "trial_expired",
+                "trial_credit_depleted",
+                "prepaid_credit_depleted",
+                "trial_not_started",
+                "usage_subscription_required",
+                "prepaid_credit_required",
+                "payment_failed",
+                "payment_pending",
+            },
+            429: {"trial_retained_sandbox_limit_reached", "concurrency_limit_reached"},
+        }
+        raw_code = public_detail.get("error_code") if isinstance(public_detail, dict) else None
+        recognized_code = (
+            raw_code
+            if isinstance(raw_code, str) and raw_code in known_codes.get(status_code, set())
+            else f"http_{status_code}"
+        )
+        scope = public_detail.get("required_scope") if isinstance(public_detail, dict) else None
+        scope = (
+            scope
+            if isinstance(scope, str)
+            and scope in {"computers:read", "computers:exec", "computers:admin"}
+            else None
+        )
+        limit = public_detail.get("running_limit") if isinstance(public_detail, dict) else None
+        limit = limit if type(limit) is int and 1 <= limit <= 1000 else None
+        validation: list[dict[str, str]] = []
+        if status_code == 422:
+            recognized_code = "validation_error"
+            allowed_fields = {
+                "vcpus",
+                "ram_mb",
+                "disk_size_mb",
+                "image",
+                "template_id",
+                "template_version",
+                "external_volume_enabled",
+                "command",
+                "timeout",
+                "port",
+                "mode",
+                "terminal_id",
+            }
+            allowed_constraints = {
+                "greater_than",
+                "greater_than_equal",
+                "less_than",
+                "less_than_equal",
+                "int_parsing",
+                "int_type",
+                "string_type",
+                "string_too_long",
+                "string_too_short",
+                "bool_parsing",
+                "bool_type",
+                "missing",
+                "literal_error",
+            }
+            errors = body.get("errors") if isinstance(body, dict) else None
+            if isinstance(errors, list):
+                for item in errors[:20]:
+                    if not isinstance(item, dict):
+                        continue
+                    loc, constraint = item.get("loc"), item.get("type")
+                    if (
+                        isinstance(loc, list)
+                        and len(loc) == 2
+                        and loc[0] == "body"
+                        and isinstance(loc[1], str)
+                        and loc[1] in allowed_fields
+                        and isinstance(constraint, str)
+                        and constraint in allowed_constraints
+                    ):
+                        validation.append({"field": loc[1], "code": constraint})
+            fields = ", ".join(dict.fromkeys(item["field"] for item in validation))
+            recovery = (
+                f"Correct {fields} and retry."
+                if fields
+                else (
+                    "Check the operation parameters and retry; "
+                    "contact Celesto support if they are valid."
+                )
+            )
+            if validation and validation[0] == {"field": "vcpus", "code": "greater_than"}:
+                recovery = (
+                    "vcpus must be a positive integer; set vcpus to a positive integer and retry."
+                )
+        if status_code == 401:
+            recovery = (
+                "Supply a valid Celesto API key through api_key= or "
+                "CELESTO_API_KEY before retrying."
+            )
+        mutating = operation not in {None, "request", "get", "published_ports"}
+        side_effects: Literal["none", "unknown"] = (
+            "unknown" if status_code >= 500 and mutating else "none"
+        )
+        action: Literal["fix_and_retry", "inspect", "ask_human"] = "fix_and_retry"
+        if status_code >= 500:
+            action = "inspect" if mutating else "ask_human"
+            recovery = (
+                "The operation may have succeeded; inspect your computers in the cloud "
+                "dashboard before retrying."
+                if mutating
+                else "Contact Celesto support with the request ID if the problem continues."
+            )
+        elif status_code == 429:
+            action = "inspect" if recognized_code in known_codes[429] else "ask_human"
+            if recognized_code == "http_429":
+                recovery = (
+                    "The server is limiting requests; inspect your cloud account limits "
+                    "before retrying, or ask Celesto support which limit applies."
+                )
+        return CloudAPIError(
+            status_code,
+            detail=detail,
+            recovery=recovery,
+            code=recognized_code,
+            operation=operation,
+            computer_id=computer_id,
+            request_id=request_id,
+            idempotency_key=idem,
+            recovery_action=action,
+            side_effects=side_effects,
+            required_scope=scope if recognized_code == "api_key_scope_required" else None,
+            running_limit=limit if recognized_code == "concurrency_limit_reached" else None,
+            validation_errors=tuple(validation),
+        )
 
     def _get(self) -> ComputerResponse:
-        return self._call(retrieve.sync_detailed, ComputerResponse, computer_id=self.vm_id)
+        return self._call(
+            retrieve.sync_detailed, ComputerResponse, operation="get", computer_id=self.vm_id
+        )
 
     def start(self) -> None:
         # Exactly one create request. Never retry a potentially billable allocation.
         computer = self._call(
             create.sync_detailed,
             ComputerResponse,
+            operation="create",
             body=self._body,
             idempotency_key=uuid.uuid4().hex,
         )
@@ -339,6 +632,7 @@ class _CloudComputer:
         computer = self._call(
             stop.sync_detailed,
             ComputerResponse,
+            operation="stop",
             computer_id=self.vm_id,
             uncertain_mutation=f"stop computer {self.vm_id}",
         )
@@ -357,6 +651,7 @@ class _CloudComputer:
         computer = self._call(
             resume.sync_detailed,
             ComputerResponse,
+            operation="resume",
             computer_id=self.vm_id,
             uncertain_mutation=f"resume computer {self.vm_id}",
         )
@@ -383,6 +678,7 @@ class _CloudComputer:
             return self._call(
                 execute.sync_detailed,
                 ComputerExecResponse,
+                operation="run",
                 computer_id=self.vm_id,
                 body=ComputerExecRequest(command=command, timeout=timeout),
             )
@@ -395,7 +691,12 @@ class _CloudComputer:
 
     @staticmethod
     def _published_port(
-        result: ComputerPublishedPortResponse, *, uncertain_mutation: str | None = None
+        result: ComputerPublishedPortResponse,
+        *,
+        uncertain_mutation: str | None = None,
+        operation: str = "published_ports",
+        computer_id: str | None = None,
+        request_id: str | None = None,
     ) -> PublishedPort:
         try:
             # Convert only documented fields; generated UNSET and extra fields stay private.
@@ -408,16 +709,24 @@ class _CloudComputer:
                 created_at=None if isinstance(result.created_at, Unset) else result.created_at,
             )
         except ValueError:
-            raise _CloudComputer._invalid_response(uncertain_mutation) from None
+            raise _CloudComputer._invalid_response(
+                uncertain_mutation,
+                operation=operation,
+                computer_id=computer_id,
+                request_id=request_id,
+            ) from None
 
     def publish_port(self, port: int) -> PublishedPort:
+        context: dict[str, str | None] = {}
         mutation = f"publish port {port}"
         try:
             result = self._call(
                 publish_port.sync_detailed,
                 ComputerPublishedPortResponse,
+                operation="publish_port",
                 retain_error_detail=False,
                 uncertain_mutation=mutation,
+                response_context=context,
                 computer_id=self.vm_id,
                 body=ComputerPublishedPortCreateRequest(port=port),
             )
@@ -426,47 +735,85 @@ class _CloudComputer:
                 raise CloudAPIError(
                     400,
                     recovery=f"Port {port} cannot be published; choose another port and retry.",
+                    code=exc.code,
+                    operation=exc.operation,
+                    computer_id=exc.computer_id,
+                    request_id=exc.request_id,
                 ) from None
             raise
-        return self._published_port(result, uncertain_mutation=mutation)
+        return self._published_port(
+            result,
+            uncertain_mutation=mutation,
+            operation="publish_port",
+            computer_id=self.vm_id,
+            request_id=context.get("request_id"),
+        )
 
     def published_ports(self) -> list[PublishedPort]:
+        context: dict[str, str | None] = {}
         results = self._call(
             list_ports.sync_detailed,
             list,
+            operation="published_ports",
+            response_context=context,
             retain_error_detail=False,
             computer_id=self.vm_id,
         )
-        return [self._published_port(result) for result in results]
+        return [
+            self._published_port(
+                result, computer_id=self.vm_id, request_id=context.get("request_id")
+            )
+            for result in results
+        ]
 
     def unpublish_port(self, port: int) -> PublishedPort:
+        context: dict[str, str | None] = {}
         mutation = f"unpublish port {port}"
         result = self._call(
             unpublish_port.sync_detailed,
             ComputerPublishedPortResponse,
+            operation="unpublish_port",
             retain_error_detail=False,
             uncertain_mutation=mutation,
+            response_context=context,
             computer_id=self.vm_id,
             port=port,
         )
-        return self._published_port(result, uncertain_mutation=mutation)
+        return self._published_port(
+            result,
+            uncertain_mutation=mutation,
+            operation="unpublish_port",
+            computer_id=self.vm_id,
+            request_id=context.get("request_id"),
+        )
 
     def run_stream(self, command: str, timeout: int = 30) -> Iterator[CommandEvent]:
         """Yield command events from the cloud's completed exec response."""
         self.validate_command(command, timeout)
         return self._iter_command_events(command, timeout)
 
-    def _connection(self, endpoint: Callable[..., Any], expected: type[T], **kwargs: Any) -> T:
+    def _connection(
+        self, endpoint: Callable[..., Any], expected: type[T], *, operation: str, **kwargs: Any
+    ) -> T:
         """Poll state, then issue exactly once; never replay credential issuance."""
         deadline = time.monotonic() + _CONNECTION_TIMEOUT
         client = self._client.get_httpx_client()
         original_timeout = client.timeout
+        issued = False
+        context: dict[str, str | None] = {}
 
         def remaining() -> float:
             value = deadline - time.monotonic()
             if value <= 0:
-                raise CelestoError(
-                    f"Computer '{self.vm_id}' is not ready; request a new connection."
+                raise CloudOperationError(
+                    f"Computer '{self.vm_id}' connection did not finish in time; "
+                    "inspect its state in the cloud dashboard before requesting a new connection.",
+                    code="cloud_operation_timeout",
+                    operation=operation,
+                    computer_id=self.vm_id,
+                    request_id=context.get("request_id"),
+                    recovery_action="inspect",
+                    side_effects="unknown" if issued else "none",
                 )
             return value
 
@@ -482,17 +829,25 @@ class _CloudComputer:
                     )
                 time.sleep(min(0.5, remaining()))
             client.timeout = httpx.Timeout(remaining())
-            result = self._call(endpoint, expected, computer_id=self.vm_id, **kwargs)
+            issued = True
+            result = self._call(
+                endpoint,
+                expected,
+                operation=operation,
+                response_context=context,
+                retain_error_detail=False,
+                computer_id=self.vm_id,
+                **kwargs,
+            )
             remaining()
             return result
-        except CloudAPIError as exc:
-            # Even documented 400 details may contain a connection credential.
-            raise CloudAPIError(exc.status_code) from None
         finally:
             client.timeout = original_timeout
 
     def browser(self) -> BrowserConnection:
-        result = self._connection(connect_browser.sync_detailed, ComputerBrowserConnectionResponse)
+        result = self._connection(
+            connect_browser.sync_detailed, ComputerBrowserConnectionResponse, operation="browser"
+        )
         url, expiry = cloud_connection_info(result.gateway_url, result.token, result.expires_at)
         return BrowserConnection(url=url, expires_at=expiry)
 
@@ -501,6 +856,7 @@ class _CloudComputer:
         result = self._connection(
             connect_display.sync_detailed,
             ComputerDisplayConnectionResponse,
+            operation="display",
             body=ComputerDisplayConnectionRequest(mode=ComputerDisplayConnectionRequestMode(mode)),
         )
         if result.mode != mode:
@@ -513,6 +869,7 @@ class _CloudComputer:
         response = self._call(
             create_terminal.sync_detailed,
             ComputerTerminalSessionResponse,
+            operation="terminal",
             computer_id=self.vm_id,
             body=ComputerTerminalSessionRequest(
                 terminal_id=terminal_id if terminal_id is not None else UNSET
@@ -551,15 +908,16 @@ class _CloudComputer:
 
     def _wait(self, deadline: float, action: str) -> None:
         remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(0.5, remaining))
+            remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise CelestoError(
-                f"Computer '{self.vm_id}' did not {action} in time; "
-                "inspect it in the cloud dashboard or retry delete()."
+            raise self._operation_error(
+                "cloud_operation_timeout",
+                action,
+                computer_id=self.vm_id,
+                reason=f"Computer '{self.vm_id}' did not {action} in time.",
             )
-        time.sleep(min(0.5, remaining))
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise CelestoError(f"Computer '{self.vm_id}' did not {action} in time; retry delete().")
         self._client.get_httpx_client().timeout = httpx.Timeout(min(30, remaining))
 
     def delete(self) -> None:
@@ -570,7 +928,10 @@ class _CloudComputer:
         try:
             try:
                 computer = self._call(
-                    delete.sync_detailed, ComputerResponse, computer_id=self.vm_id
+                    delete.sync_detailed,
+                    ComputerResponse,
+                    operation="delete",
+                    computer_id=self.vm_id,
                 )
             except CloudAPIError as exc:
                 if exc.status_code != 409:
