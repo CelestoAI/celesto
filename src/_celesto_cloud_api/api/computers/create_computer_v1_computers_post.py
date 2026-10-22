@@ -19,11 +19,21 @@ def _get_kwargs(
     *,
     body: ComputerCreateRequest,
     idempotency_key: None | str | Unset = UNSET,
+    x_celesto_experimental: bool | Unset = False,
+    x_celesto_client: None | str | Unset = UNSET,
     x_current_organization: str | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
     if not isinstance(idempotency_key, Unset):
         headers["Idempotency-Key"] = idempotency_key
+
+    if not isinstance(x_celesto_experimental, Unset):
+        headers["X-Celesto-Experimental"] = (
+            "true" if x_celesto_experimental else "false"
+        )
+
+    if not isinstance(x_celesto_client, Unset):
+        headers["X-Celesto-Client"] = x_celesto_client
 
     if not isinstance(x_current_organization, Unset):
         headers["x-current-organization"] = x_current_organization
@@ -76,12 +86,26 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     body: ComputerCreateRequest,
     idempotency_key: None | str | Unset = UNSET,
+    x_celesto_experimental: bool | Unset = False,
+    x_celesto_client: None | str | Unset = UNSET,
     x_current_organization: str | Unset = UNSET,
 ) -> Response[ComputerResponse | ComputerValidationErrorResponse]:
     """Create a new compute VM
 
+     Prepare, wait for the organization's turn, then admit under the row lock.
+
+    `X-Celesto-Client` (ui, sdk or mcp) records which surface made the
+    sandbox; without it the credential type decides (see resolve_rest_origin).
+
+    The wait for the turn holds no pooled connection, so a burst from one
+    organization cannot empty the pool for everyone else. The sandbox-created
+    alert goes to the broker after the response is sent, so neither the
+    organization's turn nor the client waits on it.
+
     Args:
         idempotency_key (None | str | Unset):
+        x_celesto_experimental (bool | Unset):  Default: False.
+        x_celesto_client (None | str | Unset):
         x_current_organization (str | Unset): Current organization ID
         body (ComputerCreateRequest): Request to create a new compute VM.
 
@@ -96,6 +120,8 @@ def sync_detailed(
     kwargs = _get_kwargs(
         body=body,
         idempotency_key=idempotency_key,
+        x_celesto_experimental=x_celesto_experimental,
+        x_celesto_client=x_celesto_client,
         x_current_organization=x_current_organization,
     )
 
@@ -111,12 +137,26 @@ def sync(
     client: AuthenticatedClient | Client,
     body: ComputerCreateRequest,
     idempotency_key: None | str | Unset = UNSET,
+    x_celesto_experimental: bool | Unset = False,
+    x_celesto_client: None | str | Unset = UNSET,
     x_current_organization: str | Unset = UNSET,
 ) -> ComputerResponse | ComputerValidationErrorResponse | None:
     """Create a new compute VM
 
+     Prepare, wait for the organization's turn, then admit under the row lock.
+
+    `X-Celesto-Client` (ui, sdk or mcp) records which surface made the
+    sandbox; without it the credential type decides (see resolve_rest_origin).
+
+    The wait for the turn holds no pooled connection, so a burst from one
+    organization cannot empty the pool for everyone else. The sandbox-created
+    alert goes to the broker after the response is sent, so neither the
+    organization's turn nor the client waits on it.
+
     Args:
         idempotency_key (None | str | Unset):
+        x_celesto_experimental (bool | Unset):  Default: False.
+        x_celesto_client (None | str | Unset):
         x_current_organization (str | Unset): Current organization ID
         body (ComputerCreateRequest): Request to create a new compute VM.
 
@@ -132,6 +172,8 @@ def sync(
         client=client,
         body=body,
         idempotency_key=idempotency_key,
+        x_celesto_experimental=x_celesto_experimental,
+        x_celesto_client=x_celesto_client,
         x_current_organization=x_current_organization,
     ).parsed
 
@@ -141,12 +183,26 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     body: ComputerCreateRequest,
     idempotency_key: None | str | Unset = UNSET,
+    x_celesto_experimental: bool | Unset = False,
+    x_celesto_client: None | str | Unset = UNSET,
     x_current_organization: str | Unset = UNSET,
 ) -> Response[ComputerResponse | ComputerValidationErrorResponse]:
     """Create a new compute VM
 
+     Prepare, wait for the organization's turn, then admit under the row lock.
+
+    `X-Celesto-Client` (ui, sdk or mcp) records which surface made the
+    sandbox; without it the credential type decides (see resolve_rest_origin).
+
+    The wait for the turn holds no pooled connection, so a burst from one
+    organization cannot empty the pool for everyone else. The sandbox-created
+    alert goes to the broker after the response is sent, so neither the
+    organization's turn nor the client waits on it.
+
     Args:
         idempotency_key (None | str | Unset):
+        x_celesto_experimental (bool | Unset):  Default: False.
+        x_celesto_client (None | str | Unset):
         x_current_organization (str | Unset): Current organization ID
         body (ComputerCreateRequest): Request to create a new compute VM.
 
@@ -161,6 +217,8 @@ async def asyncio_detailed(
     kwargs = _get_kwargs(
         body=body,
         idempotency_key=idempotency_key,
+        x_celesto_experimental=x_celesto_experimental,
+        x_celesto_client=x_celesto_client,
         x_current_organization=x_current_organization,
     )
 
@@ -174,12 +232,26 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     body: ComputerCreateRequest,
     idempotency_key: None | str | Unset = UNSET,
+    x_celesto_experimental: bool | Unset = False,
+    x_celesto_client: None | str | Unset = UNSET,
     x_current_organization: str | Unset = UNSET,
 ) -> ComputerResponse | ComputerValidationErrorResponse | None:
     """Create a new compute VM
 
+     Prepare, wait for the organization's turn, then admit under the row lock.
+
+    `X-Celesto-Client` (ui, sdk or mcp) records which surface made the
+    sandbox; without it the credential type decides (see resolve_rest_origin).
+
+    The wait for the turn holds no pooled connection, so a burst from one
+    organization cannot empty the pool for everyone else. The sandbox-created
+    alert goes to the broker after the response is sent, so neither the
+    organization's turn nor the client waits on it.
+
     Args:
         idempotency_key (None | str | Unset):
+        x_celesto_experimental (bool | Unset):  Default: False.
+        x_celesto_client (None | str | Unset):
         x_current_organization (str | Unset): Current organization ID
         body (ComputerCreateRequest): Request to create a new compute VM.
 
@@ -196,6 +268,8 @@ async def asyncio(
             client=client,
             body=body,
             idempotency_key=idempotency_key,
+            x_celesto_experimental=x_celesto_experimental,
+            x_celesto_client=x_celesto_client,
             x_current_organization=x_current_organization,
         )
     ).parsed

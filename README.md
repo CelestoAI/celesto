@@ -132,6 +132,25 @@ with Computer(provider="cloud") as computer:
 | Local | Development, tests, and private workloads on your machine | Local virtualization setup |
 | Cloud | Remote tasks, persistent workspaces, and production workloads | Python package and `CELESTO_API_KEY` |
 
+### Start cloud computers with your packages installed
+
+A custom template is a built-in template plus your own setup commands. Celesto runs the commands once and saves the result, so every cloud computer you create from the template starts with your packages ready:
+
+```python
+from celesto import Template
+
+template = Template.create(
+    name="data-env",
+    build_script="apt-get install -y ffmpeg\npip install pandas",
+)
+template.wait(on_log=print)  # prints the build log; returns when the build is ready
+
+with template.create_computer() as computer:
+    print(computer.run("ffmpeg -version").stdout)
+```
+
+The build script runs once, as root, and stops at the first failing command. Files can't be uploaded with it, so list packages directly instead of using `pip install -r requirements.txt`. Check a script first with `Template.lint(script)`, load a template with `Template.get("tpl_...")`, or pass its ID as `CloudComputer(template_id="tpl_...")`. See the [custom templates guide](https://docs.celesto.ai/cloud/features/custom-templates) for limits, errors, and rebuilding.
+
 ## Agents and automation
 
 Celesto commands print readable output by default. Add `--json` when a script or agent needs stable, machine-readable output. Every JSON response contains `ok`, `command`, `exit_code`, `data`, and `error` fields.

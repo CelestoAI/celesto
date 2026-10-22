@@ -30,6 +30,7 @@ class PoolHeartbeatRequest:
         disk_total_mb (int | None | Unset):
         stream_protocol_version (int | Unset):  Default: 1.
         running_computers (list[PoolHeartbeatRequestRunningComputersType0Item] | None | Unset):
+        usage_billing_fence (bool | Unset):  Default: False.
     """
 
     epoch: int
@@ -40,6 +41,7 @@ class PoolHeartbeatRequest:
     running_computers: (
         list[PoolHeartbeatRequestRunningComputersType0Item] | None | Unset
     ) = UNSET
+    usage_billing_fence: bool | Unset = False
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -75,6 +77,8 @@ class PoolHeartbeatRequest:
         else:
             running_computers = self.running_computers
 
+        usage_billing_fence = self.usage_billing_fence
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -90,6 +94,8 @@ class PoolHeartbeatRequest:
             field_dict["stream_protocol_version"] = stream_protocol_version
         if running_computers is not UNSET:
             field_dict["running_computers"] = running_computers
+        if usage_billing_fence is not UNSET:
+            field_dict["usage_billing_fence"] = usage_billing_fence
 
         return field_dict
 
@@ -147,6 +153,8 @@ class PoolHeartbeatRequest:
 
         running_computers = _parse_running_computers(d.pop("running_computers", UNSET))
 
+        usage_billing_fence = d.pop("usage_billing_fence", UNSET)
+
         pool_heartbeat_request = cls(
             epoch=epoch,
             state_id=state_id,
@@ -154,6 +162,7 @@ class PoolHeartbeatRequest:
             disk_total_mb=disk_total_mb,
             stream_protocol_version=stream_protocol_version,
             running_computers=running_computers,
+            usage_billing_fence=usage_billing_fence,
         )
 
         pool_heartbeat_request.additional_properties = d
