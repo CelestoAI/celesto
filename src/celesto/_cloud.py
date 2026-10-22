@@ -79,6 +79,7 @@ from _celesto_cloud_api.models.computer_terminal_session_response import (
     ComputerTerminalSessionResponse,
 )
 from _celesto_cloud_api.types import UNSET, Unset
+from celesto._client_origin import client_origin
 from celesto._connection_info import DisplayMode, cloud_connection_info, validate_display_mode
 from celesto._terminal import TerminalConnection, cloud_terminal_connection
 from celesto.exceptions import CelestoError, CloudAPIError, CloudOperationError, VMNotFoundError
@@ -617,6 +618,8 @@ class _CloudComputer:
             operation="create",
             body=self._body,
             idempotency_key=uuid.uuid4().hex,
+            # Lets the backend record whether the SDK or the CLI made it.
+            x_celesto_client=client_origin.get(),
         )
         self.vm_id = computer.id
         deadline = time.monotonic() + self._startup_timeout
