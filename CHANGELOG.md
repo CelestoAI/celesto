@@ -6,7 +6,7 @@
 
 ### Fixed
 
-- Cloud computers created with `celesto computer create --cloud` are recorded as created by the CLI instead of the SDK. Cloud creates now send the `X-Celesto-Client` header: `cli` from the `celesto` command and `sdk` from Python code.
+- Cloud creates send an `X-Celesto-Client` header, `cli` from the `celesto` command and `sdk` from Python code, so Celesto Cloud can tell CLI-created computers apart from SDK-created ones. Until Celesto Cloud supports the `cli` value, CLI-created computers are still recorded as `sdk`; creates succeed either way.
 
 ## 0.1.7 — 2026-10-21
 
