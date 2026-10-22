@@ -27,6 +27,7 @@ import math
 import os
 import select
 import shlex
+import shutil
 import signal
 import socket
 import stat
@@ -60,6 +61,7 @@ _DEFAULT_MAX_AGENT_RESPONSE_BYTES = 1024 * 1024
 _DEFAULT_MAX_STREAM_SIZE_BYTES = 256 * 1024 * 1024
 _DEFAULT_MAX_TAR_SIZE_BYTES = 512 * 1024 * 1024
 _DEFAULT_MAX_TERMINAL_FRAME_BYTES = 1024 * 1024
+_TAR_EXTRACT_CHUNK_BYTES = 64 * 1024
 _MAX_PORTS_WAIT = 256
 _MAX_PORT_WAIT_TIMEOUT_SECONDS = 300.0
 _TERMINAL_FRAME_STDIN = 1
@@ -402,33 +404,144 @@ def _safe_tar_member_mode(mode: int) -> int:
     return mode & 0o777
 
 
-def _safe_extract_tar(data: bytes, destination: Path) -> None:
+def _safe_extract_tar(
+    data: bytes,
+    destination: Path,
+    *,
+    max_member_bytes: int = _DEFAULT_MAX_TAR_SIZE_BYTES,
+    max_total_bytes: int = _DEFAULT_MAX_TAR_SIZE_BYTES,
+) -> None:
+    """Extract a plain (uncompressed) tar stream from the guest into *destination*.
+
+    The guest agent only ever emits plain ustar, so compressed input and
+    sparse members are refused outright: both let a small transfer expand
+    into far more host disk and memory than the transfer cap allows. The
+    archive itself is already in memory (bounded by the transfer cap); each
+    member is copied from it to disk in bounded chunks rather than being
+    read whole a second time, and the per-member and cumulative sizes are
+    checked before any bytes are written.
+    """
     destination.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(fileobj=io.BytesIO(data), mode="r:*") as archive:
-        for member in archive.getmembers():
-            relative = _safe_tar_member_path(member.name)
-            if relative is None:
-                continue
-            target = destination / relative
-            if member.isdir():
-                _safe_mkdir(destination, target)
-                if member.mode:
-                    os.chmod(target, _safe_tar_member_mode(member.mode))
-                continue
-            if not member.isfile():
-                raise CelestoError(f"Refusing unsupported tar entry: {member.name}")
-            parent = target.parent
-            _safe_mkdir(destination, parent)
-            _reject_symlink_path(destination, target)
-            source = archive.extractfile(member)
-            if source is None:
-                raise CelestoError(f"Tar entry has no data: {member.name}")
-            target.write_bytes(source.read())
+    try:
+        # The first header is parsed here; a bad extended-header value in it is
+        # a bare ValueError rather than a TarError.
+        archive = tarfile.open(fileobj=io.BytesIO(data), mode="r:")  # noqa: SIM115
+    except (tarfile.TarError, ValueError) as exc:
+        raise CelestoError(
+            "Directory download from the computer is not a plain tar archive, so it was not "
+            "extracted."
+        ) from exc
+    try:
+        with archive:
+            members = _tar_members(archive, data)
+            _extract_tar_members(
+                archive,
+                members,
+                destination,
+                max_member_bytes=max_member_bytes,
+                max_total_bytes=max_total_bytes,
+            )
+    except tarfile.TarError as exc:
+        raise CelestoError(
+            "Directory download from the computer ended before all of its data arrived, so "
+            "it was not fully extracted."
+        ) from exc
+
+
+def _tar_members(archive: tarfile.TarFile, data: bytes) -> list[tarfile.TarInfo]:
+    """List the archive's members, refusing anything the guest agent never emits.
+
+    ``tarfile`` stops quietly at a damaged header after the first member and
+    reports what it read so far as the whole archive, so the end-of-archive
+    marker is checked explicitly. Global extended headers are refused because
+    they rewrite later members' sizes after the data layout was fixed.
+    """
+    try:
+        members = archive.getmembers()
+    except ValueError as exc:
+        # Extended-header values that fail to parse surface as a bare ValueError.
+        raise CelestoError(
+            "Directory download from the computer is not a plain tar archive, so it was not "
+            "extracted."
+        ) from exc
+    if archive.pax_headers:
+        raise CelestoError(
+            "Directory download from the computer uses extended headers it should not "
+            "contain, so it was not extracted."
+        )
+    trailer = data[archive.offset :]
+    if len(trailer) < 2 * tarfile.BLOCKSIZE or trailer.strip(b"\0"):
+        raise CelestoError(
+            "Directory download from the computer is damaged, so it was not extracted."
+        )
+    return members
+
+
+def _extract_tar_members(
+    archive: tarfile.TarFile,
+    members: list[tarfile.TarInfo],
+    destination: Path,
+    *,
+    max_member_bytes: int,
+    max_total_bytes: int,
+) -> None:
+    extracted_total = 0
+    directory_modes: list[tuple[Path, int]] = []
+    for member in members:
+        relative = _safe_tar_member_path(member.name)
+        if relative is None:
+            continue
+        target = destination / relative
+        if member.isdir():
+            _safe_mkdir(destination, target)
             if member.mode:
-                os.chmod(target, _safe_tar_member_mode(member.mode))
+                # Applied after the loop so a read-only folder does not block its children.
+                directory_modes.append((target, _safe_tar_member_mode(member.mode)))
+            continue
+        if member.issparse():
+            raise CelestoError(f"Refusing sparse tar entry: {member.name}")
+        if not member.isfile():
+            raise CelestoError(f"Refusing unsupported tar entry: {member.name}")
+        if member.size < 0:
+            raise CelestoError(f"Refusing tar entry '{member.name}': its size is negative.")
+        if member.size > max_member_bytes:
+            raise CelestoError(
+                f"Refusing tar entry '{member.name}': it is {member.size} bytes, "
+                f"but one file may be at most {max_member_bytes} bytes."
+            )
+        extracted_total += member.size
+        if extracted_total > max_total_bytes:
+            raise CelestoError(
+                f"Refusing to extract more than {max_total_bytes} bytes from the "
+                "directory download."
+            )
+        parent = target.parent
+        _safe_mkdir(destination, parent)
+        _reject_symlink_path(destination, target)
+        if target.exists() and not target.is_file():
+            raise CelestoError(
+                f"Refusing tar entry '{member.name}': the archive already created a "
+                "folder with that name."
+            )
+        source = archive.extractfile(member)
+        if source is None:
+            raise CelestoError(f"Tar entry has no data: {member.name}")
+        # Created owner-only first so a private file is never briefly world-readable.
+        with source, open(target, "wb", opener=_open_private) as handle:
+            shutil.copyfileobj(source, handle, _TAR_EXTRACT_CHUNK_BYTES)
+        if member.mode:
+            os.chmod(target, _safe_tar_member_mode(member.mode))
+    for directory, mode in reversed(directory_modes):
+        os.chmod(directory, mode)
+
+
+def _open_private(path: str, flags: int) -> int:
+    return os.open(path, flags, 0o600)
 
 
 def _safe_tar_member_path(name: str) -> Path | None:
+    if "\0" in name:
+        raise CelestoError("Refusing tar entry whose name contains a NUL byte.")
     if name.startswith(("/", "\\")):
         raise CelestoError(f"Refusing absolute tar entry: {name}")
     parts: list[str] = []
@@ -450,6 +563,11 @@ def _safe_mkdir(root: Path, target: Path) -> None:
         cursor = cursor / part
         if cursor.is_symlink():
             raise CelestoError(f"Refusing tar extraction through symlink: {cursor}")
+        if cursor.exists() and not cursor.is_dir():
+            raise CelestoError(
+                f"Refusing tar entry '{relative.as_posix()}': the archive already created a "
+                f"file at '{cursor.relative_to(root).as_posix()}'."
+            )
         cursor.mkdir(exist_ok=True)
 
 
@@ -948,12 +1066,18 @@ class RustHttpVsockChannel:
         destination = Path(local_path)
         destination.mkdir(parents=True, exist_ok=True)
         query = urllib.parse.urlencode({"path": remote_path})
+        tar_limit = self._limit_bytes("max_tar_size_bytes", _DEFAULT_MAX_TAR_SIZE_BYTES)
         _resp, data = self._request_bytes(
             "GET",
             f"/directories/tar?{query}",
-            max_bytes=self._limit_bytes("max_tar_size_bytes", _DEFAULT_MAX_TAR_SIZE_BYTES),
+            max_bytes=tar_limit,
         )
-        _safe_extract_tar(data, destination)
+        _safe_extract_tar(
+            data,
+            destination,
+            max_member_bytes=tar_limit,
+            max_total_bytes=tar_limit,
+        )
         return destination
 
     def set_managed_env(self, env_vars: dict[str, str], *, merge: bool = True) -> dict[str, str]:
