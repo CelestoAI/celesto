@@ -146,7 +146,7 @@ class BaseKernel(BaseModel):
 # upload step instead of silently swapping bytes under the existing
 # pins. Re-bakes against the same tag must opt in via the
 # ``force_overwrite`` workflow_dispatch input.
-IMAGES_RELEASE_TAG = "images-2026.10.03.0"
+IMAGES_RELEASE_TAG = "images-2026.10.25.0"
 
 
 def _images_release_tag() -> str:
@@ -361,7 +361,7 @@ def is_preset_published(
     don't appear in the manifest just return ``False``.
     """
     catalog = MANIFEST if manifest is None else manifest
-    return (preset, arch, vmm, os) in catalog  # type: ignore[comparison-overlap]
+    return (preset, arch, vmm, os) in catalog
 
 
 def to_image_source(entry: PublishedImage, version: str = __version__) -> ImageSource:
