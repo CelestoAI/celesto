@@ -51,6 +51,18 @@ def validate_network_policy_options(
             "Network restrictions require private networking; "
             "set network_attachment={'mode': 'nat'} on VMConfig."
         )
+    if settings.mode == "public":
+        if has_mounts or has_forwards:
+            raise ValidationError(
+                "The public network mode cannot use shared folders or exposed ports; "
+                "omit mounts and port_forwards (workspace_mounts on VMConfig)."
+            )
+        if backend != "qemu" or qemu_network != "slirp" or sys.platform not in {"linux", "darwin"}:
+            raise ValidationError(
+                "The public network mode requires QEMU on macOS or Linux; "
+                "set backend='qemu' and network='slirp'."
+            )
+        return
     if settings.has_explicit_restrictions:
         if backend == "qemu":
             help_text = f" See '{recovery_command or 'celesto computer create --help'}'."

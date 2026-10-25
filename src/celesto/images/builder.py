@@ -39,7 +39,6 @@ from celesto.exceptions import CelestoError, ImageError
 from celesto.images.boot import BootImage, DirectKernelBoot
 from celesto.images.manager import resolve_image_dir
 from celesto.kernels import KernelArch, ensure_base_kernel_for_backend
-from celesto.presets.openclaw import OPENCLAW_NODE_VERSION, OPENCLAW_VERSION
 from celesto.runtime.backends import resolve_backend
 from celesto.runtime.boot_profiles import (
     KernelBootProfile,
@@ -53,11 +52,6 @@ logger = logging.getLogger(__name__)
 # Default boot args that include init=/init for our custom init script
 SSH_BOOT_ARGS = "console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw init=/init"
 
-# Boot args for OpenClaw VMs — 8250.nr_uarts=0 disables serial UART to avoid
-# vCPU exits on /dev/ttyS0 writes, which become a measurable host CPU tax at
-# 200+ VMs.  No console= since we don't need serial output in production.
-OPENCLAW_BOOT_ARGS = "reboot=k panic=1 pci=off init=/init 8250.nr_uarts=0"
-
 LOOPFS_HELPER_PATH = Path("/var/lib/celesto/libexec/celesto-loopfs-helper")
 LEGACY_LOOPFS_HELPER_PATH = Path("/usr/local/libexec/celesto-loopfs-helper")
 
@@ -69,8 +63,8 @@ _GUEST_AGENT_CRATE_DIR = _REPO_ROOT / "guest-agent"
 _GUEST_AGENT_BUILD_FILE = "celesto-guest-agent"
 _GUEST_AGENT_GUEST_PATH = "/usr/local/bin/celesto-guest-agent"
 _GUEST_AGENT_RELEASE_SHA256: dict[str, str] = {
-    "amd64": "c1bcaeef648a99e1770833be9f0c83abcacd44e6c8f2a8ecaf2d18eb25e74d1f",
-    "arm64": "ba2d39760c1ab305667c636b42815b3f7897ca4c29ce1c894936b89204e5f277",
+    "amd64": "0d49151277d29dedcb9514aa9c2859f6741bc4559aa1be236138b1be849bf865",
+    "arm64": "2b973307e1362d16d6debf96e844bec5239cc76ba9949e3dfb6201e42e932bd1",
 }
 
 
@@ -1003,7 +997,7 @@ class ThreadingServer(socketserver.ThreadingTCPServer):
     daemon_threads = True
 
 
-with ThreadingServer(("0.0.0.0", listen_port), ProxyHandler) as server:
+with ThreadingServer(("127.0.0.1", listen_port), ProxyHandler) as server:
     server.serve_forever()
 PY
     echo $! >"${RUNTIME_DIR}/cdp-proxy.pid"
@@ -1037,11 +1031,11 @@ start_live_stack() {
         echo $! >"${RUNTIME_DIR}/tint2.pid"
     fi
 
-    nohup x11vnc -display :99 -nopw -forever -shared -rfbport 5900 \
+    nohup x11vnc -display :99 -localhost -nopw -forever -shared -rfbport 5900 \
         >"${LOG_DIR}/x11vnc.log" 2>&1 &
     echo $! >"${RUNTIME_DIR}/x11vnc.pid"
 
-    nohup websockify --web="${NOVNC_WEB_ROOT}" "${live_port}" 127.0.0.1:5900 \
+    nohup websockify --web="${NOVNC_WEB_ROOT}" "127.0.0.1:${live_port}" 127.0.0.1:5900 \
         >"${LOG_DIR}/websockify.log" 2>&1 &
     echo $! >"${RUNTIME_DIR}/websockify.pid"
 
@@ -1279,7 +1273,7 @@ async function main() {
   if (Buffer.byteLength(source) > 20000) {
     throw new Error("Playwright program exceeds 20,000 bytes.");
   }
-  const browser = await chromium.connectOverCDP("http://127.0.0.1:9222");
+  const browser = await chromium.connectOverCDP("http://127.0.0.1:9223");
   const context = browser.contexts()[0];
   if (!context) throw new Error("Browser context is unavailable.");
   const pages = context.pages();
@@ -1410,6 +1404,13 @@ COPY init /init
 RUN chmod +x /init
 """
 
+        connections_helper = (
+            "ACCESS_SOURCE = "
+            + repr(Path(__file__).with_name("guest_access.py").read_text())
+            + "\n"
+            + Path(__file__).with_name("guest_connections.py").read_text()
+        )
+
         # ssh_public_key is intentionally not in the fingerprint and not baked
         # into the rootfs — see VMConfig.ssh_public_key + /init parser.
         _ = key_value
@@ -1424,9 +1425,7 @@ RUN chmod +x /init
                 "_browser_session_sha256": hashlib.sha256(browser_session_sh.encode()).hexdigest(),
                 "_wait_port_sha256": hashlib.sha256(wait_port_py.encode()).hexdigest(),
                 "_browser_runner_sha256": hashlib.sha256(browser_runner_js.encode()).hexdigest(),
-                "_connections_sha256": hashlib.sha256(
-                    Path(__file__).with_name("guest_connections.py").read_bytes()
-                ).hexdigest(),
+                "_connections_sha256": hashlib.sha256(connections_helper.encode()).hexdigest(),
             },
             dockerfile_content,
             init_script,
@@ -1459,181 +1458,10 @@ RUN chmod +x /init
                     "celesto-browser-session": browser_session_sh,
                     "celesto-browser-wait-port": wait_port_py,
                     "celesto-browser-runner": browser_runner_js,
-                    "celesto-computer-connections.py": Path(__file__)
-                    .with_name("guest_connections.py")
-                    .read_text(),
+                    "celesto-computer-connections.py": connections_helper,
                     **({"computer-menu.xml": computer_menu_xml} if desktop else {}),
                 },
                 kernel_url=resolved_kernel_url,
-                fingerprint_data=fingerprint_data,
-            )
-        except (subprocess.CalledProcessError, ImageError) as e:
-            if rootfs_path.exists():
-                rootfs_path.unlink()
-            if kernel_path.exists():
-                kernel_path.unlink()
-            if isinstance(e, ImageError):
-                raise
-            raise ImageError(f"Image build failed: {e}") from e
-
-        logger.info("Image '%s' built successfully at %s", name, image_dir)
-        return (kernel_path, rootfs_path)
-
-    def build_openclaw_rootfs(
-        self,
-        name: str = "openclaw",
-        ssh_public_key: str | Path | None = None,
-        rootfs_size_mb: int = 2048,
-        kernel_url: str | None = None,
-        extra_packages: list[str] | None = None,
-    ) -> tuple[Path, Path]:
-        """Build an OpenClaw rootfs with a supported Node.js runtime.
-
-        The resulting image contains:
-
-        - Node.js 24.15.0 (``node:24.15.0-bookworm-slim`` base)
-        - OpenClaw pre-installed at ``/opt/openclaw/`` (symlinked to ``/usr/local/bin/openclaw``)
-        - SSH server for ``vm.run()`` management commands
-        - Custom ``/init`` that boots networking and sshd
-        - Custom system packages like `git` (for npm source dependencies)
-
-        Boot the resulting VM with :data:`OPENCLAW_BOOT_ARGS`.
-
-        Args:
-            name: Image name for caching.
-            ssh_public_key: Public key content or path to a public key file.
-            rootfs_size_mb: Size of rootfs in MB (default: 2048).
-            kernel_url: Optional kernel URL override.
-            extra_packages: List of apt packages to install (defaults to ['git']).
-
-        Returns:
-            Tuple of (kernel_path, rootfs_path).
-
-        Raises:
-            ImageError: If Docker is not available or build fails.
-        """
-        if not self.check_docker():
-            raise self.docker_requirement_error()
-
-        if extra_packages is None:
-            extra_packages = ["git"]
-
-        # Validate package names to prevent Dockerfile string-interpolation injection
-        valid_pkg_regex = re.compile(r"^[a-z0-9\.\+\-]+$")
-        for pkg in extra_packages:
-            if not valid_pkg_regex.match(pkg):
-                raise ImageError(f"Invalid package name requested for installation: '{pkg}'")
-
-        if ssh_public_key is None:
-            key_path = Path.home() / ".celesto" / "keys" / "id_ed25519.pub"
-            try:
-                key_value = key_path.read_text().strip()
-            except OSError:
-                key_value = ""
-        else:
-            key_value = self._resolve_public_key(ssh_public_key)
-
-        image_dir = self.cache_dir / name
-        kernel_path = image_dir / "vmlinux.bin"
-        rootfs_path = image_dir / "rootfs.ext4"
-
-        packages_str = " ".join(extra_packages)
-
-        init_script = self._openclaw_init_script()
-
-        dockerfile_content = f"""
-FROM node:{".".join(str(part) for part in OPENCLAW_NODE_VERSION)}-bookworm-slim
-
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN apt-get update && apt-get install -y --no-install-recommends \\
-    openssh-server \\
-    iproute2 \\
-    curl \\
-    bash \\
-    ca-certificates \\
-    {packages_str} \\
-    && rm -rf /var/lib/apt/lists/*
-
-# Host keys generated at first boot in /init so each VM has unique identity.
-# 'rm -f' purges keys planted by the openssh-server postinst on Debian.
-RUN rm -f /etc/ssh/ssh_host_* && \\
-    mkdir -p /run/sshd /root/.ssh && chmod 700 /root/.ssh && \\
-    sed -ri 's/^#?PermitRootLogin .*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config && \\
-    sed -ri 's/^#?PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config && \\
-    sed -ri 's/^#?PubkeyAuthentication .*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
-
-# Prepare OpenClaw directories and workspace. Celesto attaches as root, so the
-# CLI, copied configuration, and dashboard gateway share one state directory.
-RUN mkdir -p /opt/openclaw /root/.openclaw /workspace
-
-WORKDIR /opt/openclaw
-RUN npm init -y && \\
-    npm_version=$(npm --version) && \\
-    npm_major=${{npm_version%%.*}} && \\
-    npm_rest=${{npm_version#*.}} && \\
-    npm_minor=${{npm_rest%%.*}} && \\
-    npm_lifecycle_arg="" && \\
-    if [ "$npm_major" -ge 12 ] || {{ [ "$npm_major" -eq 11 ] && [ "$npm_minor" -ge 16 ]; }}; \\
-        then npm_lifecycle_arg="--allow-scripts=openclaw"; fi && \\
-    npm --prefix /opt/openclaw install -g $npm_lifecycle_arg openclaw@{OPENCLAW_VERSION} && \\
-    ln -sf /opt/openclaw/bin/openclaw /usr/local/bin/openclaw && \\
-    openclaw --version | grep -F {OPENCLAW_VERSION} && \\
-    npm cache clean --force >/dev/null 2>&1
-
-# Strip @node-llama-cpp GPU and non-host-arch backends. Inside Firecracker
-# there is no GPU passthrough, so the CUDA/Vulkan binaries are dead weight
-# (~600+ MiB on amd64). On arm64 only the matching arch package exists, so
-# the rm calls are no-ops there. The path reflects npm's `-g --prefix`
-# layout: /opt/openclaw/lib/node_modules/openclaw/node_modules/...
-RUN rm -rf \\
-    /opt/openclaw/lib/node_modules/openclaw/node_modules/@node-llama-cpp/linux-x64-cuda \\
-    /opt/openclaw/lib/node_modules/openclaw/node_modules/@node-llama-cpp/linux-x64-cuda-ext \\
-    /opt/openclaw/lib/node_modules/openclaw/node_modules/@node-llama-cpp/linux-x64-vulkan \\
-    /opt/openclaw/lib/node_modules/openclaw/node_modules/@node-llama-cpp/linux-armv7l
-
-# Init script
-COPY init /init
-RUN chmod +x /init
-"""
-
-        # ssh_public_key is intentionally not in the fingerprint and not baked
-        # into the rootfs — see VMConfig.ssh_public_key + /init parser.
-        _ = key_value
-        fingerprint_data = self._fingerprint_with_content(
-            {
-                "rootfs_size_mb": rootfs_size_mb,
-                "kernel_url": kernel_url,
-                "extra_packages": extra_packages,
-            },
-            dockerfile_content,
-            init_script,
-        )
-
-        if kernel_path.exists() and rootfs_path.exists():
-            if self._check_fingerprint(image_dir, fingerprint_data):
-                logger.info(
-                    "Image '%s' already exists and fingerprint matches at %s", name, image_dir
-                )
-                return (kernel_path, rootfs_path)
-
-            logger.info("Inputs changed for OpenClaw image '%s'. Rebuilding...", name)
-            kernel_path.unlink(missing_ok=True)
-            rootfs_path.unlink(missing_ok=True)
-
-        logger.info("Building OpenClaw image '%s' with extra packages: %s...", name, packages_str)
-        image_dir.mkdir(parents=True, exist_ok=True)
-
-        try:
-            self._do_build(
-                name,
-                dockerfile_content,
-                init_script,
-                image_dir,
-                kernel_path,
-                rootfs_path,
-                rootfs_size_mb,
-                kernel_url=kernel_url,
                 fingerprint_data=fingerprint_data,
             )
         except (subprocess.CalledProcessError, ImageError) as e:
@@ -1905,6 +1733,14 @@ if ! ls /etc/ssh/ssh_host_*_key >/dev/null 2>&1; then
     ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N "" -q 2>/dev/null
 fi
 log_ts "ssh-hostkey-check-done"
+# Publish only the public identity through the local boot console before SSH.
+for HOSTKEY in /etc/ssh/ssh_host_ed25519_key.pub \\
+    /etc/ssh/ssh_host_ecdsa_key.pub /etc/ssh/ssh_host_rsa_key.pub; do
+    if [ -s "$HOSTKEY" ]; then
+        awk '{{print "CELESTO_SSH_HOST_KEY " $1 " " $2; exit}}' "$HOSTKEY"
+        break
+    fi
+done
 
 # Pull authorized_keys from the kernel cmdline if the host injected one.
 # Format: celesto.authorized_key_b64=<base64-of-the-pubkey-line>. The legacy
@@ -1951,16 +1787,14 @@ done
         """Default PID 1 init script used by SSH-capable images."""
         return self._base_init_script()
 
-    def _openclaw_init_script(self) -> str:
-        """PID 1 init script for OpenClaw images.
-
-        OpenClaw 2.0 owns browser pairing in SQLite, so the image only needs
-        the shared Celesto init behavior and an identifiable hostname.
-        """
-        return self._base_init_script(custom_hostname="openclaw")
-
     def _loopfs_helper_path(self) -> Path | None:
-        """Return the preferred or legacy privileged helper when executable."""
+        """Use loop mounts only in a trusted root process; otherwise use Docker."""
+        if (
+            os.geteuid() != 0
+            or os.environ.get("SUDO_UID", "0") != "0"
+            or os.environ.get("SUDO_USER", "root") != "root"
+        ):
+            return None
         for candidate in (LOOPFS_HELPER_PATH, LEGACY_LOOPFS_HELPER_PATH):
             if candidate.is_file() and os.access(candidate, os.X_OK):
                 return candidate
@@ -2020,7 +1854,9 @@ done
         """
         from celesto.images.published import BASE_KERNELS
 
-        celesto_arch = "amd64" if self._host_arch_key() == "x86_64" else "arm64"
+        celesto_arch: typing.Literal["amd64", "arm64"] = (
+            "amd64" if self._host_arch_key() == "x86_64" else "arm64"
+        )
         return BASE_KERNELS[celesto_arch].image_url
 
     def _resolve_kernel_url(
@@ -2039,7 +1875,9 @@ done
             return kernel_url
         from celesto.images.published import BASE_KERNELS
 
-        celesto_arch = "amd64" if self._host_arch_key() == "x86_64" else "arm64"
+        celesto_arch: typing.Literal["amd64", "arm64"] = (
+            "amd64" if self._host_arch_key() == "x86_64" else "arm64"
+        )
         return BASE_KERNELS[celesto_arch].elf_url
 
     def _fingerprint_with_content(
@@ -2129,6 +1967,8 @@ done
         tmpdir: Path,
     ) -> None:
         """Create and populate ext4 rootfs via loopfs helper (Linux path)."""
+        if type(rootfs_size_mb) is not int or rootfs_size_mb <= 0:
+            raise ValueError("rootfs_size_mb must be a positive integer")
         logger.info("  [3/4] Creating ext4 filesystem (%dMB)...", rootfs_size_mb)
         subprocess.run(
             ["dd", "if=/dev/zero", f"of={rootfs_path}", "bs=1M", f"count={rootfs_size_mb}"],
@@ -2182,6 +2022,8 @@ done
         This path avoids Linux loop mounts and works on macOS where
         ``mkfs.ext4`` and loop devices are typically unavailable.
         """
+        if type(rootfs_size_mb) is not int or rootfs_size_mb <= 0:
+            raise ValueError("rootfs_size_mb must be a positive integer")
         logger.info("  [3/4] Creating ext4 filesystem via Docker helper (%dMB)...", rootfs_size_mb)
 
         # Validate tar member paths up-front so a malicious docker export
@@ -2257,6 +2099,8 @@ done
         fingerprint_data: dict[str, typing.Any] | None = None,
     ) -> None:
         """Execute the Docker build and image conversion."""
+        if type(rootfs_size_mb) is not int or rootfs_size_mb <= 0:
+            raise ValueError("rootfs_size_mb must be a positive integer")
         docker_tag = f"celesto-{name}"
         # Bake the guest agent into every image. Centralized here so all five
         # build_* recipes inherit it without each repeating the COPY; /init
@@ -2434,16 +2278,18 @@ class DockerRootfsBuilder:
             arch=resolved_arch,
             cache_dir=self.cache_dir,
         )
-        return BootImage(
-            name=self.name,
-            rootfs_path=rootfs_path,
-            rootfs_format="raw-ext4",
-            kernel_path=kernel_path,
-            boot=boot,
-            boot_args=boot_args,
-            backend=resolved_backend,
-            arch=resolved_arch,
-            ssh_capable=self.ssh_capable,
+        return BootImage.model_validate(
+            {
+                "name": self.name,
+                "rootfs_path": rootfs_path,
+                "rootfs_format": "raw-ext4",
+                "kernel_path": kernel_path,
+                "boot": boot,
+                "boot_args": boot_args,
+                "backend": resolved_backend,
+                "arch": resolved_arch,
+                "ssh_capable": self.ssh_capable,
+            }
         )
 
     def ensure(
@@ -2525,7 +2371,7 @@ class DockerRootfsBuilder:
             cached_data = json.loads(metadata_path.read_text())
         except (OSError, json.JSONDecodeError):
             return False
-        return cached_data == expected_data
+        return bool(cached_data == expected_data)
 
     def _build_rootfs(
         self,

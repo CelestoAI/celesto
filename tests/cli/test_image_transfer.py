@@ -21,6 +21,7 @@ import io
 import json
 import os
 import tarfile
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -55,7 +56,7 @@ def _make_published_entry(
 
 
 def _write_archive(
-    path: Path, manifest: dict[str, Any], members: list[tarfile.TarInfo | tuple[str, bytes]]
+    path: Path, manifest: dict[str, Any], members: Sequence[tarfile.TarInfo | tuple[str, bytes]]
 ) -> None:
     with tarfile.open(path, "w") as tar:
         blob = json.dumps(manifest).encode()
@@ -76,20 +77,20 @@ class TestSaveLoadRoundTrip:
     def test_published_entry_round_trips(
         self,
         tmp_path: Path,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
         sparse_test_config: tuple[int, bool],
     ) -> None:
         hole_bytes, supports_sparse_allocation = sparse_test_config
         src = tmp_path / "src"
         entry = _make_published_entry(
             src,
-            "codex-v0.0.1-amd64-firecracker",
+            "ubuntu-v0.0.1-amd64-firecracker",
             hole_bytes=hole_bytes,
         )
-        archive = tmp_path / "codex.tar"
+        archive = tmp_path / "ubuntu.tar"
 
         ret = main(
-            ["image", "save", "codex", "--image-dir", str(src), "-o", str(archive), "--json"]
+            ["image", "save", "ubuntu", "--image-dir", str(src), "-o", str(archive), "--json"]
         )
         assert ret == 0
         payload = json.loads(capsys.readouterr().out)
@@ -110,7 +111,7 @@ class TestSaveLoadRoundTrip:
         payload = json.loads(capsys.readouterr().out)
         assert payload["command"] == "image.load"
 
-        loaded = dest / "codex-v0.0.1-amd64-firecracker"
+        loaded = dest / "ubuntu-v0.0.1-amd64-firecracker"
         assert sorted(p.name for p in loaded.iterdir()) == [
             "rootfs.ext4",
             "rootfs.ext4.from-sha256",
@@ -131,7 +132,9 @@ class TestSaveLoadRoundTrip:
         if supports_sparse_allocation:
             assert st.st_blocks * 512 < st.st_size
 
-    def test_custom_entry_round_trips(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    def test_custom_entry_round_trips(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         src = tmp_path / "src"
         fp = src / "custom" / "myimg" / "abc123def4567890"
         fp.mkdir(parents=True)
@@ -168,12 +171,12 @@ class TestSaveLoadRoundTrip:
         assert json.loads((loaded / "metadata.json").read_text())["arch"] == "amd64"
 
     def test_load_refuses_overwrite_without_force(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         src = tmp_path / "src"
-        _make_published_entry(src, "codex-v0.0.1-amd64-firecracker")
-        archive = tmp_path / "codex.tar"
-        assert main(["image", "save", "codex", "--image-dir", str(src), "-o", str(archive)]) == 0
+        _make_published_entry(src, "ubuntu-v0.0.1-amd64-firecracker")
+        archive = tmp_path / "ubuntu.tar"
+        assert main(["image", "save", "ubuntu", "--image-dir", str(src), "-o", str(archive)]) == 0
         capsys.readouterr()
 
         dest = tmp_path / "dest"
@@ -191,17 +194,17 @@ class TestSaveLoadRoundTrip:
         assert ret == 0
 
     def test_save_ambiguous_preset_lists_options(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         src = tmp_path / "src"
-        _make_published_entry(src, "codex-v0.0.1-amd64-firecracker")
-        _make_published_entry(src, "codex-v0.0.2-amd64-qemu")
+        _make_published_entry(src, "ubuntu-v0.0.1-amd64-firecracker")
+        _make_published_entry(src, "ubuntu-v0.0.2-amd64-qemu")
 
         ret = main(
             [
                 "image",
                 "save",
-                "codex",
+                "ubuntu",
                 "--image-dir",
                 str(src),
                 "-o",
@@ -211,13 +214,13 @@ class TestSaveLoadRoundTrip:
         )
         assert ret == 2
         payload = json.loads(capsys.readouterr().out)
-        assert "codex-v0.0.1-amd64-firecracker" in payload["error"]["message"]
-        assert "codex-v0.0.2-amd64-qemu" in payload["error"]["message"]
+        assert "ubuntu-v0.0.1-amd64-firecracker" in payload["error"]["message"]
+        assert "ubuntu-v0.0.2-amd64-qemu" in payload["error"]["message"]
 
 
 class TestLoadRejectsMaliciousArchives:
     def _assert_rejected(
-        self, archive: Path, dest: Path, capsys: pytest.CaptureFixture
+        self, archive: Path, dest: Path, capsys: pytest.CaptureFixture[str]
     ) -> dict[str, Any]:
         ret = main(["image", "load", "-i", str(archive), "--image-dir", str(dest), "--json"])
         assert ret == 2
@@ -228,7 +231,7 @@ class TestLoadRejectsMaliciousArchives:
         return dict(payload)
 
     def test_traversal_path_in_manifest(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         archive = tmp_path / "evil.tar"
         _write_archive(
@@ -244,7 +247,7 @@ class TestLoadRejectsMaliciousArchives:
         self._assert_rejected(archive, tmp_path / "dest", capsys)
         assert not (tmp_path / "escape").exists()
 
-    def test_absolute_member_name(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    def test_absolute_member_name(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
         archive = tmp_path / "evil.tar"
         _write_archive(
             archive,
@@ -258,7 +261,9 @@ class TestLoadRejectsMaliciousArchives:
         )
         self._assert_rejected(archive, tmp_path / "dest", capsys)
 
-    def test_symlink_member_rejected(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    def test_symlink_member_rejected(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         archive = tmp_path / "evil.tar"
         link = tarfile.TarInfo("files/link")
         link.type = tarfile.SYMTYPE
@@ -276,7 +281,7 @@ class TestLoadRejectsMaliciousArchives:
         self._assert_rejected(archive, tmp_path / "dest", capsys)
 
     def test_undeclared_member_rejected(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         archive = tmp_path / "evil.tar"
         _write_archive(
@@ -286,7 +291,9 @@ class TestLoadRejectsMaliciousArchives:
         )
         self._assert_rejected(archive, tmp_path / "dest", capsys)
 
-    def test_bad_entry_name_rejected(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    def test_bad_entry_name_rejected(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         archive = tmp_path / "evil.tar"
         _write_archive(
             archive,
@@ -295,7 +302,9 @@ class TestLoadRejectsMaliciousArchives:
         )
         self._assert_rejected(archive, tmp_path / "dest", capsys)
 
-    def test_newer_schema_names_update(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    def test_newer_schema_names_update(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         archive = tmp_path / "future.tar"
         _write_archive(
             archive,
@@ -309,7 +318,7 @@ class TestLoadRejectsMaliciousArchives:
         payload = json.loads(capsys.readouterr().out)
         assert "celesto update" in payload["error"]["recovery"]
 
-    def test_not_a_tar(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    def test_not_a_tar(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
         bogus = tmp_path / "bogus.tar"
         bogus.write_bytes(b"not a tar at all")
 
@@ -323,7 +332,7 @@ class TestLoadRejectsMaliciousArchives:
 
 class TestArchiveRobustness:
     def test_sibling_zst_pair_round_trips(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """x and x.zst in one entry must both survive (regression: member
         name collision silently dropped one)."""
@@ -350,7 +359,7 @@ class TestArchiveRobustness:
         assert (loaded / "data.txt.zst").read_bytes() == zstandard.compress(b"compressed")
 
     def test_zstd_encoded_zst_member_is_rejected(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """.zst files always travel raw; a re-compressed rootfs.ext4.zst
         would install bytes whose digest differs from what the manifest and
@@ -384,20 +393,20 @@ class TestArchiveRobustness:
         assert not (dest / "oddball").exists()
 
     def test_save_skips_build_temp_artifacts(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Dot-prefixed lock files and builders' in-progress artifacts must
         not travel; archiving them would install a half-written rootfs on
         the target machine."""
         src = tmp_path / "src"
-        entry = _make_published_entry(src, "codex-v0.0.1-amd64-firecracker")
+        entry = _make_published_entry(src, "ubuntu-v0.0.1-amd64-firecracker")
         (entry / ".rootfs.tmp.ext4").write_bytes(b"half-written")
         context_dir = entry / ".build-abc123"
         context_dir.mkdir()
         (context_dir / "Dockerfile").write_text("FROM scratch")
-        archive = tmp_path / "codex.tar"
+        archive = tmp_path / "ubuntu.tar"
 
-        assert main(["image", "save", "codex", "--image-dir", str(src), "-o", str(archive)]) == 0
+        assert main(["image", "save", "ubuntu", "--image-dir", str(src), "-o", str(archive)]) == 0
         capsys.readouterr()
 
         with tarfile.open(archive) as tar:
@@ -406,19 +415,19 @@ class TestArchiveRobustness:
         assert not any(".rootfs.tmp.ext4" in n or ".build-abc123" in n for n in names)
 
     def test_save_reports_busy_while_entry_is_being_built(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """While a builder holds the entry's build lock, save must fail
         with a clear message instead of archiving a mix of two builds."""
         fcntl = pytest.importorskip("fcntl")
         src = tmp_path / "src"
-        entry = _make_published_entry(src, "codex-v0.0.1-amd64-firecracker")
-        archive = tmp_path / "codex.tar"
+        entry = _make_published_entry(src, "ubuntu-v0.0.1-amd64-firecracker")
+        archive = tmp_path / "ubuntu.tar"
 
         with (entry / ".build.lock").open("w") as lock:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
             ret = main(
-                ["image", "save", "codex", "--image-dir", str(src), "-o", str(archive), "--json"]
+                ["image", "save", "ubuntu", "--image-dir", str(src), "-o", str(archive), "--json"]
             )
 
         assert ret == 1
@@ -428,17 +437,17 @@ class TestArchiveRobustness:
         assert not archive.exists()
 
     def test_raw_zst_member_keeps_source_metadata(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Raw members are streamed from an open fd; the tar header must
         still carry the source file's mtime, like every other member."""
         src = tmp_path / "src"
-        entry = _make_published_entry(src, "codex-v0.0.1-amd64-firecracker")
+        entry = _make_published_entry(src, "ubuntu-v0.0.1-amd64-firecracker")
         stamp = 1_700_000_000
         os.utime(entry / "rootfs.ext4.zst", (stamp, stamp))
-        archive = tmp_path / "codex.tar"
+        archive = tmp_path / "ubuntu.tar"
 
-        assert main(["image", "save", "codex", "--image-dir", str(src), "-o", str(archive)]) == 0
+        assert main(["image", "save", "ubuntu", "--image-dir", str(src), "-o", str(archive)]) == 0
         capsys.readouterr()
 
         with tarfile.open(archive) as tar:
@@ -447,14 +456,14 @@ class TestArchiveRobustness:
         assert member.mtime == stamp
 
     def test_truncated_archive_gets_clean_envelope(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """A cut-off transfer must produce the error envelope, not a
         traceback (regression)."""
         src = tmp_path / "src"
-        _make_published_entry(src, "codex-v0.0.1-amd64-firecracker")
-        archive = tmp_path / "codex.tar"
-        assert main(["image", "save", "codex", "--image-dir", str(src), "-o", str(archive)]) == 0
+        _make_published_entry(src, "ubuntu-v0.0.1-amd64-firecracker")
+        archive = tmp_path / "ubuntu.tar"
+        assert main(["image", "save", "ubuntu", "--image-dir", str(src), "-o", str(archive)]) == 0
         capsys.readouterr()
         # Cut into the first member's data (small archives are mostly
         # zero padding, so a percentage cut may remove nothing real).
@@ -471,7 +480,7 @@ class TestArchiveRobustness:
         assert payload["error"]["code"] == "invalid_input"
 
     def test_archive_missing_declared_member_is_rejected(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """An archive whose manifest promises files it doesn't carry must
         not load as success (regression)."""
@@ -480,7 +489,7 @@ class TestArchiveRobustness:
             archive,
             {
                 "schema_version": 1,
-                "name": "codex-v0.0.1-amd64-firecracker",
+                "name": "ubuntu-v0.0.1-amd64-firecracker",
                 "rootfs_sidecar": None,
                 "files": [
                     {
@@ -507,9 +516,11 @@ class TestArchiveRobustness:
         assert ret == 2
         payload = json.loads(capsys.readouterr().out)
         assert "incomplete" in payload["error"]["message"]
-        assert not (tmp_path / "dest" / "codex-v0.0.1-amd64-firecracker").exists()
+        assert not (tmp_path / "dest" / "ubuntu-v0.0.1-amd64-firecracker").exists()
 
-    def test_size_mismatch_is_rejected(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    def test_size_mismatch_is_rejected(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         archive = tmp_path / "lying.tar"
         _write_archive(
             archive,
@@ -539,14 +550,14 @@ class TestArchiveRobustness:
         assert not (tmp_path / "dest" / "entry").exists()
 
     def test_load_force_replaces_symlinked_entry(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """--force onto a symlinked entry must replace the link, not crash
         (regression: rmtree refused symlinks)."""
         src = tmp_path / "src"
-        _make_published_entry(src, "codex-v0.0.1-amd64-firecracker")
-        archive = tmp_path / "codex.tar"
-        assert main(["image", "save", "codex", "--image-dir", str(src), "-o", str(archive)]) == 0
+        _make_published_entry(src, "ubuntu-v0.0.1-amd64-firecracker")
+        archive = tmp_path / "ubuntu.tar"
+        assert main(["image", "save", "ubuntu", "--image-dir", str(src), "-o", str(archive)]) == 0
         capsys.readouterr()
 
         dest = tmp_path / "dest"
@@ -554,7 +565,7 @@ class TestArchiveRobustness:
         outside = tmp_path / "outside"
         outside.mkdir()
         (outside / "keep").write_text("keep")
-        (dest / "codex-v0.0.1-amd64-firecracker").symlink_to(outside)
+        (dest / "ubuntu-v0.0.1-amd64-firecracker").symlink_to(outside)
 
         ret = main(
             ["image", "load", "-i", str(archive), "--image-dir", str(dest), "--force", "--json"]
@@ -562,21 +573,21 @@ class TestArchiveRobustness:
 
         assert ret == 0
         capsys.readouterr()
-        loaded = dest / "codex-v0.0.1-amd64-firecracker"
+        loaded = dest / "ubuntu-v0.0.1-amd64-firecracker"
         assert not loaded.is_symlink()
         assert (loaded / "vmlinux.bin").is_file()
         assert (outside / "keep").exists()
 
     def test_save_to_directory_gets_clean_envelope(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """-o pointing at a folder must error cleanly, not traceback in
         cleanup (regression)."""
         src = tmp_path / "src"
-        _make_published_entry(src, "codex-v0.0.1-amd64-firecracker")
+        _make_published_entry(src, "ubuntu-v0.0.1-amd64-firecracker")
 
         ret = main(
-            ["image", "save", "codex", "--image-dir", str(src), "-o", str(tmp_path), "--json"]
+            ["image", "save", "ubuntu", "--image-dir", str(src), "-o", str(tmp_path), "--json"]
         )
 
         assert ret == 2
@@ -585,7 +596,7 @@ class TestArchiveRobustness:
         assert "-o" in payload["error"]["message"]
 
     def test_failed_save_preserves_existing_archive(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """A failing save must never destroy a pre-existing file at -o
         (regression: cleanup unlinked it)."""
@@ -611,7 +622,7 @@ class TestArchiveRobustness:
         assert not list(archive.parent.glob("precious.tar.partial*"))
 
     def test_save_warns_about_skipped_links(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         src = tmp_path / "src"
         entry = src / "entry"
@@ -639,7 +650,7 @@ class TestArchiveRobustness:
 
 class TestUpstreamReviewRegressions:
     def test_symlinked_zst_is_treated_as_absent(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """A symlinked wire file must not produce an archive with no rootfs
         (regression: is_file() followed the link, excluding the real one)."""
@@ -670,7 +681,7 @@ class TestUpstreamReviewRegressions:
         assert (dest / "entry" / "rootfs.ext4").read_bytes() == b"decompressed"
 
     def test_corrupted_member_bytes_are_rejected(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Same-length corruption must fail the per-file digest check
         (regression: size-only validation let it load)."""
@@ -703,7 +714,7 @@ class TestUpstreamReviewRegressions:
         assert not (tmp_path / "dest" / "entry").exists()
 
     def test_manifest_without_sha256_is_rejected(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         archive = tmp_path / "nosha.tar"
         _write_archive(
@@ -754,7 +765,7 @@ class TestLoadDoesNotTrustArchiveProvenance:
         ]
 
     def test_manifest_sidecar_claim_is_ignored(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         zst = zstandard.compress(b"rootfs bytes")
         members = self._members(zst)
@@ -796,7 +807,7 @@ class TestLoadDoesNotTrustArchiveProvenance:
         ],
     )
     def test_members_save_never_emits_are_rejected(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture, extra: tuple[str, bytes]
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], extra: tuple[str, bytes]
     ) -> None:
         members = [*self._members(zstandard.compress(b"rootfs bytes")), extra]
         archive = tmp_path / "forged.tar"
@@ -815,7 +826,7 @@ class TestLoadDoesNotTrustArchiveProvenance:
         assert not dest.exists() or not any(dest.iterdir())
 
     def test_forged_archive_under_published_name_never_serves_tampered_rootfs(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """End-to-end: load a forged archive named like the published cache
         entry, then start-path resolution must boot the pinned rootfs."""
@@ -823,6 +834,7 @@ class TestLoadDoesNotTrustArchiveProvenance:
 
         from celesto import __version__
         from celesto.images.published import (
+            ManifestKey,
             PublishedImage,
             _decompressed_rootfs_sidecar_value,
             cache_name,
@@ -834,17 +846,17 @@ class TestLoadDoesNotTrustArchiveProvenance:
         kernel = b"GENUINE KERNEL " * 16
         tampered = b"TAMPERED ROOTFS " * 64
         entry = PublishedImage(
-            preset="codex",
+            preset="ubuntu",
             arch="arm64",
             vmm="qemu",
             os="ubuntu",
             kernel_url="https://example.invalid/vmlinux-arm64.image",
             kernel_sha256=hashlib.sha256(kernel).hexdigest(),
-            rootfs_url="https://example.invalid/codex-arm64-rootfs.ext4.zst",
+            rootfs_url="https://example.invalid/ubuntu-arm64-rootfs.ext4.zst",
             rootfs_sha256=hashlib.sha256(genuine_zst).hexdigest(),
         )
-        manifest = {("codex", "arm64", "qemu", "ubuntu"): entry}
-        name = cache_name("codex", "arm64", "qemu", __version__)
+        manifest: dict[ManifestKey, PublishedImage] = {("ubuntu", "arm64", "qemu", "ubuntu"): entry}
+        name = cache_name("ubuntu", "arm64", "qemu", __version__)
         members = self._members(zstandard.compress(tampered), kernel)
         archive = tmp_path / "forged.tar"
         _write_archive(
@@ -874,19 +886,19 @@ class TestLoadDoesNotTrustArchiveProvenance:
 
         with patch("celesto.images.manager.requests.get", side_effect=fake_get):
             local = ensure_published_image(
-                "codex", "arm64", "qemu", cache_dir=dest, manifest=manifest, version=__version__
+                "ubuntu", "arm64", "qemu", cache_dir=dest, manifest=manifest, version=__version__
             )
             assert downloads == [entry.kernel_url, entry.rootfs_url]
             assert local.rootfs_path.read_bytes() == genuine
             downloads.clear()
             again = ensure_published_image(
-                "codex", "arm64", "qemu", cache_dir=dest, manifest=manifest, version=__version__
+                "ubuntu", "arm64", "qemu", cache_dir=dest, manifest=manifest, version=__version__
             )
             assert downloads == []
             assert again.rootfs_path.read_bytes() == genuine
 
     def test_sidecar_member_is_discarded_not_installed(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Archives saved by older Celesto versions could carry the sidecar
         (for entries without a .zst). It is a local cache key, so load
@@ -918,7 +930,7 @@ class TestLoadDoesNotTrustArchiveProvenance:
         assert (dest / "entry" / "rootfs.ext4").read_bytes() == b"rootfs bytes"
 
     def test_case_variant_members_cannot_forge_rootfs(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """On a case-insensitive filesystem 'rootfs.ext4.ZST' lands as
         rootfs.ext4.zst, so reserved-name rules must compare case-folded
@@ -943,7 +955,7 @@ class TestLoadDoesNotTrustArchiveProvenance:
         assert not dest.exists() or not any(dest.iterdir())
 
     def test_paths_that_collide_on_case_insensitive_filesystems_are_rejected(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         members = [("files/config.json", b"a"), ("files/Config.JSON", b"b")]
         archive = tmp_path / "collide.tar"
@@ -958,7 +970,7 @@ class TestLoadDoesNotTrustArchiveProvenance:
         assert not dest.exists() or not any(dest.iterdir())
 
     def test_stray_sidecar_without_zst_is_not_saved_and_archive_loads(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         src = tmp_path / "src"
         entry = src / "entry"
@@ -985,7 +997,7 @@ class TestLoadDoesNotTrustArchiveProvenance:
         ["rootfs.ext4/x", "ROOTFS.EXT4.ZST/x", "rootfs.ext4.from-sha256/x"],
     )
     def test_directories_at_reserved_rootfs_names_are_rejected(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture, path: str
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], path: str
     ) -> None:
         """A directory planted where rootfs.ext4 or its siblings live would
         make every later start of a published image fail until the entry
@@ -1004,7 +1016,7 @@ class TestLoadDoesNotTrustArchiveProvenance:
         assert not dest.exists() or not any(dest.iterdir())
 
     def test_duplicate_tar_members_are_rejected(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         zst = zstandard.compress(b"rootfs bytes")
         members = [("files/vmlinux.bin", b"kernel"), ("files/rootfs.ext4.zst", zst)]
@@ -1021,7 +1033,7 @@ class TestLoadDoesNotTrustArchiveProvenance:
         assert not dest.exists() or not any(dest.iterdir())
 
     def test_corrupt_zstd_member_is_reported_as_damage(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """A zstd-encoded member whose bytes are not a zstd stream is a
         damaged archive, not a disk-space problem."""
@@ -1446,3 +1458,61 @@ class TestSaveAndLoadAgreeOnNames:
         assert "Could not write" in payload["error"]["message"]
         assert "\x1b" not in payload["error"]["message"]
         assert "\x1b" not in payload["error"]["recovery"]
+
+
+@pytest.mark.parametrize("name", ["CUSTOM", "Custom", "MACOS", "MacOS"])
+def test_load_rejects_case_alias_of_namespace_root(
+    tmp_path: Path, name: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    archive = tmp_path / "alias.tar"
+    root = tmp_path / "images"
+    sentinel = root / name / "keep"
+    sentinel.parent.mkdir(parents=True)
+    sentinel.write_text("existing image")
+    _write_archive(archive, {"schema_version": 1, "name": name, "files": []}, [])
+    assert (
+        main(["image", "load", "-i", str(archive), "--image-dir", str(root), "--force", "--json"])
+        == 2
+    )
+    assert sentinel.read_text() == "existing image"
+
+
+@pytest.mark.parametrize("encoding", ["raw", "zstd", "rootfs", "aggregate"])
+def test_load_enforces_expansion_budget_and_preserves_existing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    encoding: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("CELESTO_IMAGE_LOAD_MAX_BYTES", "4096")
+    monkeypatch.setenv("CELESTO_DISABLE_NATIVE_DISK", "1")
+    archive = tmp_path / "oversize.tar"
+    root = tmp_path / "images"
+    entry = root / "example"
+    entry.mkdir(parents=True)
+    (entry / "keep").write_text("old")
+    content = b"x" * (4096 if encoding == "aggregate" else 8192)
+    stored = content if encoding == "raw" else zstandard.compress(content)
+    name = "rootfs.ext4.zst" if encoding == "rootfs" else "payload"
+    meta = {
+        "path": name,
+        "encoding": "zstd" if encoding in {"zstd", "aggregate"} else "raw",
+        "size": len(stored) if encoding == "rootfs" else len(content),
+        "sha256": hashlib.sha256(stored).hexdigest(),
+    }
+    _write_archive(
+        archive,
+        {"schema_version": 1, "name": "example", "files": [meta]},
+        [(f"files/{name}", stored)],
+    )
+    result = main(
+        ["image", "load", "-i", str(archive), "--image-dir", str(root), "--force", "--json"]
+    )
+    assert result != 0
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert "budget" in error["message"]
+    assert "CELESTO_IMAGE_LOAD_MAX_BYTES" in error["recovery"]
+    assert "damaged" not in error["message"]
+    assert "corrupted" not in error["recovery"]
+    assert (entry / "keep").read_text() == "old"
+    assert sorted(p.name for p in root.iterdir()) == ["example"]

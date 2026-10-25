@@ -52,12 +52,6 @@ from celesto.images.manager import ImageManager, ImageSource, LocalImage
 
 Arch = Literal["amd64", "arm64"]
 Preset = Literal[
-    "codex",
-    "claude-code",
-    "openclaw",
-    "opencode",
-    "hermes",
-    "pi",
     "ubuntu",
     "linux-desktop",
 ]
@@ -152,7 +146,7 @@ class BaseKernel(BaseModel):
 # upload step instead of silently swapping bytes under the existing
 # pins. Re-bakes against the same tag must opt in via the
 # ``force_overwrite`` workflow_dispatch input.
-IMAGES_RELEASE_TAG = "images-2026.10.03.0"
+IMAGES_RELEASE_TAG = "images-2026.10.25.0"
 
 
 def _images_release_tag() -> str:
@@ -226,16 +220,16 @@ BASE_KERNELS: dict[Arch, BaseKernel] = {
     "amd64": BaseKernel(
         arch="amd64",
         elf_url=_release_kernel_url("amd64", "elf"),
-        elf_sha256="ba64bd017db1014cb575e9b747889c1b269e2ae8ce75a35e4988ab35ef08f69f",
+        elf_sha256="d3bdd59697458e1aa700994ccdef14f7c3594d61653840ea2917fb07fa2991be",
         image_url=_release_kernel_url("amd64", "image"),
-        image_sha256="3c7f6f392d64989016c69e3e8f350dcb0d751c3fc1c6fc06b41a7eab8d0f8c6e",
+        image_sha256="018afe8f81a05d621bc8e0400c7757a07c5a82a2c83f1bd8dc942c937b865dee",
     ),
     "arm64": BaseKernel(
         arch="arm64",
         elf_url=_release_kernel_url("arm64", "elf"),
-        elf_sha256="2a0941bbe44b241440750e44b92d8e2305e0ea9576f40dfd3c11af3b2d5d9da0",
+        elf_sha256="1b69b9b01de2917ee62343fc868863f299cf789af4eadba594b6850fe39e3dc1",
         image_url=_release_kernel_url("arm64", "image"),
-        image_sha256="4a2400fd4a3f74da3fa02fac1c28d9b33c3863ab8171cf132edf19d55a38dd6c",
+        image_sha256="8e9a859dde8280090cbc7d5cea6e2bb863dbea58edb56815f8e387a8eb4b88dc",
     ),
 }
 
@@ -274,32 +268,12 @@ def _manifest_row(
 # Rootfs SHAs from the Build Published Images run for IMAGES_RELEASE_TAG.
 # Captured by sha256sum'ing each ``<preset>-<arch>-rootfs.ext4.zst`` asset
 # on the release page. Update together when artifacts are rebuilt.
-_OPENCLAW_AMD64_ROOTFS_SHA = "65bc2e315b501d18db196cf7612a2b7efb5e6828d34934e144f6685d0e660587"
-_OPENCLAW_ARM64_ROOTFS_SHA = "b2dddd935eb13da051db35252d803f1c5a693c57d94896063648be622674487b"
-_CODEX_AMD64_ROOTFS_SHA = "9af3ef6b278671fdbc15b7a06aa7fc77a65634b1c0c5ac21682d1006a3a653fb"
-_CODEX_ARM64_ROOTFS_SHA = "6fde1df62f70c56494ddd6b068be0125454437da3cdfc6a85395cf45549a23b4"
-_CLAUDE_CODE_AMD64_ROOTFS_SHA = "76dcb3f4c8d423061345ae23a382e8de4062235b2d3e8a84df0557c12c0eba85"
-_CLAUDE_CODE_ARM64_ROOTFS_SHA = "d5b6764fd11aa398d8959022a4f974e4c86932933dd42d7957fb974d462848db"
-_HERMES_AMD64_ROOTFS_SHA = "ba1879229f998f53773fe44e9ff89808bdb53a4b3abdf022d7ecfc5bb4bf29b0"
-_HERMES_ARM64_ROOTFS_SHA = "d9effae3a42e417c410fb8c0cbb4d378431745c54955a12930e0a8e37cb85846"
-_PI_AMD64_ROOTFS_SHA = "12f2fb3b387cfee171e10d5ab780f0247d535b3ab59b2b356ebc50789aeda00f"
-_PI_ARM64_ROOTFS_SHA = "27cd7e87df39ee62c847686b560a9199cc7137a10b83f2230e81693f8bd97fa1"
 # Complete Linux desktop image used by ``Celesto.computer()``.
-_LINUX_DESKTOP_AMD64_ROOTFS_SHA = "94449263c5fde0105bc087dddc2de3b542f3d8e8008ca85e54063893e906f63a"
-_LINUX_DESKTOP_ARM64_ROOTFS_SHA = "098bbe3cc9aac154ba4838c159509e9c2ea6b41cb0163dbef61af156a7a3490b"
+_LINUX_DESKTOP_AMD64_ROOTFS_SHA = "32748a905844e4f6f4169ed7387e1a784f1ccef5cd3f6d4785363a8b7afb3a17"
+_LINUX_DESKTOP_ARM64_ROOTFS_SHA = "0bae6680a2e1eb311a80a73fea3c4dbcb90f54b7025cd2096d48ac4171bd792e"
 # Bare Ubuntu base image (no preset install) — raw-ext4, agent baked in.
-_UBUNTU_AMD64_ROOTFS_SHA = "7362d612e98f5f56f466b8df55a463d105fc892e57e530a25a1eb4f68e52eba2"
-_UBUNTU_ARM64_ROOTFS_SHA = "c47dcfeabe9282ae9e49879f8f091ac6022ec857d4895f5bfa14979a83cea3e5"
-_CODEX_AMD64_ALPINE_ROOTFS_SHA = "68c93f77a5210f9140bdeeff84d22bf6bc9fd4d43eee2470c4163605034ee5f3"
-_CODEX_ARM64_ALPINE_ROOTFS_SHA = "933766ebf35c41c34411bd4c4086c000d6880f546b07f82b4b2cc0d1237ce5cb"
-_CLAUDE_CODE_AMD64_ALPINE_ROOTFS_SHA = (
-    "47facf33c67b26a59a091b294586f422b431bd4f248321e6b490fa4217745eb0"
-)
-_CLAUDE_CODE_ARM64_ALPINE_ROOTFS_SHA = (
-    "59dcafe1f0266d03cfed69a1378e7ca741bd236b09cdf8a10c1a5b24bb2374e9"
-)
-_PI_AMD64_ALPINE_ROOTFS_SHA = "c22a32abb480bf0ba63389f255a85393432124579eef800d664e4f6e9bfe9dfc"
-_PI_ARM64_ALPINE_ROOTFS_SHA = "5523a7b3fe3fcbd9cf58f04fa122eafdb976a697df5fab82842b8e583abcf0e4"
+_UBUNTU_AMD64_ROOTFS_SHA = "bc94d71d7bf822dd4a2a60e14bbf077fa3964850ebafb4bfa032716c541fd38d"
+_UBUNTU_ARM64_ROOTFS_SHA = "7a31c1e88d0ad2d3b1fb457f56edbb9dc90c11c0a232934206949b0f73157185"
 
 
 def _preset_rows(
@@ -321,19 +295,8 @@ def _preset_rows(
     return rows
 
 
-# Alpine rows are published for codex/claude-code/pi in this release. OpenCode
-# is now built and smoke-tested by CI, but its rows must be added here only
-# after the resulting release assets have verified SHA-256 pins. Hermes is
-# excluded in CI for musllinux compatibility reasons; openclaw uses a separate
-# builder.
-
 MANIFEST: dict[ManifestKey, PublishedImage] = {
     # Ubuntu rows — historical default, no naming change in URL.
-    **_preset_rows("openclaw", _OPENCLAW_AMD64_ROOTFS_SHA, _OPENCLAW_ARM64_ROOTFS_SHA),
-    **_preset_rows("codex", _CODEX_AMD64_ROOTFS_SHA, _CODEX_ARM64_ROOTFS_SHA),
-    **_preset_rows("claude-code", _CLAUDE_CODE_AMD64_ROOTFS_SHA, _CLAUDE_CODE_ARM64_ROOTFS_SHA),
-    **_preset_rows("hermes", _HERMES_AMD64_ROOTFS_SHA, _HERMES_ARM64_ROOTFS_SHA),
-    **_preset_rows("pi", _PI_AMD64_ROOTFS_SHA, _PI_ARM64_ROOTFS_SHA),
     **_preset_rows(
         "linux-desktop",
         _LINUX_DESKTOP_AMD64_ROOTFS_SHA,
@@ -343,20 +306,6 @@ MANIFEST: dict[ManifestKey, PublishedImage] = {
     # ``create --os ubuntu`` on every supported VMM. Same rootfs shared
     # across vmms; only the kernel differs.
     **_preset_rows("ubuntu", _UBUNTU_AMD64_ROOTFS_SHA, _UBUNTU_ARM64_ROOTFS_SHA),
-    # Alpine rows — published for the presets whose CI builders support Alpine.
-    **_preset_rows(
-        "codex",
-        _CODEX_AMD64_ALPINE_ROOTFS_SHA,
-        _CODEX_ARM64_ALPINE_ROOTFS_SHA,
-        os="alpine",
-    ),
-    **_preset_rows(
-        "claude-code",
-        _CLAUDE_CODE_AMD64_ALPINE_ROOTFS_SHA,
-        _CLAUDE_CODE_ARM64_ALPINE_ROOTFS_SHA,
-        os="alpine",
-    ),
-    **_preset_rows("pi", _PI_AMD64_ALPINE_ROOTFS_SHA, _PI_ARM64_ALPINE_ROOTFS_SHA, os="alpine"),
 }
 
 
@@ -412,7 +361,7 @@ def is_preset_published(
     don't appear in the manifest just return ``False``.
     """
     catalog = MANIFEST if manifest is None else manifest
-    return (preset, arch, vmm, os) in catalog  # type: ignore[comparison-overlap]
+    return (preset, arch, vmm, os) in catalog
 
 
 def to_image_source(entry: PublishedImage, version: str = __version__) -> ImageSource:
@@ -521,7 +470,7 @@ def ensure_published_image(
     """Download (if needed) and return paths to a published preset image.
 
     Args:
-        preset: Preset name (e.g. ``"codex"``).
+        preset: Preset name (e.g. ``"ubuntu"``).
         arch: Guest CPU architecture (``"amd64"`` or ``"arm64"``).
         vmm: Hypervisor variant the image was built for (``"firecracker"``,
             ``"qemu"``, or ``"libkrun"``). Caller must pre-resolve this from
@@ -579,7 +528,7 @@ def ensure_published_image(
     # decompressed file came from, so a manifest version bump or in-place
     # rootfs republish invalidates it (without this, a refreshed ``.zst``
     # was silently served alongside a stale ``.ext4`` — first surfaced
-    # while diagnosing the openclaw uid bake regression). The sidecar is a
+    # while diagnosing the uid bake regression). The sidecar is a
     # writable cache key, not proof: whenever ensure_image replaced the
     # ``.zst`` the decompressed copy is rebuilt regardless of what the
     # sidecar claims (security audit run-1).

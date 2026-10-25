@@ -80,7 +80,7 @@ def sync_detailed(
     Each ID is deleted independently via the same path as single delete, so
     a single bad ID (not found, already deleted, host error) does not abort
     the rest of the batch. Returns the IDs that were deleted and the IDs
-    that failed.
+    that failed. The whole batch runs in one organization turn.
 
     Args:
         x_current_organization (str | Unset): Current organization ID
@@ -119,7 +119,7 @@ def sync(
     Each ID is deleted independently via the same path as single delete, so
     a single bad ID (not found, already deleted, host error) does not abort
     the rest of the batch. Returns the IDs that were deleted and the IDs
-    that failed.
+    that failed. The whole batch runs in one organization turn.
 
     Args:
         x_current_organization (str | Unset): Current organization ID
@@ -153,7 +153,7 @@ async def asyncio_detailed(
     Each ID is deleted independently via the same path as single delete, so
     a single bad ID (not found, already deleted, host error) does not abort
     the rest of the batch. Returns the IDs that were deleted and the IDs
-    that failed.
+    that failed. The whole batch runs in one organization turn.
 
     Args:
         x_current_organization (str | Unset): Current organization ID
@@ -190,7 +190,7 @@ async def asyncio(
     Each ID is deleted independently via the same path as single delete, so
     a single bad ID (not found, already deleted, host error) does not abort
     the rest of the batch. Returns the IDs that were deleted and the IDs
-    that failed.
+    that failed. The whole batch runs in one organization turn.
 
     Args:
         x_current_organization (str | Unset): Current organization ID

@@ -90,7 +90,7 @@ class RunContext:
     vm_id: str
     command: str
     shell: str
-    timeout: int
+    timeout: float
     result: CommandResult | None = None
     error: Exception | None = None
 

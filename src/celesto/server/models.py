@@ -9,7 +9,13 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from celesto.types import BrowserSessionState, CommandResult, VMState, WorkspaceMount
+from celesto.types import (
+    BrowserSessionState,
+    CommandResult,
+    ComputerCapability,
+    VMState,
+    WorkspaceMount,
+)
 
 _IDENTIFIER_PATTERN = r"^[a-z0-9][a-z0-9_-]{0,62}[a-z0-9]$|^[a-z0-9]$"
 
@@ -26,6 +32,12 @@ class OffNetworkPolicy(BaseModel):
     mode: Literal["off"]
 
 
+class PublicNetworkPolicy(BaseModel):
+    """Allow public HTTP(S) through the QEMU browser proxy."""
+
+    mode: Literal["public"]
+
+
 class RestrictedNetworkPolicy(BaseModel):
     """Allow outbound access only to the supplied IPv4 ranges."""
 
@@ -34,7 +46,7 @@ class RestrictedNetworkPolicy(BaseModel):
 
 
 NetworkPolicy = Annotated[
-    OpenNetworkPolicy | OffNetworkPolicy | RestrictedNetworkPolicy,
+    OpenNetworkPolicy | OffNetworkPolicy | RestrictedNetworkPolicy | PublicNetworkPolicy,
     Field(discriminator="mode"),
 ]
 
@@ -147,7 +159,7 @@ class ComputerDisplayResponse(BaseModel):
     """Addresses for watching or controlling a computer display."""
 
     viewer_url: str
-    vnc_url: str
+    vnc_url: str | None = None
 
 
 class ComputerBrowserResponse(BaseModel):
@@ -164,16 +176,7 @@ class ComputerResponse(BaseModel):
     sandbox_id: str
     template: Literal["linux-desktop"]
     status: Literal["ready"]
-    capabilities: tuple[
-        Literal[
-            "display.viewer",
-            "display.vnc",
-            "browser.cdp",
-            "sandbox.exec",
-            "sandbox.files",
-        ],
-        ...,
-    ]
+    capabilities: tuple[ComputerCapability, ...]
     display: ComputerDisplayResponse
     browser: ComputerBrowserResponse
 

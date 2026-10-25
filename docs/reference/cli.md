@@ -39,7 +39,7 @@ Run these in the order you need them:
 | Command | Use it to |
 | --- | --- |
 | `celesto computer create` | Create a minimal local computer. Add `--desktop` for a computer with a Linux desktop, `--os macos` or `--os windows` for another operating system, or `--cloud` for Celesto Cloud. Add `--network bridge --bridge BRIDGE` when a local computer should appear on an existing network bridge. |
-| `celesto computer list` / `info` | Find or inspect local computers. Add `--desktop` to list computers created with `--desktop`, `--cloud` for cloud computers, or `--preset PRESET` for computers created by one agent preset. |
+| `celesto computer list` / `info` | Find or inspect local computers. Add `--desktop` to list computers created with `--desktop`, or `--cloud` for cloud computers. |
 | `celesto computer shell` / `ssh` | Open a shell. `shell` uses Celesto's fast control channel when available; `ssh` explicitly uses SSH. |
 | `celesto computer desktop` | Open a macOS computer's screen in the Screen Sharing app on your Mac. Add `--start` to start a stopped computer first. For computers created with `--desktop`, use `celesto computer open` instead. |
 | `celesto computer exec` | Run one command and return its exit code. Put the command after `--`, e.g. `celesto computer exec demo -- ls -la`. Add `--start` to start a stopped local computer first, `--desktop` for a computer created with `--desktop`, or `--cloud` for a cloud computer. |
@@ -57,16 +57,6 @@ Run these in the order you need them:
 | `celesto computer env set` / `unset` / `list` | Manage persistent environment variables. |
 | `celesto computer port expose` / `close` / `list` | Manage local port forwarding. |
 | `celesto computer snapshot create` / `restore` / `list` / `delete` | Save and restore a supported computer's state. |
-
-## Start a prepared agent
-
-`celesto codex start`, `celesto claude start`, `celesto pi start`, `celesto hermes start`, `celesto openclaw start`, and `celesto opencode start` each create a computer and install that agent.
-
-- Create and install OpenClaw with `celesto openclaw start`.
-- Find an OpenClaw computer with `celesto openclaw list`, or use the generic `celesto computer list --preset openclaw`. Add `--all` to include every state or `--status STATUS` to choose one state.
-- Open the dashboard with `celesto openclaw open-ui COMPUTER`. It starts or reuses the gateway and connects it over localhost only. Add `--host-port PORT` to choose the dashboard's local port, `--no-browser` to print the one-time link, or `--json` for structured output.
-- Computers created by older Celesto releases and manually prepared computers remain visible through `celesto computer list --all`, but they do not appear in filtered results.
-- The current OpenClaw fallback installation can take several minutes. See [Agent presets](../guides/agent-presets.md#open-openclaws-dashboard) for the complete workflow and safe upgrade steps.
 
 ## Manage downloaded images
 
@@ -98,11 +88,12 @@ Images are stored in `~/.celesto/images`. To keep them somewhere else, set the `
 | `celesto computer start ID --cloud` / `stop ID --cloud` | Resume or stop a cloud computer. Without `--cloud`, `start` and `stop` act on local computers. |
 | `celesto computer port publish` / `unpublish` | Publish or unpublish a cloud computer's port on a public URL. Local `port expose` only forwards to your machine. |
 | `celesto computer templates` | List the available desktop templates. |
-| `celesto ui` | Start the local dashboard. |
-| `celesto server start` | Start the local HTTP API. |
+| `celesto ui` | Start the local dashboard and open the private sign-in link it prints. |
+| `celesto server start` | Start the local HTTP API; use its printed token in `Authorization: Bearer <token>`. |
 | `celesto windows build-image` | Build a Windows qcow2 image. |
 
 Computer commands select local execution by default; `--local` makes that choice explicit.
+Set `CELESTO_DASHBOARD_TOKEN` or `CELESTO_SERVER_TOKEN` before binding the corresponding service beyond localhost. See [secure local access](../security.md#open-the-dashboard) for token handling and browser-origin requirements.
 Use `--cloud` for cloud `create`, `list`, `info`, `start`, `stop`, `ssh`, `exec`, and `delete` commands; it cannot be combined with `--local`.
 Cloud `list` requests at most 50 computers by default; add `--limit NUMBER` to request more. If the response fills the limit, Celesto warns that more computers may exist, and JSON output sets `possibly_truncated` to `true`.
 The existing `open`, `logs`, and `templates` commands remain local-only.

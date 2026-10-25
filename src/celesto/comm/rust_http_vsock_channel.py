@@ -132,13 +132,13 @@ class ControlCapabilities:
 
     def enabled(self, *names: str) -> bool:
         for name in names:
-            value = self.features.get(name)
+            value: Any = self.features.get(name)
             if value is True:
                 return True
             if isinstance(value, str) and value.lower() == "true":
                 return True
 
-            value: Any = self.features
+            value = self.features
             for part in name.split("."):
                 if not isinstance(value, dict) or part not in value:
                     value = None
@@ -350,7 +350,7 @@ def _run_terminal_io(
     finally:
         if old_attrs is not None:
             with suppress(Exception):
-                termios.tcsetattr(stdin_fd, termios.TCSADRAIN, old_attrs)  # type: ignore[name-defined]
+                termios.tcsetattr(stdin_fd, termios.TCSADRAIN, old_attrs)
         if old_winch is not None:
             with suppress(Exception):
                 signal.signal(signal.SIGWINCH, old_winch)
@@ -405,7 +405,21 @@ def _safe_tar_member_mode(mode: int) -> int:
 def _safe_extract_tar(data: bytes, destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=True)
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:*") as archive:
-        for member in archive.getmembers():
+        total = 0
+        for count, member in enumerate(archive, 1):
+            if member.issparse():
+                raise CelestoError(
+                    "Refusing sparse download entries; download ordinary files instead."
+                )
+            if (
+                count > 10000
+                or member.size > 256 * 1024 * 1024
+                or total + member.size > 1024 * 1024 * 1024
+            ):
+                raise CelestoError(
+                    "Directory download exceeds its size limit; download fewer files."
+                )
+            total += member.size
             relative = _safe_tar_member_path(member.name)
             if relative is None:
                 continue
@@ -423,7 +437,14 @@ def _safe_extract_tar(data: bytes, destination: Path) -> None:
             source = archive.extractfile(member)
             if source is None:
                 raise CelestoError(f"Tar entry has no data: {member.name}")
-            target.write_bytes(source.read())
+            with source, target.open("wb") as output:
+                remaining = member.size
+                while remaining:
+                    chunk = source.read(min(remaining, 1024 * 1024))
+                    if not chunk:
+                        raise CelestoError("Directory download is incomplete; retry the download.")
+                    output.write(chunk)
+                    remaining -= len(chunk)
             if member.mode:
                 os.chmod(target, _safe_tar_member_mode(member.mode))
 
@@ -565,6 +586,7 @@ class RustHttpVsockChannel:
         return sock
 
     def _open_uds(self, port: int | None = None) -> socket.socket:
+        assert self.uds_path is not None
         port = self.agent_port if port is None else port
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.settimeout(float(self.connect_timeout))
@@ -690,13 +712,13 @@ class RustHttpVsockChannel:
     def capabilities(self) -> ControlCapabilities:
         if self._capabilities is None:
             resp = self._request_json("GET", "/capabilities")
-            features = resp.get("features") if isinstance(resp.get("features"), dict) else {}
-            limits = resp.get("limits") if isinstance(resp.get("limits"), dict) else {}
+            features = resp.get("features")
+            limits = resp.get("limits")
             protocol_version = int(resp.get("protocol_version", 1))
             self._capabilities = ControlCapabilities(
                 protocol_version=protocol_version,
-                features=dict(features),
-                limits=dict(limits),
+                features=dict(features) if isinstance(features, dict) else {},
+                limits=dict(limits) if isinstance(limits, dict) else {},
                 terminal_port=int(resp.get("terminal_port", CELESTO_TERMINAL_PORT)),
             )
         return self._capabilities
@@ -710,6 +732,8 @@ class RustHttpVsockChannel:
 
     def _limit_bytes(self, name: str, default: int) -> int:
         value = self.capabilities.limits.get(name)
+        if value is None:
+            return default
         try:
             limit = int(value)
         except (TypeError, ValueError):

@@ -192,7 +192,53 @@ jobs:
 
       # uv workspace builds celesto-core from the local celesto-core/ directory.
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra dashboard --extra server
+
+      - name: Build current-source Ubuntu candidate
+        if: ${{ !inputs.policy_release_validation }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends musl-tools zstd e2fsprogs
+          .venv/bin/python scripts/ci/prepare-e2e-ubuntu.py prepare \
+            "${{ matrix.backend }}" "$RUNNER_TEMP/ubuntu-candidate"
+
+      - name: Serve current-source Ubuntu candidate
+        if: ${{ !inputs.policy_release_validation }}
+        run: |
+          .venv/bin/python scripts/ci/prepare-e2e-ubuntu.py serve \
+            "${{ matrix.backend }}" "$RUNNER_TEMP/ubuntu-candidate" \
+            > "$RUNNER_TEMP/ubuntu-candidate/server.log" 2>&1 &
+          server_pid=$!
+          echo "$server_pid" > "$RUNNER_TEMP/ubuntu-candidate/server.pid"
+          for attempt in {1..100}; do
+            if test -s "$RUNNER_TEMP/ubuntu-candidate/ready"; then
+              cat "$RUNNER_TEMP/ubuntu-candidate/ready"
+              exit 0
+            fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              cat "$RUNNER_TEMP/ubuntu-candidate/server.log"
+              exit 1
+            fi
+            sleep 0.1
+          done
+          cat "$RUNNER_TEMP/ubuntu-candidate/server.log"
+          echo "Current-source Ubuntu candidate server did not become ready" >&2
+          exit 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Build dashboard UI
+        run: |
+          npm ci --prefix ui
+          npm run build --prefix ui
+
+      - name: Install Chromium
+        run: uv run --with playwright --with websockets --with 'pydantic-ai-slim[openai]' python -m playwright install --with-deps chromium
 
       - name: Assert native extension available
         run: |
@@ -210,7 +256,7 @@ jobs:
           if [[ "$POLICY_RELEASE_VALIDATION" == "true" ]]; then
             test_paths=(tests/e2e/test_network_policy.py)
           fi
-          sudo -n -E -u "$USER" -g kvm -- env "PATH=$PATH" "CELESTO_IMAGES_RELEASE_TAG=${CELESTO_IMAGES_RELEASE_TAG:-}" "$(command -v uv)" run --with playwright --with websockets pytest -m e2e "${test_paths[@]}" -v --e2e-backend "${{ matrix.backend }}"
+          sudo -n -E -u "$USER" -g kvm -- env "PATH=$PATH" "CELESTO_IMAGES_RELEASE_TAG=${CELESTO_IMAGES_RELEASE_TAG:-}" "$(command -v uv)" run --with playwright --with websockets --with 'pydantic-ai-slim[openai]' pytest -m e2e "${test_paths[@]}" -v --e2e-backend "${{ matrix.backend }}"
 
       - name: Build baseline and candidate wheels
         if: inputs.policy_release_validation && matrix.backend == 'firecracker'
@@ -252,6 +298,23 @@ jobs:
         with:
           name: network-policy-release-evidence
           path: ${{ runner.temp }}/policy-results
+
+      - name: Stop current-source Ubuntu candidate server
+        if: ${{ always() && !inputs.policy_release_validation }}
+        run: |
+          if test -s "$RUNNER_TEMP/ubuntu-candidate/server.pid"; then
+            kill "$(cat "$RUNNER_TEMP/ubuntu-candidate/server.pid")" 2>/dev/null || true
+          fi
+
+      - name: Upload current-source Ubuntu candidate
+        if: ${{ always() && !inputs.policy_release_validation }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: unreleased-ubuntu-candidate-${{ matrix.backend }}
+          path: ${{ runner.temp }}/ubuntu-candidate/artifacts
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: ignore
 
       - name: Dump VM logs on failure
         if: failure()

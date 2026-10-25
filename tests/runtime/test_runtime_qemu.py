@@ -3,6 +3,7 @@
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 from unittest.mock import MagicMock, call, patch
 
 import pytest
@@ -68,7 +69,7 @@ def _make_vm_info(tmp_path: Path, *, pid: int = 12345) -> VMInfo:
 def test_stop_waits_for_hard_kill_before_releasing_socket(tmp_path: Path) -> None:
     """Forced QEMU termination should wait for exit before cleanup proceeds."""
     context = _make_context()
-    context.is_process_running.side_effect = [True, True, False]
+    cast(MagicMock, context.is_process_running).side_effect = [True, True, False]
     adapter = QemuRuntimeAdapter(context)
     vm_info = _make_vm_info(tmp_path)
 
@@ -76,18 +77,18 @@ def test_stop_waits_for_hard_kill_before_releasing_socket(tmp_path: Path) -> Non
         adapter.stop(vm_info, timeout=10.0)
 
     mock_os_kill.assert_called_once()
-    context.kill_process.assert_called_once_with(vm_info.pid)
-    assert context.wait_for_process.call_args_list == [
+    cast(MagicMock, context.kill_process).assert_called_once_with(vm_info.pid)
+    assert cast(MagicMock, context.wait_for_process).call_args_list == [
         call(vm_info.pid, 10.0),
         call(vm_info.pid, 5.0),
     ]
-    context.unlink_socket.assert_called_once_with(vm_info.control_socket_path)
+    cast(MagicMock, context.unlink_socket).assert_called_once_with(vm_info.control_socket_path)
 
 
 def test_stop_raises_when_qemu_survives_hard_kill(tmp_path: Path) -> None:
     """Cleanup should fail loudly if the QEMU process still has not exited."""
     context = _make_context()
-    context.is_process_running.side_effect = [True, True, True]
+    cast(MagicMock, context.is_process_running).side_effect = [True, True, True]
     adapter = QemuRuntimeAdapter(context)
     vm_info = _make_vm_info(tmp_path)
 
@@ -95,12 +96,12 @@ def test_stop_raises_when_qemu_survives_hard_kill(tmp_path: Path) -> None:
         adapter.stop(vm_info, timeout=10.0)
 
     mock_os_kill.assert_called_once()
-    context.kill_process.assert_called_once_with(vm_info.pid)
-    assert context.wait_for_process.call_args_list == [
+    cast(MagicMock, context.kill_process).assert_called_once_with(vm_info.pid)
+    assert cast(MagicMock, context.wait_for_process).call_args_list == [
         call(vm_info.pid, 10.0),
         call(vm_info.pid, 5.0),
     ]
-    context.unlink_socket.assert_not_called()
+    cast(MagicMock, context.unlink_socket).assert_not_called()
 
 
 def test_qcow2_backing_inspection_force_shares_running_qemu_disk(tmp_path: Path) -> None:
@@ -252,7 +253,7 @@ def test_start_stops_swtpm_when_its_control_socket_never_appears(tmp_path: Path)
 
     # Alive for the SIGTERM, then gone for the post-signal wait and the
     # SIGKILL re-check (a SIGKILL here would fail assert_called_once).
-    context.is_process_running.side_effect = [True, False, False]
+    cast(MagicMock, context.is_process_running).side_effect = [True, False, False]
 
     with (
         patch("celesto.runtime.qemu.get_guest_platform", return_value=_WINDOWS_SW_SPEC),
@@ -268,7 +269,7 @@ def test_start_stops_swtpm_when_its_control_socket_never_appears(tmp_path: Path)
         adapter.start(vm_info, log_path=tmp_path / "qemu.log", boot_timeout=1.0)
 
     # QEMU was never reached, so only the sidecar needed tearing down.
-    context.start_qemu.assert_not_called()
+    cast(MagicMock, context.start_qemu).assert_not_called()
     mock_kill.assert_called_once()
     assert mock_kill.call_args.args[0] == swtpm_pid
 
@@ -277,14 +278,17 @@ def test_start_stops_swtpm_when_its_control_socket_never_appears(tmp_path: Path)
     assert not sidecar.socket_path.exists()
 
 
-def test_start_stops_swtpm_when_qemu_fails_to_boot(tmp_path: Path) -> None:
+@pytest.mark.parametrize("failure_type", [CelestoError, KeyboardInterrupt])
+def test_start_stops_swtpm_when_qemu_fails_to_boot(
+    tmp_path: Path, failure_type: type[BaseException]
+) -> None:
     """A QEMU boot failure still reaps the sidecar it was started alongside."""
     context = _make_swtpm_context(tmp_path)
     adapter = QemuRuntimeAdapter(context)
     vm_info = _make_windows_vm_info(tmp_path)
     swtpm_pid = 51502
-    context.start_qemu.return_value = MagicMock(pid=4242)
-    context.is_process_running.side_effect = [True, False, False]
+    cast(MagicMock, context.start_qemu).return_value = MagicMock(pid=4242)
+    cast(MagicMock, context.is_process_running).side_effect = [True, False, False]
 
     with (
         patch("celesto.runtime.qemu.get_guest_platform", return_value=_WINDOWS_SW_SPEC),
@@ -296,14 +300,14 @@ def test_start_stops_swtpm_when_qemu_fails_to_boot(tmp_path: Path) -> None:
         patch.object(
             QemuRuntimeAdapter,
             "_wait_for_runtime",
-            side_effect=CelestoError("Timed out waiting for QEMU control socket"),
+            side_effect=failure_type("Timed out waiting for QEMU control socket"),
         ),
         patch("celesto.runtime.qemu.os.kill") as mock_kill,
-        pytest.raises(CelestoError, match="Timed out waiting"),
+        pytest.raises(failure_type, match="Timed out waiting"),
     ):
         adapter.start(vm_info, log_path=tmp_path / "qemu.log", boot_timeout=1.0)
 
-    context.kill_process.assert_called_once_with(4242)
+    cast(MagicMock, context.kill_process).assert_called_once_with(4242)
     mock_kill.assert_called_once()
     assert mock_kill.call_args.args[0] == swtpm_pid
 
@@ -318,7 +322,7 @@ def test_start_leaves_swtpm_running_when_the_launch_succeeds(tmp_path: Path) -> 
     adapter = QemuRuntimeAdapter(context)
     vm_info = _make_windows_vm_info(tmp_path)
     swtpm_pid = 51503
-    context.start_qemu.return_value = MagicMock(pid=4242)
+    cast(MagicMock, context.start_qemu).return_value = MagicMock(pid=4242)
 
     with (
         patch("celesto.runtime.qemu.get_guest_platform", return_value=_WINDOWS_SW_SPEC),
@@ -334,9 +338,9 @@ def test_start_leaves_swtpm_running_when_the_launch_succeeds(tmp_path: Path) -> 
 
     assert launch.pid == 4242
     # QEMU was handed the sidecar's socket, so it must survive the launch.
-    assert context.start_qemu.call_args.kwargs["swtpm_socket"].name == "swtpm-sock"
+    assert cast(MagicMock, context.start_qemu).call_args.kwargs["swtpm_socket"].name == "swtpm-sock"
     mock_kill.assert_not_called()
-    context.kill_process.assert_not_called()
+    cast(MagicMock, context.kill_process).assert_not_called()
 
     sidecar = _SwtpmSidecar(vm_id=vm_info.vm_id, firmware_dir=context.firmware_dir, context=context)
     assert sidecar.pidfile_path.read_text().strip() == str(swtpm_pid)

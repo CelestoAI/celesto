@@ -68,7 +68,7 @@ jobs:
 
       # uv workspace resolves celesto-core from local celesto-core/ directory
       - name: Install dependencies
-        run: uv sync --extra dev --python ${{ matrix.python-version }}
+        run: uv sync --extra dev --extra dashboard --extra server --python ${{ matrix.python-version }}
 
       # Netlink is a Linux interface, so HAS_NETLINK is False on macOS by
       # design. Assert the strong property where it applies; macOS asserts the

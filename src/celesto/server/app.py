@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import platform
 import re
 import secrets
@@ -137,9 +138,10 @@ class _DownloadProgressEvents:
 def create_app(*, auth_token: str | None = None) -> FastAPI:
     """Build an app with an isolated, process-local sandbox inventory.
 
-    ``auth_token`` is required for SDK sessions. Omitting it keeps the
-    manually started development server backward compatible.
+    Every server requires a bearer capability. Manual startup supplies
+    CELESTO_SERVER_TOKEN; embedded callers can pass auth_token explicitly.
     """
+    auth_token = auth_token or os.environ.get("CELESTO_SERVER_TOKEN") or secrets.token_urlsafe(32)
     sandboxes: dict[str, Celesto] = {}
     browser_sessions: dict[str, DisplaySandboxProtocol] = {}
     computer_sessions: dict[str, ComputerSandboxProtocol] = {}

@@ -64,7 +64,7 @@ from celesto.images.published import decompressed_rootfs_sidecar_path
 # Cache directory names produced by ``published.cache_name()``:
 # ``{preset}-v{cli_version}-{arch}-{vmm}`` with a ``-alpine`` suffix for
 # Alpine rootfs builds (Ubuntu carries no suffix for backward compat).
-# The preset group is non-greedy so hyphenated presets (``claude-code``)
+# The preset group is non-greedy so hyphenated presets (``linux-desktop``)
 # parse correctly against the ``-v<version>-`` anchor; the version
 # fragment is shared with prune so list/rm/prune agree on what counts as
 # a versioned cache directory (a test round-trips it against cache_name()).
@@ -86,17 +86,6 @@ _SAFE_SEGMENT_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 _CUSTOM_DIR = "custom"
 _MACOS_DIR = "macos"
 _MACOS_MANIFEST = "celesto-manifest.json"
-
-
-def _canonical_preset(name: str) -> str:
-    """Map a public CLI alias (e.g. ``claude``) to its manifest preset name.
-
-    Alias data lives on the preset definitions themselves so a new alias
-    automatically works here without touching this module.
-    """
-    from celesto.presets import canonical_preset_name
-
-    return canonical_preset_name(name)
 
 
 def _created_iso(path: Path) -> str | None:
@@ -151,7 +140,7 @@ def _valid_entry_name(requested: str) -> bool:
     if any(seg in {"", ".", ".."} for seg in segments):
         return False
     if len(segments) == 1:
-        return segments[0] not in {_CUSTOM_DIR, _MACOS_DIR}
+        return segments[0].casefold() not in {_CUSTOM_DIR, _MACOS_DIR}
     valid_namespaced = (segments[0] == _CUSTOM_DIR and len(segments) in {2, 3}) or (
         segments[0] == _MACOS_DIR and len(segments) == 2
     )
@@ -548,7 +537,7 @@ def _resolve_entries(requested: str, root: Path) -> list[Path]:
         return [macos_exact]
     if not root.is_dir():
         return []
-    canonical = _canonical_preset(requested)
+    canonical = requested
     matches: list[Path] = []
     for child in sorted(root.iterdir()):
         if not child.is_dir():
@@ -800,7 +789,7 @@ def run_image_pull(
     from celesto.exceptions import ImageError
     from celesto.images.published import MANIFEST, is_preset_published
 
-    canonical = _canonical_preset(preset)
+    canonical = preset
     retry_command = _pull_retry_command(preset, arch, vmm, os_name, image_dir)
 
     try:
@@ -1040,7 +1029,7 @@ def run_image_list(
     if not rows:
         render_empty(
             "Images",
-            f"No cached images in {root}. Run 'celesto image pull codex' to download one.",
+            f"No cached images in {root}. Run 'celesto image pull ubuntu' to download one.",
         )
         return 0
 
@@ -1134,11 +1123,11 @@ def _inspect_entry(path: Path, root: Path) -> ImageInspectEntry:
                 images_release_tag=IMAGES_RELEASE_TAG,
             )
 
-    inspected = ImageInspectEntry(
-        **row,
-        files=files,
-        rootfs_sidecar=sidecar,
-        manifest=manifest_info,
+    # The local row classifiers supply the base fields; optional macOS details
+    # are added below, after reading the corresponding manifest.
+    inspected = cast(
+        ImageInspectEntry,
+        {**row, "files": files, "rootfs_sidecar": sidecar, "manifest": manifest_info},
     )
     if row["kind"] == "macos":
         try:

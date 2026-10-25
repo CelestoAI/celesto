@@ -17,10 +17,13 @@
 import json
 import shutil
 import subprocess
+import sys
 import threading
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, Literal
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -87,7 +90,7 @@ def qemu_config(tmp_path: Path) -> VMConfig:
 @pytest.fixture(autouse=True)
 def _mock_qcow2_inspection_for_fake_snapshot_disks(
     request: pytest.FixtureRequest,
-):
+) -> Iterator[None]:
     """Keep mocked snapshot lifecycle tests independent of host qemu-img."""
     real_qemu_img_tests = {
         "test_full_snapshot_copy_preserves_internal_snapshot_on_backed_overlay",
@@ -377,7 +380,7 @@ def test_wait_for_runtime_retries_when_qmp_greeting_times_out(tmp_path: Path) ->
         def __enter__(self) -> "_ReadyClient":
             return self
 
-        def __exit__(self, *args: object) -> bool:
+        def __exit__(self, *args: object) -> Literal[False]:
             return False
 
     def _client_side_effect(_path: Path, timeout: float = 5.0) -> _ReadyClient:
@@ -493,6 +496,7 @@ def test_restore_qemu_snapshot_rehydrates_deleted_vm(
     """Restoring a QEMU snapshot should recreate the original VM identity and managed disk."""
     _create_qemu_vm(qemu_smol_vm, qemu_config)
     vm_info = qemu_smol_vm.get("vm001")
+    assert vm_info.network is not None
 
     snapshot_dir = qemu_smol_vm.snapshot_dir / "snap-001"
     snapshot_dir.mkdir(parents=True)
@@ -531,6 +535,100 @@ def test_restore_qemu_snapshot_rehydrates_deleted_vm(
     mock_client.snapshot_delete.assert_called_once()
 
 
+@pytest.mark.parametrize("identity", ["trusted", "replacement", "writable", "symlink", "cold_boot"])
+def test_snapshot_preserves_only_verified_ssh_identity(
+    qemu_smol_vm: CelestoManager,
+    qemu_config: VMConfig,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    identity: str,
+) -> None:
+    """Keep trust across source deletion without accepting a replacement peer.
+
+    The KVM roundtrip owns VM-state restoration. This real-filesystem/SSH
+    regression additionally rejects unsafe saved identity and stale cold-boot
+    identity. Only QMP and the hypervisor process are substituted; manager
+    snapshot persistence, runtime console creation and SSH verification are real.
+    """
+    import paramiko
+
+    from celesto import Celesto
+    from tests.windows.test_ssh_security import ssh_peer
+
+    _running_qemu_vm(qemu_smol_vm, qemu_config, tmp_path)
+    empty = tmp_path / "empty-known-hosts"
+    empty.touch()
+    monkeypatch.setenv("CELESTO_SSH_KNOWN_HOSTS", str(empty))
+    processes: list[subprocess.Popen[bytes]] = []
+    popen = subprocess.Popen
+
+    def launch(command: list[str], **kwargs: Any) -> subprocess.Popen[bytes]:
+        if command[0] != sys.executable:
+            return popen(command, **kwargs)
+        process = popen([sys.executable, "-c", "import time; time.sleep(30)"], **kwargs)
+        processes.append(process)
+        return process
+
+    monkeypatch.setattr("celesto.vm.subprocess.Popen", launch)
+    monkeypatch.setattr(CelestoManager, "_find_qemu_binary", lambda _self: Path(sys.executable))
+    with ssh_peer(tmp_path) as (port, known, authenticated):
+        public_key = " ".join(known.read_text().split()[1:])
+        if identity == "replacement":
+            other_key = paramiko.RSAKey.generate(1024)
+            public_key = f"{other_key.get_name()} {other_key.get_base64()}"
+        console = qemu_smol_vm.data_dir / "vm001.log"
+        console.write_text(f"CELESTO_SSH_HOST_KEY {public_key}\n")
+        console.chmod(0o600)
+        client = None
+        restored = None
+        try:
+            with patch("celesto.runtime.qemu.QMPClient", return_value=_mock_qmp_client()):
+                snapshot = qemu_smol_vm.create_snapshot("vm001", snapshot_id="snap-identity")
+                qemu_smol_vm.state.update_vm("vm001", status=VMState.STOPPED)
+                qemu_smol_vm.delete("vm001")
+                assert not console.exists()
+                saved_key = snapshot.artifacts.disk_path.parent / "ssh-host-key"
+                if identity == "writable":
+                    saved_key.chmod(0o666)
+                elif identity == "symlink":
+                    target = tmp_path / "substituted-key"
+                    target.write_bytes(saved_key.read_bytes())
+                    saved_key.unlink()
+                    saved_key.symlink_to(target)
+                restored = Celesto.from_snapshot(
+                    snapshot.snapshot_id,
+                    data_dir=qemu_smol_vm.data_dir,
+                    socket_dir=qemu_smol_vm.socket_dir,
+                    backend="qemu",
+                    resume_vm=True,
+                    comm_channel="ssh",
+                )
+                if identity == "cold_boot":
+                    restored.stop()
+                    restored._sdk.start("vm001")
+            restored._ssh_password = "synthetic-test-password"
+            client = restored._new_ssh_client(host="127.0.0.1", port=port)
+            if identity == "trusted":
+                assert client.run("ignored", shell="raw").stdout == "hello"
+                assert authenticated == ["root"]
+                assert saved_key.stat().st_mode & 0o077 == 0
+            else:
+                with pytest.raises(CelestoError):
+                    client.run("ignored", shell="raw")
+                assert not authenticated
+            (tmp_path / "snapshot-ssh-result.json").write_text(
+                json.dumps({"identity": identity, "authenticated": authenticated})
+            )
+        finally:
+            if client is not None:
+                client.close()
+            for process in processes:
+                process.terminate()
+                process.wait(timeout=5)
+            if restored is not None:
+                restored._sdk.close()
+
+
 def test_restore_validates_artifacts_before_stopping_existing_vm(
     qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
@@ -538,6 +636,7 @@ def test_restore_validates_artifacts_before_stopping_existing_vm(
     """A bad snapshot should not stop the active VM before failing."""
     _create_qemu_vm(qemu_smol_vm, qemu_config)
     vm_info = qemu_smol_vm.get("vm001")
+    assert vm_info.network is not None
     qemu_smol_vm.state.update_vm("vm001", status=VMState.RUNNING, pid=12345)
     snapshot = SnapshotInfo(
         snapshot_id="snap-missing-disk",
@@ -569,6 +668,7 @@ def test_restore_qemu_snapshot_reserves_persisted_vsock_cid(
     )
     _create_qemu_vm(qemu_smol_vm, qemu_config)
     vm_info = qemu_smol_vm.get("vm001")
+    assert vm_info.network is not None
 
     snapshot_dir = qemu_smol_vm.snapshot_dir / "snap-vsock"
     snapshot_dir.mkdir(parents=True)
@@ -640,6 +740,7 @@ def test_restore_qemu_snapshot_rolls_back_new_vm_resources_on_failure(
     """Failed QEMU restores should unwind the recreated VM record and managed disk."""
     _create_qemu_vm(qemu_smol_vm, qemu_config)
     vm_info = qemu_smol_vm.get("vm001")
+    assert vm_info.network is not None
 
     snapshot_dir = qemu_smol_vm.snapshot_dir / "snap-001"
     snapshot_dir.mkdir(parents=True)
@@ -686,6 +787,7 @@ def test_restore_qemu_snapshot_restores_backup_when_status_update_fails(
     managed_disk = qemu_smol_vm.data_dir / "disks" / "vm001.qcow2"
     managed_disk.write_text("original-managed-qcow2")
     vm_info = qemu_smol_vm.get("vm001")
+    assert vm_info.network is not None
 
     snapshot_dir = qemu_smol_vm.snapshot_dir / "snap-001"
     snapshot_dir.mkdir(parents=True)
@@ -719,6 +821,7 @@ def test_restore_qemu_snapshot_preserves_existing_managed_disk_on_failure(
     managed_disk = qemu_smol_vm.data_dir / "disks" / "vm001.qcow2"
     managed_disk.write_text("original-managed-qcow2")
     vm_info = qemu_smol_vm.get("vm001")
+    assert vm_info.network is not None
 
     snapshot_dir = qemu_smol_vm.snapshot_dir / "snap-001"
     snapshot_dir.mkdir(parents=True)
@@ -796,13 +899,15 @@ def test_restore_qemu_snapshot_removes_replaced_disk_sidecars(
     snapshot_dir.mkdir(parents=True)
     snapshot_disk = snapshot_dir / "disk.qcow2"
     subprocess.run([qemu_img, "create", "-f", "qcow2", str(snapshot_disk), "10M"], check=True)
+    network = qemu_smol_vm.state.get_vm("vm001").network
+    assert network is not None
     snapshot = SnapshotInfo(
         snapshot_id="snap-replace",
         vm_id="vm001",
         backend="qemu",
         artifacts=SnapshotArtifacts(disk_path=snapshot_disk),
         vm_config=config,
-        network_config=qemu_smol_vm.state.get_vm("vm001").network,
+        network_config=network,
         created_at=datetime.now(UTC),
     )
     qemu_smol_vm.state.create_snapshot(snapshot)
@@ -828,6 +933,7 @@ def test_delete_qemu_snapshot_rejects_active_restored_vm(
     """QEMU snapshots should not be deleted while their restored VM is active."""
     _create_qemu_vm(qemu_smol_vm, qemu_config)
     vm_info = qemu_smol_vm.get("vm001")
+    assert vm_info.network is not None
 
     snapshot_dir = qemu_smol_vm.snapshot_dir / "snap-001"
     snapshot_dir.mkdir(parents=True)
@@ -1074,7 +1180,7 @@ def _live_backup_commands() -> set[str]:
     }
 
 
-def _fake_qemu_img_create(command, **_kwargs):
+def _fake_qemu_img_create(command: list[str], **_kwargs: object) -> MagicMock:
     result = MagicMock(returncode=0, stdout="{}", stderr="")
     if len(command) > 1 and command[1] == "create":
         Path(command[-2]).touch()
@@ -1413,12 +1519,12 @@ def test_qemu_live_disk_snapshot_timeout_cancels_without_resuming(
         client = _mock_qmp_client()
         client.query_commands.return_value = _live_backup_commands()
 
-        def jobs():
+        def jobs() -> list[SimpleNamespace]:
             if not client.blockdev_backup.called:
                 return []
             return [SimpleNamespace(job_id=client.blockdev_backup.call_args.kwargs["job_id"])]
 
-        def nodes():
+        def nodes() -> list[dict[str, Any]]:
             if not client.blockdev_add.called:
                 return []
             return [{"node-name": client.blockdev_add.call_args.args[0]}]
@@ -1461,8 +1567,8 @@ def test_qemu_live_snapshot_shares_timeout_across_qemu_img_phases(
     _running_qemu_vm(qemu_smol_vm, qemu_config, tmp_path)
     subprocess_timeouts: list[float] = []
 
-    def run_qemu_img(command: list[str], **kwargs: object) -> SimpleNamespace:
-        subprocess_timeouts.append(float(kwargs["timeout"]))
+    def run_qemu_img(command: list[str], *, timeout: float, **_kwargs: object) -> SimpleNamespace:
+        subprocess_timeouts.append(timeout)
         action = command[1]
         stdout = ""
         if action == "info":
@@ -2068,13 +2174,15 @@ def test_qemu_live_snapshot_preserves_persisted_published_artifact(
     old_root.mkdir()
     old_final = old_root / "disk.qcow2"
     old_final.write_text("persisted-artifact")
+    vm_info = qemu_smol_vm.get("vm001")
+    assert vm_info.network is not None
     snapshot = SnapshotInfo(
         snapshot_id="snap-persisted",
         vm_id="vm001",
         backend="qemu",
         artifacts=SnapshotArtifacts(disk_path=old_final),
-        vm_config=qemu_smol_vm.get("vm001").config,
-        network_config=qemu_smol_vm.get("vm001").network,
+        vm_config=vm_info.config,
+        network_config=vm_info.network,
         created_at=datetime.now(UTC),
         snapshot_type=SnapshotType.DISK,
     )
@@ -2154,6 +2262,7 @@ def test_restore_qemu_disk_snapshot_boots_fresh_without_loading_vmstate(
     """Restoring a disk-only snapshot boots fresh: no snapshot-load of RAM."""
     _create_qemu_vm(qemu_smol_vm, qemu_config)
     vm_info = qemu_smol_vm.get("vm001")
+    assert vm_info.network is not None
 
     snapshot_dir = qemu_smol_vm.snapshot_dir / "snap-disk"
     snapshot_dir.mkdir(parents=True)

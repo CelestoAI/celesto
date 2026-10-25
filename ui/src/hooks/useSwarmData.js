@@ -1,6 +1,6 @@
 import { useMemo, useEffect, useState, useCallback, useRef } from 'react'
 import { normalizeStatus } from '@/utils/status'
-import { getApiBaseUrl } from '@/utils/api'
+import { apiFetch, createApiSocket, getApiBaseUrl } from '@/utils/api'
 
 function getWsUrl(apiBase) {
     if (typeof window === 'undefined') return null
@@ -54,7 +54,7 @@ export function useSwarmData() {
     }, [])
 
     const fetchVms = useCallback(async () => {
-        const response = await fetch(`${apiBase}/api/vms`, {
+        const response = await apiFetch(`${apiBase}/api/vms`, {
             headers: { Accept: 'application/json' },
         })
         if (!response.ok) {
@@ -101,7 +101,12 @@ export function useSwarmData() {
         }
 
         const connect = () => {
-            socket = new WebSocket(wsUrl)
+            try {
+                socket = createApiSocket(wsUrl)
+            } catch {
+                socket = null
+                return
+            }
 
             socket.onopen = () => {
                 scheduleRefresh()

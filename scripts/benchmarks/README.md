@@ -20,10 +20,12 @@ Firecracker on macOS errors out at startup.
 1. Celesto installed and `celesto setup` completed for your platform.
 1. The default image is already pulled (`celesto doctor` will tell you, or run
    `celesto sandbox create --name probe` once and `celesto sandbox delete probe`).
-1. Linux only: `celesto setup` configured the host networking and your user can
-   talk to Firecracker.
+1. Linux only: Firecracker networking needs an explicitly privileged
+   administrator process. Setup no longer grants passwordless networking
+   commands; see [administrator setup](../../docs/security.md#administrator-setup).
 
-The lifecycle benchmark never escalates with `sudo`. Set things up first.
+The lifecycle benchmark never escalates automatically. Choose the required
+privileges before launching it, or use QEMU's default networking.
 
 ## Running
 
@@ -58,7 +60,6 @@ check the command plan before starting any sandbox:
 uv run python scripts/benchmarks/artifacts.py --dry-run --json
 uv run python scripts/benchmarks/disk_io.py --dry-run --json
 uv run python scripts/benchmarks/file_transfer.py --dry-run --json
-uv run python scripts/benchmarks/preset_start.py --preset codex --comm-channel vsock --dry-run --json
 uv run python scripts/benchmarks/browser_ready.py --dry-run --json
 uv run python scripts/benchmarks/runtime_control.py --operations info,stop,start --dry-run --json
 ```
@@ -71,10 +72,7 @@ off. `file_transfer.py` starts one sandbox and times upload/download for several
 file sizes plus a directory tar round trip, meaning pack a folder into one tar
 archive, send it, and unpack or fetch it again, when the selected control
 channel supports it.
-`preset_start.py` times `celesto <preset> start` and cleans up the sandbox unless
-`--keep` is set. Use `--comm-channel vsock` or `--comm-channel ssh` when you
-want preset startup numbers for a specific control path. `browser_ready.py`
-starts a browser sandbox, then polls the CDP endpoint, which is the local
+`browser_ready.py` starts a browser sandbox, then polls the CDP endpoint, which is the local
 browser debugging URL, when it is available.
 `runtime_control.py` measures public lifecycle commands such as
 `celesto sandbox pause`, `resume`, `stop`, and `start`.
@@ -86,7 +84,6 @@ sandboxes and clean them up unless `--keep` is set:
 ```bash
 uv run python scripts/benchmarks/disk_io.py --json --output /tmp/celesto-disk-io.json
 uv run python scripts/benchmarks/file_transfer.py --backend qemu --comm-channel vsock --json --output /tmp/celesto-file-transfer.json
-uv run python scripts/benchmarks/preset_start.py --preset codex --backend qemu --comm-channel vsock --json --output /tmp/celesto-preset-codex.json
 uv run python scripts/benchmarks/browser_ready.py --backend qemu --json --output /tmp/celesto-browser-ready.json
 ```
 
@@ -119,8 +116,14 @@ helpers when direct TAP privileges are available; rerun the benchmark with
 `sudo` or another root/CAP_NET_ADMIN launch path to measure that speedup.
 `forced-off` sets `CELESTO_DISABLE_NATIVE_NETWORKING=1`, and
 `unprivileged-fallback` is skipped unless native can be attempted without
-direct TAP privileges and the existing sudo fallback is available. Run
-`celesto setup` first if the sudo fallback is missing.
+direct TAP privileges and an independently configured sudo fallback is available.
+Celesto setup removes its old unrestricted grants; it does not enable this
+fallback. To run the networking benchmark as an administrator from the source
+checkout after installing dependencies:
+
+```bash
+sudo -- "$PWD/.venv/bin/python" scripts/benchmarks/networking.py --json
+```
 
 ## Ubuntu Transport Comparison
 

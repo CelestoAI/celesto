@@ -87,7 +87,6 @@ try {
     sandboxId: session.sandboxId,
     cdpUrl: session.cdpUrl,
     viewerUrl: session.viewerUrl,
-    displayUrl: session.displayUrl,
   });
   await browser.close();
 } finally {
@@ -95,9 +94,9 @@ try {
 }
 ```
 
-The returned browser session also supports commands and file transfer. Use `session.exec()` and `session.files` for work related to the browser. In live mode, `viewerUrl` opens Chromium's graphical display through noVNC, a browser-based remote-display client. `displayUrl` connects a VNC client or visual-control agent directly to that display. This browser view is not a desktop; use a [computer with a desktop](computers.md) for a terminal, file manager, and text editor.
+The returned browser session also supports commands and file transfer. Use `session.exec()` and `session.files` for work related to the browser. In live mode, `viewerUrl` opens Chromium's graphical display through noVNC, a browser-based remote-display client. Raw VNC `displayUrl` connections are disabled; use the viewer or an authenticated display WebSocket connection. This browser view is not a desktop; use a [computer with a desktop](computers.md) for a terminal, file manager, and text editor.
 
-The automation, viewer, and display endpoints are loopback-only, meaning they accept connections only from the same machine. Keep them in the trusted Node process rather than sending them to browser JavaScript or a remote client.
+The returned automation and viewer URLs contain secret capabilities. Keep the complete URLs in the trusted process that owns the session; do not publish them or include them in model-visible page content. Missing or incorrect capabilities are rejected before reaching Chromium or the display. See [secure local access](../security.md).
 
 ## Implementation notes
 
