@@ -38,7 +38,9 @@ celesto computer snapshot create demo --snapshot-type disk --resume-source --liv
 
 ## Current limits
 
-Snapshots do not support Windows computers, shared folders, extra drives, shared disks, or raw QEMU disks. Snapshot creation can pause a computer unless you use the live-only command above.
+Snapshots do not support Windows computers, public-only networking, shared folders, extra drives, shared disks, or raw QEMU disks. Public-only computers require a new session instead of snapshot creation or restore. Snapshot creation can pause a computer unless you use the live-only command above.
+
+Keep the whole snapshot folder when backing it up, including its saved SSH identity. A snapshot that resumes a running computer but has no saved identity, such as one created by an older version, requires an independently verified key file for SSH. Set `CELESTO_SSH_KNOWN_HOSTS` to that file before restoring; see [SSH identity setup](../security.md#verify-ssh-identity).
 
 **Implementation notes:** snapshot types and their meanings are defined in [`src/celesto/types.py`](../../src/celesto/types.py); support checks and restore behavior are in [`src/celesto/vm.py`](../../src/celesto/vm.py); the facade flushes the computer's disk writes before a disk snapshot in [`src/celesto/facade.py`](../../src/celesto/facade.py). See [`tests/api/test_snapshot.py`](../../tests/api/test_snapshot.py) and [`tests/runtime/test_snapshot_qemu.py`](../../tests/runtime/test_snapshot_qemu.py).
 

@@ -19,9 +19,8 @@ uses: run a command, push/pull a file, wait until the guest answers, and
 close. :class:`~celesto.ssh.SSHClient` satisfies it structurally (it predates
 this protocol), and :class:`~celesto.comm.rust_http_vsock_channel.RustHttpVsockChannel`
 implements it explicitly. Keeping the interface this narrow means env-var
-injection (``celesto.env``) and preset credential copying
-(``celesto.presets``) work over either transport with no code change — they
-only ever call :meth:`run` and :meth:`put_file`.
+injection (``celesto.env``) works over either transport with no code change — it
+only ever calls :meth:`run` and :meth:`put_file`.
 """
 
 from __future__ import annotations
@@ -68,7 +67,7 @@ class CommChannel(Protocol):
     def run(
         self,
         command: str,
-        timeout: int = 30,
+        timeout: float = 30,
         shell: ShellMode = "login",
     ) -> CommandResult:
         """Execute *command* on the guest and return its result."""
@@ -77,7 +76,7 @@ class CommChannel(Protocol):
     def run_stream(
         self,
         command: str,
-        timeout: int = 30,
+        timeout: float = 30,
         shell: ShellMode = "login",
     ) -> Iterator[CommandEvent]:
         """Execute *command* and yield output as it arrives."""

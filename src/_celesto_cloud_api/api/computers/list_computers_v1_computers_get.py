@@ -9,6 +9,7 @@ from ...types import Response, UNSET
 from ... import errors
 
 from ...models.computer_list_response import ComputerListResponse
+from ...models.computer_origin import ComputerOrigin
 from ...models.computer_status import ComputerStatus
 from ...models.computer_validation_error_response import ComputerValidationErrorResponse
 from ...types import UNSET, Unset
@@ -20,6 +21,7 @@ def _get_kwargs(
     status: ComputerStatus | None | Unset = UNSET,
     template_id: None | str | Unset = UNSET,
     project_id: None | str | Unset = UNSET,
+    origin: ComputerOrigin | None | Unset = UNSET,
     limit: int | Unset = 50,
     x_current_organization: str | Unset = UNSET,
 ) -> dict[str, Any]:
@@ -51,6 +53,15 @@ def _get_kwargs(
     else:
         json_project_id = project_id
     params["project_id"] = json_project_id
+
+    json_origin: None | str | Unset
+    if isinstance(origin, Unset):
+        json_origin = UNSET
+    elif isinstance(origin, ComputerOrigin):
+        json_origin = origin.value
+    else:
+        json_origin = origin
+    params["origin"] = json_origin
 
     params["limit"] = limit
 
@@ -102,6 +113,7 @@ def sync_detailed(
     status: ComputerStatus | None | Unset = UNSET,
     template_id: None | str | Unset = UNSET,
     project_id: None | str | Unset = UNSET,
+    origin: ComputerOrigin | None | Unset = UNSET,
     limit: int | Unset = 50,
     x_current_organization: str | Unset = UNSET,
 ) -> Response[ComputerListResponse | ComputerValidationErrorResponse]:
@@ -111,6 +123,8 @@ def sync_detailed(
         status (ComputerStatus | None | Unset):
         template_id (None | str | Unset):
         project_id (None | str | Unset):
+        origin (ComputerOrigin | None | Unset): Only sandboxes created from this surface. When
+            omitted, GitHub CI runner machines are excluded.
         limit (int | Unset):  Default: 50.
         x_current_organization (str | Unset): Current organization ID
 
@@ -126,6 +140,7 @@ def sync_detailed(
         status=status,
         template_id=template_id,
         project_id=project_id,
+        origin=origin,
         limit=limit,
         x_current_organization=x_current_organization,
     )
@@ -143,6 +158,7 @@ def sync(
     status: ComputerStatus | None | Unset = UNSET,
     template_id: None | str | Unset = UNSET,
     project_id: None | str | Unset = UNSET,
+    origin: ComputerOrigin | None | Unset = UNSET,
     limit: int | Unset = 50,
     x_current_organization: str | Unset = UNSET,
 ) -> ComputerListResponse | ComputerValidationErrorResponse | None:
@@ -152,6 +168,8 @@ def sync(
         status (ComputerStatus | None | Unset):
         template_id (None | str | Unset):
         project_id (None | str | Unset):
+        origin (ComputerOrigin | None | Unset): Only sandboxes created from this surface. When
+            omitted, GitHub CI runner machines are excluded.
         limit (int | Unset):  Default: 50.
         x_current_organization (str | Unset): Current organization ID
 
@@ -168,6 +186,7 @@ def sync(
         status=status,
         template_id=template_id,
         project_id=project_id,
+        origin=origin,
         limit=limit,
         x_current_organization=x_current_organization,
     ).parsed
@@ -179,6 +198,7 @@ async def asyncio_detailed(
     status: ComputerStatus | None | Unset = UNSET,
     template_id: None | str | Unset = UNSET,
     project_id: None | str | Unset = UNSET,
+    origin: ComputerOrigin | None | Unset = UNSET,
     limit: int | Unset = 50,
     x_current_organization: str | Unset = UNSET,
 ) -> Response[ComputerListResponse | ComputerValidationErrorResponse]:
@@ -188,6 +208,8 @@ async def asyncio_detailed(
         status (ComputerStatus | None | Unset):
         template_id (None | str | Unset):
         project_id (None | str | Unset):
+        origin (ComputerOrigin | None | Unset): Only sandboxes created from this surface. When
+            omitted, GitHub CI runner machines are excluded.
         limit (int | Unset):  Default: 50.
         x_current_organization (str | Unset): Current organization ID
 
@@ -203,6 +225,7 @@ async def asyncio_detailed(
         status=status,
         template_id=template_id,
         project_id=project_id,
+        origin=origin,
         limit=limit,
         x_current_organization=x_current_organization,
     )
@@ -218,6 +241,7 @@ async def asyncio(
     status: ComputerStatus | None | Unset = UNSET,
     template_id: None | str | Unset = UNSET,
     project_id: None | str | Unset = UNSET,
+    origin: ComputerOrigin | None | Unset = UNSET,
     limit: int | Unset = 50,
     x_current_organization: str | Unset = UNSET,
 ) -> ComputerListResponse | ComputerValidationErrorResponse | None:
@@ -227,6 +251,8 @@ async def asyncio(
         status (ComputerStatus | None | Unset):
         template_id (None | str | Unset):
         project_id (None | str | Unset):
+        origin (ComputerOrigin | None | Unset): Only sandboxes created from this surface. When
+            omitted, GitHub CI runner machines are excluded.
         limit (int | Unset):  Default: 50.
         x_current_organization (str | Unset): Current organization ID
 
@@ -244,6 +270,7 @@ async def asyncio(
             status=status,
             template_id=template_id,
             project_id=project_id,
+            origin=origin,
             limit=limit,
             x_current_organization=x_current_organization,
         )

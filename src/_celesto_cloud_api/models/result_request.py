@@ -27,6 +27,7 @@ class ResultRequest:
         ok (bool):
         result (None | ResultRequestResultType0 | Unset):
         error (None | str | Unset):
+        error_kind (None | str | Unset):
     """
 
     epoch: int
@@ -34,6 +35,7 @@ class ResultRequest:
     ok: bool
     result: None | ResultRequestResultType0 | Unset = UNSET
     error: None | str | Unset = UNSET
+    error_kind: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -59,6 +61,12 @@ class ResultRequest:
         else:
             error = self.error
 
+        error_kind: None | str | Unset
+        if isinstance(self.error_kind, Unset):
+            error_kind = UNSET
+        else:
+            error_kind = self.error_kind
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -72,6 +80,8 @@ class ResultRequest:
             field_dict["result"] = result
         if error is not UNSET:
             field_dict["error"] = error
+        if error_kind is not UNSET:
+            field_dict["error_kind"] = error_kind
 
         return field_dict
 
@@ -112,12 +122,22 @@ class ResultRequest:
 
         error = _parse_error(d.pop("error", UNSET))
 
+        def _parse_error_kind(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        error_kind = _parse_error_kind(d.pop("error_kind", UNSET))
+
         result_request = cls(
             epoch=epoch,
             state_id=state_id,
             ok=ok,
             result=result,
             error=error,
+            error_kind=error_kind,
         )
 
         result_request.additional_properties = d

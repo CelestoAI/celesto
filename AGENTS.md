@@ -47,8 +47,8 @@ For guest-agent or published-image changes:
 
 ### CLI design
 
-- New commands use `celesto <noun> <verb>`, such as `celesto codex start`.
-- The noun identifies a resource, such as a sandbox, harness, or browser
+- New commands use `celesto <noun> <verb>`, such as `celesto browser start`.
+- The noun identifies a resource, such as a sandbox or browser
   session. The verb identifies an action, such as `start`, `stop`, or `ssh`.
 - Register each new resource as a top-level subcommand and place its actions
   beneath it. Do not overload a global verb.

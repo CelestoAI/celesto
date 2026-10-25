@@ -79,6 +79,13 @@ def sync_detailed(
 ) -> Response[ComputerExecResponse | ComputerValidationErrorResponse]:
     """Execute a command inside the VM
 
+     Queue the command, then wait for its result on the event loop.
+
+    The wait is woken by the host's result (Redis `pool:op:<id>`) or by the
+    fallback tick; each check ends its read transaction, so a slow command
+    holds no pooled connection. A cancelled wait still expires the command
+    (D-25, see `ComputePoolService.exec`).
+
     Args:
         computer_id (str):
         x_current_organization (str | Unset): Current organization ID
@@ -114,6 +121,13 @@ def sync(
 ) -> ComputerExecResponse | ComputerValidationErrorResponse | None:
     """Execute a command inside the VM
 
+     Queue the command, then wait for its result on the event loop.
+
+    The wait is woken by the host's result (Redis `pool:op:<id>`) or by the
+    fallback tick; each check ends its read transaction, so a slow command
+    holds no pooled connection. A cancelled wait still expires the command
+    (D-25, see `ComputePoolService.exec`).
+
     Args:
         computer_id (str):
         x_current_organization (str | Unset): Current organization ID
@@ -143,6 +157,13 @@ async def asyncio_detailed(
     x_current_organization: str | Unset = UNSET,
 ) -> Response[ComputerExecResponse | ComputerValidationErrorResponse]:
     """Execute a command inside the VM
+
+     Queue the command, then wait for its result on the event loop.
+
+    The wait is woken by the host's result (Redis `pool:op:<id>`) or by the
+    fallback tick; each check ends its read transaction, so a slow command
+    holds no pooled connection. A cancelled wait still expires the command
+    (D-25, see `ComputePoolService.exec`).
 
     Args:
         computer_id (str):
@@ -176,6 +197,13 @@ async def asyncio(
     x_current_organization: str | Unset = UNSET,
 ) -> ComputerExecResponse | ComputerValidationErrorResponse | None:
     """Execute a command inside the VM
+
+     Queue the command, then wait for its result on the event loop.
+
+    The wait is woken by the host's result (Redis `pool:op:<id>`) or by the
+    fallback tick; each check ends its read transaction, so a slow command
+    holds no pooled connection. A cancelled wait still expires the command
+    (D-25, see `ComputePoolService.exec`).
 
     Args:
         computer_id (str):

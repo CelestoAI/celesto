@@ -401,7 +401,7 @@ const canSubmit =
       : {
           eyebrow: "Work interrupted",
           title: "Choose how to proceed",
-          detail: "OpenMuse stopped while working. The previous website action may have completed. Continue in a fresh computer, or start over.",
+          detail: conversation?.recovery?.summary ?? "OpenMuse stopped while working. The previous website action may have completed. Continue in a fresh computer, or start over.",
         };
 
   const needsModelSetup = Boolean(modelAccess && (showModelSetup || !conversation || conversation.modelAccessState !== "ready"));

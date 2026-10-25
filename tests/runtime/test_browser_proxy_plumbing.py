@@ -16,9 +16,11 @@
 
 from __future__ import annotations
 
+import json
+import shlex
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Literal
+from typing import Literal, cast
 from unittest.mock import MagicMock
 
 from celesto.browser import (
@@ -28,6 +30,7 @@ from celesto.browser import (
 )
 from celesto.types import (
     BrowserSessionConfig,
+    BrowserSessionInfo,
     CommandResult,
     NetworkConfig,
     VMConfig,
@@ -89,28 +92,30 @@ def test_tap_browser_uses_the_host_gateway_listener(tmp_path: Path) -> None:
 def test_browser_start_threads_the_internal_proxy_to_the_guest(tmp_path: Path) -> None:
     session = object.__new__(_BrowserSandbox)
     session._session_config = BrowserSessionConfig(session_id="browser-proxy")
-    session._info = SimpleNamespace(session_id="browser-proxy")
+    session._info = cast(BrowserSessionInfo, SimpleNamespace(session_id="browser-proxy"))
     session._vm = MagicMock()
     session._vm.info = _vm_info(tmp_path, backend="qemu", proxy_port=43128)
-    session._vm.run.return_value = CommandResult(exit_code=0, stdout="", stderr="")
+    session._vm.run.return_value = CommandResult(exit_code=0, stdout="{}", stderr="")
 
     session._start_guest_browser()
 
-    command = session._vm.run.call_args.args[0]
-    assert command.startswith("/usr/local/bin/celesto-browser-session start headless")
-    assert command.endswith("http://10.0.2.100:3128")
+    command = shlex.split(session._vm.run.call_args_list[0].args[0])
+    assert command[-2] == "start-session"
+    arguments = json.loads(command[-1])
+    assert arguments[0] == "headless"
+    assert arguments[-1] == "http://10.0.2.100:3128"
 
 
 def test_browser_relaunch_threads_the_same_internal_proxy(tmp_path: Path) -> None:
     session = object.__new__(_BrowserSandbox)
     session._session_config = BrowserSessionConfig(session_id="browser-proxy")
-    session._info = SimpleNamespace(session_id="browser-proxy")
+    session._info = cast(BrowserSessionInfo, SimpleNamespace(session_id="browser-proxy"))
     session._vm = MagicMock()
     session._vm.info = _vm_info(tmp_path, backend="qemu", proxy_port=43128)
-    session._vm.run.return_value = CommandResult(exit_code=0, stdout="", stderr="")
+    session._vm.run.return_value = CommandResult(exit_code=0, stdout="{}", stderr="")
 
     session._launch_guest_browser()
 
-    command = session._vm.run.call_args.args[0]
+    command = session._vm.run.call_args_list[0].args[0]
     assert command.startswith("/usr/local/bin/celesto-browser-session launch-browser headless")
     assert command.endswith("http://10.0.2.100:3128")

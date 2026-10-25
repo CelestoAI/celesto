@@ -97,4 +97,4 @@ console.log(computer.browser.cdpUrl);
 
 The `linux-desktop` template includes Chromium, LXTerminal, PCManFM, Mousepad, Tint2, Openbox, Git, Wget, SSH tools, jq, Zip, and Unzip. It is intentionally small rather than a full GNOME or KDE installation.
 
-Viewer, VNC, and CDP addresses listen only on your machine. Keep them in trusted application code. Do not send them to browser JavaScript or remote users.
+Viewer and CDP addresses listen only on your machine and include secret access tokens. Keep the complete URLs in trusted application code. Raw VNC addresses are unavailable; use the authenticated viewer. See [secure local access](../security.md) for connection and upgrade requirements.

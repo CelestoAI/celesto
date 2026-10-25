@@ -51,6 +51,9 @@ class FirecrackerRuntimeAdapter(RuntimeAdapter):
 
     def start(self, vm_info: VMInfo, *, log_path: Path, boot_timeout: float) -> RuntimeLaunch:
         """Start a Firecracker VM and configure it via the API socket."""
+        # VMConfig requires both paths for direct-kernel Linux guests.
+        assert vm_info.config.kernel_path is not None
+        assert vm_info.config.rootfs_path is not None
         control_socket_path = self._context.socket_dir / f"fc-{vm_info.vm_id}.sock"
         if control_socket_path.exists():
             self._context.unlink_socket(control_socket_path)
@@ -282,7 +285,9 @@ class FirecrackerRuntimeAdapter(RuntimeAdapter):
         process: Any | None = None
         client: FirecrackerClient | None = None
         try:
-            process = self._context.start_firecracker(control_socket_path, request.log_path)
+            process = self._context.start_firecracker(
+                control_socket_path, request.log_path, ssh_host_key=request.ssh_host_key
+            )
             client = FirecrackerClient(control_socket_path)
             client.wait_for_socket(timeout=request.boot_timeout)
             client.load_snapshot(state_path, memory_path, resume_vm=request.resume_vm)

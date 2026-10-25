@@ -24,15 +24,16 @@ import base64
 import codecs
 import logging
 import math
+import os
+import re
 import shlex
 import socket
 import stat
 import time
-import warnings
-from collections.abc import Iterator
+from collections.abc import Callable, Generator
 from contextlib import suppress
 from pathlib import Path
-from typing import BinaryIO, Literal
+from typing import BinaryIO, Literal, cast
 from uuid import uuid4
 
 import paramiko
@@ -51,52 +52,6 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_MAX_COMMAND_OUTPUT_BYTES = MAX_RUN_OUTPUT_BYTES
 """Host-owned cap on the output ``run`` buffers; larger output must use ``run_stream``."""
-_COMMAND_OUTPUT_CHUNK_BYTES = 64 * 1024
-_COMMAND_OUTPUT_POLL_SECONDS = 0.01
-
-
-def _read_command_output(
-    channel: paramiko.Channel, *, timeout: float, max_bytes: int
-) -> tuple[bytes, bytes]:
-    """Drain stdout and stderr together until the command exits.
-
-    Both streams are read as they arrive, so neither can pile up unread inside
-    the SSH channel while the other is still open, and their combined size is
-    refused past *max_bytes*. *timeout* is the longest the command may go
-    without producing output; it raises ``TimeoutError`` for the caller to map.
-    """
-    stdout: list[bytes] = []
-    stderr: list[bytes] = []
-    received = 0
-    last_output = time.monotonic()
-    while True:
-        # Read the exit state before draining: paramiko delivers data and the
-        # exit status in order, so a drain pass that starts after the status
-        # arrived and reads nothing has seen every byte. Checking afterwards
-        # could return while a last chunk sits unread in the channel.
-        done = channel.exit_status_ready() or channel.closed
-        progressed = False
-        for ready, recv, sink in (
-            (channel.recv_ready, channel.recv, stdout),
-            (channel.recv_stderr_ready, channel.recv_stderr, stderr),
-        ):
-            while ready():
-                chunk = recv(_COMMAND_OUTPUT_CHUNK_BYTES)
-                if not chunk:
-                    break
-                progressed = True
-                received += len(chunk)
-                if received > max_bytes:
-                    raise run_output_too_large_error(max_bytes)
-                sink.append(chunk)
-        if progressed:
-            last_output = time.monotonic()
-            continue
-        if done:
-            return b"".join(stdout), b"".join(stderr)
-        if time.monotonic() - last_output >= timeout:
-            raise TimeoutError("command produced no output within the timeout")
-        time.sleep(_COMMAND_OUTPUT_POLL_SECONDS)
 
 
 class _LimitedWriter:
@@ -158,6 +113,16 @@ The ``shell="raw"`` mode on :meth:`SSHClient.run` bypasses the wrap
 entirely for any kind."""
 
 
+def validate_host_key_alias(alias: str | None) -> str | None:
+    """Validate an explicit known_hosts identity before setup or SSH invocation."""
+    if alias is not None and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,252}", alias):
+        raise ValueError(
+            "SSH identity alias must be 1-253 letters, digits, dots, underscores or "
+            "hyphens, starting with a letter or digit."
+        )
+    return alias
+
+
 def _pwsh_encoded_command(command: str) -> str:
     """Return a ``powershell.exe -NoProfile -EncodedCommand <b64>`` wrap.
 
@@ -203,6 +168,13 @@ class SSHClient:
         key_path: Optional path to an SSH private key file.
         password: Optional password for authentication.
         connect_timeout: Seconds to wait for the TCP connection.
+        host_key: OpenSSH public host key obtained through trusted provisioning.
+            When omitted, system known_hosts and CELESTO_SSH_KNOWN_HOSTS apply.
+        host_key_provider: Trusted provisioning reader, retried while a boot key
+            is unavailable; never receives data from the SSH connection.
+        sandbox_name: Computer name included in identity recovery guidance.
+        host_key_alias: Exact trusted known_hosts entry to use independently
+            of the connection's address and port. Explicit host_key takes precedence.
         shell_kind: Login-shell flavor for the guest. ``sh`` (default) wraps
             with ``$SHELL -lc``; ``powershell`` wraps with
             ``powershell.exe -NoProfile -Command`` (Windows guests);
@@ -212,7 +184,7 @@ class SSHClient:
     """
 
     #: Transport tag for the :class:`~celesto.comm.base.CommChannel` interface.
-    kind: str = "ssh"
+    kind: Literal["ssh", "vsock"] = "ssh"
 
     def __init__(
         self,
@@ -223,6 +195,10 @@ class SSHClient:
         password: str | None = None,
         connect_timeout: int = 10,
         shell_kind: ShellKind = "sh",
+        host_key: str | None = None,
+        sandbox_name: str | None = None,
+        host_key_provider: Callable[[], str | None] | None = None,
+        host_key_alias: str | None = None,
     ) -> None:
         if not host:
             raise ValueError("host cannot be empty")
@@ -240,8 +216,24 @@ class SSHClient:
         self.password = password
         self.connect_timeout = connect_timeout
         self.shell_kind: ShellKind = shell_kind
+        self._sandbox_name = sandbox_name
+        self._host_key_provider = host_key_provider
+        self.host_key_alias = validate_host_key_alias(host_key_alias)
+        self._expected_host_key: paramiko.PKey | None = None
+        if host_key is not None:
+            self._expected_host_key = self._parse_host_key(host_key)
 
         self._client: paramiko.SSHClient | None = None
+
+    @staticmethod
+    def _parse_host_key(host_key: str) -> paramiko.PKey:
+        try:
+            entry = paramiko.hostkeys.HostKeyEntry.from_line(f"guest {host_key.strip()}")
+            if entry is None or entry.key is None:
+                raise ValueError("Missing key")
+            return entry.key
+        except Exception as exc:
+            raise ValueError("Provide a valid OpenSSH public host key for this guest.") from exc
 
     # ── Connection lifecycle ────────────────────────────────────
 
@@ -254,15 +246,65 @@ class SSHClient:
         Raises:
             CelestoError: If connection fails.
         """
+        # Readiness polling can begin before init publishes its identity. Only
+        # the independent provisioning channel may fill an absent pin; once
+        # obtained, keep it for this client's entire lifetime.
+        if self._expected_host_key is None and self._host_key_provider is not None:
+            host_key = self._host_key_provider()
+            if host_key is not None:
+                self._expected_host_key = self._parse_host_key(host_key)
         client = paramiko.SSHClient()
-        # Warn on unknown host keys instead of silently accepting them.
-        # AutoAddPolicy accepts any key, making connections vulnerable to MITM
-        # attacks.  WarningPolicy logs the unknown key and still connects — a
-        # safe middle ground for Celesto's ephemeral VMs whose host keys are
-        # generated at boot and not yet in a managed known_hosts file.
-        # TODO: pin host keys via RejectPolicy + known_hosts once the VM
-        # creation pipeline exports the generated host key to the host.
-        client.set_missing_host_key_policy(paramiko.WarningPolicy())  # noqa: S507
+        # Establish identity before sending credentials. A trusted guest console
+        # or authenticated provisioning channel must supply known_hosts data.
+        if self._expected_host_key is not None:
+            hostname = self.host if self.port == 22 else f"[{self.host}]:{self.port}"
+            client.get_host_keys().add(
+                hostname, self._expected_host_key.get_name(), self._expected_host_key
+            )
+        else:
+            if self.host_key_alias is None:
+                client.load_system_host_keys()
+            known_hosts = os.environ.get("CELESTO_SSH_KNOWN_HOSTS")
+            if self.host_key_alias is not None and not known_hosts:
+                known_hosts = "~/.ssh/known_hosts"
+            if known_hosts:
+                known_hosts = os.path.expanduser(known_hosts)
+                try:
+                    client.load_host_keys(known_hosts)
+                except OSError as exc:
+                    client.close()
+                    retry = (
+                        f"run 'celesto computer ssh {self._sandbox_name}'"
+                        if self._sandbox_name
+                        else "retry the SSH command"
+                    )
+                    raise CelestoError(
+                        f"Trusted SSH key file '{known_hosts}' could not be read. "
+                        f"Restore it, then {retry}."
+                    ) from exc
+            if self.host_key_alias is not None:
+                keys = client.get_host_keys()
+                alias_keys = keys.lookup(self.host_key_alias)
+                if alias_keys is None:
+                    client.close()
+                    retry = (
+                        f"run 'celesto computer ssh {self._sandbox_name}'"
+                        if self._sandbox_name
+                        else "retry the SSH command"
+                    )
+                    raise CelestoError(
+                        f"Trusted SSH key file '{known_hosts}' has no entry for "
+                        f"'{self.host_key_alias}'. Add its verified public key, "
+                        f"then {retry}."
+                    )
+                pinned = list(alias_keys.items())
+                # Only the explicitly selected identity can authorize this
+                # endpoint, even if the file also contains an endpoint entry.
+                keys.clear()
+                endpoint = self.host if self.port == 22 else f"[{self.host}]:{self.port}"
+                for key_type, key in pinned:
+                    keys.add(endpoint, key_type, key)
+        client.set_missing_host_key_policy(paramiko.RejectPolicy())
 
         connect_kwargs: dict[str, object] = {
             "hostname": self.host,
@@ -284,14 +326,17 @@ class SSHClient:
             connect_kwargs["look_for_keys"] = True
 
         try:
-            with warnings.catch_warnings():
-                warnings.filterwarnings(
-                    "ignore",
-                    message=r"Unknown .* host key for .*",
-                )
-                client.connect(**connect_kwargs)  # type: ignore[arg-type]
+            client.connect(**connect_kwargs)  # type: ignore[arg-type]
         except Exception as e:
             client.close()
+            if self._sandbox_name and (
+                isinstance(e, paramiko.BadHostKeyException) or "known_hosts" in str(e)
+            ):
+                raise CelestoError(
+                    f"SSH identity for '{self._sandbox_name}' could not be verified; "
+                    "set CELESTO_SSH_KNOWN_HOSTS to a trusted key file, then run "
+                    f"'celesto computer ssh {self._sandbox_name}'."
+                ) from e
             raise CelestoError(f"SSH connection failed: {e}") from e
 
         return client
@@ -350,12 +395,19 @@ class SSHClient:
             if max_bytes is None:
                 sftp.get(remote_path, str(destination))
             else:
-                if sftp.stat(remote_path).st_size > max_bytes:
+                size = sftp.stat(remote_path).st_size
+                if size is None:
+                    raise CelestoError(
+                        f"Guest file '{remote_path}' size is unavailable; retry the download."
+                    )
+                if size > max_bytes:
                     raise CelestoError(f"Guest file '{remote_path}' exceeded {max_bytes} bytes.")
                 with destination.open("wb") as handle:
                     sftp.getfo(
                         remote_path,
-                        _LimitedWriter(handle, max_bytes, remote_path),
+                        # Paramiko's getfo only calls write; the adapter enforces
+                        # the byte budget before passing data to the real file.
+                        cast(BinaryIO, _LimitedWriter(handle, max_bytes, remote_path)),
                         prefetch=False,
                     )
         except CelestoError:
@@ -436,7 +488,7 @@ class SSHClient:
     def run(
         self,
         command: str,
-        timeout: int = 30,
+        timeout: float = 30,
         shell: ShellMode = "login",
     ) -> CommandResult:
         """Execute a command on the guest VM.
@@ -457,8 +509,7 @@ class SSHClient:
 
         Raises:
             ValueError: If *command* is empty.
-            OperationTimeoutError: If the command produces no output for
-                *timeout* seconds.
+            OperationTimeoutError: If the command exceeds *timeout*.
             CelestoError: If the SSH connection cannot be established, or if
                 the command's stdout and stderr together exceed 16 MiB (use
                 :meth:`run_stream` for large output).
@@ -468,7 +519,7 @@ class SSHClient:
         if timeout < 1:
             raise ValueError("timeout must be >= 1")
 
-        remote_command = self._prepare_remote_command(command, shell=shell)
+        self._prepare_remote_command(command, shell=shell)
 
         logger.debug(
             "SSH exec on %s:%d (shell=%s): %s",
@@ -478,52 +529,31 @@ class SSHClient:
             command,
         )
 
-        client = self._ensure_connected()
-
+        stdout: list[str] = []
+        stderr: list[str] = []
+        captured = 0
+        events = self.run_stream(command, timeout=timeout, shell=shell)
         try:
-            _, stdout_ch, _stderr_ch = client.exec_command(remote_command, timeout=timeout)
-            channel = stdout_ch.channel
-            try:
-                stdout_bytes, stderr_bytes = _read_command_output(
-                    channel,
-                    timeout=timeout,
-                    max_bytes=_DEFAULT_MAX_COMMAND_OUTPUT_BYTES,
-                )
-            except (CelestoError, TimeoutError):
-                # Best effort: closing the channel closes the command's pipes, so a
-                # command that keeps writing gets SIGPIPE instead of streaming on.
-                with suppress(Exception):
-                    channel.close()
-                raise
-            stdout = stdout_bytes.decode("utf-8", errors="replace")
-            stderr = stderr_bytes.decode("utf-8", errors="replace")
-            exit_code = channel.recv_exit_status()
-
-            return CommandResult(
-                exit_code=exit_code,
-                stdout=stdout,
-                stderr=stderr,
-            )
-        except CelestoError:
-            raise
-        except TimeoutError as e:
-            raise OperationTimeoutError(
-                f"ssh {self.host}:{self.port}: {command}",
-                timeout,
-            ) from e
-        except paramiko.SSHException as e:
-            # Connection may have died mid-command — invalidate it
-            self.close()
-            raise CelestoError(f"SSH command failed: {e}") from e
-        except Exception as e:
-            raise CelestoError(f"SSH command failed: {e}") from e
+            for event in events:
+                if event.type in {"stdout", "stderr"}:
+                    captured += len(event.data.encode("utf-8"))
+                    if captured > _DEFAULT_MAX_COMMAND_OUTPUT_BYTES:
+                        raise run_output_too_large_error(_DEFAULT_MAX_COMMAND_OUTPUT_BYTES)
+                    (stdout if event.type == "stdout" else stderr).append(event.data)
+                elif event.type == "exit":
+                    return CommandResult(
+                        exit_code=event.exit_code, stdout="".join(stdout), stderr="".join(stderr)
+                    )
+        finally:
+            events.close()
+        raise CelestoError("SSH command ended without a result; retry the command.")
 
     def run_stream(
         self,
         command: str,
-        timeout: int = 30,
+        timeout: float = 30,
         shell: ShellMode = "login",
-    ) -> Iterator[CommandEvent]:
+    ) -> Generator[CommandEvent, None, None]:
         """Execute a command over SSH and yield output chunks as they arrive."""
         if not command or not command.strip():
             raise ValueError("command cannot be empty")
@@ -548,12 +578,14 @@ class SSHClient:
             )
             while True:
                 emitted = False
-                while channel.recv_ready():
+                if time.monotonic() - started >= timeout:
+                    raise OperationTimeoutError(f"ssh {self.host}:{self.port}: {command}", timeout)
+                if channel.recv_ready():
                     emitted = True
                     data = stdout_decoder.decode(channel.recv(65536))
                     if data:
                         yield CommandOutputEvent(type="stdout", data=data)
-                while channel.recv_stderr_ready():
+                if channel.recv_stderr_ready():
                     emitted = True
                     data = stderr_decoder.decode(channel.recv_stderr(65536))
                     if data:

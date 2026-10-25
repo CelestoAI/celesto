@@ -20,6 +20,14 @@ with Computer() as comp:
 
 The constructor validates configuration without contacting the server. Entering the block creates a computer and waits for it to run. Each command returns `stdout`, `stderr`, and `exit_code`; nonzero command exit codes do not raise an exception. Cloud commands support up to 10,000 characters and a timeout of 1–300 seconds.
 
+The free trial allows one cloud sandbox at a time, including stopped sandboxes.
+To create another, delete the existing sandbox in the cloud dashboard or add
+prepaid credit. To reuse it, reconnect with `Computer.get(computer_id)` instead
+of creating a new `Computer()`. Stopping a sandbox does not free the trial slot.
+When this limit is reached, `CloudAPIError` explains the restriction and recovery
+options alongside HTTP 429. A separate running-sandbox limit can apply after
+adding credit; that error reports the allowed count when available.
+
 ## Stream command output
 
 `run_stream()` returns the same event types for cloud and local computers. Local
@@ -192,9 +200,61 @@ inspect `published_ports()` or the cloud dashboard before retrying.
 
 Pass `api_key=` to override `CELESTO_API_KEY`, and `organization_id=` to select an organization. `base_url=` defaults to `https://api.celesto.ai` and must be the server origin without `/v1`. HTTPS is required except for localhost development servers. Credentials go only to that explicitly selected origin; redirects are not followed.
 
+Named API keys work with the Python SDK. For a complete `with Computer()`
+session, enable all three permissions in the dashboard: **See your computers**,
+**Create, start, stop computers and run commands**, and **Delete computers**.
+The block creates a computer, checks its state, and deletes it on exit. A key
+with fewer permissions can perform only the corresponding operations; stopping
+a computer does not require delete permission.
+
+If you use `celesto auth login`, its saved key is used only when neither
+`api_key=` nor `CELESTO_API_KEY` supplies a key. Updating the saved login does
+not replace a key supplied by your script or environment. Named keys stay
+restricted to their organization and their owner's organization role.
+
 Cloud creation accepts `vcpus`, `ram_mb`, `disk_size_mb`, `image`, `template_id`, `template_version`, and `external_volume_enabled`. Local options such as `mounts` and `data_dir` are not cloud options and are rejected. `startup_timeout` and `cleanup_timeout` default to 120 seconds and bound polling; individual network timeout limits are not a guarantee against every stalled or trickling response.
 
-HTTP failures raise `CloudAPIError` with a `status_code`. Missing computers raise `VMNotFoundError`. Transport failures raise `CelestoError`: creation or command execution may have succeeded even when its response was lost. No creation or command request is automatically replayed. Inspect the cloud dashboard before retrying an operation with an unknown outcome.
+HTTP failures raise `CloudAPIError` with `status_code` and a stable `code`.
+Missing computers raise `VMNotFoundError`. Transport failures, unreadable
+responses, and lifecycle timeouts raise `CloudOperationError`, a `CelestoError`
+subclass. Existing `except CloudAPIError` and `except CelestoError` handlers
+continue to work. These structured fields are available in Celesto 0.1.7.
+
+Both cloud error classes expose `operation`, `computer_id`, `request_id`,
+`idempotency_key`, `recovery_action`, and `side_effects`. References are `None`
+when unavailable. `CloudAPIError` also exposes `required_scope`, `running_limit`,
+and `validation_errors`, a tuple of safe field names and constraint codes.
+Recognized public codes are preserved; other HTTP failures use `http_<status>`.
+Submitted values, arbitrary server diagnostics, and connection credentials stay
+private. The existing bounded HTTP 400 `details["detail"]` remains available
+where the endpoint allows it.
+
+`recovery_action` is `fix_and_retry`, `inspect`, or `ask_human`. It describes the
+next step; it does not authorize automatic retries. `side_effects="unknown"`
+means an operation may already have happened. A lost creation response includes
+its `idempotency_key` as a support reference; the public constructor does not
+accept that key for replay. Inspect your computers before creating another.
+For an uncertain command, establish its intended result before rerunning it.
+For stop/resume timeouts, inspect the computer's state before retrying that same
+operation. Deletion is a separate choice that removes the computer.
+
+```python
+from celesto import CloudAPIError, CloudComputer, CloudOperationError
+
+try:
+    with CloudComputer() as comp:
+        print(comp.run("echo hello").stdout)
+except CloudAPIError as error:
+    print(error.code, error.status_code, error.recovery_action)
+    print(error)
+except CloudOperationError as error:
+    print(error.operation, error.computer_id, error.side_effects)
+    print(error)
+```
+
+If your code and cleanup both fail, handle the resulting exception group so
+both failures remain visible. The published [error-handling guide](https://celesto.ai/docs/cloud/errors)
+shows a complete handler, safe recovery for each limit, and the structured fields.
 
 Cloud creation supplies a unique idempotency key, as required by the pool API.
 The Scratch template uses its advertised disk default when `disk_size_mb` is omitted.

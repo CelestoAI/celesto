@@ -97,6 +97,36 @@ def test_connect_tunnels_to_the_pinned_address() -> None:
     assert connector.calls == [("1.1.1.1", 443, 10.0)]
 
 
+def test_idle_connect_still_closes_at_its_configured_budget() -> None:
+    """An idle tunnel must release both sockets; immediate exchanges miss leaks.
+
+    Removing the stream deadline would keep these sockets open indefinitely.
+    The connector replaces only the upstream network, not the timeout behavior.
+    """
+    received: list[bytes] = []
+
+    def upstream(sock: socket.socket) -> None:
+        sock.settimeout(2)
+        received.append(sock.recv(1))
+
+    connector = SocketPairConnector(upstream)
+    with (
+        PublicEgressProxy(
+            "idle-budget-test",
+            resolver=StaticResolver(["1.1.1.1"]),
+            connector=connector,
+            idle_timeout=0.05,
+        ) as proxy,
+        socket.create_connection((proxy.endpoint.host, proxy.endpoint.port), timeout=2) as client,
+    ):
+        client.sendall(b"CONNECT public.test:443 HTTP/1.1\r\nHost: public.test:443\r\n\r\n")
+        assert _recv_until(client, b"\r\n\r\n").startswith(b"HTTP/1.1 200")
+        assert client.recv(1) == b""
+
+    connector.join()
+    assert received == [b""]
+
+
 @pytest.mark.parametrize("port", [25, 53, 80, 8443])
 def test_connect_rejects_non_https_ports_before_dns_or_connect(port: int) -> None:
     resolver = StaticResolver(["1.1.1.1"])

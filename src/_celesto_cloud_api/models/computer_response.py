@@ -8,6 +8,7 @@ from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
 
+from ..models.computer_origin import ComputerOrigin
 from ..types import UNSET, Unset
 from typing import cast
 
@@ -40,6 +41,8 @@ class ComputerResponse:
         price_version (None | str | Unset):
         template_id (str | Unset):  Default: 'scratch'.
         template_version (None | str | Unset):
+        custom_template_id (None | str | Unset):
+        origin (ComputerOrigin | None | Unset):
         network_policy (NetworkPolicy | Unset): Outbound internet access, fixed for the lifetime of a computer.
         external_volume_enabled (bool | Unset):  Default: False.
         connection (ComputerConnectionInfo | None | Unset):
@@ -47,6 +50,7 @@ class ComputerResponse:
         metrics (ComputerMetricsSummary | None | Unset):
         last_error (None | str | Unset):
         stopped_at (None | str | Unset):
+        disk_delete_at (None | str | Unset):
     """
 
     id: str
@@ -62,6 +66,8 @@ class ComputerResponse:
     price_version: None | str | Unset = UNSET
     template_id: str | Unset = "scratch"
     template_version: None | str | Unset = UNSET
+    custom_template_id: None | str | Unset = UNSET
+    origin: ComputerOrigin | None | Unset = UNSET
     network_policy: NetworkPolicy | Unset = UNSET
     external_volume_enabled: bool | Unset = False
     connection: ComputerConnectionInfo | None | Unset = UNSET
@@ -69,6 +75,7 @@ class ComputerResponse:
     metrics: ComputerMetricsSummary | None | Unset = UNSET
     last_error: None | str | Unset = UNSET
     stopped_at: None | str | Unset = UNSET
+    disk_delete_at: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -118,6 +125,20 @@ class ComputerResponse:
         else:
             template_version = self.template_version
 
+        custom_template_id: None | str | Unset
+        if isinstance(self.custom_template_id, Unset):
+            custom_template_id = UNSET
+        else:
+            custom_template_id = self.custom_template_id
+
+        origin: None | str | Unset
+        if isinstance(self.origin, Unset):
+            origin = UNSET
+        elif isinstance(self.origin, ComputerOrigin):
+            origin = self.origin.value
+        else:
+            origin = self.origin
+
         network_policy: dict[str, Any] | Unset = UNSET
         if not isinstance(self.network_policy, Unset):
             network_policy = self.network_policy.to_dict()
@@ -159,6 +180,12 @@ class ComputerResponse:
         else:
             stopped_at = self.stopped_at
 
+        disk_delete_at: None | str | Unset
+        if isinstance(self.disk_delete_at, Unset):
+            disk_delete_at = UNSET
+        else:
+            disk_delete_at = self.disk_delete_at
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -182,6 +209,10 @@ class ComputerResponse:
             field_dict["template_id"] = template_id
         if template_version is not UNSET:
             field_dict["template_version"] = template_version
+        if custom_template_id is not UNSET:
+            field_dict["custom_template_id"] = custom_template_id
+        if origin is not UNSET:
+            field_dict["origin"] = origin
         if network_policy is not UNSET:
             field_dict["network_policy"] = network_policy
         if external_volume_enabled is not UNSET:
@@ -196,6 +227,8 @@ class ComputerResponse:
             field_dict["last_error"] = last_error
         if stopped_at is not UNSET:
             field_dict["stopped_at"] = stopped_at
+        if disk_delete_at is not UNSET:
+            field_dict["disk_delete_at"] = disk_delete_at
 
         return field_dict
 
@@ -256,6 +289,34 @@ class ComputerResponse:
             return cast(None | str | Unset, data)
 
         template_version = _parse_template_version(d.pop("template_version", UNSET))
+
+        def _parse_custom_template_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        custom_template_id = _parse_custom_template_id(
+            d.pop("custom_template_id", UNSET)
+        )
+
+        def _parse_origin(data: object) -> ComputerOrigin | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                origin_type_0 = ComputerOrigin(data)
+
+                return origin_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(ComputerOrigin | None | Unset, data)
+
+        origin = _parse_origin(d.pop("origin", UNSET))
 
         _network_policy = d.pop("network_policy", UNSET)
         network_policy: NetworkPolicy | Unset
@@ -329,6 +390,15 @@ class ComputerResponse:
 
         stopped_at = _parse_stopped_at(d.pop("stopped_at", UNSET))
 
+        def _parse_disk_delete_at(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        disk_delete_at = _parse_disk_delete_at(d.pop("disk_delete_at", UNSET))
+
         computer_response = cls(
             id=id,
             name=name,
@@ -343,6 +413,8 @@ class ComputerResponse:
             price_version=price_version,
             template_id=template_id,
             template_version=template_version,
+            custom_template_id=custom_template_id,
+            origin=origin,
             network_policy=network_policy,
             external_volume_enabled=external_volume_enabled,
             connection=connection,
@@ -350,6 +422,7 @@ class ComputerResponse:
             metrics=metrics,
             last_error=last_error,
             stopped_at=stopped_at,
+            disk_delete_at=disk_delete_at,
         )
 
         computer_response.additional_properties = d

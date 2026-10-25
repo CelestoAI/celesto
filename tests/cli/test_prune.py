@@ -26,12 +26,12 @@ class TestFindStaleCaches:
         assert find_stale_caches(cache_dir=tmp_path / "nonexistent") == []
 
     def test_ignores_files(self, tmp_path: Path) -> None:
-        (tmp_path / "openclaw-v0.0.13-amd64-firecracker").write_text("not a dir")
+        (tmp_path / "ubuntu-v0.0.13-amd64-firecracker").write_text("not a dir")
         assert find_stale_caches(cache_dir=tmp_path, current_version="1.0.0") == []
 
     def test_alpha_version_treated_as_distinct(self, tmp_path: Path) -> None:
-        (tmp_path / "openclaw-v0.0.14a0-amd64-qemu").mkdir()
-        (tmp_path / "openclaw-v0.0.14-amd64-qemu").mkdir()
+        (tmp_path / "ubuntu-v0.0.14a0-amd64-qemu").mkdir()
+        (tmp_path / "ubuntu-v0.0.14-amd64-qemu").mkdir()
         result = find_stale_caches(cache_dir=tmp_path, current_version="0.0.14")
         assert len(result) == 1
         assert "0.0.14a0" in result[0].name

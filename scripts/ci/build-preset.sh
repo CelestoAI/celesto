@@ -17,11 +17,8 @@
 # preset-specific install script, unmount. The result is a self-contained
 # ext4 ready for zstd compression and upload.
 #
-# NOTE: openclaw uses its own builder (build_openclaw_rootfs) which bakes
-# in a custom init script, sidecars, and systemctl proxy. It's not layered
-# through this script. This script handles: codex, claude-code, hermes, pi,
-# opencode, and the bare "ubuntu" image (no preset install — just the finalized base
-# rootfs, used for `create --os ubuntu` on firecracker).
+# This script handles the bare "ubuntu" image (no extra install — just the
+# finalized base rootfs, used for `create --os ubuntu` on firecracker).
 #
 # Runs in CI on a matching-arch runner. Requires: chroot, mount (loop).
 set -euo pipefail
@@ -62,19 +59,6 @@ case "$OS" in
     exit 1
     ;;
 esac
-
-# Phase 1 of the Alpine rollout (#264) supports the pure-JS presets. hermes
-# pulls musllinux-incompatible Python wheels and openclaw pulls glibc-only
-# @node-llama-cpp prebuilts, so both remain Ubuntu-only.
-if [ "$OS" = "alpine" ]; then
-  case "$PRESET" in
-    codex|claude-code|opencode|pi) ;;
-    *)
-      echo "Preset '$PRESET' is not yet supported on Alpine (supported: codex, claude-code, opencode, pi)." >&2
-      exit 1
-      ;;
-  esac
-fi
 
 mkdir -p "$OUT_DIR"
 ROOTFS="$OUT_DIR/${OUT_NAME}-rootfs.ext4"
@@ -127,62 +111,6 @@ cp /etc/resolv.conf "$MNT/etc/resolv.conf" 2>/dev/null || true
 echo "==> Installing preset '$PRESET' ($OS)..."
 
 case "$PRESET" in
-  codex)
-    chroot "$MNT" "$SHELL_BIN" -c '
-      set -euo pipefail
-      npm install -g --silent @openai/codex
-      npm cache clean --force >/dev/null 2>&1 || true
-      rm -rf /root/.npm /root/.cache /tmp/*
-    '
-    ;;
-
-  claude-code)
-    chroot "$MNT" "$SHELL_BIN" -c '
-      set -euo pipefail
-      npm install -g --silent @anthropic-ai/claude-code
-      npm cache clean --force >/dev/null 2>&1 || true
-      rm -rf /root/.npm /root/.cache /tmp/*
-    '
-    ;;
-
-  hermes)
-    # Ubuntu-only — gated above, but keep the install body here so a
-    # future Alpine-compatible spike can flip the gate without rewriting.
-    chroot "$MNT" "$SHELL_BIN" -c '
-      set -euo pipefail
-      if [ ! -d /opt/hermes-agent ]; then
-        git clone --depth 1 https://github.com/NousResearch/hermes-agent.git /opt/hermes-agent
-      fi
-      cd /opt/hermes-agent
-      uv venv
-      uv pip install -e ".[all]" || uv pip install -e .
-      ln -sf /opt/hermes-agent/.venv/bin/hermes /usr/local/bin/hermes
-      # uv keeps a wheel cache (~/.cache/uv) — gigabytes for "[all]" extras.
-      uv cache clean >/dev/null 2>&1 || true
-      # .git is dead weight for a non-developing install.
-      rm -rf /opt/hermes-agent/.git
-      rm -rf /root/.cache /tmp/*
-    '
-    ;;
-
-  pi)
-    chroot "$MNT" "$SHELL_BIN" -c '
-      set -euo pipefail
-      npm install -g --silent @mariozechner/pi-coding-agent
-      npm cache clean --force >/dev/null 2>&1 || true
-      rm -rf /root/.npm /root/.cache /tmp/*
-    '
-    ;;
-
-  opencode)
-    chroot "$MNT" "$SHELL_BIN" -c '
-      set -euo pipefail
-      npm install -g --silent opencode-ai
-      npm cache clean --force >/dev/null 2>&1 || true
-      rm -rf /root/.npm /root/.cache /tmp/*
-    '
-    ;;
-
   ubuntu)
     # Bare Ubuntu image: nothing to install on top of the base rootfs. The
     # shared finalize below (install /init + bake the guest agent) is all it

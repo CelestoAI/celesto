@@ -18,12 +18,6 @@
 set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
-RUNTIME_USER="${SUDO_USER:-}"
-RUNTIME_UID=""
-
-if [[ -n "${RUNTIME_USER}" ]]; then
-    RUNTIME_UID="$(id -u "${RUNTIME_USER}")"
-fi
 
 usage() {
     cat <<EOF
@@ -46,24 +40,27 @@ resolve_abs_existing_path() {
     readlink -f -- "${input}"
 }
 
-require_owned_by_runtime_user() {
-    local path="$1"
-    if [[ -z "${RUNTIME_UID}" ]]; then
-        return 0
-    fi
-
-    local owner_uid
-    owner_uid="$(stat -c %u -- "${path}")"
-    if [[ "${owner_uid}" != "${RUNTIME_UID}" ]]; then
-        die "path must be owned by runtime user '${RUNTIME_USER}': ${path}"
+require_administrator() {
+    # This is a trusted-root tool, not a privilege broker. Path ownership checks
+    # cannot authorize mounting caller-controlled filesystem bytes or restoring
+    # privileged archive metadata. Refuse the old sudo-delegated entry point,
+    # including installations whose sudoers policy has not yet been upgraded.
+    if [[ ${EUID} -ne 0 || "${SUDO_UID:-0}" != "0" || ( -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ) ]]; then
+        die "Image operations require a trusted root administrator; run 'celesto setup' to update permissions and use Docker for ordinary image builds."
     fi
 }
 
-require_parent_owned_by_runtime_user() {
-    local path="$1"
-    local parent
-    parent="$(dirname -- "${path}")"
-    require_owned_by_runtime_user "${parent}"
+require_restricted_image_mount() {
+    local directory="$1"
+    local filesystem options source
+    filesystem="$(findmnt --noheadings --raw --output FSTYPE --mountpoint "${directory}")" || \
+        die "Image folder is not ready; run the mount action before extracting or unmounting."
+    options="$(findmnt --noheadings --raw --output OPTIONS --mountpoint "${directory}")"
+    source="$(findmnt --noheadings --raw --output SOURCE --mountpoint "${directory}")"
+    if [[ "${filesystem}" != "ext4" || ! "${source}" =~ ^/dev/loop[0-9]+$ || \
+          ",${options}," != *,nosuid,* || ",${options}," != *,nodev,* || ",${options}," != *,noexec,* ]]; then
+        die "Image folder lacks required protections; unmount it as an administrator, then rerun the mount action."
+    fi
 }
 
 mount_rootfs() {
@@ -77,10 +74,7 @@ mount_rootfs() {
     [[ "${rootfs_real}" == *.ext4 ]] || die "rootfs must end with .ext4: ${rootfs_real}"
     [[ -d "${mount_real}" ]] || die "mount dir does not exist: ${mount_real}"
 
-    require_owned_by_runtime_user "${rootfs_real}"
-    require_owned_by_runtime_user "${mount_real}"
-
-    mount -o loop "${rootfs_real}" "${mount_real}"
+    mount -t ext4 -o loop,nosuid,nodev,noexec "${rootfs_real}" "${mount_real}"
 }
 
 extract_rootfs_tar() {
@@ -94,8 +88,7 @@ extract_rootfs_tar() {
     [[ "${tar_real}" == *.tar ]] || die "tar path must end with .tar: ${tar_real}"
     [[ -d "${mount_real}" ]] || die "mount dir does not exist: ${mount_real}"
 
-    require_owned_by_runtime_user "${tar_real}"
-    require_parent_owned_by_runtime_user "${mount_real}"
+    require_restricted_image_mount "${mount_real}"
 
     tar -xf "${tar_real}" -C "${mount_real}"
 }
@@ -106,7 +99,7 @@ unmount_rootfs() {
     mount_real="$(resolve_abs_existing_path "$1")"
 
     [[ -d "${mount_real}" ]] || die "mount dir does not exist: ${mount_real}"
-    require_parent_owned_by_runtime_user "${mount_real}"
+    require_restricted_image_mount "${mount_real}"
 
     umount "${mount_real}"
 }
@@ -123,14 +116,17 @@ main() {
             ;;
         mount)
             shift
+            require_administrator
             mount_rootfs "$@"
             ;;
         extract)
             shift
+            require_administrator
             extract_rootfs_tar "$@"
             ;;
         umount)
             shift
+            require_administrator
             unmount_rootfs "$@"
             ;;
         *)

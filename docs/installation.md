@@ -78,7 +78,7 @@ celesto setup
 celesto doctor
 ```
 
-On Linux, `setup` installs or checks the runtime dependencies and configures what Celesto needs to run computers. It may ask for administrator permission.
+On Linux, `setup` installs or checks the runtime dependencies and configures what Celesto needs to run computers. It may ask for administrator permission. It removes Celesto's old unrestricted passwordless networking and image-building grants. Linux TAP networking now requires an explicitly privileged administrator process; ordinary accounts can use QEMU's default networking and Docker image builds. Run setup again after upgrading to replace the old policy; see [administrator setup](security.md#administrator-setup).
 
 ```bash
 celesto setup

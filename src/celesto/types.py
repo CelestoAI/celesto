@@ -132,7 +132,7 @@ class CommandStartedEvent(BaseModel):
     type: Literal["started"] = "started"
     command_id: str
     started_at_unix_ms: int
-    timeout_seconds: int
+    timeout_seconds: float
 
     model_config = {"frozen": True}
 
@@ -162,6 +162,31 @@ class CommandExitEvent(BaseModel):
 
 CommandEvent = CommandStartedEvent | CommandOutputEvent | CommandExitEvent
 """An event yielded by :meth:`celesto.Computer.run_stream`."""
+
+
+class TemplateBuildFailure(BaseModel):
+    """Where a custom template's build script failed.
+
+    ``line`` and ``line_number`` point into the build script. All fields are
+    ``None`` when the failure came from a build step outside the script.
+    """
+
+    line: str | None = None
+    line_number: int | None = None
+    exit_code: int | None = None
+    hint: str | None = None
+
+    model_config = {"frozen": True}
+
+
+class TemplateLintWarning(BaseModel):
+    """A warning about one build script line. Warnings never block a build."""
+
+    line: int
+    code: str
+    message: str
+
+    model_config = {"frozen": True}
 
 
 class PublishedPort(BaseModel):
@@ -427,14 +452,16 @@ class DesktopEndpoint(BaseModel):
 class InternetSettings(BaseModel):
     """Outbound access settings for supported private networking.
 
-    QEMU supports off on macOS/Linux slirp and off/CIDRs on Linux TAP.
+    QEMU supports off/public on macOS/Linux slirp and off/CIDRs on Linux TAP.
+    Public mode permits only public HTTP(S) through a connection-time proxy;
+    its creating manager owns the proxy and must remain open.
     Firecracker explicit restrictions require Linux and vsock.
 
     Legacy allowed_domains resolves names to IPv4 addresses at setup time; it
     does not verify hostnames on connections. HTTP method filtering is unsupported.
     """
 
-    mode: Literal["open", "off", "restricted"] | None = None
+    mode: Literal["open", "off", "restricted", "public"] | None = None
     allowed_cidrs: tuple[str, ...] = ()
     allowed_domains: tuple[str, ...] = ("*",)
     allowed_http_methods: tuple[str, ...] = ("*",)
@@ -490,7 +517,7 @@ class InternetSettings(BaseModel):
 
     @property
     def has_explicit_restrictions(self) -> bool:
-        return self.mode in {"off", "restricted"}
+        return self.mode in {"off", "restricted", "public"}
 
     @field_validator("allowed_domains")
     @classmethod
@@ -682,13 +709,7 @@ class VMConfig(BaseModel):
             silently boot without usable networking.
     """
 
-    vm_id: Annotated[
-        str,
-        Field(
-            default_factory=_generate_vm_id,
-            pattern=_IDENTIFIER_PATTERN,
-        ),
-    ]
+    vm_id: str = Field(default_factory=_generate_vm_id, pattern=_IDENTIFIER_PATTERN)
     preset: str | None = None
     vcpu_count: Annotated[int, Field(ge=1, le=32)] = 2
     memory: Annotated[int, Field(ge=128, le=32768)] = 512
@@ -973,6 +994,8 @@ class BrowserSessionConfig(BaseModel):
             }
             return data
 
+        width: Any
+        height: Any
         if isinstance(viewport, BrowserViewport):
             width = viewport.width
             height = viewport.height
@@ -1188,9 +1211,9 @@ class BrowserSessionInfo(BaseModel):
     session_id: str
     vm_id: str
     status: BrowserSessionState
-    cdp_url: str | None = None
-    live_url: str | None = None
-    vnc_url: str | None = None
+    cdp_url: str | None = Field(default=None, repr=False)
+    live_url: str | None = Field(default=None, repr=False)
+    vnc_url: str | None = Field(default=None, repr=False)
     debug_port: int | None = None
     vnc_port: int | None = None
     profile_id: str | None = None
@@ -1307,7 +1330,7 @@ class ComputerDisplayProtocol(Protocol):
     def viewer_url(self) -> str: ...
 
     @property
-    def vnc_url(self) -> str: ...
+    def vnc_url(self) -> str | None: ...
 
 
 class ComputerBrowserProtocol(Protocol):
@@ -1332,8 +1355,16 @@ class ComputerFilesProtocol(Protocol):
     def write(self, path: str, content: str | bytes) -> None: ...
 
 
+ComputerCapability = Literal[
+    "display.viewer", "display.vnc", "browser.cdp", "sandbox.exec", "sandbox.files"
+]
+
+
 class ComputerSandboxProtocol(DisplaySandboxProtocol, Protocol):
     """A ready graphical computer and its included applications."""
+
+    @property
+    def capabilities(self) -> tuple[ComputerCapability, ...]: ...
 
     @property
     def computer_id(self) -> str: ...

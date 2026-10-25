@@ -47,6 +47,13 @@ test("local Celesto provider preserves the existing computer behavior behind the
   assert.equal(handle.reference, undefined);
   assert.deepEqual(await handle.createBrowserConnection(), { url: "http://127.0.0.1:9222" });
   assert.deepEqual(await handle.createDisplayConnection("read_only"), { url: "ws://127.0.0.1:6080/websockify" });
+  const capability = "a".repeat(64);
+  for (const [viewerScheme, socketScheme] of [["http", "ws"], ["https", "wss"]]) {
+    computer.display.viewerUrl = `${viewerScheme}://127.0.0.1:6080/${capability}/vnc.html?autoconnect=1&resize=scale&path=${capability}/websockify`;
+    assert.deepEqual(await handle.createDisplayConnection("read_only"), {
+      url: `${socketScheme}://127.0.0.1:6080/${capability}/websockify`,
+    });
+  }
   await handle.detach();
   await handle.delete();
 
@@ -54,7 +61,7 @@ test("local Celesto provider preserves the existing computer behavior behind the
   assert.deepEqual(calls.slice(1), ["launch", "delete", "close"]);
 });
 
-test("Celesto provider creates, reconnects, executes, and mints scoped connections", async () => {
+test("Celesto provider creates, executes, and mints scoped connections", async () => {
   const calls: Array<unknown> = [];
   const cloud = {
     id: "cmp-cloud",
@@ -78,10 +85,6 @@ test("Celesto provider creates, reconnects, executes, and mints scoped connectio
       calls.push(["create", options, config]);
       return cloud as never;
     },
-    getCloudComputer: async (id, config) => {
-      calls.push(["get", id, config]);
-      return cloud as never;
-    },
   };
   const provider = createComputerProvider({
     provider: "celesto",
@@ -96,33 +99,16 @@ test("Celesto provider creates, reconnects, executes, and mints scoped connectio
   });
   assert.deepEqual(await created.createBrowserConnection(), { url: "wss://gateway/browser?token=browser-secret" });
   assert.deepEqual(await created.createDisplayConnection("read_only"), { url: "wss://gateway/display?token=display-secret" });
-  assert.ok(await provider.reconnect({ provider: "celesto", id: "cmp-cloud" }));
+  await assert.rejects(provider.reconnect({ provider: "celesto", id: "cmp-cloud" }), /Public network/);
   await created.detach();
   await created.delete();
 
   assert.deepEqual(calls[0], ["create", { templateId: "browser-agent", networkPolicy: { mode: "open" } }, { apiKey: "key-secret", baseUrl: "https://control.example" }]);
   assert.deepEqual(calls[1], ["exec", `'printf' 'it'"'"'s safe'`, { timeout: 35, signal: undefined }]);
   assert.deepEqual(calls[2], ["display", { mode: "read_only" }]);
-  assert.deepEqual(calls[3], ["get", "cmp-cloud", { apiKey: "key-secret", baseUrl: "https://control.example" }]);
-  assert.equal(calls[4], "delete");
+  assert.equal(calls[3], "delete");
 });
 
-test("Celesto reconnect treats only a missing computer as recoverable", async () => {
-  const missing = createComputerProvider({ provider: "celesto", apiKey: "key-secret" }, {
-    getCloudComputer: async () => { throw new CelestoApiError("missing", 404, {}); },
-  });
-  assert.equal(await missing.reconnect({ provider: "celesto", id: "gone" }), undefined);
-
-  const unauthorized = createComputerProvider({ provider: "celesto", apiKey: "key-secret" }, {
-    getCloudComputer: async () => { throw new CelestoApiError("unauthorized", 401, {}); },
-  });
-  await assert.rejects(unauthorized.reconnect({ provider: "celesto", id: "private" }), /unauthorized/);
-
-  const deleted = createComputerProvider({ provider: "celesto", apiKey: "key-secret" }, {
-    getCloudComputer: async () => ({ id: "deleted", status: "deleted", lastError: undefined }) as never,
-  });
-  assert.equal(await deleted.reconnect({ provider: "celesto", id: "deleted" }), undefined);
-});
 
 test("Celesto delete returns after the delete request is accepted", async () => {
   const cloud = {
@@ -199,4 +185,14 @@ test("Celesto connection polling stops after a bounded number of starting respon
 
   await assert.rejects(computer.createBrowserConnection(), /did not become ready/);
   assert.equal(attempts, 15);
+});
+
+test("public browsing cannot silently create or reconnect a cloud computer without egress enforcement", async () => {
+  let called = false;
+  const provider = createComputerProvider({ provider: "celesto", apiKey: "test" }, {
+    createCloudComputer: async () => { called = true; throw new Error("unprotected create"); },
+  });
+  await assert.rejects(provider.create({ network: "public", viewport: { width: 800, height: 600 } }), /public.*network.*local/i);
+  await assert.rejects(provider.reconnect({ provider: "celesto", id: "saved-open-network" }), /public.*network.*local/i);
+  assert.equal(called, false);
 });
