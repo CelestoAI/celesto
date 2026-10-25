@@ -3100,13 +3100,24 @@ class TestCliComputer:
 class TestCliUi:
     """Tests for `celesto ui`."""
 
+    @pytest.mark.parametrize("configured_token", [None, ""])
     @patch("celesto.cli.main.importlib.import_module")
-    def test_ui_defaults(self, mock_import: MagicMock) -> None:
-        """`celesto ui` should launch uvicorn with defaults."""
+    def test_ui_defaults(
+        self,
+        mock_import: MagicMock,
+        configured_token: str | None,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Absent or empty tokens generate a private token for local UI startup."""
+        if configured_token is None:
+            monkeypatch.delenv("CELESTO_DASHBOARD_TOKEN", raising=False)
+        else:
+            monkeypatch.setenv("CELESTO_DASHBOARD_TOKEN", configured_token)
         mock_uvicorn = MagicMock()
         mock_import.return_value = mock_uvicorn
 
         def verify_private_logging_url(*_args: object, **_kwargs: object) -> None:
+            assert len(os.environ["CELESTO_DASHBOARD_TOKEN"]) >= 32
             assert "#" not in os.environ["CELESTO_DASHBOARD_URL"]
             assert os.environ["CELESTO_DASHBOARD_TOKEN"] not in os.environ["CELESTO_DASHBOARD_URL"]
 
@@ -3115,6 +3126,7 @@ class TestCliUi:
         ret = main(["ui"])
 
         assert ret == 0
+        assert os.environ.get("CELESTO_DASHBOARD_TOKEN") == configured_token
         mock_import.assert_called_once_with("uvicorn")
         mock_uvicorn.run.assert_called_once_with(
             "celesto.dashboard.server:app",

@@ -80,6 +80,7 @@ from celesto.runtime.libkrun import LibkrunRuntimeAdapter
 from celesto.runtime.qemu import QEMU_ROOT_NODE_NAME, QemuRuntimeAdapter
 from celesto.runtime.qemu_args import build_qemu_argv
 from celesto.runtime.vz import VzRuntimeAdapter
+from celesto.ssh_trust import save_snapshot_host_key, snapshot_host_key
 from celesto.storage import (
     SSH_PORT_END,
     SSH_PORT_START,
@@ -305,7 +306,7 @@ def _is_usable_dir(path: Path) -> bool:
     return os.access(path, os.W_OK | os.X_OK)
 
 
-def _open_runtime_log(path: Path) -> TextIO:
+def _open_runtime_log(path: Path, *, ssh_host_key: str | None = None) -> TextIO:
     """Start a private console without following or truncating an unsafe file."""
     descriptor = os.open(
         path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, 0o600
@@ -325,9 +326,19 @@ def _open_runtime_log(path: Path) -> TextIO:
         # retained descriptor before changing its mode or discarding its data.
         os.fchmod(descriptor, 0o600)
         os.ftruncate(descriptor, 0)
-        return os.fdopen(descriptor, "w")
     except BaseException:
         os.close(descriptor)
+        raise
+    handle = os.fdopen(descriptor, "w")
+    try:
+        if ssh_host_key is not None:
+            # A memory restore resumes past init. Provision its saved, verified
+            # identity before a runtime process can write any guest output.
+            handle.write(f"CELESTO_SSH_HOST_KEY {ssh_host_key}\n")
+            handle.flush()
+        return handle
+    except BaseException:
+        handle.close()
         raise
 
 
@@ -452,7 +463,7 @@ class CelestoManager:
         self.disk_dir = self.data_dir / "disks"
         self.snapshot_dir = self.data_dir / "snapshots"
         self.disk_dir.mkdir(parents=True, exist_ok=True)
-        self.snapshot_dir.mkdir(parents=True, exist_ok=True)
+        _mkdir_private(self.snapshot_dir)
 
         # Under sudo, keep the chosen user-state path owned by the real user.
         owner = _get_sudo_user_info()
@@ -2999,7 +3010,7 @@ class CelestoManager:
         snapshot_persisted = False
 
         try:
-            snapshot_root.mkdir(parents=True, exist_ok=False)
+            snapshot_root.mkdir(mode=0o700, parents=True, exist_ok=False)
             self._warn_low_disk_space_for_snapshot(vm_info, snapshot_type)
             result = adapter.create_snapshot(
                 SnapshotCreateRequest(
@@ -3016,6 +3027,8 @@ class CelestoManager:
                     qemu_dirty_bitmap_backup=qemu_dirty_bitmap_backup,
                 )
             )
+            if snapshot_type != SnapshotType.DISK:
+                save_snapshot_host_key(self.data_dir, vm_id, snapshot_root)
 
             assert vm_info.network is not None  # _ensure_snapshot_supported checks this.
             snapshot_info = SnapshotInfo(
@@ -3289,6 +3302,11 @@ class CelestoManager:
                     log_path=log_path,
                     resume_vm=resume_vm,
                     boot_timeout=30.0,
+                    ssh_host_key=(
+                        snapshot_host_key(self._snapshot_root_for_id(snapshot_id))
+                        if snapshot.snapshot_type != SnapshotType.DISK
+                        else None
+                    ),
                 )
             )
             if restore_disk_path != managed_disk_path:
@@ -3599,6 +3617,7 @@ class CelestoManager:
         root_node_name: str = QEMU_ROOT_NODE_NAME,
         firmware_vars_path: Path | None = None,
         swtpm_socket: Path | None = None,
+        ssh_host_key: str | None = None,
     ) -> subprocess.Popen[bytes]:
         """Start a QEMU process for the qemu backend.
 
@@ -3650,7 +3669,7 @@ class CelestoManager:
 
         logger.debug("Starting QEMU: %s", " ".join(cmd))
 
-        log_file = _open_runtime_log(log_path)
+        log_file = _open_runtime_log(log_path, ssh_host_key=ssh_host_key)
 
         try:
             process = subprocess.Popen(
@@ -3675,6 +3694,8 @@ class CelestoManager:
         self,
         socket_path: Path,
         log_path: Path,
+        *,
+        ssh_host_key: str | None = None,
     ) -> subprocess.Popen[bytes]:
         """Start the Firecracker process.
 
@@ -3696,7 +3717,7 @@ class CelestoManager:
 
         cmd = [str(fc_path), "--api-sock", str(socket_path)]
 
-        log_file = _open_runtime_log(log_path)
+        log_file = _open_runtime_log(log_path, ssh_host_key=ssh_host_key)
 
         try:
             process = subprocess.Popen(

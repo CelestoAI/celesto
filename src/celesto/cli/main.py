@@ -2937,7 +2937,7 @@ def _run_ui(host: str, port: int, allow_beta: bool) -> int:
             ),
             json_output=False,
         )
-    if token is not None and not re.fullmatch(r"[A-Za-z0-9._~-]+", token):
+    if token and not re.fullmatch(r"[A-Za-z0-9._~-]+", token):
         return _emit_cli_error(
             "ui",
             2,

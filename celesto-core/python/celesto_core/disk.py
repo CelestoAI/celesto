@@ -2,6 +2,8 @@
 
 import celesto_core._ffi as _ffi
 
+ImageSizeLimitError = _ffi.ImageSizeLimitError
+
 
 def available() -> bool:
     """Return True when this wheel includes native disk/image helpers."""
@@ -28,6 +30,7 @@ def decompress_zstd_sparse(
 
 
 __all__ = [
+    "ImageSizeLimitError",
     "available",
     "clone_or_sparse_copy",
     "decompress_zstd_sparse",

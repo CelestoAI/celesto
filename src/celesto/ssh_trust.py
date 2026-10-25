@@ -121,6 +121,31 @@ def trusted_host_key(data_dir: Path, vm_id: str) -> str | None:
         return None
 
 
+def save_snapshot_host_key(data_dir: Path, vm_id: str, snapshot_dir: Path) -> None:
+    """Retain independently provisioned identity beside a memory snapshot."""
+    key = trusted_host_key(data_dir, vm_id)
+    if key is None:
+        return
+    with _trusted_directory(snapshot_dir) as directory:
+        descriptor = os.open(
+            "ssh-host-key",
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+            0o600,
+            dir_fd=directory,
+        )
+        with os.fdopen(descriptor, "w") as handle:
+            handle.write(f"guest {key}\n")
+
+
+def snapshot_host_key(snapshot_dir: Path) -> str | None:
+    """Read a snapshot's private identity, never a key supplied by its guest."""
+    try:
+        with _trusted_directory(snapshot_dir) as directory:
+            return _parse_key(_read_owned_file(directory, "ssh-host-key", 16384).splitlines()[0])
+    except (OSError, IndexError, RuntimeError):
+        return None
+
+
 def openssh_host_key_options(data_dir: Path, vm_id: str, host: str, port: int) -> list[str]:
     """Use a private per-computer known_hosts file for interactive SSH and tunnels."""
     options = ["-o", "StrictHostKeyChecking=yes"]

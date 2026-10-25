@@ -44,6 +44,11 @@ pub fn clone_or_sparse_copy(source: &str, target: &str) -> io::Result<String> {
     Ok(method.to_string())
 }
 
+/// Identify a caller's decompression budget separately from corrupt input or I/O failure.
+#[derive(Debug, thiserror::Error)]
+#[error("decoded image exceeds size limit")]
+pub(crate) struct ImageSizeLimitError;
+
 /// Decompress a trusted image without a size budget. Imports should use the bounded API.
 pub fn decompress_zstd_sparse(source: &str, target: &str, chunk_size: usize) -> io::Result<String> {
     decompress_zstd_sparse_bounded(source, target, chunk_size, None)
@@ -72,16 +77,13 @@ pub fn decompress_zstd_sparse_bounded(
         if read == 0 {
             break;
         }
-        size = size.checked_add(read as u64).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "decoded image exceeds size limit",
-            )
-        })?;
+        size = size
+            .checked_add(read as u64)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, ImageSizeLimitError))?;
         if max_output_bytes.is_some_and(|limit| size > limit) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                "decoded image exceeds size limit",
+                ImageSizeLimitError,
             ));
         }
         write_sparse_chunk(&mut stage.file, &buffer[..read])?;

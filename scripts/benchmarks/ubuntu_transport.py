@@ -37,10 +37,10 @@ import sys
 import tempfile
 import time
 import uuid
-from contextlib import suppress
+from contextlib import ExitStack, suppress
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import IO, TYPE_CHECKING, Any, Literal
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_REPO_ROOT / "src"))
@@ -745,31 +745,44 @@ def main() -> None:
         level=logging.INFO if args.verbose else logging.WARNING,
         format="%(message)s",
     )
-    report = run_benchmark(
-        iterations=args.iterations,
-        warm_exec_runs=args.warm_exec_runs,
-        rootfs_source=args.rootfs_source,
-        variants=selected_variants,
-        include_snapshot=args.include_snapshot,
-        snapshot_type=args.snapshot_type,
-    )
-    payload = json.dumps(report, indent=2)
-    if args.output is None:
-        with tempfile.NamedTemporaryFile(
-            mode="w", prefix="celesto-ubuntu-transport-", suffix=".json", delete=False
-        ) as report_file:
-            report_file.write(payload + "\n")
-            output_path = Path(report_file.name)
-    else:
+    with ExitStack() as report_files:
         output_path = args.output
+        report_file: IO[str] | None = None
+        if output_path is not None:
+            try:
+                # Reserve the report before starting computers. Exclusive creation
+                # rejects symlinks and hardlinks atomically.
+                report_file = report_files.enter_context(
+                    open(output_path, "x", opener=lambda path, flags: os.open(path, flags, 0o600))
+                )
+            except FileExistsError:
+                parser.error(
+                    f"Report already exists at '{output_path}'; choose a new --output path."
+                )
+            except OSError as exc:
+                parser.error(
+                    f"Could not write report at '{output_path}': {exc.strerror}; "
+                    "choose a writable --output path in an existing folder."
+                )
+        report = run_benchmark(
+            iterations=args.iterations,
+            warm_exec_runs=args.warm_exec_runs,
+            rootfs_source=args.rootfs_source,
+            variants=selected_variants,
+            include_snapshot=args.include_snapshot,
+            snapshot_type=args.snapshot_type,
+        )
+        payload = json.dumps(report, indent=2)
+        if report_file is None:
+            report_file = report_files.enter_context(
+                tempfile.NamedTemporaryFile(
+                    mode="w", prefix="celesto-ubuntu-transport-", suffix=".json", delete=False
+                )
+            )
+            output_path = Path(report_file.name)
         try:
-            # Exclusive creation rejects symlinks and hardlinks atomically.
-            with open(
-                output_path, "x", opener=lambda path, flags: os.open(path, flags, 0o600)
-            ) as report_file:
-                report_file.write(payload + "\n")
-        except FileExistsError:
-            parser.error(f"Report already exists at '{output_path}'; choose a new --output path.")
+            report_file.write(payload + "\n")
+            report_file.close()
         except OSError as exc:
             parser.error(
                 f"Could not write report at '{output_path}': {exc.strerror}; "

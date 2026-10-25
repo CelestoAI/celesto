@@ -41,6 +41,10 @@ except ImportError:  # pragma: no cover - depends on optional wheel availability
     core_disk = None  # type: ignore[assignment]
 
 
+class ImageSizeLimitError(OSError):
+    """Decoded image output exceeded the caller's byte budget."""
+
+
 def has_native_disk_io() -> bool:
     """Return True when Rust disk/image helpers are enabled for this process."""
 
@@ -88,19 +92,23 @@ def decompress_zstd_sparse(
         if max_output_bytes is None:
             method = str(core_disk.decompress_zstd_sparse(str(source), str(target), chunk_size))
         else:
+            native_limit_error = getattr(core_disk, "ImageSizeLimitError", None)
+            if native_limit_error is None:
+                # Older wheels cannot distinguish a budget failure from bad data.
+                # Keep the bounded contract using Python, never an unbounded retry.
+                return _python_decompress_zstd_sparse(
+                    source, target, chunk_size=chunk_size, max_output_bytes=max_output_bytes
+                )
             try:
                 method = str(
                     core_disk.decompress_zstd_sparse(
                         str(source), str(target), chunk_size, max_output_bytes=max_output_bytes
                     )
                 )
-            except TypeError as error:
-                # Older wheels cannot enforce a budget. Never retry unbounded.
-                if "max_output_bytes" not in str(error):
-                    raise
-                return _python_decompress_zstd_sparse(
-                    source, target, chunk_size=chunk_size, max_output_bytes=max_output_bytes
-                )
+            except OSError as error:
+                if isinstance(error, native_limit_error):
+                    raise ImageSizeLimitError(str(error)) from error
+                raise
         return f"native:{method}"
 
     return _python_decompress_zstd_sparse(
@@ -185,7 +193,7 @@ def _python_decompress_zstd_sparse(
             while chunk := reader.read(min(chunk_size, _SPARSE_CHUNK_SIZE)):
                 size += len(chunk)
                 if max_output_bytes is not None and size > max_output_bytes:
-                    raise OSError("decoded image exceeds size limit")
+                    raise ImageSizeLimitError("decoded image exceeds size limit")
                 _write_sparse_chunk(target_f, chunk)
             target_f.truncate(size)
         tmp.replace(target)
@@ -206,6 +214,7 @@ def _ensure_parent_dir(path: Path) -> None:
 
 
 __all__ = [
+    "ImageSizeLimitError",
     "has_native_disk_io",
     "clone_or_sparse_copy",
     "decompress_zstd_sparse",

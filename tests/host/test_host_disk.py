@@ -119,19 +119,23 @@ def test_decompress_zstd_sparse_propagates_native_oserror(tmp_path: Path) -> Non
 
 
 @pytest.mark.parametrize("size,limit", [(9, 8), (9, 9), (0, 0)])
+@pytest.mark.parametrize("native", [False, True])
 def test_bounded_decompression_preserves_target_on_rejection(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, size: int, limit: int
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, size: int, limit: int, native: bool
 ) -> None:
     import zstandard
 
-    monkeypatch.setenv("CELESTO_DISABLE_NATIVE_DISK", "1")
+    monkeypatch.setenv("CELESTO_DISABLE_NATIVE_DISK", "0" if native else "1")
+    if native and not disk.has_native_disk_io():
+        pytest.skip("native disk extension is unavailable")
     source = tmp_path / "image.zst"
     target = tmp_path / "image"
     source.write_bytes(zstandard.ZstdCompressor().compress(b"x" * size))
     target.write_bytes(b"existing image")
     if size > limit:
-        with pytest.raises(OSError, match="limit"):
+        with pytest.raises(OSError, match="limit") as failure:
             disk.decompress_zstd_sparse(source, target, chunk_size=4, max_output_bytes=limit)
+        assert isinstance(failure.value, disk.ImageSizeLimitError)
         assert target.read_bytes() == b"existing image"
     else:
         disk.decompress_zstd_sparse(source, target, chunk_size=4, max_output_bytes=limit)

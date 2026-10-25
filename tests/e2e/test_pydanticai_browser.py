@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 if TYPE_CHECKING:
-    from pydantic_ai.messages import ModelMessage, ModelResponse
+    from pydantic_ai.messages import ModelMessage
     from pydantic_ai.models.function import AgentInfo
 
 pytestmark = pytest.mark.e2e

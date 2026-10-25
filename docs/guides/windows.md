@@ -27,7 +27,7 @@ Get-Content "$env:ProgramData\ssh\ssh_host_ed25519_key.pub"
 Save that independently verified public key as `verified-windows-host-key.pub` on your machine. In another terminal, add it under the same hostname in the file configured above:
 
 ```bash
-printf 'celesto-win %s\n' "$(cat ./verified-windows-host-key.pub)" > ./windows-known-hosts
+printf 'celesto-win %s\n' "$(cat ./verified-windows-host-key.pub)" >> ./windows-known-hosts
 chmod 600 ./windows-known-hosts
 ```
 

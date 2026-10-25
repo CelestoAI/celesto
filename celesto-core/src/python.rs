@@ -2,6 +2,8 @@
 
 use pyo3::prelude::*;
 
+pyo3::create_exception!(_ffi, ImageSizeLimitError, pyo3::exceptions::PyOSError);
+
 /// Return whether native Linux networking helpers are available.
 #[pyfunction]
 fn has_native_networking() -> bool {
@@ -199,7 +201,16 @@ fn decompress_zstd_sparse(
     py.detach(|| {
         crate::disk::decompress_zstd_sparse_bounded(source, target, chunk_size, max_output_bytes)
     })
-    .map_err(|error| pyo3::exceptions::PyOSError::new_err(error.to_string()))
+    .map_err(|error| {
+        if error
+            .get_ref()
+            .is_some_and(|cause| cause.is::<crate::disk::ImageSizeLimitError>())
+        {
+            ImageSizeLimitError::new_err(error.to_string())
+        } else {
+            pyo3::exceptions::PyOSError::new_err(error.to_string())
+        }
+    })
 }
 
 #[cfg(unix)]
@@ -249,6 +260,10 @@ fn firecracker_wait_for_socket(_py: Python<'_>, _socket_path: &str, _timeout: f6
 /// Private Python extension module. Public Python code lives in wrapper modules.
 #[pymodule]
 fn _ffi(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add(
+        "ImageSizeLimitError",
+        m.py().get_type::<ImageSizeLimitError>(),
+    )?;
     pyo3_log::init();
 
     m.add_function(wrap_pyfunction!(has_native_networking, m)?)?;

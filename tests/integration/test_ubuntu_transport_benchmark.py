@@ -314,7 +314,13 @@ def test_benchmark_cli_refuses_existing_output_links(
     victim = tmp_path / "keep.json"
     victim.write_text("keep these bytes")
     report: dict[str, dict[str, object]] = {"variants": {}}
-    monkeypatch.setattr(ubuntu_transport, "run_benchmark", lambda **_kwargs: report)
+    benchmark_runs: list[str] = []
+
+    def benchmark(**_kwargs: Any) -> dict[str, dict[str, object]]:
+        benchmark_runs.append("ran")
+        return report
+
+    monkeypatch.setattr(ubuntu_transport, "run_benchmark", benchmark)
     for kind in ("symbolic", "hard"):
         output = tmp_path / f"{kind}.json"
         if kind == "symbolic":
@@ -325,6 +331,7 @@ def test_benchmark_cli_refuses_existing_output_links(
         with pytest.raises((SystemExit, FileExistsError)):
             ubuntu_transport.main()
         assert victim.read_text() == "keep these bytes"
+        assert benchmark_runs == []
 
     output = tmp_path / "new-report.json"
     monkeypatch.setattr(sys, "argv", ["benchmark", "--output", str(output)])
@@ -332,6 +339,7 @@ def test_benchmark_cli_refuses_existing_output_links(
     import json
 
     assert json.loads(output.read_text()) == report
+    assert benchmark_runs == ["ran"]
     if os.name == "posix":
         assert output.stat().st_mode & 0o077 == 0
 
@@ -339,11 +347,15 @@ def test_benchmark_cli_refuses_existing_output_links(
 def test_benchmark_report_path_error_is_actionable(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A completed benchmark reports a bad output path without a traceback."""
+    """Reject an unusable report path before spending time starting computers."""
     import sys
 
     output = tmp_path / "missing" / "report.json"
-    monkeypatch.setattr(ubuntu_transport, "run_benchmark", lambda **_kwargs: {"variants": {}})
+
+    def unexpected_benchmark(**_kwargs: Any) -> None:
+        pytest.fail("An invalid output path must fail before starting the benchmark")
+
+    monkeypatch.setattr(ubuntu_transport, "run_benchmark", unexpected_benchmark)
     monkeypatch.setattr(sys, "argv", ["benchmark", "--output", str(output)])
     with pytest.raises(SystemExit) as failure:
         ubuntu_transport.main()

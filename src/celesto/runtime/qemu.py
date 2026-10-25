@@ -1678,6 +1678,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
                 control_socket_path=control_socket_path,
                 start_paused=True,
                 root_node_name=QEMU_ROOT_NODE_NAME,
+                ssh_host_key=request.ssh_host_key if not disk_only else None,
             )
             self._wait_for_runtime(process, control_socket_path, request.boot_timeout)
 

@@ -414,7 +414,7 @@ def run_image_load(
     """Execute ``celesto image load``."""
     import zstandard
 
-    from celesto.host.disk import decompress_zstd_sparse
+    from celesto.host.disk import ImageSizeLimitError, decompress_zstd_sparse
     from celesto.images.published import (
         _decompressed_rootfs_sidecar_value,
         _looks_like_zstd_decode_error,
@@ -666,10 +666,7 @@ def run_image_load(
                         )
                         charge(destination.stat().st_size)
                     except OSError as exc:
-                        if (
-                            str(exc) == "decoded image exceeds size limit"
-                            and budget - written < meta["size"]
-                        ):
+                        if isinstance(exc, ImageSizeLimitError) and budget - written < meta["size"]:
                             raise _ImportBudgetError from exc
                         if _looks_like_zstd_decode_error(exc):
                             raise zstandard.ZstdError(
@@ -704,7 +701,7 @@ def run_image_load(
                     decompress_zstd_sparse(zst, rootfs, max_output_bytes=budget - written)
                     charge(rootfs.stat().st_size)
                 except OSError as exc:
-                    if str(exc) == "decoded image exceeds size limit":
+                    if isinstance(exc, ImageSizeLimitError):
                         raise _ImportBudgetError from exc
                     if _looks_like_zstd_decode_error(exc):
                         raise zstandard.ZstdError(
