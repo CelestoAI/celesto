@@ -894,15 +894,16 @@ def test_read_response_bounded_rejects_body_larger_than_declared() -> None:
 
 
 def test_json_requests_reject_responses_over_host_cap(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(vsock_channel, "_DEFAULT_MAX_AGENT_RESPONSE_BYTES", 32)
-
     def _handler(method: str, path: str, body: bytes) -> dict:
         assert path == "/env"
         return {"ok": True, "vars": {"PADDING": "x" * 256}}
 
     channel = FakeRustChannel([_capabilities({"env_managed": True}), _handler])
+    # Load capabilities first so the lowered cap applies to the /env reply itself.
+    assert channel.capabilities.enabled("env_managed")
+    monkeypatch.setattr(vsock_channel, "_DEFAULT_MAX_AGENT_RESPONSE_BYTES", 32)
 
-    with pytest.raises(CelestoError, match="32 bytes"):
+    with pytest.raises(CelestoError, match="GET /env exceeded 32 bytes"):
         channel.list_managed_env()
 
 

@@ -42,8 +42,8 @@ def run_output_too_large_error(max_bytes: int) -> CelestoError:
     """Error for a ``run`` result the host refuses to buffer whole."""
     return CelestoError(
         f"Command output (stdout and stderr together) exceeded the output limit of "
-        f"{max_bytes} bytes, so it cannot be returned in one result. Use run_stream to read "
-        "large output as it arrives."
+        f"{max_bytes} bytes, so it cannot be returned in one result. Write the output to a "
+        "file in the computer and download it, or use run_stream to read it as it arrives."
     )
 
 
