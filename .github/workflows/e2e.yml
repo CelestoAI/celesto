@@ -192,7 +192,22 @@ jobs:
 
       # uv workspace builds celesto-core from the local celesto-core/ directory.
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra dashboard --extra server
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Build dashboard UI
+        run: |
+          npm ci --prefix ui
+          npm run build --prefix ui
+
+      - name: Install Chromium
+        run: uv run --with playwright --with websockets python -m playwright install --with-deps chromium
 
       - name: Assert native extension available
         run: |
