@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server.json && tsc --noEmit -p tsconfig.test.json",
     "test": "tsx --test test/*.test.ts",
     "test:e2e": "playwright test",
+    "test:security": "node --import tsx --test test/security/*.test.ts",
     "test:e2e:install": "playwright install chromium",
     "eval:validate": "tsx eval/run-deterministic.ts",
     "eval:artifact": "tsx eval/run-deterministic.ts --output artifacts/open-muse-eval.json",

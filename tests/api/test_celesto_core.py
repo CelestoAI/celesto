@@ -66,7 +66,9 @@ def test_public_network_functions_have_python_signatures() -> None:
     assert signature.parameters["name"].annotation is str
     assert signature.parameters["owner_uid"].annotation is int
     assert signature.return_annotation is None
-    assert "Create a TAP network device" in inspect.getdoc(celesto_core.network.create_tap)
+    create_tap_doc = inspect.getdoc(celesto_core.network.create_tap)
+    assert create_tap_doc is not None
+    assert "Create a TAP network device" in create_tap_doc
 
     configure_signature = inspect.signature(celesto_core.network.configure_tap)
     assert list(configure_signature.parameters) == ["name", "host_ip", "prefix_len"]
@@ -74,7 +76,9 @@ def test_public_network_functions_have_python_signatures() -> None:
     assert configure_signature.parameters["host_ip"].annotation is str
     assert configure_signature.parameters["prefix_len"].annotation is int
     assert configure_signature.return_annotation is None
-    assert "Assign an IPv4 address" in inspect.getdoc(celesto_core.network.configure_tap)
+    configure_tap_doc = inspect.getdoc(celesto_core.network.configure_tap)
+    assert configure_tap_doc is not None
+    assert "Assign an IPv4 address" in configure_tap_doc
 
     prepare_signature = inspect.signature(celesto_core.network.prepare_tap)
     assert list(prepare_signature.parameters) == [
@@ -86,7 +90,9 @@ def test_public_network_functions_have_python_signatures() -> None:
     ]
     assert prepare_signature.parameters["route_localnet"].default is True
     assert prepare_signature.return_annotation is None
-    assert "Create and configure a TAP link" in inspect.getdoc(celesto_core.network.prepare_tap)
+    prepare_tap_doc = inspect.getdoc(celesto_core.network.prepare_tap)
+    assert prepare_tap_doc is not None
+    assert "Create and configure a TAP link" in prepare_tap_doc
 
 
 def test_public_disk_functions_have_python_signatures() -> None:
@@ -98,8 +104,14 @@ def test_public_disk_functions_have_python_signatures() -> None:
     assert copy_signature.return_annotation is str
 
     decompress_signature = inspect.signature(celesto_core.disk.decompress_zstd_sparse)
-    assert list(decompress_signature.parameters) == ["source", "target", "chunk_size"]
+    assert list(decompress_signature.parameters) == [
+        "source",
+        "target",
+        "chunk_size",
+        "max_output_bytes",
+    ]
     assert decompress_signature.parameters["chunk_size"].default == 1048576
+    assert decompress_signature.parameters["max_output_bytes"].default is None
     assert decompress_signature.return_annotation is str
 
 

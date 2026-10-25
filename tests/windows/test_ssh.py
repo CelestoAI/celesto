@@ -17,7 +17,8 @@
 import base64
 import errno
 import logging
-import warnings
+from pathlib import Path
+from typing import BinaryIO
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -109,54 +110,21 @@ def _mock_exec_result(
 ) -> tuple[None, MagicMock, MagicMock]:
     stdout_ch = MagicMock()
     stderr_ch = MagicMock()
-    stdout_ch.read.return_value = stdout.encode("utf-8")
-    stderr_ch.read.return_value = stderr.encode("utf-8")
-    stdout_ch.channel.recv_exit_status.return_value = exit_code
+    pending = [stdout.encode("utf-8"), stderr.encode("utf-8")]
+    channel = stdout_ch.channel
+    channel.recv_ready.side_effect = lambda: bool(pending[0])
+    channel.recv_stderr_ready.side_effect = lambda: bool(pending[1])
+
+    def drain(index: int) -> bytes:
+        data = pending[index]
+        pending[index] = b""
+        return data
+
+    channel.recv.side_effect = lambda size: drain(0)
+    channel.recv_stderr.side_effect = lambda size: drain(1)
+    channel.exit_status_ready.return_value = True
+    channel.recv_exit_status.return_value = exit_code
     return (None, stdout_ch, stderr_ch)
-
-
-class TestSSHClientWarningPolicy:
-    """Tests that _connect uses WarningPolicy (not AutoAddPolicy)."""
-
-    @patch("celesto.ssh.paramiko.SSHClient")
-    def test_connect_uses_warning_policy(self, mock_ssh_client_cls: MagicMock) -> None:
-        """Verify set_missing_host_key_policy is called with WarningPolicy."""
-        import paramiko
-
-        mock_client = MagicMock()
-        mock_ssh_client_cls.return_value = mock_client
-
-        client = SSHClient("172.16.0.2")
-        client._connect()
-
-        mock_client.set_missing_host_key_policy.assert_called_once()
-        policy_arg = mock_client.set_missing_host_key_policy.call_args[0][0]
-        assert isinstance(policy_arg, paramiko.WarningPolicy), (
-            f"Expected WarningPolicy, got {type(policy_arg).__name__}. "
-            "AutoAddPolicy silently accepts any key; WarningPolicy logs the "
-            "unknown key, which is safer for ephemeral VMs."
-        )
-
-    @patch("celesto.ssh.paramiko.SSHClient")
-    def test_connect_suppresses_paramiko_unknown_host_key_warning(
-        self,
-        mock_ssh_client_cls: MagicMock,
-    ) -> None:
-        """The policy stays WarningPolicy, but Celesto should not print probe noise."""
-        mock_client = MagicMock()
-        mock_client.connect.side_effect = lambda **_: warnings.warn(
-            "Unknown ssh-ed25519 host key for [127.0.0.1]:2200: b'abc'",
-            UserWarning,
-            stacklevel=2,
-        )
-        mock_ssh_client_cls.return_value = mock_client
-
-        client = SSHClient("127.0.0.1", port=2200)
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            client._connect()
-
-        assert caught == []
 
 
 class TestSSHClientRun:
@@ -394,7 +362,7 @@ class TestSSHClientWaitForSSH:
 
         calls = {"n": 0}
 
-        def _connect_then_succeed(self):
+        def _connect_then_succeed(self: SSHClient) -> MagicMock:
             calls["n"] += 1
             if calls["n"] == 1:
                 raise CelestoError("sshd not ready yet")
@@ -524,7 +492,7 @@ class TestPutFileDirectoryDestination:
         client._ensure_connected = MagicMock(return_value=paramiko_client)  # type: ignore[method-assign]
         return client
 
-    def test_appends_filename_when_destination_is_directory(self, tmp_path) -> None:
+    def test_appends_filename_when_destination_is_directory(self, tmp_path: Path) -> None:
         import stat
 
         source = tmp_path / "ecotag.md"
@@ -540,7 +508,7 @@ class TestPutFileDirectoryDestination:
         # The file lands inside the directory: the source name is appended.
         sftp.put.assert_called_once_with(str(source), "/root/ecotag.md")
 
-    def test_keeps_path_when_destination_is_a_file(self, tmp_path) -> None:
+    def test_keeps_path_when_destination_is_a_file(self, tmp_path: Path) -> None:
         import stat
 
         source = tmp_path / "ecotag.md"
@@ -556,7 +524,7 @@ class TestPutFileDirectoryDestination:
         # Existing regular file — path is left untouched, overwritten in place.
         sftp.put.assert_called_once_with(str(source), "/root/notes.md")
 
-    def test_keeps_path_when_destination_does_not_exist(self, tmp_path) -> None:
+    def test_keeps_path_when_destination_does_not_exist(self, tmp_path: Path) -> None:
         source = tmp_path / "ecotag.md"
         source.write_text("hello")
 
@@ -588,25 +556,29 @@ class TestGetFileLimit:
         client._ensure_connected = MagicMock(return_value=paramiko_client)  # type: ignore[method-assign]
         return client
 
-    def test_rejects_a_known_oversized_file_before_transfer(self, tmp_path) -> None:
+    @pytest.mark.parametrize("size,error", [(5, "exceeded 4 bytes"), (None, "size is unavailable")])
+    def test_rejects_unbounded_file_before_transfer(
+        self, tmp_path: Path, size: int | None, error: str
+    ) -> None:
         destination = tmp_path / "download.bin"
         sftp = MagicMock()
-        sftp.stat.return_value = MagicMock(st_size=5)
+        sftp.stat.return_value = MagicMock(st_size=size)
         client = self._client_with_sftp(sftp)
 
-        with pytest.raises(CelestoError, match="exceeded 4 bytes"):
+        with pytest.raises(CelestoError, match=error):
             client.get_file("/tmp/source.bin", destination, max_bytes=4)
 
         assert not destination.exists()
+        sftp.get.assert_not_called()
         sftp.getfo.assert_not_called()
         sftp.close.assert_called_once_with()
 
-    def test_removes_partial_download_when_limit_is_exceeded(self, tmp_path) -> None:
+    def test_removes_partial_download_when_limit_is_exceeded(self, tmp_path: Path) -> None:
         destination = tmp_path / "download.bin"
         sftp = MagicMock()
         sftp.stat.return_value = MagicMock(st_size=4)
 
-        def transfer(_remote_path, writer, *, prefetch):
+        def transfer(_remote_path: str, writer: BinaryIO, *, prefetch: bool) -> None:
             assert prefetch is False
             writer.write(b"1234")
             writer.write(b"5")

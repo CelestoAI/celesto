@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react'
 
-import { apiUrl } from '@/utils/api'
+import { apiFetch, apiUrl } from '@/utils/api'
 
 // The request never got an answer back: the dashboard may be down.
 const TRANSPORT_ERROR = 'Could not reach the dashboard. Check that it is running, then try again.'
@@ -39,7 +39,7 @@ export default function CommandBar() {
         setError('')
 
         try {
-            const response = await fetch(apiUrl('/api/command'), {
+            const response = await apiFetch(apiUrl('/api/command'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ text }),

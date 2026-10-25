@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer } from "node:http";
 import test, { type TestContext } from "node:test";
 import { ConversationManager } from "../server/manager.js";
 import { ConversationStateStore } from "../server/state-store.js";
-import type { ComputerProvider, OpenMuseComputer } from "../server/computer-provider.js";
+import { createComputerProvider, type ComputerProvider, type OpenMuseComputer } from "../server/computer-provider.js";
 import type { ConversationContext } from "../server/types.js";
 
 async function temporaryStore(t: TestContext) {
@@ -90,6 +91,76 @@ test("a missing cloud computer enters recoverable state without creating a repla
   assert.deepEqual(setupCalls, ["reconnect:cmp-gone"]);
   assert.equal(setupCalls.includes("create"), false);
 });
+
+// Value: protects=explicit saved-Cloud cleanup without adopting remote compute;
+// fails_when=cleanup reconnects, drops a failed deletion, or provider migration prevents startup;
+// why_new=existing lifecycle fixtures allow reconnect; seam=none;
+// no_claim=Cloud service availability (real SDK requests terminate at a local HTTP fixture).
+for (const outcome of ["deleted", "missing", "retry"] as const) {
+  test(`saved Cloud cleanup supports local migration (${outcome})`, async (t) => {
+    const store = await temporaryStore(t);
+    const calls: string[] = [];
+    let failDelete = outcome === "retry";
+    const server = createServer((request, response) => {
+      calls.push(`${request.method} ${request.url}`);
+      assert.equal(request.headers.authorization, "Bearer cleanup-test");
+      response.setHeader("Content-Type", "application/json");
+      if (outcome === "missing") {
+        response.writeHead(404).end(JSON.stringify({ detail: "Computer not found" }));
+      } else if (request.method === "DELETE" && failDelete) {
+        response.writeHead(503).end(JSON.stringify({ detail: "Cleanup temporarily unavailable" }));
+      } else if (["GET", "DELETE"].includes(request.method!) && request.url === "/v1/computers/cmp-old") {
+        response.end(JSON.stringify({ id: "cmp-old", status: request.method === "DELETE" ? "deleting" : "stopped" }));
+      } else response.writeHead(500).end(JSON.stringify({ detail: "Unexpected compute access" }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    t.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    const address = server.address() as { port: number };
+    const local = createComputerProvider({ provider: "local" });
+    const manager = new ConversationManager("", "gpt-5-mini", false, store, undefined, { computerProvider: local });
+    const created = await manager.create();
+    const context = contextOf(manager);
+    context.computerReference = { provider: "celesto", id: "cmp-old" };
+    await manager.close();
+
+    const migrated = await ConversationManager.open("", "gpt-5-mini", false, store, {
+      computerProvider: local,
+      createAgent: () => { throw new Error("Recovery must not start model work"); },
+    });
+    const recovery = migrated.snapshot(created.id);
+    assert.equal(recovery.runState, "interrupted");
+    assert.equal(recovery.viewerReady, false);
+    assert.match(recovery.computer.automationError!, /cmp-old.*OPENMUSE_COMPUTER_PROVIDER=celesto.*Start over/);
+    assert.match(recovery.recovery?.summary!, /cmp-old.*OPENMUSE_COMPUTER_PROVIDER=celesto.*Start over/);
+    await assert.rejects(migrated.continueInterrupted(created.id), /cmp-old.*OPENMUSE_COMPUTER_PROVIDER=celesto/);
+    await assert.rejects(migrated.startOver(created.id), /cmp-old.*OPENMUSE_COMPUTER_PROVIDER=celesto/);
+    assert.equal(migrated.snapshot(created.id).runState, "interrupted");
+    assert.deepEqual((await store.load())!.conversation.computerReference, { provider: "celesto", id: "cmp-old" });
+    assert.deepEqual(calls, []);
+
+    const cloud = createComputerProvider({ provider: "celesto", apiKey: "cleanup-test", apiUrl: `http://127.0.0.1:${address.port}` });
+    const cleanup = await ConversationManager.open("", "gpt-5-mini", false, store, { computerProvider: cloud });
+    assert.equal(cleanup.snapshot(created.id).viewerReady, false);
+    assert.match(cleanup.snapshot(created.id).recovery?.summary!, /cmp-old.*Start over.*local/);
+    assert.deepEqual(calls, []);
+    if (outcome === "retry") {
+      await assert.rejects(cleanup.startOver(created.id), /Cleanup temporarily unavailable/);
+      assert.equal(cleanup.snapshot(created.id).runState, "interrupted");
+      assert.notEqual(cleanup.snapshot(created.id).sessionLifecycle, "deleted");
+      assert.deepEqual((await store.load())!.conversation.computerReference, { provider: "celesto", id: "cmp-old" });
+      failDelete = false;
+    }
+    const replacement = await cleanup.startOver(created.id);
+    assert.notEqual(replacement.id, created.id);
+    assert.equal((await store.load())!.conversation.computerReference, undefined);
+    assert.deepEqual(calls, outcome === "missing"
+      ? ["GET /v1/computers/cmp-old"]
+      : Array.from({ length: outcome === "retry" ? 2 : 1 }, () => ["GET /v1/computers/cmp-old", "DELETE /v1/computers/cmp-old"]).flat());
+    const ready = await ConversationManager.open("", "gpt-5-mini", false, store, { computerProvider: local });
+    assert.equal(ready.snapshot(replacement.id).runState, "idle");
+    t.diagnostic(`cleanup evidence: ${JSON.stringify({ outcome, requests: calls, replacement: replacement.id, statePath: store.path })}`);
+  });
+}
 
 test("viewer capabilities are one-time and follow the current control owner", async () => {
   const calls: string[] = [];

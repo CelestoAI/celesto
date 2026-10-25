@@ -21,7 +21,7 @@ Celesto gives an AI agent its own computer for running code, browsing the web, a
 
 Each computer is a lightweight virtual machine, starts in about 500 ms, and can keep files and state between sessions. Because the agent runs in a separate computer instead of a process on your machine, Celesto provides a stronger boundary for untrusted code.
 
-These docs use one word for each idea. See the [glossary](GLOSSARY.md) for what "computer", "desktop", and "browser session" mean.
+These docs use one word for each idea. See the [glossary](GLOSSARY.md) for what "computer", "desktop", and "browser session" mean, or browse the [documentation index](docs/README.md) for guides.
 
 ## Built with Celesto: OpenMuse
 
@@ -224,12 +224,11 @@ from celesto import Celesto
 with Celesto.browser(headless=False) as browser:
     print(browser.cdp_url)
     print(browser.viewer_url)
-    print(browser.display_url)
 ```
 
 - `cdp_url`: connect Playwright or another CDP client.
 - `viewer_url`: watch the browser from another browser.
-- `display_url`: connect a VNC client or computer-use agent.
+- `display_url`: unavailable for raw VNC; use the authenticated browser viewer.
 
 Use `headless=True` when the agent only needs CDP. Start a visible browser from the CLI with:
 
@@ -418,9 +417,9 @@ Each example includes any extra package command it requires.
 
 Each computer runs in its own virtual machine, which provides a stronger isolation boundary than process-level containers. Isolation still depends on secure configuration of your machine, the hypervisor, images, credentials, shared folders, and networking.
 
-Celesto trusts a new local computer on its first connection to simplify development. Do not expose computer ports to the public internet without authentication and network controls. Treat writable shared folders, forwarded credentials, and services the computer can reach on your machine as explicit trust decisions.
+Celesto verifies a computer's SSH identity before sending credentials. Updated managed Linux images supply their public key through the local boot console; other images require a trusted known-hosts file. Do not expose computer ports to the public internet without authentication and network controls. Treat writable shared folders, forwarded credentials, and services the computer can reach on your machine as explicit trust decisions.
 
-See [SECURITY.md](SECURITY.md) for the security policy, threat model, and disclosure process.
+See [secure local access](docs/security.md) for dashboard tokens, private browser links, SSH setup, and upgrade requirements. See [SECURITY.md](SECURITY.md) for the security policy and disclosure process.
 
 ## Performance
 

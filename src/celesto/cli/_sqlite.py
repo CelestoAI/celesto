@@ -21,7 +21,9 @@ Uses exclusive transactions to prevent race conditions in IP assignment.
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
+import stat
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
@@ -82,8 +84,61 @@ class SQLiteStateManager:
     def close(self) -> None:
         """No-op for SQLite (connections are per-operation)."""
 
+    def _secure_inventory(self) -> None:
+        """Keep capability URLs private without modifying a caller's directory.
+
+        SQLite inherits the database mode for new journals and WAL files. Secure
+        the database before SQLite opens it, including inventories from older
+        versions. Directory ownership prevents another account from swapping the
+        checked pathname before SQLite opens it.
+        """
+        if os.name == "nt":
+            # Windows uses the ACL inherited from the account's data directory.
+            return
+        owners = {os.geteuid()}
+        if os.geteuid() == 0 and os.environ.get("SUDO_UID", "").isdigit():
+            owners.add(int(os.environ["SUDO_UID"]))
+        parent = self.db_path.parent.resolve(strict=True)
+        for directory in (parent, *parent.parents):
+            info = directory.stat()
+            sticky_ancestor = directory != parent and bool(info.st_mode & stat.S_ISVTX)
+            if info.st_uid not in owners | {0} or (info.st_mode & 0o022 and not sticky_ancestor):
+                raise PermissionError(
+                    f"Celesto's saved data needs a private folder: '{parent}'. "
+                    "Choose a folder only your account can change with CELESTO_DATA_DIR."
+                )
+        self.db_path = parent / self.db_path.name
+        for suffix in ("", "-journal", "-wal", "-shm"):
+            path = Path(str(self.db_path) + suffix)
+            try:
+                info = path.lstat()
+            except FileNotFoundError:
+                if suffix:
+                    continue
+                try:
+                    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                except FileExistsError:
+                    pass
+                else:
+                    os.close(descriptor)
+                info = path.lstat()
+            if not stat.S_ISREG(info.st_mode) or info.st_uid not in owners or info.st_nlink != 1:
+                raise PermissionError(f"Celesto cannot use an unsafe saved-data file: '{path}'.")
+            # The trusted, non-writable directory prevents other accounts from
+            # replacing this entry. Do not open/close an existing SQLite file:
+            # POSIX close would drop locks held by another connection here.
+            try:
+                path.chmod(0o600, follow_symlinks=False)
+            except NotImplementedError:
+                # Older POSIX builds lack no-follow chmod. The parent chain
+                # above excludes other writers, and lstat already rejected
+                # links. Avoid opening an existing DB just to fchmod it:
+                # closing that descriptor would release this process's locks.
+                path.chmod(0o600)
+
     @contextmanager
     def _get_connection(self, exclusive: bool = False) -> Iterator[sqlite3.Connection]:
+        self._secure_inventory()
         conn = sqlite3.connect(
             str(self.db_path),
             timeout=30.0,
@@ -929,6 +984,7 @@ class SQLiteStateManager:
         session_id: str,
         *,
         status: BrowserSessionState | None = None,
+        clear_endpoints: bool = False,
         cdp_url: str | None = None,
         live_url: str | None = None,
         vnc_url: str | None = None,
@@ -958,6 +1014,11 @@ class SQLiteStateManager:
             if status is not None:
                 updates.append("status = ?")
                 params.append(status.value)
+            if clear_endpoints:
+                updates.extend(
+                    f"{column} = NULL"
+                    for column in ("cdp_url", "live_url", "vnc_url", "debug_port", "vnc_port")
+                )
             if cdp_url is not None:
                 updates.append("cdp_url = ?")
                 params.append(cdp_url)

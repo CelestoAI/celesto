@@ -137,7 +137,7 @@ def _valid_entry_name(requested: str) -> bool:
     if any(seg in {"", ".", ".."} for seg in segments):
         return False
     if len(segments) == 1:
-        return segments[0] not in {_CUSTOM_DIR, _MACOS_DIR}
+        return segments[0].casefold() not in {_CUSTOM_DIR, _MACOS_DIR}
     valid_namespaced = (segments[0] == _CUSTOM_DIR and len(segments) in {2, 3}) or (
         segments[0] == _MACOS_DIR and len(segments) == 2
     )
@@ -1095,11 +1095,11 @@ def _inspect_entry(path: Path, root: Path) -> ImageInspectEntry:
                 images_release_tag=IMAGES_RELEASE_TAG,
             )
 
-    inspected = ImageInspectEntry(
-        **row,
-        files=files,
-        rootfs_sidecar=sidecar,
-        manifest=manifest_info,
+    # The local row classifiers supply the base fields; optional macOS details
+    # are added below, after reading the corresponding manifest.
+    inspected = cast(
+        ImageInspectEntry,
+        {**row, "files": files, "rootfs_sidecar": sidecar, "manifest": manifest_info},
     )
     if row["kind"] == "macos":
         try:

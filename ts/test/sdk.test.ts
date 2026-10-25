@@ -35,7 +35,7 @@ class FakeTransport implements CelestoTransport {
       capabilities: ["display.viewer", "display.vnc", "browser.cdp", "sandbox.exec", "sandbox.files"],
       display: {
         viewer_url: "http://127.0.0.1:6081/vnc.html",
-        vnc_url: "vnc://127.0.0.1:5901",
+        vnc_url: null,
       },
       browser: { status: "ready", cdp_url: "http://127.0.0.1:9223" },
     } as T;
@@ -157,7 +157,7 @@ test("creates a Linux computer with grouped display and browser access", async (
     writable: false,
   }]);
   assert.equal(computer.display.viewerUrl, "http://127.0.0.1:6081/vnc.html");
-  assert.equal(computer.display.vncUrl, "vnc://127.0.0.1:5901");
+  assert.equal(computer.display.vncUrl, null);
   assert.equal(computer.browser.cdpUrl, "http://127.0.0.1:9223");
   await computer.browser.launch();
   assert.ok(transport.calls.some((call) => call.path.endsWith("/browser/launch")));

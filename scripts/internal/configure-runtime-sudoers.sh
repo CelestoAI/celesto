@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# configure-runtime-sudoers.sh - Configure scoped NOPASSWD sudo for Celesto runtime.
+# configure-runtime-sudoers.sh - Remove unsafe legacy runtime sudo grants.
 set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
@@ -31,8 +31,9 @@ usage() {
     cat <<EOF
 Usage: ${SCRIPT_NAME} [--runtime-user <user>] [--check-only] [--remove] [--skip-runtime-check]
 
-Configures scoped sudoers rules so Celesto runtime commands can run without
-interactive password prompts.
+Replaces legacy runtime sudo grants with a policy that grants no root commands.
+Linux TAP networking requires an explicitly trusted root administrator; ordinary
+users can use QEMU user networking and Docker image builds.
 
 Options:
   --runtime-user <user>   Target non-root user (default: \$SUDO_USER).
@@ -96,16 +97,10 @@ if ! id "${RUNTIME_USER}" >/dev/null 2>&1; then
     exit 1
 fi
 
-IP_BIN="$(command -v ip || true)"
-NFT_BIN="$(command -v nft || true)"
-SYSCTL_BIN="$(command -v sysctl || true)"
 VISUDO_BIN="$(command -v visudo || true)"
 INSTALL_BIN="$(command -v install || true)"
 
 for item in \
-    "ip:${IP_BIN}" \
-    "nft:${NFT_BIN}" \
-    "sysctl:${SYSCTL_BIN}" \
     "visudo:${VISUDO_BIN}" \
     "install:${INSTALL_BIN}"
 do
@@ -169,15 +164,11 @@ install_loopfs_helper() {
 
 render_sudoers() {
     local target_file="$1"
-    # Note: trailing-`*` wildcards only — sudo-rs (Ubuntu 25.10+ default) rejects
-    # wildcards embedded inside argument values, so we cannot pin the route_localnet
-    # sysctl to a per-tap pattern. Sysctl is widened to match the ip/nft scope.
     cat > "${target_file}" <<EOF
 # Managed by Celesto (${SCRIPT_NAME}) for user ${RUNTIME_USER}
-# Allows only commands needed by Celesto networking and the image-build helper.
-Cmnd_Alias CELESTO_NET_CMDS = ${IP_BIN} *, ${NFT_BIN} *, ${SYSCTL_BIN} *
-Cmnd_Alias CELESTO_IMG_CMDS = ${LOOPFS_HELPER_DST} *
-${RUNTIME_USER} ALL=(root) NOPASSWD: CELESTO_NET_CMDS, CELESTO_IMG_CMDS
+# No root commands are delegated to runtime accounts.
+# Linux TAP networking requires an explicitly trusted root administrator.
+# Ordinary accounts use QEMU user networking and Docker image builds.
 EOF
 }
 
@@ -187,29 +178,13 @@ validate_sudoers_file() {
 }
 
 check_runtime_access() {
-    local failures=()
-    local runner=(sudo -n -u "${RUNTIME_USER}" sudo -n)
-
-    if ! "${runner[@]}" "${IP_BIN}" link show >/dev/null 2>&1; then
-        failures+=("ip")
-    fi
-    if ! "${runner[@]}" "${NFT_BIN}" list tables >/dev/null 2>&1; then
-        failures+=("nft")
-    fi
-    if ! "${runner[@]}" "${SYSCTL_BIN}" net.ipv4.ip_forward >/dev/null 2>&1; then
-        failures+=("sysctl")
-    fi
-    if ! "${runner[@]}" "${LOOPFS_HELPER_DST}" --help >/dev/null 2>&1; then
-        failures+=("image-build-loopfs-helper")
-    fi
-
-    if [[ ${#failures[@]} -ne 0 ]]; then
-        echo "❌ Runtime sudo access check failed for: ${failures[*]}"
+    # A syntactically valid legacy file may still grant arbitrary root access.
+    # Check its policy bytes as well, so --check-only never blesses old grants.
+    if ! cmp -s "${SUDOERS_FILE}" <(render_sudoers /dev/stdout); then
+        echo "❌ Runtime permissions are outdated; run 'celesto setup --runtime-user ${RUNTIME_USER}' to replace them."
         return 1
     fi
-
-    echo "✅ Runtime sudo access check passed for user '${RUNTIME_USER}'"
-    return 0
+    echo "✅ Runtime policy grants no root commands to '${RUNTIME_USER}'."
 }
 
 if [[ "${REMOVE}" == "true" ]]; then
@@ -242,7 +217,8 @@ validate_sudoers_file "${tmp_file}"
 "${INSTALL_BIN}" -m 0440 "${tmp_file}" "${SUDOERS_FILE}"
 
 echo "✅ Installed runtime sudoers: ${SUDOERS_FILE}"
-echo "✅ Installed runtime helper: ${LOOPFS_HELPER_DST}"
+echo "✅ Installed administrator-only image helper: ${LOOPFS_HELPER_DST}"
+echo "ℹ️ Linux TAP networking requires a trusted root administrator; ordinary users can use QEMU user networking and Docker image builds."
 if [[ "${SKIP_RUNTIME_CHECK}" == "true" ]]; then
     echo "ℹ️ Skipping post-install runtime access check (--skip-runtime-check)."
     echo "   Verify on the runtime host with --check-only or 'celesto doctor'."

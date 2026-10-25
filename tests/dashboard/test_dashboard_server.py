@@ -20,6 +20,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import requests
 
 pytest.importorskip("fastapi")
 
@@ -81,7 +82,7 @@ def test_latest_dashboard_release_asset_prefers_exact_tag_name(
             ],
         }
     ]
-    monkeypatch.setattr(server.requests, "get", lambda *args, **kwargs: _FakeResponse(payload))
+    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: _FakeResponse(payload))
 
     tag, url = server._latest_dashboard_release_asset()
 
@@ -89,7 +90,7 @@ def test_latest_dashboard_release_asset_prefers_exact_tag_name(
     assert url == "https://example.invalid/new.tar.gz"
 
 
-def test_latest_dashboard_release_asset_rejects_legacy_prefix(
+def test_latest_dashboard_release_asset_accepts_supported_celesto_prefix(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     payload = [
@@ -104,10 +105,13 @@ def test_latest_dashboard_release_asset_rejects_legacy_prefix(
             ],
         }
     ]
-    monkeypatch.setattr(server.requests, "get", lambda *args, **kwargs: _FakeResponse(payload))
+    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: _FakeResponse(payload))
 
-    with pytest.raises(RuntimeError, match="No stable/prerelease release includes"):
-        server._latest_dashboard_release_asset(allow_prerelease=True)
+    # AGENTS.md and the release workflows support both vX and celesto-vX tags.
+    assert server._latest_dashboard_release_asset(allow_prerelease=True) == (
+        "celesto-v0.0.15a0",
+        "https://example.invalid/legacy.tar.gz",
+    )
 
 
 def test_latest_dashboard_release_asset_skips_prerelease_by_default(
@@ -136,7 +140,7 @@ def test_latest_dashboard_release_asset_skips_prerelease_by_default(
             ],
         },
     ]
-    monkeypatch.setattr(server.requests, "get", lambda *args, **kwargs: _FakeResponse(payload))
+    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: _FakeResponse(payload))
 
     tag, url = server._latest_dashboard_release_asset()
 
@@ -170,7 +174,7 @@ def test_latest_dashboard_release_asset_allows_prerelease_with_flag(
             ],
         },
     ]
-    monkeypatch.setattr(server.requests, "get", lambda *args, **kwargs: _FakeResponse(payload))
+    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: _FakeResponse(payload))
 
     tag, url = server._latest_dashboard_release_asset(allow_prerelease=True)
 
@@ -229,7 +233,7 @@ def test_execute_command_route_uses_command_response_model() -> None:
     route = next(
         r
         for r in server.app.routes
-        if isinstance(r, APIRoute) and r.path == "/api/command" and "POST" in r.methods
+        if isinstance(r, APIRoute) and r.path == "/api/command" and "POST" in (r.methods or set())
     )
 
     assert route.response_model is server.CommandResponse
@@ -312,7 +316,7 @@ def test_execute_command_reports_a_command_that_did_nothing(
 
     assert isinstance(response, JSONResponse)
     assert response.status_code == 500
-    error = json.loads(response.body)["error"]
+    error = json.loads(bytes(response.body))["error"]
     # Names the sandbox and an exact command, per the user-facing message rules.
     assert f"Could not {verb} 'sbx-1'" in error
     assert f"Run '{verb} sbx-1' to try again" in error
@@ -360,7 +364,7 @@ def test_execute_command_caps_the_failed_names_it_prints(
     response = asyncio.run(server.execute_command(server.CommandRequest(text="stop all")))
 
     assert isinstance(response, JSONResponse)
-    error = json.loads(response.body)["error"]
+    error = json.loads(bytes(response.body))["error"]
     assert "'sbx-1', 'sbx-2', 'sbx-3' and 3 more" in error
     assert "sbx-4" not in error
     assert "Run 'stop sbx-1' to try again" in error
@@ -474,7 +478,7 @@ def test_execute_command_errors_when_only_idle_sandboxes_survive_failures(
 
     assert isinstance(response, JSONResponse)
     assert response.status_code == 500
-    assert "Could not stop 'sbx-2'" in json.loads(response.body)["error"]
+    assert "Could not stop 'sbx-2'" in json.loads(bytes(response.body))["error"]
 
 
 def test_execute_command_reports_a_running_sandbox_that_did_not_stop(
@@ -497,7 +501,7 @@ def test_execute_command_reports_a_running_sandbox_that_did_not_stop(
 
     assert isinstance(response, JSONResponse)
     assert response.status_code == 500
-    assert "Could not stop 'sbx-1'" in json.loads(response.body)["error"]
+    assert "Could not stop 'sbx-1'" in json.loads(bytes(response.body))["error"]
 
 
 def test_execute_command_group_delete_needs_confirmation(
@@ -518,7 +522,7 @@ def test_execute_command_group_delete_needs_confirmation(
 
     assert isinstance(response, JSONResponse)
     assert response.status_code == 409
-    error = json.loads(response.body)["error"]
+    error = json.loads(bytes(response.body))["error"]
     assert "Deleting 2 computers cannot be undone" in error
     assert "Run 'delete all --force' to confirm" in error
     assert deleted == [], "nothing may be deleted before the user confirms"
@@ -578,7 +582,7 @@ def test_execute_command_unknown_sandbox_is_an_error_for_every_verb(
 
     assert isinstance(response, JSONResponse)
     assert response.status_code == 404
-    assert "No computer named 'sbx-nope'" in json.loads(response.body)["error"]
+    assert "No computer named 'sbx-nope'" in json.loads(bytes(response.body))["error"]
 
 
 @pytest.mark.parametrize("text", ["stop all", "delete all", "stop error", "stop running"])
@@ -606,7 +610,7 @@ def test_execute_command_route_declares_its_error_responses() -> None:
     route = next(
         r
         for r in server.app.routes
-        if isinstance(r, APIRoute) and r.path == "/api/command" and "POST" in r.methods
+        if isinstance(r, APIRoute) and r.path == "/api/command" and "POST" in (r.methods or set())
     )
 
     # Every non-2xx the handler can actually return, so a caller reading only
@@ -642,7 +646,7 @@ def test_execute_command_unknown_input_returns_400_json(
     assert isinstance(response, JSONResponse)
     assert response.status_code == 400
     # A user-facing error must name a recovery, not only state the problem.
-    error = json.loads(response.body)["error"]
+    error = json.loads(bytes(response.body))["error"]
     assert "'nope' is not a command" in error
     # Bare verbs would pass even if the syntax were dropped; assert the forms.
     assert "'list'" in error
@@ -661,7 +665,7 @@ def test_execute_command_unknown_status_names_the_valid_statuses(
 
     assert isinstance(response, JSONResponse)
     assert response.status_code == 400
-    error = json.loads(response.body)["error"]
+    error = json.loads(bytes(response.body))["error"]
     assert "'bogus' is not a computer status" in error
     assert "Try 'list' on its own, or 'list' with one of:" in error
     for state in VMState:
@@ -683,7 +687,7 @@ def test_execute_command_missing_vm_is_an_error_not_a_result(
 
     assert isinstance(response, JSONResponse)
     assert response.status_code == 404
-    error = json.loads(response.body)["error"]
+    error = json.loads(bytes(response.body))["error"]
     assert "No computer named 'sbx-nope'" in error
     assert "Run 'list' to see the ones you have." in error
 
@@ -798,7 +802,28 @@ def test_get_vm_processes_no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "no network" in exc_info.value.detail
 
 
-def test_get_vm_processes_parses_ps_output(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_vm_processes_bridge_has_no_ssh_destination(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A valid bridge VM has no managed SSH address; never try a missing host."""
+    from unittest.mock import patch
+
+    from celesto.types import NetworkConfig, VMState
+
+    network = NetworkConfig(
+        mode="bridge", bridge="br0", tap_device="tap0", guest_mac="02:00:00:00:00:01"
+    )
+    vm = _DummyVMInfo(status=VMState.RUNNING, network=network)
+    monkeypatch.setattr(server, "_get_state_manager", lambda _app: _VMStateManagerStub(vm))
+    monkeypatch.setattr(server, "_resolve_ssh_key_path", lambda: None)
+    monkeypatch.setattr(server, "_get_sdk", lambda _app: SimpleNamespace(data_dir=tmp_path))
+    with patch("celesto.ssh.SSHClient", side_effect=AssertionError("no SSH address")) as ssh:
+        result = asyncio.run(server.get_vm_processes("vm-test01"))
+    assert result == {"vm_id": "vm-test01", "processes": []}
+    ssh.assert_not_called()
+
+
+def test_get_vm_processes_parses_ps_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Process endpoint should parse structured ps output correctly."""
     from unittest.mock import MagicMock, patch
 
@@ -807,6 +832,7 @@ def test_get_vm_processes_parses_ps_output(monkeypatch: pytest.MonkeyPatch) -> N
     vm = _DummyVMInfo(status=VMState.RUNNING, network=_DummyNetwork())
     monkeypatch.setattr(server, "_get_state_manager", lambda _app: _VMStateManagerStub(vm))
     monkeypatch.setattr(server, "_resolve_ssh_key_path", lambda: None)
+    monkeypatch.setattr(server, "_get_sdk", lambda _app: SimpleNamespace(data_dir=tmp_path))
 
     ps_output = (
         "  PID USER       VSZ STAT COMMAND\n"
@@ -830,7 +856,9 @@ def test_get_vm_processes_parses_ps_output(monkeypatch: pytest.MonkeyPatch) -> N
     assert result["processes"][1]["stat"] == "S"
 
 
-def test_get_vm_processes_ssh_failure_returns_502(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_vm_processes_ssh_failure_returns_502(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Process endpoint should return 502 when SSH connection fails."""
     from unittest.mock import patch
 
@@ -840,6 +868,7 @@ def test_get_vm_processes_ssh_failure_returns_502(monkeypatch: pytest.MonkeyPatc
     vm = _DummyVMInfo(status=VMState.RUNNING, network=_DummyNetwork())
     monkeypatch.setattr(server, "_get_state_manager", lambda _app: _VMStateManagerStub(vm))
     monkeypatch.setattr(server, "_resolve_ssh_key_path", lambda: None)
+    monkeypatch.setattr(server, "_get_sdk", lambda _app: SimpleNamespace(data_dir=tmp_path))
 
     with (
         patch("celesto.ssh.SSHClient", side_effect=CelestoError("Connection refused")),

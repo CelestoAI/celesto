@@ -57,7 +57,9 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=4.0",
     "ruff>=0.15.0",
-    "mypy>=1.0",
+    "mypy>=2.3.1",
+    "types-paramiko",
+    "types-requests",
     "pre-commit>=4.6.2",
 ]
 s3 = [
@@ -107,6 +109,7 @@ ignore = ["UP042"]
 
 [tool.mypy]
 python_version = "3.11"
+mypy_path = ["$MYPY_CONFIG_FILE_DIR/src", "$MYPY_CONFIG_FILE_DIR/celesto-core/python"]
 strict = true
 warn_return_any = true
 warn_unused_ignores = true
