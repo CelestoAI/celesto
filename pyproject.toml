@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "celesto"
-version = "0.1.9"
+version = "0.1.10"
 description = "Sandbox for computer-using agents with a unified API for VMMs — Firecracker, QEMU, and libkrun."
 readme = "README.md"
 license = "Apache-2.0"
@@ -33,7 +33,7 @@ dependencies = [
     "typing-extensions>=4.16.0",
     "websockets>=14.0",
     "click>=8.0",
-    "celesto-core~=2026.9.22",
+    "celesto-core~=2026.10.25",
     "paramiko>=3.0",
     "pycdlib>=1.14.0",
     "pydantic>=2.0",

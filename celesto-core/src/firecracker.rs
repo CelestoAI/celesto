@@ -181,7 +181,9 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn request_does_not_half_close_before_reading_response() {
-        let socket_path = std::env::temp_dir().join(format!(
+        // macOS gives each process a long TMPDIR path, but Unix socket paths are
+        // limited to SUN_LEN bytes. Keep this test socket under the short /tmp path.
+        let socket_path = std::path::Path::new("/tmp").join(format!(
             "celesto-firecracker-test-{}-{}.sock",
             std::process::id(),
             std::time::SystemTime::now()
