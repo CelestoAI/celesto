@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.1.9 — 2026-10-25
+
+### Security
+
+- Release the security hardening for local APIs, guest connections, SSH host-key verification, archive and image handling, and privileged setup.
+- Restrict supported browser sessions to public websites and replace raw VNC access with authenticated capability URLs.
+- Publish rebuilt kernels, root filesystems, and standalone guest-agent binaries for AMD64 and ARM64 with verified SHA-256 pins.
+
 ## 0.1.8 — 2026-10-22
 
 ### Fixed
