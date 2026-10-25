@@ -458,6 +458,14 @@ def _tar_members(archive: tarfile.TarFile, data: bytes) -> list[tarfile.TarInfo]
     they rewrite later members' sizes after the data layout was fixed.
     """
     try:
+        # Parse one header at a time so an archive of a million empty entries is
+        # refused as soon as it passes the ceiling, not after every TarInfo exists.
+        while archive.next() is not None:
+            if len(archive.members) > _MAX_TAR_MEMBERS:
+                raise CelestoError(
+                    f"Directory download from the computer has more than {_MAX_TAR_MEMBERS} "
+                    "entries, so it was not extracted. Download fewer files at a time."
+                )
         members = archive.getmembers()
     except ValueError as exc:
         # Extended-header values that fail to parse surface as a bare ValueError.
@@ -470,13 +478,8 @@ def _tar_members(archive: tarfile.TarFile, data: bytes) -> list[tarfile.TarInfo]
             "Directory download from the computer uses extended headers it should not "
             "contain, so it was not extracted."
         )
-    if len(members) > _MAX_TAR_MEMBERS:
-        raise CelestoError(
-            f"Directory download from the computer has more than {_MAX_TAR_MEMBERS} entries, "
-            "so it was not extracted. Download fewer files at a time."
-        )
-    trailer = data[archive.offset :]
-    if len(trailer) < 2 * tarfile.BLOCKSIZE or trailer.strip(b"\0"):
+    trailer_size = len(data) - archive.offset
+    if trailer_size < 2 * tarfile.BLOCKSIZE or data.count(0, archive.offset) != trailer_size:
         raise CelestoError(
             "Directory download from the computer is damaged, so it was not extracted."
         )
@@ -1075,7 +1078,11 @@ class RustHttpVsockChannel:
         destination = Path(local_path)
         destination.mkdir(parents=True, exist_ok=True)
         query = urllib.parse.urlencode({"path": remote_path})
-        tar_limit = self._limit_bytes("max_tar_size_bytes", _DEFAULT_MAX_TAR_SIZE_BYTES)
+        # The host ceiling holds even if a guest advertises a larger limit.
+        tar_limit = min(
+            self._limit_bytes("max_tar_size_bytes", _DEFAULT_MAX_TAR_SIZE_BYTES),
+            _DEFAULT_MAX_TAR_SIZE_BYTES,
+        )
         _resp, data = self._request_bytes(
             "GET",
             f"/directories/tar?{query}",

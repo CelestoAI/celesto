@@ -35,6 +35,7 @@ import pytest
 import celesto.comm.rust_http_vsock_channel as vsock_channel
 from celesto.comm.base import CommChannel
 from celesto.comm.rust_http_vsock_channel import (
+    _DEFAULT_MAX_TAR_SIZE_BYTES,
     _TAR_EXTRACT_CHUNK_BYTES,
     CELESTO_TERMINAL_PORT,
     ControlCapabilities,
@@ -1062,11 +1063,44 @@ def test_extract_tar_rejects_too_many_members(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(vsock_channel, "_MAX_TAR_MEMBERS", 3)
+    next_calls = 0
+    original_next = tarfile.TarFile.next
+
+    def _counting_next(archive: tarfile.TarFile) -> tarfile.TarInfo | None:
+        nonlocal next_calls
+        next_calls += 1
+        return original_next(archive)
+
+    monkeypatch.setattr(tarfile.TarFile, "next", _counting_next)
     data = _plain_tar({f"f{i}.txt": b"x" for i in range(4)})
 
     with pytest.raises(CelestoError, match="more than 3 entries"):
         _safe_extract_tar(data, tmp_path / "out")
+    # tarfile.open reads the first header itself and the loop re-reads it from
+    # the cache, so four members cost five calls; a full parse would make six
+    # (the extra one finds the end-of-archive marker).
+    assert next_calls == 5
     assert not (tmp_path / "out" / "f0.txt").exists()
+
+
+def test_get_directory_caps_the_tar_limit_at_the_host_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: dict[str, int] = {}
+
+    def _record(*args: Any, **kwargs: Any) -> tuple[None, bytes]:
+        seen["max_bytes"] = kwargs["max_bytes"]
+        return (None, _plain_tar({"ok.txt": b"ok"}))
+
+    channel = FakeRustChannel(
+        [_capabilities({"dir_tar": True}, limits={"max_tar_size_bytes": 10**15})]
+    )
+    monkeypatch.setattr(channel, "_request_bytes", _record)
+
+    channel.get_directory("/remote", tmp_path / "out")
+
+    assert seen["max_bytes"] == _DEFAULT_MAX_TAR_SIZE_BYTES
+    assert (tmp_path / "out" / "ok.txt").read_bytes() == b"ok"
 
 
 def test_extract_tar_streams_members_in_bounded_chunks(
