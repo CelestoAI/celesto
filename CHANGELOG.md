@@ -8,6 +8,10 @@
 
 - Make Celesto 0.1.10 require `celesto-core 2026.10.25` so new installs and upgrades receive the native hardening for disk-image staging, bounded decompression and Firecracker responses, and sysctl key validation.
 
+### Fixed
+
+- Restore dashboard builds after the Tailwind 4 dependency update by using its separate PostCSS plugin and retaining the dashboard's custom theme configuration.
+
 ## 0.1.9 — 2026-10-25
 
 ### Security
