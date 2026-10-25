@@ -36,6 +36,7 @@ import socket
 import stat
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager, suppress
@@ -478,6 +479,10 @@ class CelestoManager:
         self.network = NetworkManager()
         self.host = HostManager()
         self._public_egress: dict[str, PublicEgressSession] = {}
+        self._active_vm_operations: set[str] = set()
+        self._vm_operation_lock = threading.Lock()
+        self._close_requested = False
+        self._closing = False
         # Keep launched runtime identity if persistence or teardown fails. Its
         # proxy port must stay reserved until the process is actually stopped.
         self._unrecorded_public_launches: dict[str, VMInfo] = {}
@@ -546,15 +551,33 @@ class CelestoManager:
 
         Closes open log-file handles.  Calling ``close()`` more than once
         is safe (idempotent).
+        If a lifecycle operation is in progress, cleanup is deferred until
+        the last operation finishes.
         """
-        if self._closed:
-            return
+        with self._vm_operation_lock:
+            if self._closed or self._closing:
+                return
+            self._close_requested = True
+            if self._active_vm_operations:
+                # Waiting here would deadlock a launch running on this event
+                # loop. Its final operation releases the claim and closes us.
+                return
+            self._closing = True
+        try:
+            self._close_resources()
+        finally:
+            with self._vm_operation_lock:
+                self._closing = False
+                self._close_requested = self._closed
+
+    def _close_resources(self) -> None:
+        """Close after all lifecycle operations have released their claims."""
         # A public-mode guest must stop before its proxy listener is released.
         # Otherwise a later process could inherit that same local port.
         failures: list[tuple[str, Exception]] = []
         for vm_id in list(self._public_egress):
             try:
-                self.stop(vm_id)
+                self._stop_claimed(vm_id, 10.0)
                 self._stop_public_egress(vm_id)
             except Exception as exc:
                 failures.append((vm_id, exc))
@@ -1824,6 +1847,29 @@ class CelestoManager:
             self._public_egress_exit_registered = True
         return self.state.update_vm(vm_info.vm_id, network=session.prepare())
 
+    @contextmanager
+    def _vm_operation_guard(self, vm_id: str, action: str) -> Iterator[None]:
+        """Keep one caller per manager responsible for a VM's lifecycle."""
+        with self._vm_operation_lock:
+            if self._close_requested or self._closed:
+                raise CelestoError(
+                    f"This session is closing; retry with 'celesto computer {action} {vm_id}'."
+                )
+            if vm_id in self._active_vm_operations:
+                raise CelestoError(
+                    f"Computer '{vm_id}' is busy; wait for that call to finish "
+                    f"before retrying 'celesto computer {action} {vm_id}'."
+                )
+            self._active_vm_operations.add(vm_id)
+        try:
+            yield
+        finally:
+            with self._vm_operation_lock:
+                self._active_vm_operations.remove(vm_id)
+                finish_close = self._close_requested and not self._active_vm_operations
+            if finish_close:
+                self.close()
+
     def _stop_public_egress(self, vm_id: str) -> None:
         session = self._public_egress.get(vm_id)
         if session is not None:
@@ -2539,6 +2585,11 @@ class CelestoManager:
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
 
+        with self._vm_operation_guard(vm_id, "start"):
+            return self._start_claimed(vm_id, boot_timeout)
+
+    def _start_claimed(self, vm_id: str, boot_timeout: float) -> VMInfo:
+        """Start after claiming the VM, including its state check and rollback."""
         logger.info("Starting VM: %s", vm_id)
 
         # Get current state
@@ -2609,7 +2660,7 @@ class CelestoManager:
                 launch.pid,
             )
             return vm_info
-        except Exception as e:
+        except BaseException as e:
             logger.error("Failed to start VM %s: %s", vm_id, e)
             pending = self._unrecorded_public_launches.get(vm_id)
             if pending is not None:
@@ -2642,6 +2693,10 @@ class CelestoManager:
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
 
+        with self._vm_operation_guard(vm_id, "stop"):
+            return self._stop_claimed(vm_id, timeout)
+
+    def _stop_claimed(self, vm_id: str, timeout: float) -> VMInfo:
         logger.info("Stopping VM: %s", vm_id)
 
         # A launched process may be newer than its inventory row if persistence
@@ -3431,10 +3486,14 @@ class CelestoManager:
         """
         _validate_cleanup_id(vm_id)
 
+        with self._vm_operation_guard(vm_id, "delete"):
+            self._delete_claimed(vm_id)
+
+    def _delete_claimed(self, vm_id: str) -> None:
         logger.info("Deleting VM: %s", vm_id)
 
         if vm_id in self._unrecorded_public_launches:
-            self.stop(vm_id)
+            self._stop_claimed(vm_id, 10.0)
         # Stop if running
         try:
             vm_info = self.state.get_vm(vm_id)
@@ -3444,7 +3503,7 @@ class CelestoManager:
             raise
 
         if vm_info.status in (VMState.RUNNING, VMState.PAUSED):
-            self.stop(vm_id)
+            self._stop_claimed(vm_id, 10.0)
 
         self._stop_public_egress(vm_id)
         self._delete_macos_bundle(vm_info)
@@ -3686,6 +3745,16 @@ class CelestoManager:
         key = f"qemu:{vm_info.vm_id}"
         self._log_files[key] = log_file
         self._process_handles[process.pid] = process
+        if vm_info.vm_id in self._public_egress:
+            # Readiness can be interrupted before the adapter returns. Retain
+            # the child now so failed termination cannot release its listener.
+            self._unrecorded_public_launches[vm_info.vm_id] = vm_info.model_copy(
+                update={
+                    "status": VMState.RUNNING,
+                    "pid": process.pid,
+                    "control_socket_path": control_socket_path,
+                }
+            )
 
         logger.debug("Started QEMU: PID=%d, vm_id=%s", process.pid, vm_info.vm_id)
         return process
@@ -4778,6 +4847,11 @@ class CelestoManager:
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
 
+        with self._vm_operation_guard(vm_id, "start"):
+            return await self._async_start_claimed(vm_id, boot_timeout)
+
+    async def _async_start_claimed(self, vm_id: str, boot_timeout: float) -> VMInfo:
+        """Async launch under the same claim used by synchronous callers."""
         logger.info("Starting VM (async): %s", vm_id)
 
         vm_info = self.state.get_vm(vm_id)
@@ -4855,10 +4929,10 @@ class CelestoManager:
                 control_socket_path=launch.control_socket_path,
                 display=launch.display,
             )
-            self._unrecorded_public_launches.pop(vm_id, None)
             if cancelled:
-                await self.async_stop(vm_id)
+                await self._async_stop_claimed(vm_id, 10.0)
                 raise asyncio.CancelledError
+            self._unrecorded_public_launches.pop(vm_id, None)
             logger.info(
                 "VM started (async): %s (backend=%s, PID: %d)",
                 vm_id,
@@ -4888,6 +4962,10 @@ class CelestoManager:
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
 
+        with self._vm_operation_guard(vm_id, "stop"):
+            return await self._async_stop_claimed(vm_id, timeout)
+
+    async def _async_stop_claimed(self, vm_id: str, timeout: float) -> VMInfo:
         logger.info("Stopping VM (async): %s", vm_id)
 
         vm_info = self._unrecorded_public_launches.get(vm_id) or self.state.get_vm(vm_id)
@@ -4915,10 +4993,14 @@ class CelestoManager:
         """Async version of :meth:`delete`."""
         _validate_cleanup_id(vm_id)
 
+        with self._vm_operation_guard(vm_id, "delete"):
+            await self._async_delete_claimed(vm_id)
+
+    async def _async_delete_claimed(self, vm_id: str) -> None:
         logger.info("Deleting VM (async): %s", vm_id)
 
         if vm_id in self._unrecorded_public_launches:
-            await self.async_stop(vm_id)
+            await self._async_stop_claimed(vm_id, 10.0)
         try:
             vm_info = self.state.get_vm(vm_id)
         except VMNotFoundError:
@@ -4926,7 +5008,7 @@ class CelestoManager:
             raise
 
         if vm_info.status in (VMState.RUNNING, VMState.PAUSED):
-            await self.async_stop(vm_id)
+            await self._async_stop_claimed(vm_id, 10.0)
 
         self._stop_public_egress(vm_id)
         await asyncio.to_thread(self._delete_macos_bundle, vm_info)

@@ -301,7 +301,7 @@ class QemuRuntimeAdapter(RuntimeAdapter):
                 control_socket_path=control_socket_path,
                 status=VMState.RUNNING,
             )
-        except Exception:
+        except BaseException:
             if process is not None:
                 with suppress(Exception):
                     self._context.kill_process(process.pid)
