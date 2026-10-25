@@ -504,7 +504,7 @@ def test_failed_interrupted_start_cleanup_retains_public_process_ownership(
     with monkeypatch.context() as blocked:
         blocked.setattr("os.kill", deny_kill)
         blocked.setattr(manager, "_kill_process", deny_kill)
-        with pytest.raises((KeyboardInterrupt, PermissionError)):
+        with pytest.raises(PermissionError):
             manager.start(vm_id)
         assert children[0].poll() is None
         with socket.create_connection(("127.0.0.1", ports[0]), timeout=1):

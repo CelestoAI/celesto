@@ -1851,7 +1851,12 @@ class CelestoManager:
     def _vm_operation_guard(self, vm_id: str, action: str) -> Iterator[None]:
         """Keep one caller per manager responsible for a VM's lifecycle."""
         with self._vm_operation_lock:
-            if self._close_requested or self._closed:
+            if self._closed:
+                raise CelestoError(
+                    f"This session is closed; create a new session, then run "
+                    f"'celesto computer {action} {vm_id}'."
+                )
+            if self._close_requested:
                 raise CelestoError(
                     f"This session is closing; retry with 'celesto computer {action} {vm_id}'."
                 )
