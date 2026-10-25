@@ -16,6 +16,7 @@ import socket
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from socketserver import TCPServer
 from typing import TypeAlias, cast
 from urllib.parse import urlsplit, urlunsplit
 
@@ -29,6 +30,12 @@ _JSONValue: TypeAlias = (
 class AccessServer(ThreadingHTTPServer):
     capability: str
     target_port: int
+
+    def server_bind(self) -> None:
+        # This listener uses numeric addresses; hostname DNS must not delay it.
+        TCPServer.server_bind(self)
+        self.server_name = str(self.server_address[0])
+        self.server_port = self.server_address[1]
 
 
 class AccessHandler(BaseHTTPRequestHandler):
@@ -57,6 +64,7 @@ class AccessHandler(BaseHTTPRequestHandler):
             parts.scheme
             or parts.netloc
             or not separator
+            or not prefix.isascii()
             or not hmac.compare_digest(prefix, self.server.capability)
         ):
             self.send_error(403, "Connection capability required")

@@ -104,13 +104,13 @@ Try one more prompt after the page opens:
 
 > Give me the raw page data as Markdown.
 
-Click **Stop** when you are done. OpenMuse deletes the conversation's local computer and clears its association. Local computers are also deleted when the server exits. Existing Cloud conversations cannot reconnect while cloud public browsing is disabled.
+Click **Stop** when you are done. OpenMuse deletes the conversation's local computer and clears its association. Local computers are also deleted when the server exits. Existing Cloud conversations cannot reconnect while cloud public browsing is disabled, but **Stop** and **Start over** can still request their deletion.
 
 ## Everyday controls
 
 ### Chats and model settings
 
-Open **Chats** to start a new conversation or return to one of up to 50 saved local chats. Only the selected chat can use an agent or attached computer. Returning starts a fresh local computer only when needed. Saved Cloud computers are rejected; switch to the local provider and choose **Start over**. **Reset conversation** permanently removes the selected transcript and computer after confirmation.
+Open **Chats** to start a new conversation or return to one of up to 50 saved local chats. Only the selected chat can use an agent or attached computer. Returning starts a fresh local computer only when needed. To replace a saved Cloud computer, follow the [Cloud cleanup steps](#recovery-after-a-restart). **Reset conversation** permanently removes the selected transcript and requests deletion of its computer after confirmation.
 
 Select the current model in the header to open model settings. Use **Back to conversation** to return without changing it.
 
@@ -128,7 +128,13 @@ Every assistant turn has a collapsed **Run details** row. Expand it to see the t
 
 ### Recovery after a restart
 
-OpenMuse stores bounded chat history and the selected conversation in `.open-muse/state.json`, without API keys or short-lived browser/display connections. After a restart, local browsing starts a fresh computer when needed. Saved Cloud computer references are rejected; switch to the local provider and choose **Start over**. An interrupted approved action is never replayed.
+OpenMuse stores bounded chat history and the selected conversation in `.open-muse/state.json`, without API keys or short-lived browser/display connections. After a restart, local browsing starts a fresh computer when needed. An interrupted approved action is never replayed.
+
+Saved Cloud computers cannot resume browsing. To remove one and switch to local browsing:
+
+1. Keep `OPENMUSE_COMPUTER_PROVIDER=celesto` and the original `CELESTO_API_KEY` in `.env.local`, then restart OpenMuse. If you already switched to local, restore these settings first.
+1. Open each saved Cloud chat and choose **Start over**, or choose **Stop** to keep its transcript. OpenMuse requests deletion through the Cloud management API without starting the computer or connecting to its browser. A failed deletion keeps the saved computer ID so you can retry.
+1. Set `OPENMUSE_COMPUTER_PROVIDER=local` and restart OpenMuse.
 
 ## Develop OpenMuse
 
@@ -189,7 +195,7 @@ npm run build
 
 ### Celesto Cloud is selected but does not start
 
-Cloud public browsing is currently disabled. Select the local provider in `.env.local`, restart OpenMuse, and choose **Start over** for a saved Cloud conversation:
+Cloud public browsing is currently disabled. For saved Cloud conversations, follow the [Cloud cleanup steps](#recovery-after-a-restart): keep the Cloud provider and original API key until their computers are deleted, then switch to local. For a new installation, select the local provider in `.env.local` and restart OpenMuse:
 
 ```dotenv
 OPENMUSE_COMPUTER_PROVIDER=local
@@ -239,8 +245,9 @@ QEMU's default private networking. Public-mode computers and their connections e
 when their creating SDK session closes and cannot be restored from a snapshot.
 
 Celesto Cloud browsing is disabled until its public-egress enforcement can be
-verified. Set `OPENMUSE_COMPUTER_PROVIDER=local` and choose **Start over** for saved
-Cloud conversations. An existing Cloud computer is not adopted without that proof.
+verified. Follow the [Cloud cleanup steps](#recovery-after-a-restart) before
+switching saved Cloud conversations to the local provider. An existing Cloud
+computer is not adopted without that proof.
 
 Run browser security regressions with `npm run test:security` after installing
 Chromium with `npm run test:e2e:install`. Set

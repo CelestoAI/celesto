@@ -28,6 +28,7 @@ import argparse
 import hashlib
 import json
 import logging
+import os
 import platform
 import shutil
 import statistics
@@ -763,10 +764,17 @@ def main() -> None:
         output_path = args.output
         try:
             # Exclusive creation rejects symlinks and hardlinks atomically.
-            with output_path.open("x") as report_file:
+            with open(
+                output_path, "x", opener=lambda path, flags: os.open(path, flags, 0o600)
+            ) as report_file:
                 report_file.write(payload + "\n")
         except FileExistsError:
             parser.error(f"Report already exists at '{output_path}'; choose a new --output path.")
+        except OSError as exc:
+            parser.error(
+                f"Could not write report at '{output_path}': {exc.strerror}; "
+                "choose a writable --output path in an existing folder."
+            )
     if args.json:
         print(payload)
     else:

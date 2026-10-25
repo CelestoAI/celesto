@@ -436,13 +436,53 @@ fn open_directory_at(parent: &File, name: &CStr) -> Result<File, String> {
 }
 
 fn open_destination(path: &Path) -> Result<File, String> {
-    let base = File::open(if path.is_absolute() { "/" } else { "." })
-        .map_err(|error| error.to_string())?;
-    let relative: PathBuf = path
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|error| error.to_string())?
+            .join(path)
+    };
+    // The caller may intentionally select an alias such as /var/run. Resolve
+    // only this destination prefix; archive entries must never follow aliases.
+    let mut existing = absolute.as_path();
+    let mut canonical = loop {
+        match fs::canonicalize(existing) {
+            Ok(path) => break path,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                existing = existing.parent().ok_or_else(|| error.to_string())?;
+            }
+            Err(error) => return Err(error.to_string()),
+        }
+    };
+    let mut missing = PathBuf::new();
+    for component in absolute
+        .strip_prefix(existing)
+        .map_err(|error| error.to_string())?
         .components()
-        .filter(|component| !matches!(component, Component::RootDir))
-        .collect();
-    create_safe_directory(&base, &relative)
+    {
+        match component {
+            Component::Normal(name) => missing.push(name),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !missing.pop() {
+                    canonical.pop();
+                }
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                return Err("directory path is not safe".to_string());
+            }
+        }
+    }
+    // Reopen every canonical component without following symlinks so a symlink
+    // substituted after canonicalization cannot redirect extraction.
+    let mut directory = File::open("/").map_err(|error| error.to_string())?;
+    for component in canonical.components() {
+        if let Component::Normal(name) = component {
+            directory = open_directory_at(&directory, &path_name(name)?)?;
+        }
+    }
+    create_safe_directory(&directory, &missing)
 }
 
 fn create_safe_directory(root: &File, relative: &Path) -> Result<File, String> {
@@ -667,15 +707,28 @@ mod tests {
 
         let archive = create_directory_tar(source.to_str().unwrap()).unwrap();
         let target = tempfile_dir();
-        let extract = extract_directory_tar(target.to_str().unwrap(), &archive);
-        assert!(extract.ok, "{:?}", extract.error);
+        let actual = target.join("actual");
+        fs::create_dir(&actual).unwrap();
+        fs::create_dir(actual.join("existing")).unwrap();
+        let alias = target.join("alias");
+        std::os::unix::fs::symlink(&actual, &alias).unwrap();
+        for (destination, expected) in [
+            (actual.clone(), actual.clone()),
+            (alias.join("existing"), actual.join("existing")),
+            (alias.join("missing/leaf"), actual.join("missing/leaf")),
+            (alias.join("existing/../parented"), actual.join("parented")),
+            (alias.join("missing-parent/../other"), actual.join("other")),
+        ] {
+            let extract = extract_directory_tar(destination.to_str().unwrap(), &archive);
+            assert!(extract.ok, "{destination:?}: {:?}", extract.error);
 
-        let extracted = target.join("sub").join("note.txt");
-        assert_eq!(fs::read(&extracted).unwrap(), b"hello");
-        assert_eq!(
-            fs::metadata(extracted).unwrap().permissions().mode() & 0o777,
-            0o640
-        );
+            let extracted = expected.join("sub/note.txt");
+            assert_eq!(fs::read(&extracted).unwrap(), b"hello");
+            assert_eq!(
+                fs::metadata(extracted).unwrap().permissions().mode() & 0o777,
+                0o640
+            );
+        }
     }
 
     #[test]

@@ -76,6 +76,14 @@ def proxy(tmp_path: Path) -> Iterator[int]:
     process = subprocess.Popen(
         [
             sys.executable,
+            "-c",
+            # Local service startup must not depend on hostname resolution.
+            "import runpy, socket, sys, threading\n"
+            "def blocked_lookup(*args, **kwargs):\n"
+            "    threading.Event().wait()\n"
+            "socket.getfqdn = blocked_lookup\n"
+            "sys.argv = sys.argv[1:]\n"
+            "runpy.run_path(sys.argv[0], run_name='__main__')\n",
             str(_ROOT / "src/celesto/images/guest_access.py"),
             str(port),
             str(upstream.server_port),
@@ -113,11 +121,14 @@ def connection(port: int) -> Iterator[http.client.HTTPConnection]:
         client.close()
 
 
-@pytest.mark.parametrize("path", ["/json/version", "/" + "b" * 64 + "/json/version"])
+@pytest.mark.parametrize(
+    "path", ["/json/version", "/" + "b" * 64 + "/json/version", "/é/json/version"]
+)
 def test_missing_or_wrong_capability_cannot_reach_upstream(proxy: int, path: str) -> None:
-    with connection(proxy) as client:
-        client.request("GET", path)
-        response = client.getresponse()
+    with socket.create_connection(("127.0.0.1", proxy), timeout=2) as client:
+        client.sendall(f"GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{proxy}\r\n\r\n".encode("latin-1"))
+        response = http.client.HTTPResponse(client)
+        response.begin()
         assert response.status == 403
         response.read()
     assert _Upstream.paths == []

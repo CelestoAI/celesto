@@ -99,7 +99,7 @@ from celesto.runtime.boot_profiles import (
     get_boot_profile_spec,
     to_published_arch,
 )
-from celesto.ssh import ShellKind, SSHClient
+from celesto.ssh import ShellKind, SSHClient, validate_host_key_alias
 from celesto.ssh_trust import openssh_host_key_options, trusted_host_key
 from celesto.storage import StateManagerProtocol
 from celesto.types import (
@@ -1022,6 +1022,9 @@ class Celesto:
             ``key_filename`` over ``password`` if both are passed —
             Celesto clears the key path internally so the password is
             actually tried.)
+        ssh_host_key_alias: Stable entry in the trusted known_hosts file, useful
+            when a Windows computer's forwarded SSH port changes. Supply its
+            verified public key independently of the SSH connection.
         internet_settings: Network access controls. Accepts an
             :class:`~celesto.types.InternetSettings` instance or a dict
             (e.g. ``{"mode": "off"}``). Use ``InternetSettings(mode="off")``
@@ -1067,6 +1070,7 @@ class Celesto:
         ssh_user: str = "root",
         ssh_key_path: str | None = None,
         ssh_password: str | None = None,
+        ssh_host_key_alias: str | None = None,
         comm_channel: CommChannelKind | None = None,
         internet_settings: InternetSettings | dict[str, Any] | None = None,
         mounts: list[str] | None = None,
@@ -1075,6 +1079,7 @@ class Celesto:
         state_manager: StateManagerProtocol | None = None,
         on_download: Callable[[str, int, int | None], None] | None = None,
     ) -> None:
+        ssh_host_key_alias = validate_host_key_alias(ssh_host_key_alias)
         if internet_settings is not None:
             if vm_id is not None:
                 raise ValidationError("Policy cannot change on reconnect; omit internet_settings.")
@@ -1238,6 +1243,7 @@ class Celesto:
         self._ssh_user = ssh_user
         self._ssh_key_path = ssh_key_path
         self._ssh_password = ssh_password
+        self._ssh_host_key_alias = ssh_host_key_alias
         self._comm_channel_request: CommChannelKind | None = comm_channel
         self._default_ssh_key_path: str | None = None
 
@@ -2599,6 +2605,24 @@ class Celesto:
         channel = self._ensure_shell_control(timeout=timeout)
         return int(channel.attach_terminal())  # type: ignore[attr-defined]
 
+    def _ssh_identity_options(self, host: str, port: int) -> list[str]:
+        alias = getattr(self, "_ssh_host_key_alias", None)
+        if alias is None:
+            return openssh_host_key_options(self.data_dir, self._vm_id, host, port)
+        known_hosts = Path(
+            os.environ.get("CELESTO_SSH_KNOWN_HOSTS") or "~/.ssh/known_hosts"
+        ).expanduser()
+        return [
+            "-o",
+            "StrictHostKeyChecking=yes",
+            "-o",
+            f"HostKeyAlias={alias}",
+            "-o",
+            f"UserKnownHostsFile={known_hosts}",
+            "-o",
+            "GlobalKnownHostsFile=/dev/null",
+        ]
+
     def _ssh_attach_command(self) -> list[str]:
         """Return an interactive SSH command using the resolved ready endpoint."""
         if not self._ssh_ready or self._ssh is None:
@@ -2609,7 +2633,7 @@ class Celesto:
 
         command = [
             "ssh",
-            *openssh_host_key_options(self.data_dir, self._vm_id, self._ssh.host, self._ssh.port),
+            *self._ssh_identity_options(self._ssh.host, self._ssh.port),
             "-o",
             "LogLevel=ERROR",
             "-p",
@@ -2659,7 +2683,7 @@ class Celesto:
 
         command = [
             "ssh",
-            *openssh_host_key_options(self.data_dir, self._vm_id, host, port),
+            *self._ssh_identity_options(host, port),
             "-o",
             "LogLevel=ERROR",
             "-p",
@@ -3489,6 +3513,7 @@ modprobe 9pnet_virtio""".strip()
             effective_key_path: str | None = None
         else:
             effective_key_path = key_path
+        alias = getattr(self, "_ssh_host_key_alias", None)
         return SSHClient(
             host=host,
             user=self._ssh_user,
@@ -3497,9 +3522,12 @@ modprobe 9pnet_virtio""".strip()
             password=self._ssh_password,
             connect_timeout=connect_timeout,
             shell_kind=self._guest_shell_kind(),
-            host_key=trusted_host_key(self.data_dir, self._vm_id),
+            host_key=None if alias is not None else trusted_host_key(self.data_dir, self._vm_id),
             sandbox_name=self._vm_id,
-            host_key_provider=lambda: trusted_host_key(self.data_dir, self._vm_id),
+            host_key_provider=(
+                None if alias is not None else lambda: trusted_host_key(self.data_dir, self._vm_id)
+            ),
+            host_key_alias=alias,
         )
 
     def _ensure_control_for_file_transfer(self) -> CommChannel:
@@ -4067,7 +4095,7 @@ modprobe 9pnet_virtio""".strip()
             "BatchMode=yes",
             "-o",
             "ExitOnForwardFailure=yes",
-            *openssh_host_key_options(self.data_dir, self._vm_id, ssh_host, ssh_port),
+            *self._ssh_identity_options(ssh_host, ssh_port),
             "-o",
             "LogLevel=ERROR",
             "-o",

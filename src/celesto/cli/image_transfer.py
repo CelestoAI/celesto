@@ -83,6 +83,10 @@ class _EntryChangedError(Exception):
     """A file in the image shrank while it was being archived."""
 
 
+class _ImportBudgetError(Exception):
+    """The caller's extraction budget was exhausted, not an archive defect."""
+
+
 class ImageSavePayload(TypedDict):
     name: str
     archive_path: str
@@ -435,6 +439,13 @@ def run_image_load(
             exit_code=2,
         )
 
+    def budget_exceeded() -> int:
+        return bad_archive(
+            "Image exceeds the import size budget and was not loaded.",
+            recovery="Free disk space or increase CELESTO_IMAGE_LOAD_MAX_BYTES, then retry "
+            f"'celesto image load -i {quoted_input}'.",
+        )
+
     try:
         tar = tarfile.open(in_path, "r:")  # noqa: SIM115 — closed by `with tar:` below
     except (OSError, tarfile.TarError) as exc:
@@ -553,16 +564,13 @@ def run_image_load(
             existing_parent = existing_parent.parent
         budget = min(configured_budget, max(0, shutil.disk_usage(existing_parent).free - 1024**3))
         if sum(meta["size"] for meta in allowed.values()) > budget:
-            return bad_archive(
-                "Image exceeds the import size budget; free disk space or increase "
-                "CELESTO_IMAGE_LOAD_MAX_BYTES and retry."
-            )
+            return budget_exceeded()
         written = 0
 
         def charge(size: int) -> None:
             nonlocal written
             if size > budget - written:
-                raise tarfile.TarError("image exceeds the import size budget")
+                raise _ImportBudgetError
             written += size
 
         data_members = [m for m in members if m.name != _MANIFEST_MEMBER]
@@ -584,9 +592,7 @@ def run_image_load(
                     exit_code=2,
                 )
             if member.size > budget:
-                return bad_archive(
-                    "Archive member exceeds the import size budget and was not loaded."
-                )
+                return budget_exceeded()
             if (
                 allowed[member.name]["encoding"] == "raw"
                 and member.size != allowed[member.name]["size"]
@@ -660,6 +666,11 @@ def run_image_load(
                         )
                         charge(destination.stat().st_size)
                     except OSError as exc:
+                        if (
+                            str(exc) == "decoded image exceeds size limit"
+                            and budget - written < meta["size"]
+                        ):
+                            raise _ImportBudgetError from exc
                         if _looks_like_zstd_decode_error(exc):
                             raise zstandard.ZstdError(
                                 f"'{meta['path']}' is not a valid zstd stream"
@@ -693,6 +704,8 @@ def run_image_load(
                     decompress_zstd_sparse(zst, rootfs, max_output_bytes=budget - written)
                     charge(rootfs.stat().st_size)
                 except OSError as exc:
+                    if str(exc) == "decoded image exceeds size limit":
+                        raise _ImportBudgetError from exc
                     if _looks_like_zstd_decode_error(exc):
                         raise zstandard.ZstdError(
                             f"'{_ROOTFS_ZST}' is not a valid zstd stream"
@@ -703,6 +716,9 @@ def run_image_load(
             if target.exists():
                 _remove_existing_entry(target)
             partial.rename(target)
+        except _ImportBudgetError:
+            shutil.rmtree(partial, ignore_errors=True)
+            return budget_exceeded()
         except (tarfile.TarError, zstandard.ZstdError) as exc:
             shutil.rmtree(partial, ignore_errors=True)
             return bad_archive(f"'{in_path}' is damaged and was not loaded: {_brief_error(exc)}.")

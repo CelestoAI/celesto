@@ -127,7 +127,14 @@ class SQLiteStateManager:
             # The trusted, non-writable directory prevents other accounts from
             # replacing this entry. Do not open/close an existing SQLite file:
             # POSIX close would drop locks held by another connection here.
-            path.chmod(0o600, follow_symlinks=False)
+            try:
+                path.chmod(0o600, follow_symlinks=False)
+            except NotImplementedError:
+                # Older POSIX builds lack no-follow chmod. The parent chain
+                # above excludes other writers, and lstat already rejected
+                # links. Avoid opening an existing DB just to fchmod it:
+                # closing that descriptor would release this process's locks.
+                path.chmod(0o600)
 
     @contextmanager
     def _get_connection(self, exclusive: bool = False) -> Iterator[sqlite3.Connection]:

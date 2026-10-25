@@ -25,6 +25,7 @@ import codecs
 import logging
 import math
 import os
+import re
 import shlex
 import socket
 import stat
@@ -108,6 +109,16 @@ The ``shell="raw"`` mode on :meth:`SSHClient.run` bypasses the wrap
 entirely for any kind."""
 
 
+def validate_host_key_alias(alias: str | None) -> str | None:
+    """Validate an explicit known_hosts identity before setup or SSH invocation."""
+    if alias is not None and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,252}", alias):
+        raise ValueError(
+            "SSH identity alias must be 1-253 letters, digits, dots, underscores or "
+            "hyphens, starting with a letter or digit."
+        )
+    return alias
+
+
 def _pwsh_encoded_command(command: str) -> str:
     """Return a ``powershell.exe -NoProfile -EncodedCommand <b64>`` wrap.
 
@@ -158,6 +169,8 @@ class SSHClient:
         host_key_provider: Trusted provisioning reader, retried while a boot key
             is unavailable; never receives data from the SSH connection.
         sandbox_name: Computer name included in identity recovery guidance.
+        host_key_alias: Exact trusted known_hosts entry to use independently
+            of the connection's address and port. Explicit host_key takes precedence.
         shell_kind: Login-shell flavor for the guest. ``sh`` (default) wraps
             with ``$SHELL -lc``; ``powershell`` wraps with
             ``powershell.exe -NoProfile -Command`` (Windows guests);
@@ -181,6 +194,7 @@ class SSHClient:
         host_key: str | None = None,
         sandbox_name: str | None = None,
         host_key_provider: Callable[[], str | None] | None = None,
+        host_key_alias: str | None = None,
     ) -> None:
         if not host:
             raise ValueError("host cannot be empty")
@@ -200,6 +214,7 @@ class SSHClient:
         self.shell_kind: ShellKind = shell_kind
         self._sandbox_name = sandbox_name
         self._host_key_provider = host_key_provider
+        self.host_key_alias = validate_host_key_alias(host_key_alias)
         self._expected_host_key: paramiko.PKey | None = None
         if host_key is not None:
             self._expected_host_key = self._parse_host_key(host_key)
@@ -243,10 +258,48 @@ class SSHClient:
                 hostname, self._expected_host_key.get_name(), self._expected_host_key
             )
         else:
-            client.load_system_host_keys()
+            if self.host_key_alias is None:
+                client.load_system_host_keys()
             known_hosts = os.environ.get("CELESTO_SSH_KNOWN_HOSTS")
+            if self.host_key_alias is not None and not known_hosts:
+                known_hosts = "~/.ssh/known_hosts"
             if known_hosts:
-                client.load_host_keys(os.path.expanduser(known_hosts))
+                known_hosts = os.path.expanduser(known_hosts)
+                try:
+                    client.load_host_keys(known_hosts)
+                except OSError as exc:
+                    client.close()
+                    retry = (
+                        f"run 'celesto computer ssh {self._sandbox_name}'"
+                        if self._sandbox_name
+                        else "retry the SSH command"
+                    )
+                    raise CelestoError(
+                        f"Trusted SSH key file '{known_hosts}' could not be read. "
+                        f"Restore it, then {retry}."
+                    ) from exc
+            if self.host_key_alias is not None:
+                keys = client.get_host_keys()
+                alias_keys = keys.lookup(self.host_key_alias)
+                if alias_keys is None:
+                    client.close()
+                    retry = (
+                        f"run 'celesto computer ssh {self._sandbox_name}'"
+                        if self._sandbox_name
+                        else "retry the SSH command"
+                    )
+                    raise CelestoError(
+                        f"Trusted SSH key file '{known_hosts}' has no entry for "
+                        f"'{self.host_key_alias}'. Add its verified public key, "
+                        f"then {retry}."
+                    )
+                pinned = list(alias_keys.items())
+                # Only the explicitly selected identity can authorize this
+                # endpoint, even if the file also contains an endpoint entry.
+                keys.clear()
+                endpoint = self.host if self.port == 22 else f"[{self.host}]:{self.port}"
+                for key_type, key in pinned:
+                    keys.add(endpoint, key_type, key)
         client.set_missing_host_key_policy(paramiko.RejectPolicy())
 
         connect_kwargs: dict[str, object] = {

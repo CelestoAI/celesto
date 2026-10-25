@@ -95,7 +95,11 @@ def trusted_host_key(data_dir: Path, vm_id: str) -> str | None:
         with _trusted_directory(console.parent) as directory:
             current_boot = True
             try:
-                lines = _read_owned_file(directory, console.name, _MAX_BOOT_LOG_BYTES).splitlines()
+                # The producer may still be writing the last line (or our
+                # bounded read may cut it short). Only completed lines can
+                # provision an identity; a later readiness attempt reads again.
+                content = _read_owned_file(directory, console.name, _MAX_BOOT_LOG_BYTES)
+                lines = content.split("\n")[:-1]
             except FileNotFoundError:
                 current_boot = False
                 lines = []

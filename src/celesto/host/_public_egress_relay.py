@@ -14,6 +14,9 @@ import socket
 import sys
 
 _BUFFER_LIMIT = 64 * 1024
+# Shared with the proxy so either hop permits quiet CONNECT/WebSocket sessions.
+# Keep this module stdlib-only: QEMU executes it directly with Python's -I flag.
+STREAM_IDLE_TIMEOUT = 600.0
 
 
 def relay(port: int) -> None:
@@ -37,7 +40,7 @@ def relay(port: int) -> None:
                 writers.append(upstream)
             if to_guest:
                 writers.append(1)
-            readable, writable, _ = select.select(readers, writers, [], 30)
+            readable, writable, _ = select.select(readers, writers, [], STREAM_IDLE_TIMEOUT)
             if not readable and not writable:
                 return
             if 0 in readable:

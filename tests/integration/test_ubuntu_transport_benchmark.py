@@ -332,6 +332,26 @@ def test_benchmark_cli_refuses_existing_output_links(
     import json
 
     assert json.loads(output.read_text()) == report
+    if os.name == "posix":
+        assert output.stat().st_mode & 0o077 == 0
+
+
+def test_benchmark_report_path_error_is_actionable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A completed benchmark reports a bad output path without a traceback."""
+    import sys
+
+    output = tmp_path / "missing" / "report.json"
+    monkeypatch.setattr(ubuntu_transport, "run_benchmark", lambda **_kwargs: {"variants": {}})
+    monkeypatch.setattr(sys, "argv", ["benchmark", "--output", str(output)])
+    with pytest.raises(SystemExit) as failure:
+        ubuntu_transport.main()
+    assert failure.value.code == 2
+    message = capsys.readouterr().err
+    assert str(output) in message
+    assert "--output" in message
+    assert "Traceback" not in message
 
 
 def test_backend_benchmark_creates_private_unique_report(

@@ -22,6 +22,7 @@ export interface ComputerProvider {
   readonly id: ComputerProviderId;
   create(options: { network: "open" | "off" | "public"; viewport: { width: number; height: number } }): Promise<OpenMuseComputer>;
   reconnect(reference: ComputerReference): Promise<OpenMuseComputer | undefined>;
+  deleteSaved?(reference: ComputerReference): Promise<void>;
 }
 
 export type ComputerProviderConfig =
@@ -129,7 +130,17 @@ function cloudComputerProvider(config: Extract<ComputerProviderConfig, { provide
     },
     async reconnect(reference) {
       if (reference.provider !== "celesto") return undefined;
-      throw new Error("Public network enforcement cannot be verified for saved Celesto Cloud computers. Set OPENMUSE_COMPUTER_PROVIDER=local and choose Start over.");
+      throw new Error(`Public network enforcement cannot be verified for saved Celesto Cloud computer '${reference.id}'. Choose Start over to delete it, then set OPENMUSE_COMPUTER_PROVIDER=local and restart OpenMuse.`);
+    },
+    async deleteSaved(reference) {
+      if (reference.provider !== "celesto") throw new Error("Only saved Celesto Cloud computers can be deleted with this provider.");
+      try {
+        // Management access does not start the computer or mint browser access.
+        const computer = await Computer.get(reference.id, clientConfig);
+        await computer.delete();
+      } catch (error) {
+        if (!isNotFound(error)) throw error;
+      }
     },
   };
 }

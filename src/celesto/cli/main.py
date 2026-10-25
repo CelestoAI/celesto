@@ -2937,6 +2937,17 @@ def _run_ui(host: str, port: int, allow_beta: bool) -> int:
             ),
             json_output=False,
         )
+    if token is not None and not re.fullmatch(r"[A-Za-z0-9._~-]+", token):
+        return _emit_cli_error(
+            "ui",
+            2,
+            ValueError(
+                "CELESTO_DASHBOARD_TOKEN contains characters the browser cannot use; "
+                "run 'export CELESTO_DASHBOARD_TOKEN=$(openssl rand -hex 32)', "
+                "then rerun 'celesto ui'."
+            ),
+            json_output=False,
+        )
     previous_dashboard_token = token
     token = token or secrets.token_urlsafe(32)
     os.environ["CELESTO_DASHBOARD_TOKEN"] = token
@@ -2947,7 +2958,7 @@ def _run_ui(host: str, port: int, allow_beta: bool) -> int:
 
     if allow_beta:
         os.environ[DASHBOARD_ALLOW_BETA_ENV] = "1"
-    os.environ[DASHBOARD_URL_ENV] = dashboard_url
+    os.environ[DASHBOARD_URL_ENV] = dashboard_url.partition("#")[0]
 
     _render_ui_startup(host, port, dashboard_url, allow_beta=allow_beta, auto_beta=auto_beta)
 

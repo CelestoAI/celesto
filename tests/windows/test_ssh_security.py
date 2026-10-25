@@ -1,11 +1,14 @@
 """Real SSH handshake and streaming regressions; no guest VM is required."""
 
+import os
 import socket
+import subprocess
 import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Literal, cast
 
 import paramiko
@@ -15,7 +18,15 @@ from paramiko.common import AUTH_SUCCESSFUL, OPEN_SUCCEEDED
 from celesto import Celesto
 from celesto.exceptions import CelestoError, OperationTimeoutError
 from celesto.ssh import SSHClient
-from celesto.types import CommandExitEvent, CommandOutputEvent, CommandStartedEvent, VMInfo
+from celesto.types import (
+    CommandExitEvent,
+    CommandOutputEvent,
+    CommandStartedEvent,
+    GuestOS,
+    VMConfig,
+    VMInfo,
+    VMState,
+)
 from celesto.vm import CelestoManager
 
 
@@ -33,6 +44,9 @@ def ssh_peer(
     transports: list[paramiko.Transport] = []
 
     class Peer(paramiko.ServerInterface):
+        def __init__(self) -> None:
+            self.finished = threading.Event()
+
         def check_auth_password(self, username: str, password: str) -> int:
             authenticated.append(username)
             return AUTH_SUCCESSFUL
@@ -59,8 +73,11 @@ def ssh_peer(
                         channel.send(b"hello")
                         channel.send_stderr(b"error")
                         channel.send_exit_status(0)
+                    channel.shutdown_write()
                 except (OSError, EOFError):
                     pass
+                finally:
+                    self.finished.set()
 
             threading.Thread(target=produce, daemon=True).start()
             return True
@@ -74,10 +91,14 @@ def ssh_peer(
                 transport = paramiko.Transport(sock)
                 transports.append(transport)
                 transport.add_server_key(key)
-                transport.start_server(server=Peer())
+                peer = Peer()
+                transport.start_server(server=peer)
                 channel = transport.accept(5)
                 if channel:
                     while transport.is_active() and not stopped.is_set():
+                        if peer.finished.is_set() and channel.eof_received:
+                            channel.close()
+                            break
                         stopped.wait(0.01)
             except (OSError, EOFError, paramiko.SSHException):
                 if not stopped.is_set():
@@ -97,17 +118,32 @@ def ssh_peer(
         thread.join(6)
 
 
+@pytest.mark.parametrize("known_hosts_source", ["empty", "missing", "directory"])
 def test_unknown_ssh_peer_is_rejected_before_password(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, known_hosts_source: str
 ) -> None:
-    monkeypatch.setenv("CELESTO_SSH_KNOWN_HOSTS", str(tmp_path / "empty"))
-    (tmp_path / "empty").touch()
+    # A missing or unreadable key file must fail before credentials are sent,
+    # with the same actionable error boundary as an unknown server key.
+    configured = tmp_path / known_hosts_source
+    monkeypatch.setenv("CELESTO_SSH_KNOWN_HOSTS", str(configured))
+    if known_hosts_source == "empty":
+        configured.touch()
+    elif known_hosts_source == "directory":
+        configured.mkdir()
     with ssh_peer(tmp_path) as (port, _, authenticated):
-        client = SSHClient("127.0.0.1", port=port, password="synthetic-test-password")
+        client = SSHClient(
+            "127.0.0.1",
+            port=port,
+            password="synthetic-test-password",
+            sandbox_name="windows-trust-check",
+        )
         try:
-            with pytest.raises(CelestoError):
+            with pytest.raises(CelestoError) as rejected:
                 client.run("ignored", shell="raw")
             assert not authenticated
+            if known_hosts_source != "empty":
+                assert str(configured) in str(rejected.value)
+                assert "celesto computer ssh windows-trust-check" in str(rejected.value)
         finally:
             client.close()
 
@@ -191,6 +227,105 @@ def test_provisioned_host_key_rejects_replacement_before_password(
             assert not authenticated
         finally:
             client.close()
+
+
+@pytest.mark.parametrize("identity", ["trusted", "missing_alias", "replacement"])
+def test_windows_alias_verifies_dynamic_endpoint_before_password(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, identity: str
+) -> None:
+    # The forward's port is assigned at runtime. A stable, independently
+    # provisioned alias must work in both clients, without falling back to an
+    # endpoint entry when that alias is missing or names a different key.
+    alias = "trusted-windows-image"
+    disk = tmp_path / "windows.qcow2"
+    disk.touch()
+    config = VMConfig(
+        vm_id="windows-alias-test",
+        rootfs_path=disk,
+        backend="qemu",
+        guest_os=GuestOS.WINDOWS,
+        boot_mode="firmware",
+    )
+    info = VMInfo(vm_id=config.vm_id, config=config, status=VMState.CREATED)
+
+    def manager(**_kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(data_dir=tmp_path, create=lambda _config: info)
+
+    monkeypatch.setattr("celesto.facade.CelestoManager", manager)
+    with ssh_peer(tmp_path) as (port, known, authenticated):
+        endpoint_entry = known.read_text()
+        trusted_key = " ".join(endpoint_entry.split()[1:])
+        if identity == "replacement":
+            replacement = paramiko.RSAKey.generate(1024)
+            alias_key = f"{replacement.get_name()} {replacement.get_base64()}"
+        else:
+            alias_key = trusted_key
+        entry_name = "another-image" if identity == "missing_alias" else alias
+        known.write_text(f"{entry_name} {alias_key}\n{endpoint_entry}")
+        monkeypatch.setenv("CELESTO_SSH_KNOWN_HOSTS", str(known))
+        vm = Celesto(
+            config,
+            ssh_password="synthetic-test-password",
+            ssh_host_key_alias=alias,
+        )
+        client = vm._new_ssh_client(host="127.0.0.1", port=port)
+        try:
+            if identity != "trusted":
+                with pytest.raises(CelestoError):
+                    client.run("ignored", shell="raw")
+                assert not authenticated
+                return
+            assert client.run("ignored", shell="raw").stdout == "hello"
+            assert authenticated == ["root"]
+            client.close()
+
+            # Exercise OpenSSH's actual alias/port lookup, not just argv shape.
+            vm._ssh = client
+            vm._ssh_ready = True
+            command = vm._ssh_attach_command()
+            askpass = tmp_path / "askpass"
+            askpass.write_text("#!/bin/sh\nprintf '%s\\n' synthetic-test-password\n")
+            askpass.chmod(0o700)
+            result = subprocess.run(
+                [
+                    command[0],
+                    "-T",
+                    "-o",
+                    "PreferredAuthentications=password",
+                    "-o",
+                    "PubkeyAuthentication=no",
+                    "-o",
+                    "NumberOfPasswordPrompts=1",
+                    *command[1:],
+                    "ignored",
+                ],
+                env={
+                    **os.environ,
+                    "DISPLAY": ":99",
+                    "SSH_ASKPASS": str(askpass),
+                    "SSH_ASKPASS_REQUIRE": "force",
+                },
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            assert result.returncode == 0, result.stderr
+            assert result.stdout == "hello"
+            assert authenticated == ["root", "root"]
+        finally:
+            client.close()
+
+
+@pytest.mark.parametrize("alias", ["", "-oProxyCommand=bad", "a b", "a\nb", "a" * 254])
+def test_ssh_identity_alias_rejects_unsafe_values_before_setup(alias: str) -> None:
+    # Both public entry points must reject option-like/control text before
+    # any image preparation or network connection can begin.
+    with pytest.raises(ValueError, match="SSH identity alias"):
+        SSHClient("127.0.0.1", host_key_alias=alias)
+    with pytest.raises(ValueError, match="SSH identity alias"):
+        Celesto(ssh_host_key_alias=alias)
 
 
 def _managed_vm(tmp_path: Path) -> Celesto:

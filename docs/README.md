@@ -10,6 +10,8 @@ Celesto gives an AI agent a disposable computer for running code, using a browse
 - [CLI reference](reference/cli.md) — scan every current command and its purpose.
 - [OpenMuse example](../open-muse/README.md) — chat with a Pi agent while watching its disposable browser.
 - [OpenMuse Research example](../examples/open-muse-research/README.md) — run a structured TypeScript research workflow inside a temporary Celesto computer.
+- [Agent tool examples](../examples/agent_tools/README.md) — connect an agent framework to a disposable computer.
+- [TypeScript guide](typescript/index.md) — use Celesto from Node.js and browse the API reference.
 
 ## Guides
 

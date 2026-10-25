@@ -471,11 +471,10 @@ where
         let _ = done_rx.await;
     }
     drop(outbound_tx);
-    if session_error.is_some() {
-        socket_writer_task.abort();
-    } else if tokio::time::timeout(std::time::Duration::from_secs(1), &mut socket_writer_task)
-        .await
-        .is_err()
+    if session_error.is_some()
+        || tokio::time::timeout(std::time::Duration::from_secs(1), &mut socket_writer_task)
+            .await
+            .is_err()
     {
         socket_writer_task.abort();
     }

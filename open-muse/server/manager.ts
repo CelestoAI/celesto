@@ -289,6 +289,7 @@ export class ConversationManager {
     const context = this.require(id);
     if (this.modelAccessTransition) throw Object.assign(new Error("Wait for the current model change to finish, then try again."), { status: 409, code: "model_access_busy" });
     if (context.runState !== "interrupted") throw Object.assign(new Error("This conversation is not waiting to continue."), { status: 409 });
+    if (context.computerReference) this.requireSavedComputerProvider(context.computerReference);
     const missingComputer = context.recovery?.kind === "computer_unavailable";
     if (missingComputer) {
       delete context.computerReference;
@@ -578,7 +579,20 @@ export class ConversationManager {
     }
     await this.activeAction?.catch(() => undefined);
     await this.turnQueue.catch(() => undefined);
-    await this.releaseComputer(context, "delete");
+    try {
+      await this.releaseComputer(context, "delete");
+    } catch (error) {
+      context.runState = "interrupted";
+      context.sessionLifecycle = "error";
+      context.lastBrowserError = error instanceof Error ? error.message : "The computer could not be deleted. Choose Start over to try again.";
+      if (!context.recovery || context.recovery.kind === "interrupted") {
+        context.recovery = { kind: "interrupted", summary: context.lastBrowserError };
+      }
+      context.stateVersion += 1;
+      this.emit("conversation.interrupted", { summary: "Computer cleanup needs attention" }, false);
+      await this.checkpoint();
+      throw error;
+    }
     context.runState = "stopped";
     context.sessionLifecycle = "deleted";
     context.stateVersion += 1;
@@ -886,6 +900,7 @@ export class ConversationManager {
     await this.checkpoint();
     let createdComputer: ConversationContext["computer"];
     try {
+      if (context.computerReference) this.requireSavedComputerProvider(context.computerReference);
       const computer = context.computerReference
         ? await this.runtime.computerProvider.reconnect(context.computerReference)
         : await this.runtime.computerProvider.create({
@@ -1249,10 +1264,8 @@ export class ConversationManager {
 
   private async restoreComputerHandle(context = this.context): Promise<void> {
     if (!context?.computerReference || ["stopped", "failed"].includes(context.runState)) return;
-    if (context.computerReference.provider !== this.runtime.computerProvider.id) {
-      throw new Error(`Saved conversations still use the '${context.computerReference.provider}' computer provider. Set OPENMUSE_COMPUTER_PROVIDER=${context.computerReference.provider}, restart OpenMuse, then Stop or Reset those conversations before changing providers.`);
-    }
     try {
+      this.requireSavedComputerProvider(context.computerReference);
       const computer = await this.runtime.computerProvider.reconnect(context.computerReference);
       if (!computer) {
         context.sessionLifecycle = "error";
@@ -1263,9 +1276,20 @@ export class ConversationManager {
       }
       context.computer = computer;
       context.sessionLifecycle = "ready";
-    } catch {
+    } catch (error) {
       context.sessionLifecycle = "error";
-      context.lastBrowserError = "OpenMuse could not reconnect to the saved Celesto computer. Check your connection, then try again.";
+      context.runState = "interrupted";
+      context.lastBrowserError = error instanceof Error ? error.message : "OpenMuse could not reconnect to the saved Celesto computer. Check your connection, then try again.";
+      if (!context.recovery || context.recovery.kind === "interrupted") {
+        context.recovery = { kind: "interrupted", summary: context.lastBrowserError };
+      }
+      context.stateVersion += 1;
+    }
+  }
+
+  private requireSavedComputerProvider(reference: NonNullable<ConversationContext["computerReference"]>): void {
+    if (reference.provider !== this.runtime.computerProvider.id) {
+      throw new Error(`Saved computer '${reference.id}' still needs cleanup. Set OPENMUSE_COMPUTER_PROVIDER=${reference.provider}, restart OpenMuse, then choose Start over before switching providers.`);
     }
   }
 
@@ -1275,7 +1299,10 @@ export class ConversationManager {
     await context.playwright?.close().catch(() => undefined);
     let computer = context.computer;
     if (!computer && disposition === "delete" && context.computerReference) {
-      computer = await this.runtime.computerProvider.reconnect(context.computerReference);
+      this.requireSavedComputerProvider(context.computerReference);
+      if (this.runtime.computerProvider.deleteSaved) {
+        await this.runtime.computerProvider.deleteSaved(context.computerReference);
+      } else computer = await this.runtime.computerProvider.reconnect(context.computerReference);
     }
     if (computer) {
       if (disposition === "delete") await computer.delete();

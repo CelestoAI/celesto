@@ -18,8 +18,9 @@ from celesto.types import VMInfo
 pytestmark = pytest.mark.e2e
 
 
+@pytest.mark.parametrize("stream_available", [True, False])
 def test_dashboard_login_authenticates_ui_without_cross_port_cookies(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stream_available: bool
 ) -> None:
     playwright = pytest.importorskip("playwright.sync_api")
     uvicorn = pytest.importorskip("uvicorn")
@@ -81,6 +82,11 @@ def test_dashboard_login_authenticates_ui_without_cross_port_cookies(
             )
             try:
                 context = browser.new_context()
+                if not stream_available:
+                    context.add_init_script(
+                        "window.WebSocket = class { constructor() { "
+                        "throw new DOMException('Stream unavailable', 'SecurityError'); } };"
+                    )
                 page = context.new_page()
                 page.set_default_timeout(5000)
                 page.on("pageerror", lambda error: browser_errors.append(str(error)))
@@ -113,12 +119,14 @@ def test_dashboard_login_authenticates_ui_without_cross_port_cookies(
                 )
                 assert page.get_by_role("alert").inner_text() == ""
                 page.get_by_role("status").filter(has_text="Found 0 computers.").wait_for()
-                deadline = time.monotonic() + 5
-                while not snapshots and time.monotonic() < deadline:
-                    page.wait_for_timeout(50)
-                assert any(json.loads(frame).get("type") == "snapshot" for frame in snapshots), (
-                    browser_errors
-                )
+                if stream_available:
+                    deadline = time.monotonic() + 5
+                    while not snapshots and time.monotonic() < deadline:
+                        page.wait_for_timeout(50)
+                    assert any(
+                        json.loads(frame).get("type") == "snapshot" for frame in snapshots
+                    ), browser_errors
+                assert not browser_errors
                 assert all(
                     status == 200 or url.endswith("/api/session") for url, status in api_responses
                 )
@@ -131,6 +139,7 @@ def test_dashboard_login_authenticates_ui_without_cross_port_cookies(
                         {
                             "api_responses": api_responses,
                             "websocket_snapshots": len(snapshots),
+                            "stream_available": stream_available,
                             "other_service": received,
                         },
                         indent=2,

@@ -33,6 +33,7 @@ import shlex
 import shutil
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -270,14 +271,64 @@ def _get_sudo_user_info() -> pwd.struct_passwd | None:
         return None
 
 
+def _mkdir_private(path: Path) -> None:
+    """Create missing components privately without changing existing directories."""
+    try:
+        path.mkdir(mode=0o700)
+    except FileNotFoundError:
+        _mkdir_private(path.parent)
+        _mkdir_private(path)
+        return
+    except FileExistsError:
+        if not path.is_dir():
+            raise
+        return
+
+    # A root process acting for another account must leave every new parent
+    # traversable by that account, not just the final data directory.
+    owner = _get_sudo_user_info()
+    if owner is not None:
+        descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.chown(descriptor, owner.pw_uid, owner.pw_gid)
+        finally:
+            os.close(descriptor)
+
+
 def _is_usable_dir(path: Path) -> bool:
     """Return True if *path* exists/is creatable and writable."""
     try:
-        path.mkdir(parents=True, exist_ok=True)
+        _mkdir_private(path)
     except OSError:
         return False
 
     return os.access(path, os.W_OK | os.X_OK)
+
+
+def _open_runtime_log(path: Path) -> TextIO:
+    """Start a private console without following or truncating an unsafe file."""
+    descriptor = os.open(
+        path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, 0o600
+    )
+    try:
+        info = os.fstat(descriptor)
+        owners = {os.geteuid()}
+        owner = _get_sudo_user_info()
+        if owner is not None:
+            owners.add(owner.pw_uid)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid not in owners or info.st_nlink != 1:
+            raise PermissionError(
+                f"Console file '{path}' cannot be used safely; run "
+                f"'celesto computer delete {path.stem}' before recreating the computer."
+            )
+        # A previous boot may have created a group-writable log. Validate the
+        # retained descriptor before changing its mode or discarding its data.
+        os.fchmod(descriptor, 0o600)
+        os.ftruncate(descriptor, 0)
+        return os.fdopen(descriptor, "w")
+    except BaseException:
+        os.close(descriptor)
+        raise
 
 
 def _candidate_data_dirs() -> list[Path]:
@@ -313,13 +364,13 @@ def resolve_data_dir(data_dir: Path | None = None) -> Path:
     """
     if data_dir is not None:
         resolved = data_dir.expanduser()
-        resolved.mkdir(parents=True, exist_ok=True)
+        _mkdir_private(resolved)
         return resolved
 
     env_override = os.environ.get(DEFAULT_DATA_DIR_ENV)
     if env_override:
         resolved = Path(env_override).expanduser()
-        resolved.mkdir(parents=True, exist_ok=True)
+        _mkdir_private(resolved)
         return resolved
 
     for candidate in _candidate_data_dirs():
@@ -489,9 +540,25 @@ class CelestoManager:
             return
         # A public-mode guest must stop before its proxy listener is released.
         # Otherwise a later process could inherit that same local port.
+        failures: list[tuple[str, Exception]] = []
         for vm_id in list(self._public_egress):
-            self.stop(vm_id)
-            self._stop_public_egress(vm_id)
+            try:
+                self.stop(vm_id)
+                self._stop_public_egress(vm_id)
+            except Exception as exc:
+                failures.append((vm_id, exc))
+        if failures:
+            # Keep failed guests' proxies, inventory, and process handles alive
+            # for another close attempt, after trying every independent guest.
+            if len(failures) == 1:
+                raise failures[0][1]
+            recovery = ", then ".join(
+                f"'celesto computer stop {vm_id}'" for vm_id, _error in failures
+            )
+            raise ExceptionGroup(
+                f"Celesto could not finish closing; run {recovery}.",
+                [error for _vm_id, error in failures],
+            )
         for fh in self._log_files.values():
             with suppress(Exception):
                 fh.close()
@@ -3583,7 +3650,7 @@ class CelestoManager:
 
         logger.debug("Starting QEMU: %s", " ".join(cmd))
 
-        log_file = open(log_path, "w")  # noqa: SIM115 - must stay open for subprocess
+        log_file = _open_runtime_log(log_path)
 
         try:
             process = subprocess.Popen(
@@ -3629,7 +3696,7 @@ class CelestoManager:
 
         cmd = [str(fc_path), "--api-sock", str(socket_path)]
 
-        log_file = open(log_path, "w")  # noqa: SIM115 - must stay open for subprocess
+        log_file = _open_runtime_log(log_path)
 
         try:
             process = subprocess.Popen(
@@ -3712,7 +3779,7 @@ class CelestoManager:
         cmd = [sys.executable, "-m", "celesto.runtime._libkrun_launcher", str(config_path)]
 
         logger.debug("Starting libkrun: %s", " ".join(shlex.quote(p) for p in cmd))
-        log_file = open(log_path, "w")  # noqa: SIM115 - must stay open for subprocess
+        log_file = _open_runtime_log(log_path)
 
         try:
             process = subprocess.Popen(
@@ -4962,7 +5029,7 @@ class CelestoManager:
         cmd = [sys.executable, "-m", "celesto.runtime._libkrun_launcher", str(config_path)]
 
         logger.debug("Async starting libkrun: %s", " ".join(shlex.quote(part) for part in cmd))
-        log_file = open(log_path, "w")  # noqa: SIM115 - must stay open while process runs
+        log_file = _open_runtime_log(log_path)
 
         try:
             process = await asyncio.create_subprocess_exec(

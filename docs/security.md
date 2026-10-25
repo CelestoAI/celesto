@@ -6,7 +6,7 @@ Celesto runs programs inside disposable computers. Control links and keys still 
 
 Run `celesto ui` and open its private link. The link signs your browser in; opening the address without that link does not grant access. Restarting the dashboard changes its generated access token.
 
-Set `CELESTO_DASHBOARD_TOKEN` to a long random value if you need a stable token. You must set it before binding the dashboard to an address other than localhost. Browser requests must come from the dashboard's own origin. An API client can send `Authorization: Bearer <token>`.
+Set `CELESTO_DASHBOARD_TOKEN` to a long random value if you need a stable token. Use letters, digits, or `-._~`; `export CELESTO_DASHBOARD_TOKEN=$(openssl rand -hex 32)` generates a suitable value. You must set it before binding the dashboard to an address other than localhost. Browser requests must come from the dashboard's own origin. An API client can send `Authorization: Bearer <token>`. The private sign-in link appears in CLI output; routine server logs omit its token.
 
 The local API server also requires a token. `celesto server start` prints a generated token for localhost use, or reads `CELESTO_SERVER_TOKEN`. Set that variable before listening on another address. The TypeScript SDK supplies its own token when it starts the private server. Applications embedding `create_app()` can supply `auth_token` or read the generated value from `app.state.auth_token`.
 
@@ -30,11 +30,13 @@ Use `internet_settings={"mode": "public"}` with QEMU's default slirp network on 
 
 Chromium receives the proxy configuration automatically. Other applications must explicitly use the proxy at `http://10.0.2.100:3128`. This mode does not support shared folders, extra configured port forwards, or snapshot creation or restore. OpenMuse selects it for local browsing and rejects cloud browsing until the cloud provider offers the same guarantee. See [networking](guides/networking.md).
 
+Established HTTPS and WebSocket streams can stay quiet for up to ten minutes before Celesto closes them. Connection attempts have a ten-second socket timeout; request headers, bodies, and ordinary HTTP responses keep a thirty-second socket timeout. The relay buffers at most 64 KiB in each direction.
+
 ## Import images and files
 
 Imported QCOW2 disks must be standalone: external backing files and external data files are rejected. Celesto's own managed overlays remain an internal implementation detail.
 
-`celesto image load` limits aggregate extraction work to 64 GiB by default and reserves 1 GiB of the available free space when calculating that budget. Set `CELESTO_IMAGE_LOAD_MAX_BYTES` to a positive integer to choose a different limit. Compressed data is checked while it expands. Sparse tar entries are rejected. Guest tar downloads have separate limits of 10,000 entries, 256 MiB per file and 1 GiB in total.
+`celesto image load` limits aggregate extraction work to 64 GiB by default and reserves 1 GiB of the available free space when calculating that budget. The limit counts compressed bytes written and the full decoded size, including sparse regions; deleting a temporary file does not refund work already performed. Set `CELESTO_IMAGE_LOAD_MAX_BYTES` to a positive integer to choose a different limit. Compressed data is checked while it expands. Sparse tar entries are rejected. Guest tar downloads have separate limits of 10,000 entries, 256 MiB per file and 1 GiB in total.
 
 ## Administrator setup
 

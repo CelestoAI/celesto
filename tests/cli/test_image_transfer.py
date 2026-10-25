@@ -1080,7 +1080,7 @@ def test_load_rejects_case_alias_of_namespace_root(
     assert sentinel.read_text() == "existing image"
 
 
-@pytest.mark.parametrize("encoding", ["raw", "zstd", "rootfs"])
+@pytest.mark.parametrize("encoding", ["raw", "zstd", "rootfs", "aggregate"])
 def test_load_enforces_expansion_budget_and_preserves_existing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1094,12 +1094,12 @@ def test_load_enforces_expansion_budget_and_preserves_existing(
     entry = root / "example"
     entry.mkdir(parents=True)
     (entry / "keep").write_text("old")
-    content = b"x" * 8192
+    content = b"x" * (4096 if encoding == "aggregate" else 8192)
     stored = content if encoding == "raw" else zstandard.compress(content)
     name = "rootfs.ext4.zst" if encoding == "rootfs" else "payload"
     meta = {
         "path": name,
-        "encoding": "zstd" if encoding == "zstd" else "raw",
+        "encoding": "zstd" if encoding in {"zstd", "aggregate"} else "raw",
         "size": len(stored) if encoding == "rootfs" else len(content),
         "sha256": hashlib.sha256(stored).hexdigest(),
     }
@@ -1112,5 +1112,10 @@ def test_load_enforces_expansion_budget_and_preserves_existing(
         ["image", "load", "-i", str(archive), "--image-dir", str(root), "--force", "--json"]
     )
     assert result != 0
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert "budget" in error["message"]
+    assert "CELESTO_IMAGE_LOAD_MAX_BYTES" in error["recovery"]
+    assert "damaged" not in error["message"]
+    assert "corrupted" not in error["recovery"]
     assert (entry / "keep").read_text() == "old"
     assert sorted(p.name for p in root.iterdir()) == ["example"]

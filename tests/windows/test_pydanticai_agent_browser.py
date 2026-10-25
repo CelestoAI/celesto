@@ -19,8 +19,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import sys
-from collections.abc import Callable
-from contextlib import suppress
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -56,30 +55,50 @@ def test_resolve_prompt_falls_back_to_demo_prompt() -> None:
     assert module._resolve_prompt("Open example.com") == "Open example.com"
 
 
-def test_model_tool_cannot_execute_host_shell(
+@pytest.mark.asyncio
+async def test_model_tool_cannot_execute_host_shell(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Untrusted model arguments never gain command execution on the operator machine."""
     module = _load_module()
-    tools: list[Callable[..., str]] = []
+    tools: list[Callable[..., Awaitable[str]]] = []
 
     class Agent:
         def __init__(self, *args: object, **kwargs: object) -> None:
             pass
 
-        def tool(self, **kwargs: object) -> Callable[[Callable[..., str]], None]:
+        def tool(self, **kwargs: object) -> Callable[[Callable[..., Awaitable[str]]], None]:
             return lambda fn: tools.append(fn)
 
-    monkeypatch.setattr(module, "_require_dependency", lambda *_args: Agent)
+    class ModelRetryError(Exception):
+        pass
+
+    class BrowserError(Exception):
+        pass
+
+    dependencies: dict[str, object] = {
+        "pydantic_ai:Agent": Agent,
+        "pydantic_ai:ModelRetry": ModelRetryError,
+        "playwright.async_api:Error": BrowserError,
+    }
+    monkeypatch.setattr(module, "_require_dependency", lambda path, _hint: dependencies[path])
     module._build_agent()
     marker = tmp_path / "host-command-ran"
+
+    async def title() -> str:
+        return "Fixture"
+
+    async def snapshot() -> str:
+        return "Fixture content"
+
     page = SimpleNamespace(
-        title=lambda: "Fixture",
+        title=title,
+        is_closed=lambda: False,
         url="https://example.com/",
-        locator=lambda _selector: SimpleNamespace(aria_snapshot=lambda: "Fixture content"),
+        locator=lambda _selector: SimpleNamespace(aria_snapshot=snapshot),
     )
     ctx = SimpleNamespace(deps=module.BrowserCliDeps(page=page))
-    with suppress(ValueError, RuntimeError):
-        tools[0](ctx, f"touch {marker}")
+    with pytest.raises(ModelRetryError, match="Unknown browser action"):
+        await tools[0](ctx, f"touch {marker}")
     assert not marker.exists(), "A model-selected command executed on the operator machine"
-    assert "Fixture content" in tools[0](ctx, "observe")
+    assert "Fixture content" in await tools[0](ctx, "observe")

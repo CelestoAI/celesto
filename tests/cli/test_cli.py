@@ -3106,6 +3106,12 @@ class TestCliUi:
         mock_uvicorn = MagicMock()
         mock_import.return_value = mock_uvicorn
 
+        def verify_private_logging_url(*_args: object, **_kwargs: object) -> None:
+            assert "#" not in os.environ["CELESTO_DASHBOARD_URL"]
+            assert os.environ["CELESTO_DASHBOARD_TOKEN"] not in os.environ["CELESTO_DASHBOARD_URL"]
+
+        mock_uvicorn.run.side_effect = verify_private_logging_url
+
         ret = main(["ui"])
 
         assert ret == 0
@@ -3115,6 +3121,17 @@ class TestCliUi:
             host="127.0.0.1",
             port=8080,
         )
+
+    @pytest.mark.parametrize("token", ["has+plus", "has&field", "base64/value=", "has space"])
+    def test_ui_rejects_token_that_cannot_authenticate_browser(
+        self, token: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        server = MagicMock()
+        monkeypatch.setattr(main.__globals__["importlib"], "import_module", lambda _: server)
+        monkeypatch.setenv("CELESTO_DASHBOARD_TOKEN", token)
+        assert main(["ui"]) == 2
+        server.run.assert_not_called()
+        assert "CELESTO_DASHBOARD_TOKEN" in capsys.readouterr().err
 
     @patch.dict(os.environ, {"CELESTO_DASHBOARD_TOKEN": "synthetic-test-dashboard-token"})
     @patch("celesto.cli.main.importlib.import_module")

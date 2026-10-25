@@ -19,7 +19,7 @@
 Install:
     pip install celesto pydantic-ai playwright
     export OPENAI_API_KEY=...
-    celesto doctor
+    celesto doctor --backend qemu
 
 Example:
     python examples/agent_tools/pydanticai_agent_browser.py --input "Open example.com"
@@ -28,6 +28,7 @@ Example:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 from dataclasses import dataclass
@@ -84,7 +85,7 @@ def _require_dependency(import_path: str, install_hint: str) -> Any:
     return getattr(module, attr_name) if attr_name else module
 
 
-def browser_operation(
+async def browser_operation(
     ctx: RunContext[BrowserCliDeps],
     action: Literal["navigate", "observe", "click", "fill", "scroll"],
     value: str = "",
@@ -99,35 +100,53 @@ def browser_operation(
         role: Accessible element role from the most recent observation.
         name: Exact accessible element name from the most recent observation.
     """
-    if action not in {"navigate", "observe", "click", "fill", "scroll"}:
-        raise ValueError("Unknown browser action; use navigate, observe, click, fill, or scroll.")
     page = ctx.deps.page
-    if page is None:
+    if page is None or page.is_closed():
         raise RuntimeError("The browser is closed; restart the example to create a session.")
-    if action == "navigate":
-        url = urlparse(value)
-        if url.scheme not in {"http", "https"} or not url.hostname or url.username or url.password:
-            raise ValueError("Use an HTTP or HTTPS website address without a username or password.")
-        page.goto(value, wait_until="domcontentloaded")
-    elif action in {"click", "fill"}:
-        if role not in {"button", "link", "textbox", "searchbox", "checkbox", "radio"}:
-            raise ValueError("Choose an element role from the latest observation.")
-        element = page.get_by_role(role, name=name, exact=True)
-        if action == "click":
-            element.click()
-        else:
-            element.fill(value)
-    elif action == "scroll":
-        if value not in {"up", "down"}:
-            raise ValueError("Choose up or down to scroll.")
-        page.mouse.wheel(0, 600 if value == "down" else -600)
-    return json.dumps(
-        {
-            "title": page.title(),
-            "url": page.url,
-            "snapshot": page.locator("body").aria_snapshot()[:16000],
-        }
-    )
+    model_retry = _require_dependency("pydantic_ai:ModelRetry", "pip install pydantic-ai")
+    browser_error = _require_dependency("playwright.async_api:Error", "pip install playwright")
+    try:
+        if action not in {"navigate", "observe", "click", "fill", "scroll"}:
+            raise ValueError(
+                "Unknown browser action; use navigate, observe, click, fill, or scroll."
+            )
+        if action == "navigate":
+            url = urlparse(value)
+            if (
+                url.scheme not in {"http", "https"}
+                or not url.hostname
+                or url.username
+                or url.password
+            ):
+                raise ValueError(
+                    "Use an HTTP or HTTPS website address without a username or password."
+                )
+            await page.goto(value, wait_until="domcontentloaded", timeout=10_000)
+        elif action in {"click", "fill"}:
+            if role not in {"button", "link", "textbox", "searchbox", "checkbox", "radio"}:
+                raise ValueError("Choose an element role from the latest observation.")
+            element = page.get_by_role(role, name=name, exact=True)
+            if action == "click":
+                await element.click(timeout=3_000)
+            else:
+                await element.fill(value, timeout=3_000)
+        elif action == "scroll":
+            if value not in {"up", "down"}:
+                raise ValueError("Choose up or down to scroll.")
+            await page.mouse.wheel(0, 600 if value == "down" else -600)
+        return json.dumps(
+            {
+                "title": await page.title(),
+                "url": page.url,
+                "snapshot": (await page.locator("body").aria_snapshot())[:16000],
+            }
+        )
+    except (ValueError, browser_error) as exc:
+        if page.is_closed():
+            raise RuntimeError(
+                "The browser is closed; restart the example to create a session."
+            ) from exc
+        raise model_retry(f"{str(exc)[:500]} Observe the page and correct the operation.") from exc
 
 
 def _build_agent() -> Any:
@@ -137,7 +156,9 @@ def _build_agent() -> Any:
         deps_type=BrowserCliDeps,
         instructions=SYSTEM_INSTRUCTIONS,
     )
-    agent.tool(docstring_format="google", require_parameter_descriptions=True)(browser_operation)
+    agent.tool(docstring_format="google", require_parameter_descriptions=True, sequential=True)(
+        browser_operation
+    )
     return agent
 
 
@@ -153,26 +174,39 @@ def _resolve_prompt(input_prompt: str | None) -> str:
     return DEMO_PROMPT if input_prompt is None else input_prompt
 
 
-def main() -> None:
-    args = _build_parser().parse_args()
-    agent = _build_agent()
-    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
-    # Lifecycle and screenshot destination are application decisions. The model
-    # receives neither a shell nor control of endpoints or filesystem paths.
-    with Celesto.browser(headless=False) as session:
-        browser = session.connect_playwright()
-        context = browser.new_context(accept_downloads=False, service_workers="block")
-        page = context.new_page()
+async def _run_browser_task(session: Any, agent: Any, prompt: str) -> None:
+    async_playwright = _require_dependency(
+        "playwright.async_api:async_playwright", "pip install playwright"
+    )
+    # PydanticAI and Playwright share one event loop; sync Playwright tools cannot
+    # be dispatched to the worker threads PydanticAI uses for synchronous tools.
+    async with async_playwright() as runtime:
+        browser = await runtime.chromium.connect_over_cdp(session.cdp_url)
+        context = await browser.new_context(accept_downloads=False, service_workers="block")
+        page = await context.new_page()
         try:
-            result = agent.run_sync(_resolve_prompt(args.input), deps=BrowserCliDeps(page=page))
-            page.screenshot(path=str(FINAL_SCREENSHOT_PATH), full_page=False)
+            result = await agent.run(prompt, deps=BrowserCliDeps(page=page))
+            await page.screenshot(path=str(FINAL_SCREENSHOT_PATH), full_page=False)
             print(result.output)
-            print(f"title: {page.title()}")
+            print(f"title: {await page.title()}")
             print(f"url: {page.url}")
             print(f"screenshot_path: {FINAL_SCREENSHOT_PATH}")
             print(f"session_id: {session.session_id}")
         finally:
-            context.close()
+            await context.close()
+            await browser.close()
+
+
+def main() -> None:
+    args = _build_parser().parse_args()
+    agent = _build_agent()
+    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    # Lifecycle and network policy are application decisions. The model receives
+    # neither a shell nor control of endpoints or filesystem paths.
+    with Celesto.browser(
+        headless=False, backend="qemu", internet_settings={"mode": "public"}
+    ) as session:
+        asyncio.run(_run_browser_task(session, agent, _resolve_prompt(args.input)))
 
 
 if __name__ == "__main__":

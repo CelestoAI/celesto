@@ -101,7 +101,12 @@ export function useSwarmData() {
         }
 
         const connect = () => {
-            socket = createApiSocket(wsUrl)
+            try {
+                socket = createApiSocket(wsUrl)
+            } catch {
+                socket = null
+                return
+            }
 
             socket.onopen = () => {
                 scheduleRefresh()
