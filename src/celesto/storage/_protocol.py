@@ -193,6 +193,7 @@ class StateManagerProtocol(Protocol):
         session_id: str,
         *,
         status: BrowserSessionState | None = None,
+        clear_endpoints: bool = False,
         cdp_url: str | None = None,
         live_url: str | None = None,
         vnc_url: str | None = None,

@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import secrets
 import shutil
 import tarfile
 import tempfile
@@ -36,9 +37,10 @@ from typing import Any
 import requests
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.requests import HTTPConnection
 
 from celesto.cli.service import CLIService
 from celesto.dashboard.commands import CommandAction, parse_command
@@ -274,6 +276,10 @@ def _ensure_latest_dashboard_ui_dist(target_dist: Path, *, allow_prerelease: boo
 
             _download_asset(asset_url, archive_path)
             extracted_dist = _extract_dashboard_dist(archive_path, extract_dir)
+            if 'name="celesto-dashboard-auth-v1"' not in (extracted_dist / "index.html").read_text(
+                encoding="utf-8"
+            ):
+                raise RuntimeError("Dashboard release does not support authenticated access")
 
             staged_dist = tmp_path / "dist"
             shutil.copytree(extracted_dist, staged_dist)
@@ -327,6 +333,7 @@ def _get_conn_manager(app: FastAPI) -> ConnectionManager:
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
     """Application lifespan: initialize SDK and start background poller."""
+    app.state.auth_token = os.environ.get("CELESTO_DASHBOARD_TOKEN") or app.state.auth_token
     data_dir = resolve_data_dir()
 
     allow_beta = _allow_beta_releases()
@@ -377,7 +384,7 @@ async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
     # Shutdown
     poller_task.cancel()
     with suppress(asyncio.CancelledError):
-        _ = await poller_task  # Ensure poller task finishes cleanup.
+        await poller_task  # Ensure poller task finishes cleanup.
 
     sdk: CelestoManager | None = getattr(app.state, "sdk", None)
     if sdk is not None:
@@ -393,6 +400,112 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+# The capability is never embedded in a public page. The CLI gives its owner a
+# fragment URL; the browser keeps it in origin-scoped session storage. Cookies
+# cannot isolate this service from unrelated services on other localhost ports.
+app.state.auth_token = os.environ.get("CELESTO_DASHBOARD_TOKEN") or secrets.token_urlsafe(32)
+
+
+class DashboardAuthentication:
+    def __init__(self, app):  # type: ignore[no-untyped-def]
+        self.app = app
+
+    async def __call__(self, scope, receive, send):  # type: ignore[no-untyped-def]
+        if scope["type"] not in {"http", "websocket"}:
+            return await self.app(scope, receive, send)
+        connection = HTTPConnection(scope)
+        if (
+            scope["type"] == "http"
+            and scope["method"] in {"GET", "HEAD"}
+            and not scope["path"].startswith("/api/")
+        ):
+            return await self.app(scope, receive, send)
+        origin = connection.headers.get("origin")
+        expected_origin = str(connection.base_url).rstrip("/")
+        if expected_origin.startswith("ws:"):
+            expected_origin = "http:" + expected_origin[3:]
+        elif expected_origin.startswith("wss:"):
+            expected_origin = "https:" + expected_origin[4:]
+        token = app.state.auth_token
+        supplied = connection.headers.get("authorization", "")
+        bearer = secrets.compare_digest(supplied.encode(), f"Bearer {token}".encode())
+        websocket_capability = scope["type"] == "websocket" and any(
+            secrets.compare_digest(protocol.encode(), f"celesto-auth.{token}".encode())
+            for protocol in scope.get("subprotocols", [])
+        )
+        foreign_origin = origin is not None and origin != expected_origin
+        denied = foreign_origin or not (bearer or websocket_capability)
+        # Browser WebSockets must prove their origin as well as their capability.
+        denied = denied or (
+            scope["type"] == "websocket" and not bearer and origin != expected_origin
+        )
+        if denied:
+            if scope["type"] == "websocket":
+                return await send({"type": "websocket.close", "code": 1008})
+            response = JSONResponse(
+                status_code=403 if foreign_origin else 401,
+                content={
+                    "error": "Dashboard access denied; "
+                    "open the private link printed by 'celesto ui'."
+                },
+            )
+            return await response(scope, receive, send)
+        return await self.app(scope, receive, send)
+
+
+app.add_middleware(DashboardAuthentication)
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def dashboard_login() -> HTMLResponse:
+    return HTMLResponse(
+        """<!doctype html><meta charset="utf-8"><title>Celesto dashboard</title>
+<p id="status">Opening your dashboard…</p>
+<script>
+const token = new URLSearchParams(location.hash.slice(1)).get('token');
+history.replaceState(null, '', '/login');
+const retry = () => {
+  document.getElementById('status').textContent = "Open the private link printed by celesto ui.";
+};
+if (token) {
+  fetch('/api/session', {method: 'POST', credentials: 'omit', redirect: 'error',
+    headers: {Authorization: 'Bearer ' + token}})
+    .then(r => {
+      if (!r.ok) throw Error();
+      sessionStorage.setItem('celesto-dashboard-token', token);
+      location.replace('/');
+    })
+    .catch(retry);
+} else { retry(); }
+</script>""",
+        headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
+    )
+
+
+@app.post("/api/session")
+async def dashboard_session() -> Response:
+    return Response(status_code=204, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/", response_class=HTMLResponse)
+async def dashboard_index() -> HTMLResponse:
+    try:
+        page = await asyncio.to_thread((_ui_dist / "index.html").read_text, encoding="utf-8")
+    except OSError:
+        page = ""
+    if 'name="celesto-dashboard-auth-v1"' not in page:
+        return HTMLResponse(
+            "<p>This dashboard bundle needs updating. Run <code>celesto update</code>, "
+            "then <code>celesto ui</code>. From a source checkout, run "
+            "<code>npm --prefix ui run build</code> first.</p>",
+            status_code=503,
+            headers={"Cache-Control": "no-store"},
+        )
+    return HTMLResponse(
+        page, headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}
+    )
+
 
 # CORS: Allow dev server during development
 app.add_middleware(
@@ -575,11 +688,22 @@ async def get_vm_processes(vm_id: str) -> dict[str, Any]:
             host = "127.0.0.1"
             port = network.ssh_host_port
         else:
+            if network.guest_ip is None:
+                return []
             host = network.guest_ip
             port = 22
 
         key_path = _resolve_ssh_key_path()
-        client = SSHClient(host=host, port=port, key_path=key_path, connect_timeout=5)
+        from celesto.ssh_trust import trusted_host_key
+
+        client = SSHClient(
+            host=host,
+            port=port,
+            key_path=key_path,
+            connect_timeout=5,
+            host_key=trusted_host_key(_get_sdk(app).data_dir, vm_id),
+            sandbox_name=vm_id,
+        )
         try:
             result = client.run(
                 "ps -eo pid,user,vsz,stat,args",

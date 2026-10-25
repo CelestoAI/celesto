@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useCallback } from 'react'
 import { normalizeStatus } from '@/utils/status'
-import { getApiBaseUrl } from '@/utils/api'
+import { apiFetch, getApiBaseUrl } from '@/utils/api'
 
 export default function VMDetailCard({ vm, onClose }) {
     if (!vm) return null
@@ -29,7 +29,7 @@ export default function VMDetailCard({ vm, onClose }) {
         setProcessesError('')
         try {
             const vmId = encodeURIComponent(vm.id)
-            const response = await fetch(`${apiBase}/api/vms/${vmId}/processes`, {
+            const response = await apiFetch(`${apiBase}/api/vms/${vmId}/processes`, {
                 headers: { Accept: 'application/json' },
             })
             if (!response.ok) {
@@ -73,7 +73,7 @@ export default function VMDetailCard({ vm, onClose }) {
             }
             const endpoint = endpoints[kind] ?? `/api/vms/${vmId}`
             const method = kind === 'delete' ? 'DELETE' : 'POST'
-            const response = await fetch(`${apiBase}${endpoint}`, {
+            const response = await apiFetch(`${apiBase}${endpoint}`, {
                 method,
                 headers: { Accept: 'application/json' },
             })

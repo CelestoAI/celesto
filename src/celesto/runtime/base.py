@@ -118,6 +118,13 @@ class SnapshotRestoreRequest:
     log_path: Path
     resume_vm: bool
     boot_timeout: float
+    ssh_host_key: str | None = None
+
+
+class StartFirecracker(Protocol):
+    def __call__(
+        self, socket_path: Path, log_path: Path, *, ssh_host_key: str | None = None
+    ) -> subprocess.Popen[bytes]: ...
 
 
 @dataclass(slots=True)
@@ -134,7 +141,7 @@ class RuntimeContext:
     log_files: dict[str, TextIO]
     process_handles: dict[int, subprocess.Popen[bytes]]
     resolve_boot_args: Callable[[VMInfo], str]
-    start_firecracker: Callable[[Path, Path], subprocess.Popen[bytes]]
+    start_firecracker: StartFirecracker
     start_qemu: Callable[..., subprocess.Popen[bytes]]
     unlink_socket: Callable[[Path], None]
     kill_process: Callable[[int], None]

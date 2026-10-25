@@ -26,6 +26,7 @@ from celesto.callbacks import Callback, CommandBlockedError, RunContext
 from celesto.exceptions import (
     CelestoError,
     CloudAPIError,
+    CloudOperationError,
     CommandExecutionUnavailableError,
     FirecrackerAPIError,
     HostError,
@@ -35,6 +36,7 @@ from celesto.exceptions import (
     QemuDirtyBitmapStateError,
     SnapshotAlreadyExistsError,
     SnapshotNotFoundError,
+    TemplateBuildError,
     ValidationError,
     VMAlreadyExistsError,
     VMNotFoundError,
@@ -54,6 +56,7 @@ from celesto.kernels import ensure_base_kernel_for_backend
 from celesto.runtime.base import QemuDirtyBitmapBackup, QemuDirtyBitmapStatus
 from celesto.sdk import CloudComputer, Computer, LocalComputer
 from celesto.ssh import SSHClient
+from celesto.templates import Template
 from celesto.types import (
     BrowserConnection,
     BrowserViewport,
@@ -79,6 +82,8 @@ from celesto.types import (
     SnapshotCapturePolicy,
     SnapshotInfo,
     SnapshotType,
+    TemplateBuildFailure,
+    TemplateLintWarning,
     VMConfig,
     VMInfo,
     VMState,
@@ -97,6 +102,9 @@ __all__ = [
     "Computer",
     "LocalComputer",
     "CloudComputer",
+    "Template",
+    "TemplateBuildFailure",
+    "TemplateLintWarning",
     "TerminalConnection",
     "Celesto",
     "CelestoManager",
@@ -153,6 +161,8 @@ __all__ = [
     # Exceptions
     "CelestoError",
     "CloudAPIError",
+    "CloudOperationError",
+    "TemplateBuildError",
     "CommandExecutionUnavailableError",
     "SnapshotAlreadyExistsError",
     "SnapshotNotFoundError",

@@ -44,7 +44,12 @@ class ConnectionManager:
         Args:
             websocket: The incoming WebSocket connection.
         """
-        await websocket.accept()
+        # Negotiate a public protocol, never echo the credential-bearing one.
+        protocols = websocket.scope.get("subprotocols", [])
+        if "celesto-dashboard-v1" in protocols:
+            await websocket.accept(subprotocol="celesto-dashboard-v1")
+        else:
+            await websocket.accept()
         self._active.add(websocket)
         logger.info(
             "WebSocket connected. Active connections: %d",

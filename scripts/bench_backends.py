@@ -17,8 +17,10 @@ from __future__ import annotations
 import contextlib
 import json
 import statistics as st
+import tempfile
 import time
 import traceback
+from typing import TypedDict
 
 from celesto import Celesto
 from celesto.facade import _build_auto_config
@@ -31,47 +33,73 @@ CMD = "echo hello"
 _counter = 0
 
 
+class PhaseTimings(TypedDict):
+    create: float
+    boot: float
+    first_cmd: float
+    warm: list[float]
+
+
+class TimingSummary(TypedDict):
+    n: int
+    min: float
+    mean: float
+    median: float
+    stdev: float
+    max: float
+
+
+class BenchmarkResult(TypedDict):
+    backend: str
+    os: str
+    create: TimingSummary | None
+    boot: TimingSummary | None
+    first_cmd: TimingSummary | None
+    warm_cmd: TimingSummary | None
+    create_to_ready: TimingSummary | None
+    total_to_interact: TimingSummary | None
+    errors: list[str]
+
+
 def _unique_name(backend: str) -> str:
     global _counter
     _counter += 1
     return f"bench-{backend}-{_counter}"
 
 
-def time_one(backend: str) -> dict:
+def time_one(backend: str) -> PhaseTimings:
     """One full create->boot->run->stop cycle; returns phase timings (seconds)."""
-    rec: dict = {}
     vm = None
     try:
         name = _unique_name(backend)
         t0 = time.perf_counter()
         config, key = _build_auto_config(vm_name=name, os=OS, backend=backend)
         vm = Celesto(config=config, ssh_key_path=key)
-        rec["create"] = time.perf_counter() - t0
+        create = time.perf_counter() - t0
 
         t0 = time.perf_counter()
         vm.start()
-        rec["boot"] = time.perf_counter() - t0
+        boot = time.perf_counter() - t0
 
         t0 = time.perf_counter()
         vm.run(CMD)
-        rec["first_cmd"] = time.perf_counter() - t0
+        first_cmd = time.perf_counter() - t0
 
         warm = []
         for _ in range(WARM_RUNS):
             t0 = time.perf_counter()
             vm.run(CMD)
             warm.append(time.perf_counter() - t0)
-        rec["warm"] = warm
     finally:
         if vm is not None:
             with contextlib.suppress(Exception):
                 vm.stop()
             with contextlib.suppress(Exception):
                 vm.delete()
-    return rec
+    return {"create": create, "boot": boot, "first_cmd": first_cmd, "warm": warm}
 
 
-def bench(backend: str) -> dict:
+def bench(backend: str) -> BenchmarkResult:
     print(f"== {backend}: warm-up (untimed) ==", flush=True)
     try:
         time_one(backend)
@@ -98,7 +126,7 @@ def bench(backend: str) -> dict:
             errors.append(str(e))
             traceback.print_exc()
 
-    def summ(v):
+    def summ(v: list[float]) -> TimingSummary | None:
         return (
             None
             if not v
@@ -128,17 +156,19 @@ def bench(backend: str) -> dict:
     }
 
 
-def main():
+def main() -> None:
     results = [bench("qemu"), bench("firecracker")]
-    with open("/tmp/bench_results.json", "w") as f:
+    with tempfile.NamedTemporaryFile(
+        mode="w", prefix="celesto-bench-", suffix=".json", delete=False
+    ) as f:
         json.dump(
             {"iters": ITERS, "warm_runs": WARM_RUNS, "cmd": CMD, "results": results},
             f,
             indent=2,
         )
 
-    def ms(s, k="mean"):
-        return f"{s[k] * 1000:.0f}" if s else "-"
+    def ms(s: TimingSummary | None) -> str:
+        return f"{s['mean'] * 1000:.0f}" if s else "-"
 
     print("\n=== RESULTS (ms, mean over timed iters) ===", flush=True)
     cols = (
@@ -160,7 +190,7 @@ def main():
             print(f"   errors ({len(r['errors'])}): {r['errors'][:2]}")
     print("\n(create=ctor, launch=hypervisor up, first_cmd=wait-for-SSH+run,", flush=True)
     print(" TOTAL->interact = create+launch+first_cmd = nothing -> command returned)", flush=True)
-    print("\nwrote /tmp/bench_results.json", flush=True)
+    print(f"\nwrote {f.name}", flush=True)
 
 
 if __name__ == "__main__":

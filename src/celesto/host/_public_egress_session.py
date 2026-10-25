@@ -12,11 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Private lifecycle coordinator for host-owned public egress.
+"""Coordinate proxy and backend lifetimes for public-only guest networking.
 
-This module deliberately is not connected to :class:`InternetSettings`.  It
-coordinates the already-private proxy and backend adapters so their ordering
-and cleanup contract can be tested before a public network mode exists.
+The VM manager uses this coordinator for InternetSettings(mode="public") on
+QEMU user networking. The lower-level TAP adapter remains internal.
 """
 
 from __future__ import annotations
@@ -48,7 +47,7 @@ _ResultT = TypeVar("_ResultT")
 
 
 class PublicEgressSessionState(str, Enum):
-    """Internal lifecycle state; no user-selectable policy is implied."""
+    """Internal state of one public-egress enforcement session."""
 
     STOPPED = "stopped"
     STARTING = "starting"

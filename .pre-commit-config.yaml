@@ -21,7 +21,8 @@ repos:
     rev: 0.7.17
     hooks:
       - id: mdformat
-        exclude: ^(README|AGENTS|GEMINI|SECURITY)\.md$
+        # TypeDoc owns these bytes; CI verifies them by regenerating the reference.
+        exclude: ^((README|AGENTS|GEMINI|SECURITY)\.md$|docs/typescript/api/)
         additional_dependencies:
           - mdformat-ruff
           - mdformat-frontmatter==2.1.2
@@ -37,8 +38,14 @@ repos:
           - tags
           - slideshow
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.8.0
+  - repo: local
     hooks:
       - id: mypy
-        additional_dependencies: [pytest>=7.0, types-requests]
+        name: mypy
+        # Use the project libraries so attrs/Pydantic models are typed
+        # exactly as they are at runtime, rather than as missing imports.
+        entry: uv run --extra dev --extra dashboard --extra server mypy
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+        args: [--ignore-missing-imports, --scripts-are-modules, --explicit-package-bases]

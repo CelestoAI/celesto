@@ -75,6 +75,12 @@ The default mode is `open`, which enables internet access. Managed Linux TAP net
 
 After upgrading, existing running computers keep their current network rules until Celesto repairs their networking or they restart. Restart them to apply the updated baseline isolation. To use `off` or `restricted`, create a new computer with those settings; reconnecting does not change an existing computer's policy.
 
+## Allow public web destinations
+
+Use `internet_settings={"mode": "public"}` with `backend="qemu"` and the default slirp network on Linux or macOS. Chromium uses a proxy that checks the destination before connecting, including addresses returned by DNS. Private networks, your machine, loopback services and link-local destinations are blocked. Direct outbound connections are blocked too.
+
+Other guest applications must use `http://10.0.2.100:3128` as their HTTP/HTTPS proxy. This mode supports web traffic only and rejects shared folders, extra configured port forwards, and snapshot creation or restore. It requires the owning SDK process to remain running. See [secure local access](../security.md) for authentication and upgrade requirements.
+
 ## Allow specific IP addresses
 
 Use `restricted` with the IPv4 addresses or network ranges your task needs:
@@ -120,7 +126,7 @@ Replace the example address with your application's destination. For direct `VMC
 
 | QEMU network | macOS | Linux | Local application access |
 | --- | --- | --- | --- |
-| Default slirp | Open, off | Open, off | `port_forwards` or `expose_local()` |
+| Default slirp | Open, off, public | Open, off, public | `expose_local()`; configured `port_forwards` only in open/off mode |
 | Explicit TAP | Unsupported | Open, off, restricted IPv4 addresses | The computer's IP or `expose_local()` |
 
 These controls apply to computers running Linux. Windows and macOS computers are not included.
@@ -145,7 +151,7 @@ Slirp preserves configured launch-time `port_forwards` through restart and snaps
 
 On the tested QEMU 11.0.0/macOS HVF setup, use disk snapshots: full-memory restore hits a QEMU assertion that also reproduces on v0.0.32. See the [validation notes](../deep-dive/qemu-network-policy-validation.md#evidence-status).
 
-These controls intentionally do not add dynamic domain rules, DNS services, proxies, helper computers, or per-command policy checks. Policy work happens during network setup and lifecycle reconciliation. Production rollout requires the separate [QEMU validation gates](../deep-dive/qemu-network-policy-validation.md).
+Off and restricted modes do not add dynamic domain rules, DNS services, proxies, helper computers, or per-command policy checks. Their policy work happens during network setup and lifecycle reconciliation. Production rollout requires the separate [QEMU validation gates](../deep-dive/qemu-network-policy-validation.md).
 
 ## Legacy domain lists
 

@@ -22,9 +22,12 @@ describe('CommandBar', () => {
     cleanup()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+    vi.unstubAllEnvs()
+    sessionStorage.clear()
   })
 
   it('posts submitted commands to the dashboard command endpoint', async () => {
+    sessionStorage.setItem('celesto-dashboard-token', 'private-owner-token')
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({ action: 'list', target: '', result: 'Found 2 VMs.', affected_vms: [] }),
     )
@@ -38,39 +41,35 @@ describe('CommandBar', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith('/api/command', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: expect.any(Headers),
         body: JSON.stringify({ text: 'LIST' }),
+        credentials: 'omit',
+        redirect: 'error',
       })
     })
+    const headers = fetchMock.mock.calls[0][1].headers
+    expect(headers.get('authorization')).toBe('Bearer private-owner-token')
+    expect(headers.get('content-type')).toBe('application/json')
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('targets the dashboard server when the UI is served by Vite on 5173', async () => {
-    // In development the page is on 5173 but the API is on 8000, so a bare
-    // relative path would ask Vite for the API and get the page back.
-    const original = window.location
-    delete window.location
-    window.location = { protocol: 'http:', hostname: 'localhost', port: '5173' }
+  it('does not send its capability to a different local port', async () => {
+    sessionStorage.setItem('celesto-dashboard-token', 'private-owner-token')
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:8000')
 
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({ action: 'list', target: '', result: 'ok', affected_vms: [] }),
     )
     vi.stubGlobal('fetch', fetchMock)
 
-    try {
-      render(<CommandBar />)
-      const input = typeCommand('LIST')
-      fireEvent.submit(input.closest('form'))
+    render(<CommandBar />)
+    const input = typeCommand('LIST')
+    fireEvent.submit(input.closest('form'))
 
-      await waitFor(() => {
-        expect(fetchMock).toHaveBeenCalledWith(
-          'http://localhost:8000/api/command',
-          expect.objectContaining({ method: 'POST' }),
-        )
-      })
-    } finally {
-      window.location = original
-    }
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toBe(TRANSPORT_ERROR)
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('shows the result in a status region and clears the input on success', async () => {

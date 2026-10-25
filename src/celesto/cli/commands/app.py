@@ -28,30 +28,9 @@ from celesto.cli.commands.options import (
 )
 from celesto.cli.version_check import maybe_print_update_notice
 from celesto.host.doctor import run_doctor
-from celesto.presets import canonical_preset_name, public_preset_name, public_preset_names
 from celesto.types import BrowserSessionState, GuestFlushPolicy, GuestOS, SnapshotType, VMState
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
-
-
-class _PresetOSChoice(click.Choice):
-    """Advertise supported OSes while preserving actionable runtime errors.
-
-    Known Celesto operating systems that a specific preset does not support
-    still reach the preset handler. That handler can then return the same
-    recovery command in both terminal and JSON output. Help text and shell
-    completion only expose the choices that will work.
-    """
-
-    def convert(
-        self,
-        value: object,
-        param: click.Parameter | None,
-        ctx: click.Context | None,
-    ) -> str | None:
-        if value is not None and str(value) in {guest_os.value for guest_os in GuestOS}:
-            return str(value)
-        return super().convert(value, param, ctx)
 
 
 def _handlers() -> Any:
@@ -504,13 +483,6 @@ def sandbox_create(
     default=None,
 )
 @click.option(
-    "--preset",
-    "preset_filter",
-    type=click.Choice(public_preset_names()),
-    default=None,
-    help="Show computers created by this preset.",
-)
-@click.option(
     "--limit",
     type=positive_int_type(),
     default=50,
@@ -523,7 +495,6 @@ def sandbox_list(
     desktop: bool,
     include_all: bool,
     status_filter: str | None,
-    preset_filter: str | None,
     limit: int,
     json_output: bool,
 ) -> Any:
@@ -536,7 +507,7 @@ def sandbox_list(
     _before_command(json_output=json_output)
     if provider == "cloud":
         _reject_provided_options(
-            ("desktop", "include_all", "status_filter", "preset_filter"),
+            ("desktop", "include_all", "status_filter"),
             recovery="celesto computer list --cloud",
         )
         return _handlers()._run_computer(
@@ -545,7 +516,7 @@ def sandbox_list(
     _reject_provided_options(("limit",), recovery="celesto computer list")
     if desktop:
         _reject_provided_options(
-            ("include_all", "status_filter", "preset_filter"),
+            ("include_all", "status_filter"),
             recovery="celesto computer list --desktop",
         )
         return _handlers()._run_computer(
@@ -554,7 +525,6 @@ def sandbox_list(
     return _handlers()._run_list(
         include_all=include_all,
         status_filter=status_filter,
-        preset_filter=canonical_preset_name(preset_filter) if preset_filter else None,
         json_output=json_output,
         command_name="sandbox.list",
     )
@@ -1100,7 +1070,7 @@ def image_pull(
     """Download an image before first use."""
     if bool(preset) == all_images:
         raise click.UsageError(
-            "Choose one target: 'celesto image pull codex' or 'celesto image pull --all'."
+            "Choose one target: 'celesto image pull ubuntu' or 'celesto image pull --all'."
         )
     _before_command(json_output=json_output)
     if all_images:
@@ -2038,215 +2008,6 @@ def computer_port_unpublish(computer_id: str, port_number: int, json_output: boo
 
 # Both public nouns use exactly the same Click command tree.
 cli.add_command(sandbox, name="computer")
-
-
-def _register_preset_commands() -> None:
-    from celesto.presets import list_presets
-
-    for preset in list_presets():
-        public_name = public_preset_name(preset.name)
-
-        @click.group(public_name, context_settings=CONTEXT_SETTINGS, help=preset.summary)
-        def preset_group() -> None:
-            pass
-
-        def _make_start_callback(
-            preset_name: str,
-            command_name: str,
-            supported_oses: tuple[str, ...],
-            *,
-            prefer_published_image: bool,
-        ) -> Any:
-            start_help = "Create a computer and install this agent."
-            if not prefer_published_image:
-                start_help += " Installation may take several minutes."
-
-            @click.command("start", help=start_help)
-            @click.option(
-                "-n",
-                "--name",
-                default=None,
-                help="Computer name; Celesto generates one when omitted.",
-            )
-            @click.option(
-                "--memory",
-                "memory_mib",
-                type=int,
-                default=None,
-                help="Memory in MiB; uses the preset default when omitted.",
-            )
-            @click.option(
-                "--disk-size",
-                "disk_size_mib",
-                type=int,
-                default=None,
-                help="Disk size in MiB; uses the preset default when omitted.",
-            )
-            @backend_option(default=None)
-            @qemu_machine_option
-            @click.option(
-                "--os",
-                "os_name",
-                type=_PresetOSChoice(list(supported_oses)),
-                default=None,
-                help="Operating system; uses Ubuntu when omitted.",
-            )
-            @click.option(
-                "--mount",
-                "mounts",
-                multiple=True,
-                metavar="LOCAL_PATH[:COMPUTER_PATH]",
-                help="Share a folder from your machine; repeat to share more than one.",
-            )
-            @click.option(
-                "--writable-mounts",
-                is_flag=True,
-                help="Allow the computer to change shared folders.",
-            )
-            @click.option(
-                "--install-timeout",
-                type=positive_float_type(),
-                default=600.0,
-                show_default=True,
-                help="Seconds to wait for each agent installation step.",
-            )
-            @click.option(
-                "--attach/--no-attach",
-                default=None,
-                help="Open the agent after setup, or leave the computer running.",
-            )
-            @comm_channel_option
-            @boot_timeout_option
-            @json_option
-            def start(
-                name: str | None,
-                memory_mib: int | None,
-                disk_size_mib: int | None,
-                backend: str | None,
-                qemu_machine: str,
-                os_name: str | None,
-                mounts: tuple[str, ...],
-                writable_mounts: bool,
-                install_timeout: float,
-                attach: bool | None,
-                comm_channel: str | None,
-                boot_timeout: float,
-                json_output: bool,
-            ) -> Any:
-                _before_command(json_output=json_output)
-                return _handlers()._run_start(
-                    _ns(
-                        command_name=f"{command_name}.start",
-                        preset_name=preset_name,
-                        name=name,
-                        memory_mib=memory_mib,
-                        disk_size_mib=disk_size_mib,
-                        backend=backend,
-                        qemu_machine=qemu_machine,
-                        os=os_name,
-                        mounts=_mounts(mounts),
-                        writable_mounts=writable_mounts,
-                        install_timeout=install_timeout,
-                        attach=attach,
-                        comm_channel=comm_channel,
-                        boot_timeout=boot_timeout,
-                        json=json_output,
-                    )
-                )
-
-            return start
-
-        preset_group.add_command(
-            _make_start_callback(
-                preset.name,
-                public_name,
-                preset.supported_oses,
-                prefer_published_image=preset.prefer_published_image,
-            )
-        )
-        if preset.name == "openclaw":
-
-            @click.command("list", help="List your OpenClaw computers.")
-            @click.option(
-                "--all",
-                "include_all",
-                is_flag=True,
-                help="Include OpenClaw computers in every state.",
-            )
-            @click.option(
-                "--status",
-                "status_filter",
-                type=click.Choice([state.value for state in VMState]),
-                default=None,
-                help="Show only OpenClaw computers in this state.",
-            )
-            @json_option
-            def openclaw_list(
-                include_all: bool,
-                status_filter: str | None,
-                json_output: bool,
-            ) -> Any:
-                """List your OpenClaw computers."""
-                if include_all and status_filter is not None:
-                    raise click.UsageError(
-                        "Use one filter. Run 'celesto openclaw list --all' or "
-                        "'celesto openclaw list --status running'."
-                    )
-                _before_command(json_output=json_output)
-                return _handlers()._run_list(
-                    include_all=include_all,
-                    status_filter=status_filter,
-                    preset_filter="openclaw",
-                    show_preset_column=False,
-                    json_output=json_output,
-                    command_name="openclaw.list",
-                )
-
-            @click.command("open-ui", help="Open an OpenClaw computer's dashboard.")
-            @click.argument("vm_id", metavar="computer", shell_complete=complete_sandbox_names)
-            @click.option(
-                "--host-port",
-                type=click.IntRange(1, 65535),
-                default=None,
-                help="Local port to use; Celesto chooses one when omitted.",
-            )
-            @click.option(
-                "--no-browser",
-                is_flag=True,
-                help="Print the one-time dashboard link instead of opening it.",
-            )
-            @ssh_auth_options
-            @comm_channel_option
-            @json_option
-            def openclaw_open_ui(
-                vm_id: str,
-                host_port: int | None,
-                no_browser: bool,
-                ssh_key: str | None,
-                ssh_user: str,
-                comm_channel: str | None,
-                json_output: bool,
-            ) -> Any:
-                _before_command(json_output=json_output)
-                return _handlers()._run_openclaw_open_ui(
-                    _ns(
-                        command_name="openclaw.open-ui",
-                        vm_id=vm_id,
-                        host_port=host_port,
-                        no_browser=no_browser,
-                        ssh_key=ssh_key,
-                        ssh_user=ssh_user,
-                        comm_channel=comm_channel,
-                        json=json_output,
-                    )
-                )
-
-            preset_group.add_command(openclaw_list)
-            preset_group.add_command(openclaw_open_ui)
-        cli.add_command(preset_group)
-
-
-_register_preset_commands()
 
 
 def build_cli() -> click.Group:

@@ -3,8 +3,13 @@ use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
+use std::os::fd::{AsRawFd, FromRawFd};
 use std::path::Path;
 use std::sync::mpsc as std_mpsc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{Semaphore, mpsc, oneshot};
 
@@ -265,6 +270,24 @@ where
         }
     };
 
+    // Configure cancellable PTY I/O before starting a child. All descriptor
+    // acquisition failures therefore happen before there is a process to reap.
+    let mut pty_reader = pair.master.try_clone_reader().map_err(io::Error::other)?;
+    let pty_writer = pair.master.take_writer().map_err(io::Error::other)?;
+    let master_fd = pair
+        .master
+        .as_raw_fd()
+        .ok_or_else(|| io::Error::other("terminal descriptor is unavailable"))?;
+    let flags = unsafe { libc::fcntl(master_fd, libc::F_GETFL) };
+    if flags < 0 || unsafe { libc::fcntl(master_fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let control_fd = unsafe { libc::fcntl(master_fd, libc::F_DUPFD_CLOEXEC, 0) };
+    if control_fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let control = unsafe { std::fs::File::from_raw_fd(control_fd) };
+
     let mut child = match pair.slave.spawn_command(command_for_request(&req)) {
         Ok(child) => child,
         Err(error) => {
@@ -283,7 +306,77 @@ where
     drop(pair.slave);
 
     let pid = child.process_id();
-    write_json_line(
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let cleanup = TerminalCleanup(cancelled.clone());
+    let (outbound_tx, mut outbound_rx) = mpsc::unbounded_channel::<Frame>();
+    let (done_tx, mut done_rx) = oneshot::channel::<()>();
+    let (pty_write_tx, pty_write_rx) = std_mpsc::channel::<Vec<u8>>();
+    let writer_cancelled = cancelled.clone();
+    let writer =
+        std::thread::spawn(move || write_pty_input(pty_writer, pty_write_rx, writer_cancelled));
+    let reader_cancelled = cancelled.clone();
+    let output_tx = outbound_tx.clone();
+    let output =
+        std::thread::spawn(move || read_pty_output(&mut pty_reader, output_tx, reader_cancelled));
+
+    let wait_tx = outbound_tx.clone();
+    std::thread::spawn(move || {
+        // This supervisor retains admission until the child and both PTY
+        // workers are gone, including if the async handler is cancelled.
+        let _permit = permit;
+        let status = loop {
+            if cancelled.load(Ordering::Acquire) {
+                if let Some(pid) = pid {
+                    unsafe {
+                        let foreground = libc::tcgetpgrp(control.as_raw_fd());
+                        if foreground > 0 {
+                            libc::kill(-foreground, libc::SIGKILL);
+                        }
+                        libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+                        libc::kill(pid as libc::pid_t, libc::SIGKILL);
+                    }
+                }
+                break child.wait();
+            }
+            match child.try_wait() {
+                Ok(Some(status)) => break Ok(status),
+                Ok(None) => std::thread::sleep(std::time::Duration::from_millis(10)),
+                Err(error) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break Err(error);
+                }
+            }
+        };
+        cancelled.store(true, Ordering::Release);
+        let _ = writer.join();
+        let _ = output.join();
+        match status {
+            Ok(status) => {
+                let frame = TerminalExit {
+                    exit_code: status.exit_code(),
+                    signal: status.signal().map(ToOwned::to_owned),
+                };
+                match serde_json::to_vec(&frame) {
+                    Ok(payload) => {
+                        let _ = wait_tx.send(Frame {
+                            frame_type: FRAME_EXIT,
+                            payload,
+                        });
+                    }
+                    Err(error) => {
+                        outbound_error(&wait_tx, format!("could not encode shell exit: {error}"))
+                    }
+                }
+            }
+            Err(error) => outbound_error(&wait_tx, format!("shell wait failed: {error}")),
+        }
+        drop(control);
+        drop(_permit);
+        let _ = done_tx.send(());
+    });
+
+    if let Err(error) = write_json_line(
         &mut stream,
         &TerminalOpenResponse {
             ok: true,
@@ -291,57 +384,16 @@ where
             error: None,
         },
     )
-    .await?;
-
-    let mut pty_reader = pair.master.try_clone_reader().map_err(io::Error::other)?;
-    let pty_writer = pair.master.take_writer().map_err(io::Error::other)?;
-    let mut child_killer = child.clone_killer();
-
-    let (outbound_tx, mut outbound_rx) = mpsc::unbounded_channel::<Frame>();
-    let (done_tx, mut done_rx) = oneshot::channel::<()>();
-    let (pty_write_tx, pty_write_rx) = std_mpsc::channel::<Vec<u8>>();
-
-    std::thread::spawn(move || write_pty_input(pty_writer, pty_write_rx));
-
-    let output_tx = outbound_tx.clone();
-    let output_handle = std::thread::spawn(move || read_pty_output(&mut pty_reader, output_tx));
-
-    let wait_tx = outbound_tx.clone();
-    std::thread::spawn(move || {
-        let frame = match child.wait() {
-            Ok(status) => TerminalExit {
-                exit_code: status.exit_code(),
-                signal: status.signal().map(ToOwned::to_owned),
-            },
-            Err(error) => {
-                let _ = wait_tx.send(Frame {
-                    frame_type: FRAME_ERROR,
-                    payload: format!("shell wait failed: {error}").into_bytes(),
-                });
-                let _ = done_tx.send(());
-                return;
-            }
-        };
-        let _ = output_handle.join();
-        match serde_json::to_vec(&frame) {
-            Ok(payload) => {
-                let _ = wait_tx.send(Frame {
-                    frame_type: FRAME_EXIT,
-                    payload,
-                });
-            }
-            Err(error) => {
-                let _ = wait_tx.send(Frame {
-                    frame_type: FRAME_ERROR,
-                    payload: format!("could not encode shell exit: {error}").into_bytes(),
-                });
-            }
-        }
-        let _ = done_tx.send(());
-    });
+    .await
+    {
+        drop(cleanup);
+        drop(pty_write_tx);
+        let _ = done_rx.await;
+        return Err(error);
+    }
 
     let (mut socket_reader, mut socket_writer) = tokio::io::split(stream);
-    let socket_writer_task = tokio::spawn(async move {
+    let mut socket_writer_task = tokio::spawn(async move {
         while let Some(frame) = outbound_rx.recv().await {
             if write_frame(&mut socket_writer, frame.frame_type, &frame.payload)
                 .await
@@ -352,10 +404,17 @@ where
         }
     });
 
+    let _abort_socket_writer = AbortSocketOnDrop(socket_writer_task.abort_handle());
+    let mut session_error = None;
+    let mut child_done = false;
     loop {
         tokio::select! {
             frame = read_frame(&mut socket_reader) => {
-                match frame? {
+                let frame = match frame {
+                    Ok(frame) => frame,
+                    Err(error) => { session_error = Some(error); break; }
+                };
+                match frame {
                     Some(frame) => match frame.frame_type {
                         FRAME_STDIN => {
                             if pty_write_tx.send(frame.payload).is_err() {
@@ -367,7 +426,6 @@ where
                                 Ok(resize) => resize,
                                 Err(error) => {
                                     outbound_error(&outbound_tx, format!("invalid resize frame: {error}"));
-                                    let _ = child_killer.kill();
                                     break;
                                 }
                             };
@@ -379,46 +437,89 @@ where
                                 }
                                 Err(error) => {
                                     outbound_error(&outbound_tx, error);
-                                    let _ = child_killer.kill();
                                     break;
                                 }
                             }
                         }
                         FRAME_CLOSE => {
-                            let _ = child_killer.kill();
                             break;
                         }
                         other => {
                             outbound_error(&outbound_tx, format!("invalid terminal frame type: {other}"));
-                            let _ = child_killer.kill();
                             break;
                         }
                     },
                     None => {
-                        let _ = child_killer.kill();
                         break;
                     }
                 }
             }
             _ = &mut done_rx => {
+                child_done = true;
+                break;
+            }
+            _ = &mut socket_writer_task => {
+                session_error = Some(io::Error::new(io::ErrorKind::BrokenPipe, "terminal connection closed"));
                 break;
             }
         }
     }
 
-    drop(permit);
+    drop(cleanup);
     drop(pty_write_tx);
+    if !child_done {
+        let _ = done_rx.await;
+    }
     drop(outbound_tx);
-    let _ = socket_writer_task.await;
-    Ok(())
+    if session_error.is_some()
+        || tokio::time::timeout(std::time::Duration::from_secs(1), &mut socket_writer_task)
+            .await
+            .is_err()
+    {
+        socket_writer_task.abort();
+    }
+    match session_error {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
 }
 
-fn read_pty_output(reader: &mut Box<dyn Read + Send>, tx: mpsc::UnboundedSender<Frame>) {
+struct AbortSocketOnDrop(tokio::task::AbortHandle);
+
+impl Drop for AbortSocketOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+struct TerminalCleanup(Arc<AtomicBool>);
+
+impl Drop for TerminalCleanup {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
+    }
+}
+
+fn read_pty_output(
+    reader: &mut Box<dyn Read + Send>,
+    tx: mpsc::UnboundedSender<Frame>,
+    cancelled: Arc<AtomicBool>,
+) {
     let mut buf = [0u8; 8192];
+    let mut drain_remaining = MAX_FRAME_PAYLOAD_BYTES;
     loop {
+        // Preserve already buffered output after exit, but a background
+        // descendant that keeps writing cannot keep this worker alive forever.
+        let draining = cancelled.load(Ordering::Acquire);
+        if draining && drain_remaining == 0 {
+            break;
+        }
         match reader.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => {
+                if draining {
+                    drain_remaining = drain_remaining.saturating_sub(n);
+                }
                 if tx
                     .send(Frame {
                         frame_type: FRAME_OUTPUT,
@@ -430,6 +531,12 @@ fn read_pty_output(reader: &mut Box<dyn Read + Send>, tx: mpsc::UnboundedSender<
                 }
             }
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                if cancelled.load(Ordering::Acquire) {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
             Err(error) => {
                 let _ = tx.send(Frame {
                     frame_type: FRAME_ERROR,
@@ -441,13 +548,39 @@ fn read_pty_output(reader: &mut Box<dyn Read + Send>, tx: mpsc::UnboundedSender<
     }
 }
 
-fn write_pty_input(mut writer: Box<dyn Write + Send>, rx: std_mpsc::Receiver<Vec<u8>>) {
-    for payload in rx {
-        if writer.write_all(&payload).is_err() {
-            break;
+fn write_pty_input(
+    mut writer: Box<dyn Write + Send>,
+    rx: std_mpsc::Receiver<Vec<u8>>,
+    cancelled: Arc<AtomicBool>,
+) {
+    while !cancelled.load(Ordering::Acquire) {
+        let payload = match rx.recv_timeout(std::time::Duration::from_millis(10)) {
+            Ok(payload) => payload,
+            Err(std_mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(std_mpsc::RecvTimeoutError::Disconnected) => break,
+        };
+        let mut remaining = payload.as_slice();
+        while !remaining.is_empty() && !cancelled.load(Ordering::Acquire) {
+            match writer.write(remaining) {
+                Ok(0) => return,
+                Ok(written) => remaining = &remaining[written..],
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(10))
+                }
+                Err(_) => return,
+            }
         }
-        let _ = writer.flush();
     }
+}
+
+#[cfg(any(test, all(feature = "vsock", target_os = "linux")))]
+async fn handle_vsock_terminal_stream<S>(stream: S, peer_cid: u32) -> io::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    crate::server::authorize_host_peer(peer_cid)?;
+    handle_terminal_stream(stream).await
 }
 
 #[cfg(all(feature = "vsock", target_os = "linux"))]
@@ -461,7 +594,7 @@ pub async fn serve_vsock_terminal(port: u32) {
         match listener.accept().await {
             Ok((stream, addr)) => {
                 tokio::spawn(async move {
-                    if let Err(error) = handle_terminal_stream(stream).await {
+                    if let Err(error) = handle_vsock_terminal_stream(stream, addr.cid()).await {
                         tracing::error!("terminal connection error from {addr:?}: {error}");
                     }
                 });
@@ -482,6 +615,53 @@ pub async fn serve_vsock_terminal(_port: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn guest_cids_cannot_open_terminal_sessions() {
+        for cid in [0, 1, 3, u32::MAX] {
+            let (mut client, stream) = tokio::io::duplex(4096);
+            client
+                .write_all(b"{\"version\":2,\"rows\":24,\"cols\":80,\"env\":{}}\n")
+                .await
+                .unwrap();
+            let error = handle_vsock_terminal_stream(stream, cid).await.unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+            let mut response = Vec::new();
+            client.read_to_end(&mut response).await.unwrap();
+            assert!(response.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_session_reaps_shell_before_returning() {
+        let (mut client, server) = tokio::io::duplex(16384);
+        let handler = tokio::spawn(handle_terminal_stream(server));
+        client
+            .write_all(b"{\"version\":1,\"rows\":24,\"cols\":80,\"env\":{}}\n")
+            .await
+            .unwrap();
+        let response: serde_json::Value =
+            serde_json::from_slice(&read_json_line(&mut client).await.unwrap()).unwrap();
+        let pid = response["pid"].as_u64().unwrap() as libc::pid_t;
+        let mut header = [FRAME_STDIN, 0, 0, 0, 0];
+        header[1..].copy_from_slice(&((MAX_FRAME_PAYLOAD_BYTES + 1) as u32).to_be_bytes());
+        client.write_all(&header).await.unwrap();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), handler)
+            .await
+            .unwrap()
+            .unwrap();
+        let alive = unsafe { libc::kill(pid, 0) } == 0;
+        if alive {
+            unsafe {
+                libc::kill(pid, libc::SIGKILL);
+            }
+        }
+        assert!(result.is_err());
+        assert!(
+            !alive,
+            "terminal returned while shell {pid} was still alive"
+        );
+    }
 
     #[test]
     fn frame_round_trips_header_and_payload() {

@@ -37,11 +37,12 @@ from celesto.host._public_egress import (
     EgressTransport,
     decide_public_egress,
 )
+from celesto.host._public_egress_relay import STREAM_IDLE_TIMEOUT
 
 _MAX_HEADER_BYTES = 64 * 1024
 _READ_CHUNK_BYTES = 64 * 1024
 _DEFAULT_CONNECT_TIMEOUT = 10.0
-_DEFAULT_IDLE_TIMEOUT = 30.0
+_REQUEST_TIMEOUT = 30.0
 _HEADER_NAME = re.compile(rb"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
 _HTTPS_CONNECT_PORTS = frozenset({443})
 
@@ -107,7 +108,7 @@ class PublicEgressProxy:
         resolver: AddressResolver | None = None,
         connector: Connector | None = None,
         connect_timeout: float = _DEFAULT_CONNECT_TIMEOUT,
-        idle_timeout: float = _DEFAULT_IDLE_TIMEOUT,
+        idle_timeout: float = STREAM_IDLE_TIMEOUT,
     ) -> None:
         if not session_id:
             raise ValueError("session_id cannot be empty")
@@ -180,7 +181,7 @@ class PublicEgressProxy:
         return decide_public_egress(request, resolver=self._resolver)
 
     def _handle_client(self, client: socket.socket) -> None:
-        client.settimeout(self._idle_timeout)
+        client.settimeout(_REQUEST_TIMEOUT)
         try:
             request = _read_request(client)
             if request.method == "CONNECT":
@@ -237,7 +238,7 @@ class PublicEgressProxy:
         )
         upstream = self._open_upstream(decision)
         with upstream:
-            upstream.settimeout(self._idle_timeout)
+            upstream.settimeout(_REQUEST_TIMEOUT)
             upstream.sendall(_origin_form_request(request, parsed))
             _forward_request_body(client, upstream, remaining_body)
             if transport is EgressTransport.WEBSOCKET:

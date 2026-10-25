@@ -29,6 +29,7 @@ const ACTION_ROLES = new Set(["button", "checkbox", "combobox", "link", "menuite
 export async function inspectCurrentPage(page: Page): Promise<{ binding: string; display: string }> {
   assertPageReady(page);
   const rawUrl = page.url();
+  if (rawUrl !== "about:blank") validatePublicBrowserUrl(rawUrl);
   const parsedUrl = parseUrl(rawUrl);
   return {
     binding: parsedUrl && isPublicPage(parsedUrl) ? `${parsedUrl.origin}${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}` : rawUrl,
@@ -216,7 +217,7 @@ async function observe(page: Page): Promise<Record<string, unknown>> {
       if (marked) {
         const publicName = redact(name).slice(0, 160);
         candidate = { ref: `e${refs.length + 1}`, role, name, publicName, nth, locatorId, actionable: ACTION_ROLES.has(role) };
-        rendered = `${match[1]}${role} "${publicName}" [ref=${candidate.ref}]${match[4]}`;
+        rendered = redact(`${match[1]}${role} "${publicName}" [ref=${candidate.ref}]${match[4]}`);
       }
     }
     const addition = `${rendered}\n`;
@@ -286,7 +287,7 @@ function classifyBrowserError(page: Page, error: unknown): BrowserDriverError {
 }
 
 function isPolicyError(error: unknown): boolean {
-  return error instanceof Error && /^(?:The approved page changed|The observed target is no longer available|Use Take control)/.test(error.message);
+  return error instanceof Error && /^(?:The approved page changed|The observed target is no longer available|OpenMuse cannot|OpenMuse can navigate only|Use Take control)/.test(error.message);
 }
 
 function parseUrl(value: string): URL | undefined {

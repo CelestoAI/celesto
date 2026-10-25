@@ -114,9 +114,9 @@ class TestShouldAttemptReexec:
             ["sandbox", "file"],
             ["sandbox", "snapshot", "list"],
             ["sandbox", "port"],
-            ["image", "pull", "codex"],
+            ["image", "pull", "ubuntu"],
             ["image", "list"],
-            ["image", "rm", "codex"],
+            ["image", "rm", "ubuntu"],
             ["image", "prune"],
             ["images"],
         ]

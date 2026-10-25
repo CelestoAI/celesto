@@ -32,7 +32,6 @@ AGENT_TOOL_EXAMPLES_DIR = TOP_LEVEL_EXAMPLES_DIR / "agent_tools"
 EXPECTED_TOP_LEVEL_EXAMPLES = {
     "browser_sandbox.py",
     "env_injection.py",
-    "openclaw.py",
     "quickstart_sandbox.py",
 }
 EXPECTED_AGENT_TOOL_EXAMPLES = {
@@ -78,16 +77,6 @@ def test_top_level_examples_import_without_optional_dependencies(example_name: s
     _load_module(TOP_LEVEL_EXAMPLES_DIR / example_name)
 
 
-def test_openclaw_example_handles_custom_ports_and_tls_config() -> None:
-    """Keep the SDK example aligned with the CLI dashboard compatibility fixes."""
-    source = (TOP_LEVEL_EXAMPLES_DIR / "openclaw.py").read_text(encoding="utf-8")
-
-    assert "OPENCLAW_GATEWAY_PORT={GUEST_DASHBOARD_PORT}" in source
-    assert "https://127.0.0.1:{GUEST_DASHBOARD_PORT}/" in source
-    assert "--insecure" in source
-    assert "parsed.port != GUEST_DASHBOARD_PORT" in source
-
-
 def test_langchain_tool_import_without_pydantic_v1_warning() -> None:
     """Import the LangChain shell example without triggering Python 3.14 warnings."""
     path = AGENT_TOOL_EXAMPLES_DIR / "langchain_tool.py"
@@ -117,6 +106,37 @@ def test_pydanticai_examples_support_runtime_run_context_evaluation(
     evaluated = eval(annotation, module.__dict__, module.__dict__)
 
     assert evaluated is not None
+
+
+def test_pydanticai_browser_main_requests_public_qemu_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Protect the executable example's security default at the real session API.
+
+    Removing public mode permits private network access; omitting QEMU rejects
+    the policy on other defaults. Generic browser tests do not exercise main().
+    The VM constructor is intercepted; live egress is owned by network-policy e2e.
+    """
+    import celesto.browser
+    from celesto.types import BrowserSessionConfig
+
+    module = _load_module(AGENT_TOOL_EXAMPLES_DIR / "pydanticai_agent_browser.py")
+    monkeypatch.setattr(sys, "argv", ["pydanticai_agent_browser.py"])
+    monkeypatch.setattr(module, "_build_agent", lambda: None)
+    monkeypatch.setattr(module, "ARTIFACTS_DIR", tmp_path)
+
+    class SessionConfiguredError(Exception):
+        pass
+
+    def inspect_session(config: BrowserSessionConfig, **_kwargs: object) -> None:
+        assert config.backend == "qemu"
+        assert config.internet_settings is not None
+        assert config.internet_settings.mode == "public"
+        raise SessionConfiguredError
+
+    monkeypatch.setattr(celesto.browser, "_BrowserSandbox", inspect_session)
+    with pytest.raises(SessionConfiguredError):
+        module.main()
 
 
 def _readme_section(title: str) -> str:
