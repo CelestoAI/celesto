@@ -140,7 +140,6 @@ if ! id "${runtime_user}" >/dev/null 2>&1; then
     echo "❌ User '${runtime_user}' does not exist; rerun with '--runtime-user $(id -un)'."
     exit 1
 fi
-runtime_group="$(id -gn "${runtime_user}")"
 runtime_home=""
 
 if [[ -n "${FIRECRACKER_DIR_OVERRIDE}" ]]; then
@@ -156,12 +155,6 @@ else
     FIRECRACKER_DIR="${runtime_home}/.celesto/bin"
 fi
 
-# A configured folder does not require a home lookup, but use one when available
-# so destinations inside the user's home keep that user's ownership.
-if [[ -z "${runtime_home}" ]]; then
-    runtime_home="$(resolve_user_home "${runtime_user}" 2>/dev/null || true)"
-fi
-
 if [[ "${FIRECRACKER_DIR}" != /* ]]; then
     echo "❌ Firecracker folder must be absolute: '${FIRECRACKER_DIR}'; rerun with '--firecracker-dir /absolute/path'."
     exit 1
@@ -169,13 +162,6 @@ fi
 if [[ -e "${FIRECRACKER_DIR}" && ! -d "${FIRECRACKER_DIR}" ]]; then
     echo "❌ Firecracker folder is a file: '${FIRECRACKER_DIR}'; choose another folder with '--firecracker-dir'."
     exit 1
-fi
-
-user_scoped_dir=false
-if [[ -n "${runtime_home}" ]]; then
-    if [[ "${FIRECRACKER_DIR}" == "${runtime_home}" || "${FIRECRACKER_DIR}" == "${runtime_home}/"* ]]; then
-        user_scoped_dir=true
-    fi
 fi
 
 if [[ -n "${FC_VERSION_OVERRIDE}" ]]; then
@@ -227,12 +213,31 @@ if [[ ${#missing_tools[@]} -ne 0 ]]; then
     fi
 fi
 
+# Only dependency installation needs administrator privileges. Download,
+# extraction, publication, version checks and EXIT cleanup all run as the
+# runtime account, including explicitly configured paths outside its home.
+# Dropping privileges before touching those paths prevents symlink swaps from
+# turning directory creation or cleanup into a root filesystem operation.
+if [[ ${EUID} -eq 0 && "${runtime_user}" != "root" ]]; then
+    runtime_args=(--skip-deps --runtime-user "${runtime_user}"
+        --firecracker-dir "${FIRECRACKER_DIR}" --firecracker-version "${FC_VERSION}")
+    [[ "${WITH_IMAGES}" != "true" ]] || runtime_args+=(--with-images)
+    [[ "${REQUIRE_KVM}" != "true" ]] || runtime_args+=(--require-kvm)
+    if command -v runuser >/dev/null 2>&1; then
+        exec runuser -u "${runtime_user}" -- bash "$0" "${runtime_args[@]}"
+    elif command -v sudo >/dev/null 2>&1; then
+        exec sudo -H -u "${runtime_user}" -- bash "$0" "${runtime_args[@]}"
+    fi
+    echo "❌ Cannot switch to '${runtime_user}'; install runuser or sudo, then run 'celesto setup' again."
+    exit 1
+fi
+
 work_dir="$(mktemp -d)"
 staged_path=""
 cleanup() {
     rm -rf "${work_dir}"
     if [[ -n "${staged_path}" && -e "${staged_path}" ]]; then
-        rm -f "${staged_path}" 2>/dev/null || run_root rm -f "${staged_path}" || true
+        rm -f "${staged_path}" 2>/dev/null || true
     fi
 }
 trap cleanup EXIT
@@ -250,28 +255,15 @@ if [[ ! -f "${source_binary}" ]]; then
     exit 1
 fi
 
-if [[ ${EUID} -eq 0 && "${runtime_user}" != "root" && "${user_scoped_dir}" == "true" ]]; then
-    if [[ "${FIRECRACKER_DIR}" == "${runtime_home}/.celesto/bin" ]]; then
-        install -d -o "${runtime_user}" -g "${runtime_group}" -m 0755 \
-            "${runtime_home}/.celesto" "${FIRECRACKER_DIR}"
-    else
-        install -d -o "${runtime_user}" -g "${runtime_group}" -m 0755 "${FIRECRACKER_DIR}"
-    fi
-elif ! mkdir -p "${FIRECRACKER_DIR}" 2>/dev/null; then
-    run_root install -d -m 0755 "${FIRECRACKER_DIR}"
-fi
+# Check the private downloaded copy before exposing it to replacement in the
+# destination directory. Never execute the published pathname during setup.
+"${source_binary}" --version 2>&1 | head -1
 
-staged_path="${FIRECRACKER_DIR}/.firecracker.$$.tmp"
-if ! install -m 0755 "${source_binary}" "${staged_path}" 2>/dev/null; then
-    run_root install -m 0755 "${source_binary}" "${staged_path}"
-fi
-if ! mv -f "${staged_path}" "${FIRECRACKER_DIR}/firecracker" 2>/dev/null; then
-    run_root mv -f "${staged_path}" "${FIRECRACKER_DIR}/firecracker"
-fi
+mkdir -p "${FIRECRACKER_DIR}"
+staged_path="$(mktemp "${FIRECRACKER_DIR}/.firecracker.XXXXXXXXXX")"
+install -m 0755 "${source_binary}" "${staged_path}"
+mv -f "${staged_path}" "${FIRECRACKER_DIR}/firecracker"
 staged_path=""
-if [[ ${EUID} -eq 0 && "${runtime_user}" != "root" && "${user_scoped_dir}" == "true" ]]; then
-    chown "${runtime_user}:${runtime_group}" "${FIRECRACKER_DIR}/firecracker"
-fi
 
 if [[ ! -x "${FIRECRACKER_DIR}/firecracker" ]]; then
     echo "❌ Firecracker was not installed at '${FIRECRACKER_DIR}/firecracker'; restore write access to that folder and retry."
@@ -279,7 +271,6 @@ if [[ ! -x "${FIRECRACKER_DIR}/firecracker" ]]; then
 fi
 
 echo "✅ Firecracker ${FC_VERSION} installed at '${FIRECRACKER_DIR}/firecracker'."
-"${FIRECRACKER_DIR}/firecracker" --version 2>&1 | head -1
 
 if [[ "${WITH_IMAGES}" == "true" ]]; then
     echo ""

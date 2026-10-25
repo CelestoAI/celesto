@@ -1,12 +1,12 @@
 # Public-egress release gate
 
-Celesto must not advertise public-only internet access until a real browser guest can reach public sites only through the checked host proxy on both supported network backends. This checklist defines the evidence required to expose that API; the internal contract and browser proxy argument are not, by themselves, a public-mode guarantee.
+This checklist records the broader release target for public-only internet access on QEMU and Linux Firecracker/TAP. Current source supports only QEMU's default slirp network on Linux and macOS; the full backend and published-image gates below remain unmet. Source availability is not evidence that the release checks have passed.
 
 ## Current boundary
 
-The repository contains private building blocks for address classification, connection-time resolution, pinned upstream connections, a per-session HTTP/CONNECT proxy, backend network arguments, and an optional Chromium proxy endpoint. Existing browser sessions omit the endpoint and keep their current networking behavior.
+The source API exposes `mode="public"` in Python and `{ mode: "public" }` in TypeScript for QEMU/slirp. It starts an owned proxy, blocks direct outbound access, and verifies Chromium's proxy arguments. OpenMuse selects this mode explicitly. Firecracker, QEMU TAP, and cloud public browsing remain unsupported and are rejected.
 
-Do not add `mode="public"` to Python or `{ mode: "public" }` to TypeScript until every gate below passes. A failed or unavailable proxy must stop the session from gaining internet access. It must never fall back to open networking.
+The checklist below retains the planned evidence for a broader release. Do not expand backend support or publish replacement images until the applicable real-guest and artifact gates pass. A failed or unavailable proxy must stop the session from gaining internet access, without falling back to open networking. See the [security remediation release requirements](security-scan-2026-10.md#compatibility-and-release-gates) for this source-only change.
 
 ## 1. Complete session ownership
 
@@ -63,13 +63,13 @@ After both backend suites pass against the same candidate:
 1. Build and install the candidate wheel in a clean environment, then verify `celesto ...` downloads the standalone guest-agent asset and the pinned rootfs.
 1. Publish the draft image release only after its manifest and both SHA pin sets match the tested bytes. Do not tag the Python package before these checks pass.
 
-## 5. Expose the API last
+## 5. Broader backend release target
 
 Only after sections 1 through 4 pass:
 
-- Add `mode="public"` to Python `InternetSettings` and `{ mode: "public" }` to the TypeScript `NetworkPolicy`.
+- Extend the existing public-mode API to the additional backend only when that backend passes the full matrix.
 - Update the server schema, OpenAPI output, generated clients, persistence compatibility, and capability negotiation together.
 - Make unsupported images return one short error that says how to install a compatible image.
-- Switch OpenMuse from open to public explicitly. Never substitute open, off, or restricted mode when public mode is unavailable.
+- Keep OpenMuse's explicit public-mode request. Never substitute open, off, or restricted mode when public mode is unavailable.
 
-Keep the real-backend jobs gated or manually dispatched where the required virtualization is unavailable in ordinary pull-request CI. Their passing artifacts are still mandatory evidence for an image release and the public API flip.
+Keep the real-backend jobs gated or manually dispatched where the required virtualization is unavailable in ordinary pull-request CI. Their passing artifacts are still mandatory evidence for an image release and broader backend support.

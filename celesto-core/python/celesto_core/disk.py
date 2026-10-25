@@ -1,6 +1,6 @@
 """Sparse disk-image helpers."""
 
-from . import _ffi
+import celesto_core._ffi as _ffi
 
 
 def available() -> bool:
@@ -15,10 +15,16 @@ def clone_or_sparse_copy(source: str, target: str) -> str:
     return str(_ffi.clone_or_sparse_copy(source, target))
 
 
-def decompress_zstd_sparse(source: str, target: str, chunk_size: int = 1048576) -> str:
-    """Decompress a zstd image while preserving zero regions as sparse holes."""
+def decompress_zstd_sparse(
+    source: str, target: str, chunk_size: int = 1048576, max_output_bytes: int | None = None
+) -> str:
+    """Decompress an image, rejecting decoded bytes above max_output_bytes when supplied."""
 
-    return str(_ffi.decompress_zstd_sparse(source, target, chunk_size))
+    if max_output_bytes is None:
+        return str(_ffi.decompress_zstd_sparse(source, target, chunk_size))
+    return str(
+        _ffi.decompress_zstd_sparse(source, target, chunk_size, max_output_bytes=max_output_bytes)
+    )
 
 
 __all__ = [

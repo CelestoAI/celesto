@@ -213,6 +213,13 @@ if ! ls /etc/ssh/ssh_host_*_key >/dev/null 2>&1; then
     ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N "" -q 2>/dev/null
 fi
 log_ts "ssh-hostkey-check-done"
+# Publish the public identity before accepting SSH connections.
+for HOSTKEY in /etc/ssh/ssh_host_ed25519_key.pub /etc/ssh/ssh_host_ecdsa_key.pub /etc/ssh/ssh_host_rsa_key.pub; do
+    if [ -s "$HOSTKEY" ]; then
+        awk '{print "CELESTO_SSH_HOST_KEY " $1 " " $2; exit}' "$HOSTKEY"
+        break
+    fi
+done
 
 # ── Pubkey injection from kernel cmdline ─────────────────────
 # Format: celesto.authorized_key_b64=<base64-of-the-pubkey-line>. The legacy

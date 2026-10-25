@@ -80,21 +80,21 @@ Out-of-scope (unless caused by Celesto code):
 
 ## Current SSH Trust Model (Important)
 
-Celesto is optimized for non-interactive local sandbox workflows. To reduce user
-friction in ephemeral VM lifecycles, the current SSH path accepts unknown host
-keys on first connection (Paramiko `WarningPolicy`).
+Celesto verifies SSH server identity before sending credentials and rejects unknown
+or changed keys. Updated managed Linux images publish their public host key through
+the local boot console; the network connection cannot supply that identity.
 
 ### Impact
 
-- This can allow man-in-the-middle attacks in untrusted network environments
-  (CWE-295).
-- Celesto should therefore be treated as a **trusted-host / trusted-network**
-  local runtime by default.
+- Custom, Windows, and older images need a known-hosts entry obtained through a
+  trusted console or image-building process before SSH can connect.
+- Your machine, its local inventory, and the image-building process remain part
+  of the trust boundary.
 
 ### Recommended Operational Guidance
 
 - Prefer local-only usage on developer machines or trusted CI runners.
 - Avoid exposing guest SSH endpoints to public or untrusted networks.
-- If your environment requires strict host identity validation, add external
-  network controls (private networking, firewall restrictions, bastion/proxy,
-  or SSH key pinning policy at your deployment layer).
+- Set `CELESTO_SSH_KNOWN_HOSTS` to a trusted key file when the image cannot publish
+  its identity through the local console. Do not use an unverified network scan
+  to create that file. See [secure local access](docs/security.md#verify-ssh-identity).

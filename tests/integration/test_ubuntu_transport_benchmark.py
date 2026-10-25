@@ -16,7 +16,9 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import IO, Any, cast
+
+import pytest
 
 from scripts.benchmarks import ubuntu_transport
 
@@ -95,7 +97,9 @@ CELESTO_TS stage=init-complete epoch_s=1781280000 uptime_s=0.74
 """
 
 
-def test_fresh_benchmark_attaches_boot_telemetry(monkeypatch, tmp_path: Path) -> None:
+def test_fresh_benchmark_attaches_boot_telemetry(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     config = _FakeConfig(vm_id="bench-fake", rootfs_path=Path("/tmp/rootfs.ext4"))
     log_path = tmp_path / "bench-fake.log"
     log_path.write_text(_sample_log())
@@ -125,7 +129,9 @@ def test_fresh_benchmark_attaches_boot_telemetry(monkeypatch, tmp_path: Path) ->
     )
 
 
-def test_snapshot_benchmark_restores_with_selected_transport(monkeypatch, tmp_path: Path) -> None:
+def test_snapshot_benchmark_restores_with_selected_transport(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     _FakeCelesto.restored_calls = []
     _FakeCelesto.snapshots = []
     deleted_snapshots: list[str] = []
@@ -204,7 +210,7 @@ def test_snapshot_benchmark_restores_with_selected_transport(monkeypatch, tmp_pa
     ]
 
 
-def test_run_benchmark_keeps_snapshot_lane_opt_in(monkeypatch) -> None:
+def test_run_benchmark_keeps_snapshot_lane_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[dict[str, Any]] = []
 
     def _fake_group(**kwargs: Any) -> dict[str, Any]:
@@ -294,3 +300,83 @@ def test_parse_variants_rejects_unknown_variant() -> None:
         )
     else:
         raise AssertionError("expected invalid variant to fail")
+
+
+def test_benchmark_cli_refuses_existing_output_links(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The real report writer must not truncate somebody else's file."""
+    import os
+    import sys
+
+    import pytest
+
+    victim = tmp_path / "keep.json"
+    victim.write_text("keep these bytes")
+    report: dict[str, dict[str, object]] = {"variants": {}}
+    monkeypatch.setattr(ubuntu_transport, "run_benchmark", lambda **_kwargs: report)
+    for kind in ("symbolic", "hard"):
+        output = tmp_path / f"{kind}.json"
+        if kind == "symbolic":
+            output.symlink_to(victim)
+        else:
+            os.link(victim, output)
+        monkeypatch.setattr(sys, "argv", ["benchmark", "--output", str(output)])
+        with pytest.raises((SystemExit, FileExistsError)):
+            ubuntu_transport.main()
+        assert victim.read_text() == "keep these bytes"
+
+    output = tmp_path / "new-report.json"
+    monkeypatch.setattr(sys, "argv", ["benchmark", "--output", str(output)])
+    ubuntu_transport.main()
+    import json
+
+    assert json.loads(output.read_text()) == report
+
+
+def test_backend_benchmark_creates_private_unique_report(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import builtins
+    import json
+    import tempfile
+
+    from scripts import bench_backends
+
+    victim = tmp_path / "keep.json"
+    victim.write_text("keep these bytes")
+    shared = tmp_path / "bench_results.json"
+    shared.symlink_to(victim)
+
+    # Virtualize the old global /tmp path so the red test never modifies an
+    # unrelated real report. All file opens and link behavior remain real.
+    def redirected_open(path: str | Path, *args: Any, **kwargs: Any) -> IO[Any]:
+        if path == "/tmp/bench_results.json":
+            path = shared
+        return cast(IO[Any], builtins.open(path, *args, **kwargs))
+
+    monkeypatch.setattr(bench_backends, "open", redirected_open, raising=False)
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(
+        bench_backends,
+        "bench",
+        lambda backend: {
+            "backend": backend,
+            "create": None,
+            "boot": None,
+            "first_cmd": None,
+            "total_to_interact": None,
+            "warm_cmd": None,
+            "errors": [],
+        },
+    )
+    bench_backends.main()
+    assert victim.read_text() == "keep these bytes"
+    output = capsys.readouterr().out
+    report_path = Path(output.rsplit("wrote ", 1)[1].strip())
+    assert report_path.parent == tmp_path
+    assert report_path.stat().st_mode & 0o077 == 0
+    assert [result["backend"] for result in json.loads(report_path.read_text())["results"]] == [
+        "qemu",
+        "firecracker",
+    ]

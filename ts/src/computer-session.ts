@@ -25,7 +25,7 @@ export interface ComputerResponse {
   template: "linux-desktop";
   status: "ready";
   capabilities: string[];
-  display: { viewer_url: string; vnc_url: string };
+  display: { viewer_url: string; vnc_url?: string | null };
   browser: { status: ComputerBrowserStatus; cdp_url?: string | null };
 }
 
@@ -89,7 +89,7 @@ export class ComputerSession implements ComputerSessionClient {
     private readonly closeSession: () => Promise<void>,
     private readonly debug: boolean,
   ) {
-    if (wire.status !== "ready" || !wire.display.viewer_url || !wire.display.vnc_url) {
+    if (wire.status !== "ready" || !wire.display.viewer_url) {
       throw new CelestoError(
         "computer_endpoint_unavailable",
         `Computer '${wire.computer_id}' did not return a ready display; call celesto.computers.create() to create a replacement.`,
@@ -102,7 +102,7 @@ export class ComputerSession implements ComputerSessionClient {
     this.capabilities = Object.freeze([...wire.capabilities]);
     this.display = Object.freeze({
       viewerUrl: wire.display.viewer_url,
-      vncUrl: wire.display.vnc_url,
+      vncUrl: wire.display.vnc_url ?? null,
     });
     this.browser = new ComputerBrowser(wire.browser, this, transport);
     this.files = new RemoteFiles(

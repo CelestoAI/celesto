@@ -25,6 +25,7 @@ import logging
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import BinaryIO
 
@@ -71,20 +72,40 @@ def decompress_zstd_sparse(
     target_path: Path | str,
     *,
     chunk_size: int = _SPARSE_CHUNK_SIZE,
+    max_output_bytes: int | None = None,
 ) -> str:
-    """Decompress a zstd image while preserving zero ranges as sparse holes."""
+    """Decompress a zstd image, rejecting output above max_output_bytes before writing it."""
     if chunk_size <= 0:
         raise ValueError("chunk_size must be greater than zero")
 
+    if max_output_bytes is not None and max_output_bytes < 0:
+        raise ValueError("max_output_bytes must not be negative")
     source = Path(source_path)
     target = Path(target_path)
     _ensure_parent_dir(target)
 
     if _native_available():
-        method = str(core_disk.decompress_zstd_sparse(str(source), str(target), chunk_size))
+        if max_output_bytes is None:
+            method = str(core_disk.decompress_zstd_sparse(str(source), str(target), chunk_size))
+        else:
+            try:
+                method = str(
+                    core_disk.decompress_zstd_sparse(
+                        str(source), str(target), chunk_size, max_output_bytes=max_output_bytes
+                    )
+                )
+            except TypeError as error:
+                # Older wheels cannot enforce a budget. Never retry unbounded.
+                if "max_output_bytes" not in str(error):
+                    raise
+                return _python_decompress_zstd_sparse(
+                    source, target, chunk_size=chunk_size, max_output_bytes=max_output_bytes
+                )
         return f"native:{method}"
 
-    return _python_decompress_zstd_sparse(source, target, chunk_size=chunk_size)
+    return _python_decompress_zstd_sparse(
+        source, target, chunk_size=chunk_size, max_output_bytes=max_output_bytes
+    )
 
 
 def _native_available() -> bool:
@@ -144,25 +165,31 @@ def _copy_sparse_preserving(
     shutil.copystat(source, target)
 
 
-def _python_decompress_zstd_sparse(source: Path, target: Path, *, chunk_size: int) -> str:
+def _python_decompress_zstd_sparse(
+    source: Path, target: Path, *, chunk_size: int, max_output_bytes: int | None = None
+) -> str:
     import zstandard
 
-    tmp = target.parent / (target.name + ".tmp")
-    try:
-        with source.open("rb") as src_f, tmp.open("wb") as target_f:
-            reader = zstandard.ZstdDecompressor().stream_reader(src_f)
+    with tempfile.TemporaryDirectory(prefix=".celesto-disk-", dir=target.parent) as stage:
+        tmp = Path(stage) / "data"
+        # The private directory prevents other accounts replacing this entry.
+        fd = os.open(
+            tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600
+        )
+        with (
+            os.fdopen(fd, "wb") as target_f,
+            source.open("rb") as src_f,
+            zstandard.ZstdDecompressor().stream_reader(src_f) as reader,
+        ):
             size = 0
-            while True:
-                chunk = reader.read(chunk_size)
-                if not chunk:
-                    break
+            while chunk := reader.read(min(chunk_size, _SPARSE_CHUNK_SIZE)):
                 size += len(chunk)
+                if max_output_bytes is not None and size > max_output_bytes:
+                    raise OSError("decoded image exceeds size limit")
                 _write_sparse_chunk(target_f, chunk)
             target_f.truncate(size)
         tmp.replace(target)
-        return "python"
-    finally:
-        tmp.unlink(missing_ok=True)
+    return "python"
 
 
 def _write_sparse_chunk(target: BinaryIO, chunk: bytes) -> None:

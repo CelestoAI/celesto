@@ -14,11 +14,11 @@ celesto windows build-image \
   --password 'choose-a-strong-password'
 ```
 
-The build is unattended and can take a while. The resulting `win11.qcow2` is the input for a Windows computer.
+The installation is unattended and can take a while. Its SSH readiness check requires a trusted server key: Windows images do not publish one through Celesto's boot-console mechanism. Provision a known-hosts entry through a trusted console or image-building process and set `CELESTO_SSH_KNOWN_HOSTS` before the SSH check can complete. The resulting `win11.qcow2` is the input for a Windows computer.
 
 ## Start a Windows computer
 
-Use Python so you can provide the username and password chosen while building the image:
+Use Python so you can provide the username and password chosen while building the image. Keep `CELESTO_SSH_KNOWN_HOSTS` set to a trusted key file for the computer's SSH endpoint; unknown or changed keys are rejected before authentication. See [SSH identity setup](../security.md#verify-ssh-identity).
 
 ```python
 from celesto import Celesto

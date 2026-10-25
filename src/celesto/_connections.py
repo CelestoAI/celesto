@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shlex
 import socket
 import time
@@ -24,6 +25,7 @@ if TYPE_CHECKING:
 _TIMEOUT = 30.0
 _MAX_DISCOVERY = 64 * 1024
 _HELPER = Path(__file__).parent / "images" / "guest_connections.py"
+_ACCESS_HELPER = Path(__file__).parent / "images" / "guest_access.py"
 
 
 def validate_template_options(options: dict[str, Any]) -> None:
@@ -59,10 +61,11 @@ def _template_config(options: dict[str, Any]) -> BrowserSessionConfig:
     if isinstance(disk, bool) or not isinstance(disk, int) or disk < 8192:
         raise ValueError("Local browser-agent needs disk_size of at least 8192 MiB.")
     policy = options.get("internet_settings")
+    memory = options.get("memory")
     return BrowserSessionConfig(
         mode="computer",
         backend=options.get("backend") or "auto",
-        mem_size_mib=options.get("memory") if options.get("memory") is not None else 2048,
+        mem_size_mib=memory if memory is not None else 2048,
         disk_size_mib=disk,
         internet_settings=parse_network_policy(policy) if policy is not None else None,
         workspace_mounts=_parse_mount_specs(
@@ -105,7 +108,8 @@ def _remaining(deadline: float) -> float:
 
 
 def _guest(vm: Celesto, args: list[str], deadline: float) -> dict[str, Any]:
-    command = shlex.join(["python3", "-c", _HELPER.read_text(), *args])
+    source = "ACCESS_SOURCE = " + repr(_ACCESS_HELPER.read_text()) + "\n" + _HELPER.read_text()
+    command = shlex.join(["python3", "-c", source, *args])
     try:
         result = vm.run(command, timeout=max(1, int(_remaining(deadline))), shell="raw")
         _remaining(deadline)
@@ -141,7 +145,7 @@ def local_connection(
     kind: str,
     forwards: dict[int, int],
 ) -> BrowserConnection | DisplayConnection:
-    from celesto.browser import _guest_browser_proxy_endpoint
+    from celesto.browser import _guest_browser_proxy_endpoint, _verify_guest_browser_proxy
 
     deadline = time.monotonic() + _TIMEOUT
     probe_capabilities(vm, kind, deadline)
@@ -166,8 +170,15 @@ def local_connection(
     if proxy is not None:
         args.append(proxy)
     result = _guest(vm, args, deadline)
-    port = {"browser": 9223, "read_only": 6081, "read_write": 6082}[kind]
-    if result.get("port") != port:
+    if kind == "browser":
+        _verify_guest_browser_proxy(vm, proxy)
+    port = {"browser": 9222, "read_only": 6081, "read_write": 6082}[kind]
+    capability = result.get("capability", "")
+    if (
+        result.get("port") != port
+        or not isinstance(capability, str)
+        or not re.fullmatch("[0-9a-f]{64}", capability)
+    ):
         raise CelestoError("The computer returned an invalid connection; request a new connection.")
     previous = forwards.get(port)
     if previous is not None and not _forward_alive(previous):
@@ -176,13 +187,9 @@ def local_connection(
         previous = None
     host_port = previous
     try:
-        # Linux can run commands over vsock without ever preparing network SSH.
-        # Loopback-only graphical services still need an SSH tunnel (and, with
-        # QEMU slirp, its host-to-guest SSH forward) before exposing their port.
-        vm._ensure_ssh_for_operation(
-            action="connect to browser or display", timeout=_remaining(deadline)
-        )
-        host_port = vm.expose_local(port, host_port=previous, guest_loopback=True)
+        # Capability gates are reachable through QEMU/NAT forwarding. No raw
+        # loopback-only browser or display service is forwarded to the host.
+        host_port = vm.expose_local(port, host_port=previous, guest_loopback=False)
         _remaining(deadline)
         if kind == "browser":
             # Ignore HTTP proxy environment variables and never follow redirects.
@@ -190,7 +197,7 @@ def local_connection(
                 httpx.Client(trust_env=False, follow_redirects=False) as client,
                 client.stream(
                     "GET",
-                    f"http://127.0.0.1:{host_port}/json/version",
+                    f"http://127.0.0.1:{host_port}/{capability}/json/version",
                     timeout=_remaining(deadline),
                 ) as response,
             ):
@@ -204,13 +211,13 @@ def local_connection(
             ws = urlsplit(json.loads(data)["webSocketDebuggerUrl"])
             if ws.scheme != "ws" or not ws.hostname or ws.username or ws.password or ws.fragment:
                 raise ValueError
-            if not ws.path.startswith("/devtools/browser/"):
+            if not ws.path.startswith(f"/{capability}/devtools/browser/"):
                 raise ValueError
             url = urlunsplit(("ws", f"127.0.0.1:{host_port}", ws.path, ws.query, ""))
             connection: BrowserConnection | DisplayConnection = BrowserConnection(url, None)
         else:
             mode: DisplayMode = "read_only" if kind == "read_only" else "read_write"
-            connection = DisplayConnection(f"ws://127.0.0.1:{host_port}/", None, mode)
+            connection = DisplayConnection(f"ws://127.0.0.1:{host_port}/{capability}/", None, mode)
         _remaining(deadline)
     except Exception:
         if host_port is not None and host_port != previous:

@@ -451,7 +451,13 @@ def run_image_load(
         # A truncated archive can fail while listing members or reading the
         # manifest — that's damage, not a crash.
         try:
-            members = tar.getmembers()
+            members: list[tarfile.TarInfo] = []
+            for member in tar:
+                if len(members) >= 10000 or member.issparse():
+                    return bad_archive(
+                        "Archive contains sparse data or too many files and was not loaded."
+                    )
+                members.append(member)
             manifest_members = [m for m in members if m.name == _MANIFEST_MEMBER]
             if (
                 len(manifest_members) != 1
@@ -530,10 +536,44 @@ def run_image_load(
                 recovery="Recreate it on the source machine with "
                 f"'celesto image save {name} -o {shlex.quote(in_path.name)}'.",
             )
+        try:
+            configured_budget = int(
+                os.environ.get("CELESTO_IMAGE_LOAD_MAX_BYTES", str(64 * 1024**3))
+            )
+            if configured_budget <= 0:
+                raise ValueError
+        except ValueError:
+            return bad_archive(
+                "CELESTO_IMAGE_LOAD_MAX_BYTES must be a positive integer; "
+                "correct it and retry the load."
+            )
+        # Preserve one GiB of free space. The caller, not the archive, owns this budget.
+        existing_parent = root
+        while not existing_parent.exists():
+            existing_parent = existing_parent.parent
+        budget = min(configured_budget, max(0, shutil.disk_usage(existing_parent).free - 1024**3))
+        if sum(meta["size"] for meta in allowed.values()) > budget:
+            return bad_archive(
+                "Image exceeds the import size budget; free disk space or increase "
+                "CELESTO_IMAGE_LOAD_MAX_BYTES and retry."
+            )
+        written = 0
+
+        def charge(size: int) -> None:
+            nonlocal written
+            if size > budget - written:
+                raise tarfile.TarError("image exceeds the import size budget")
+            written += size
+
         data_members = [m for m in members if m.name != _MANIFEST_MEMBER]
         seen: set[str] = set()
         for member in data_members:
-            if not member.isreg() or member.name not in allowed or member.name in seen:
+            if (
+                not member.isreg()
+                or member.issparse()
+                or member.name not in allowed
+                or member.name in seen
+            ):
                 return _fail(
                     command_name,
                     f"'{in_path}' contains unexpected entries and was not loaded.",
@@ -542,6 +582,18 @@ def run_image_load(
                     recovery="Recreate it on the source machine with "
                     f"'celesto image save {name} -o {shlex.quote(in_path.name)}'.",
                     exit_code=2,
+                )
+            if member.size > budget:
+                return bad_archive(
+                    "Archive member exceeds the import size budget and was not loaded."
+                )
+            if (
+                allowed[member.name]["encoding"] == "raw"
+                and member.size != allowed[member.name]["size"]
+            ):
+                return bad_archive(
+                    "Archive is damaged: member size disagrees with its manifest "
+                    "and was not loaded."
                 )
             seen.add(member.name)
         missing = set(allowed) - seen
@@ -558,10 +610,8 @@ def run_image_load(
             )
 
         target.parent.mkdir(parents=True, exist_ok=True)
-        partial = target.parent / f".{target.name}.partial-{os.getpid()}"
-        shutil.rmtree(partial, ignore_errors=True)
+        partial = Path(tempfile.mkdtemp(prefix=f".{target.name}.partial-", dir=target.parent))
         try:
-            partial.mkdir()
             zst_sha: str | None = None
             installed = 0
             for member in data_members:
@@ -585,6 +635,7 @@ def run_image_load(
                 if meta["encoding"] == "raw":
                     with source, open(destination, "wb") as out:
                         while chunk := source.read(_COPY_CHUNK):
+                            charge(len(chunk))
                             out.write(chunk)
                             hasher.update(chunk)
                     digest = hasher.hexdigest()
@@ -594,6 +645,7 @@ def run_image_load(
                     tmp_zst = destination.with_name(destination.name + ".tmp.zst")
                     with source, open(tmp_zst, "wb") as out:
                         while chunk := source.read(_COPY_CHUNK):
+                            charge(len(chunk))
                             out.write(chunk)
                             hasher.update(chunk)
                     digest = hasher.hexdigest()
@@ -601,7 +653,12 @@ def run_image_load(
                         tmp_zst.unlink()
                         raise zstandard.ZstdError(f"'{meta['path']}' failed its integrity check")
                     try:
-                        decompress_zstd_sparse(tmp_zst, destination)
+                        decompress_zstd_sparse(
+                            tmp_zst,
+                            destination,
+                            max_output_bytes=min(meta["size"], budget - written),
+                        )
+                        charge(destination.stat().st_size)
                     except OSError as exc:
                         if _looks_like_zstd_decode_error(exc):
                             raise zstandard.ZstdError(
@@ -633,7 +690,8 @@ def run_image_load(
                 rootfs.unlink(missing_ok=True)
                 (partial / _ROOTFS_SIDECAR).unlink(missing_ok=True)
                 try:
-                    decompress_zstd_sparse(zst, rootfs)
+                    decompress_zstd_sparse(zst, rootfs, max_output_bytes=budget - written)
+                    charge(rootfs.stat().st_size)
                 except OSError as exc:
                     if _looks_like_zstd_decode_error(exc):
                         raise zstandard.ZstdError(

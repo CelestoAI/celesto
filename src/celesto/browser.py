@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import platform
+import re
 import shlex
 import socket
 import time
@@ -16,7 +18,8 @@ from collections.abc import Callable
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
+from urllib.parse import urlsplit
 
 from celesto.exceptions import BrowserSessionNotFoundError, CelestoError
 from celesto.facade import Celesto
@@ -114,9 +117,7 @@ def _qemu_browser_port_forwards(config: BrowserSessionConfig) -> list[PortForwar
     if config.mode in {"live", "desktop", "computer"}:
         live_port = _allocate_browser_host_port(reserved)
         reserved.add(live_port)
-        vnc_port = _allocate_browser_host_port(reserved)
         forwards.append(PortForwardConfig(host_port=live_port, guest_port=_BROWSER_LIVE_PORT))
-        forwards.append(PortForwardConfig(host_port=vnc_port, guest_port=_BROWSER_VNC_PORT))
     return forwards
 
 
@@ -138,6 +139,44 @@ def _guest_browser_proxy_endpoint(vm_info: VMInfo) -> str | None:
         return None
     host = f"[{network.gateway_ip}]" if ":" in network.gateway_ip else network.gateway_ip
     return f"http://{host}:{network.egress_proxy_host_port}"
+
+
+def _verify_guest_browser_proxy(vm: Any, proxy_endpoint: str | None) -> None:
+    """Refuse older image launchers that omit the browser's egress restrictions."""
+    if proxy_endpoint is None:
+        return
+    probe = r"""
+import pathlib, sys, time
+expected = {('--proxy-server=' + sys.argv[1]).encode(), b'--proxy-bypass-list=<-loopback>'}
+for _ in range(50):
+    try:
+        pending = [int(pathlib.Path('/run/celesto-browser/chromium.pid').read_text())]
+        visited = set()
+        while pending:
+            pid = pending.pop()
+            if pid in visited:
+                continue
+            visited.add(pid)
+            root = pathlib.Path('/proc') / str(pid)
+            args = set((root / 'cmdline').read_bytes().split(b'\0'))
+            if any(arg.startswith(b'--remote-debugging-port=') for arg in args):
+                if expected <= args:
+                    sys.exit(0)
+                sys.exit(1)
+            pending.extend(int(child) for child in
+                           (root / 'task' / str(pid) / 'children').read_text().split())
+    except (OSError, ValueError):
+        pass
+    time.sleep(0.1)
+sys.exit(1)
+"""
+    result = vm.run(f"python3 -c {shlex.quote(probe)} {shlex.quote(proxy_endpoint)}", timeout=15)
+    if not result.ok:
+        name = vm.info.vm_id
+        raise CelestoError(
+            f"The browser in '{name}' does not enforce public-only connections; "
+            f"run 'celesto sandbox delete {name}' and recreate it with an updated browser image."
+        )
 
 
 def _guest_browser_session_command(
@@ -200,7 +239,13 @@ def _build_browser_vm_config(
             f"'celesto computer start --name {session_id} --disk-size 8192'."
         )
     port_forwards: list[PortForwardConfig] = []
-    if resolved_backend == BACKEND_QEMU and forward_ports:
+    public_only = (
+        browser_config.internet_settings is not None
+        and browser_config.internet_settings.mode == "public"
+    )
+    # Public-only guests add authenticated control forwards after startup. User
+    # forwards remain prohibited by the VM policy validator.
+    if resolved_backend == BACKEND_QEMU and forward_ports and not public_only:
         port_forwards = _qemu_browser_port_forwards(browser_config)
 
     grow_filesystem = False
@@ -306,6 +351,7 @@ class _BrowserSandbox:
         self._ssh_key_path = ssh_key_path
         self._state = state_manager or _browser_state_manager(self._data_dir)
         self._owns_session = False
+        self._legacy_endpoints = False
         self._vm: Celesto | None = None
         self._playwright_runtime: Any | None = None
 
@@ -327,7 +373,7 @@ class _BrowserSandbox:
         socket_dir: Path | None = None,
         ssh_key_path: str | None = None,
         state_manager: StateManagerProtocol | None = None,
-    ) -> _BrowserSandbox:
+    ) -> Self:
         """Reconnect to an existing browser sandbox by ID."""
         return cls(
             session_id=session_id,
@@ -390,7 +436,7 @@ class _BrowserSandbox:
         self._owns_session = True
 
     def _attach_existing_session(self, session_id: str) -> None:
-        self._info = self._state.get_browser_session(session_id)
+        self._info = self._load_session_info(session_id)
         self._session_config = self._state.get_browser_session_config(session_id)
 
         try:
@@ -409,6 +455,33 @@ class _BrowserSandbox:
                 exc_info=True,
             )
             self._vm = None
+
+    def _load_session_info(self, session_id: str) -> BrowserSessionInfo:
+        info = self._state.get_browser_session(session_id)
+        legacy = info.vnc_url is not None or any(
+            url is not None and not re.match(r"^/[0-9a-f]{64}(?:/|$)", urlsplit(url).path)
+            for url in (info.cdp_url, info.live_url)
+        )
+        if legacy:
+            self._legacy_endpoints = True
+            info = self._state.update_browser_session(
+                session_id,
+                status=BrowserSessionState.ERROR,
+                clear_endpoints=True,
+            )
+        return info
+
+    def _require_current_endpoints(self) -> None:
+        if getattr(self, "_legacy_endpoints", False):
+            command = (
+                f"celesto computer delete {self.session_id} --desktop"
+                if self._session_config.mode == "computer"
+                else f"celesto browser stop {self.session_id}"
+            )
+            raise CelestoError(
+                f"Session '{self.session_id}' uses older, unprotected connections; "
+                f"run '{command}', then create another session."
+            )
 
     @property
     def session_id(self) -> str:
@@ -474,7 +547,7 @@ class _BrowserSandbox:
 
     def refresh(self) -> _BrowserSandbox:
         """Refresh session info from persisted state."""
-        self._info = self._state.get_browser_session(self._info.session_id)
+        self._info = self._load_session_info(self._info.session_id)
         return self
 
     def start(
@@ -484,6 +557,7 @@ class _BrowserSandbox:
         on_progress: Callable[[str], None] | None = None,
     ) -> _BrowserSandbox:
         """Start the browser sandbox and expose its endpoints."""
+        self._require_current_endpoints()
         if self._session_config.network_policy_id is not None:
             raise CelestoError(
                 "network_policy_id is reserved for future host-side policy enforcement "
@@ -521,6 +595,13 @@ class _BrowserSandbox:
             if not debug_ready or not live_ready:
                 self._start_guest_browser()
 
+            from celesto._connections import _guest
+
+            access = _guest(
+                self._vm,
+                ["session-access", self._session_config.mode],
+                time.monotonic() + boot_timeout,
+            )
             debug_host_port: int | None = None
             cdp_url: str | None = None
             if expects_browser:
@@ -532,7 +613,8 @@ class _BrowserSandbox:
                     _BROWSER_DEBUG_PORT,
                     guest_loopback=False,
                 )
-                cdp_url = f"http://127.0.0.1:{debug_host_port}"
+                capability = self._access_capability(access, "browser")
+                cdp_url = f"http://127.0.0.1:{debug_host_port}/{capability}"
                 if not self._wait_for_cdp_http(cdp_url, timeout=boot_timeout):
                     raise CelestoError(
                         f"Browser session '{self.session_id}' did not start in time; "
@@ -555,12 +637,13 @@ class _BrowserSandbox:
                     _BROWSER_LIVE_PORT,
                     guest_loopback=False,
                 )
-                live_url = f"http://127.0.0.1:{live_host_port}/vnc.html?autoconnect=1&resize=scale"
-                vnc_host_port = self._resolve_browser_host_port(
-                    _BROWSER_VNC_PORT,
-                    guest_loopback=True,
+                capability = self._access_capability(access, "viewer")
+                live_url = (
+                    f"http://127.0.0.1:{live_host_port}/{capability}/vnc.html"
+                    f"?autoconnect=1&resize=scale&path={capability}/websockify"
                 )
-                vnc_url = f"vnc://127.0.0.1:{vnc_host_port}"
+                # Raw VNC has no session capability. Only the authenticated
+                # browser viewer/WebSocket connection is published.
 
             if self._session_config.mode == "computer":
                 desktop_probe = self._vm.run(
@@ -637,6 +720,7 @@ class _BrowserSandbox:
 
     def connect_playwright(self) -> Any:
         """Connect Playwright to the browser sandbox over CDP."""
+        self._require_current_endpoints()
         if self._info.cdp_url is None:
             raise CelestoError("Browser session is not ready; start it before connecting.")
 
@@ -673,6 +757,7 @@ class _BrowserSandbox:
 
     def open_viewer(self) -> bool:
         """Open the viewer URL in the local default browser."""
+        self._require_current_endpoints()
         if self._info.live_url is None:
             raise CelestoError("This browser session does not expose a viewer_url.")
         return webbrowser.open(self._info.live_url)
@@ -776,27 +861,32 @@ class _BrowserSandbox:
         proxy_endpoint = (
             _guest_browser_proxy_endpoint(vm_info) if isinstance(vm_info, VMInfo) else None
         )
-        command = _guest_browser_session_command(
-            "start",
-            [
-                self._session_config.mode,
-                str(self._session_config.viewport_width),
-                str(self._session_config.viewport_height),
-                str(_BROWSER_DEBUG_PORT),
-                str(_BROWSER_LIVE_PORT),
-                self._guest_profile_dir(),
-                self._guest_download_dir(),
-                "1" if self._session_config.record_video else "0",
-                "1" if self._session_config.allow_downloads else "0",
-                self._guest_artifacts_dir(),
-            ],
-            proxy_endpoint=proxy_endpoint,
-        )
-        result = self._vm.run(command, timeout=60)
-        if not result.ok:
-            raise CelestoError(
-                f"Failed to launch guest browser: {result.stderr.strip() or result.stdout}"
-            )
+        from celesto._connections import _guest
+
+        arguments = [
+            self._session_config.mode,
+            str(self._session_config.viewport_width),
+            str(self._session_config.viewport_height),
+            str(_BROWSER_DEBUG_PORT),
+            str(_BROWSER_LIVE_PORT),
+            self._guest_profile_dir(),
+            self._guest_download_dir(),
+            "1" if self._session_config.record_video else "0",
+            "1" if self._session_config.allow_downloads else "0",
+            self._guest_artifacts_dir(),
+        ]
+        if proxy_endpoint is not None:
+            arguments.append(proxy_endpoint)
+        _guest(self._vm, ["start-session", json.dumps(arguments)], time.monotonic() + 90)
+        _verify_guest_browser_proxy(self._vm, proxy_endpoint)
+
+    @staticmethod
+    def _access_capability(access: dict[str, Any], kind: str) -> str:
+        value = access.get(kind)
+        capability = value.get("capability") if isinstance(value, dict) else None
+        if not isinstance(capability, str) or not re.fullmatch("[0-9a-f]{64}", capability):
+            raise CelestoError("The browser connection is not authenticated; restart the session.")
+        return capability
 
     def _launch_guest_browser(self) -> None:
         """Launch only Chromium, preserving the running graphical desktop."""
@@ -826,6 +916,7 @@ class _BrowserSandbox:
                 f"Chromium did not open in {resource} '{self.session_id}'; "
                 f"run 'celesto {resource} logs {self.session_id}', then retry."
             )
+        _verify_guest_browser_proxy(self._vm, proxy_endpoint)
 
     def _resolve_browser_host_port(self, guest_port: int, *, guest_loopback: bool) -> int:
         """Return a localhost port that exposes a browser guest port.

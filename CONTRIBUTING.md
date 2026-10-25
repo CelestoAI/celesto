@@ -88,6 +88,12 @@ uv run pre-commit install
 uv run pre-commit run --all-files
 ```
 
+The mypy hook uses the project environment, including the development, dashboard,
+and server dependencies, so it checks the same library types used at runtime.
+Development dependencies require mypy 2.3.1 or newer. TypeDoc owns the generated
+files under `docs/typescript/api/`; regenerate them with `cd ts && npm run docs`
+instead of formatting them with mdformat.
+
 Notes:
 
 - Type annotations are expected for new code (`mypy` runs in strict mode).

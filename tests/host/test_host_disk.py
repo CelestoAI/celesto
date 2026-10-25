@@ -14,6 +14,7 @@
 
 """Tests for host disk helper fallback boundaries."""
 
+import shutil
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -50,7 +51,7 @@ def test_clone_or_sparse_copy_uses_native_after_cp_failure(tmp_path: Path) -> No
         patch.object(disk, "_cp_clone_or_sparse_copy", return_value=None) as mock_cp,
         patch.object(disk, "_native_available", return_value=True),
         patch.object(disk, "core_disk", core_disk),
-        patch.object(disk.shutil, "copystat") as mock_copystat,
+        patch.object(shutil, "copystat") as mock_copystat,
         patch.object(
             disk,
             "_python_clone_or_sparse_copy",
@@ -115,3 +116,41 @@ def test_decompress_zstd_sparse_propagates_native_oserror(tmp_path: Path) -> Non
         pytest.raises(OSError, match="corrupt zstd stream"),
     ):
         disk.decompress_zstd_sparse(tmp_path / "rootfs.ext4.zst", tmp_path / "rootfs.ext4")
+
+
+@pytest.mark.parametrize("size,limit", [(9, 8), (9, 9), (0, 0)])
+def test_bounded_decompression_preserves_target_on_rejection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, size: int, limit: int
+) -> None:
+    import zstandard
+
+    monkeypatch.setenv("CELESTO_DISABLE_NATIVE_DISK", "1")
+    source = tmp_path / "image.zst"
+    target = tmp_path / "image"
+    source.write_bytes(zstandard.ZstdCompressor().compress(b"x" * size))
+    target.write_bytes(b"existing image")
+    if size > limit:
+        with pytest.raises(OSError, match="limit"):
+            disk.decompress_zstd_sparse(source, target, chunk_size=4, max_output_bytes=limit)
+        assert target.read_bytes() == b"existing image"
+    else:
+        disk.decompress_zstd_sparse(source, target, chunk_size=4, max_output_bytes=limit)
+        assert target.read_bytes() == b"x" * size
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["image", "image.zst"]
+
+
+def test_python_decompress_preserves_symlink_victim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import zstandard
+
+    monkeypatch.setenv("CELESTO_DISABLE_NATIVE_DISK", "1")
+    source = tmp_path / "image.zst"
+    target = tmp_path / "image"
+    victim = tmp_path / "victim"
+    source.write_bytes(zstandard.ZstdCompressor().compress(b"decoded image"))
+    victim.write_bytes(b"private existing contents")
+    (tmp_path / "image.tmp").symlink_to(victim)
+    disk.decompress_zstd_sparse(source, target)
+    assert target.read_bytes() == b"decoded image"
+    assert victim.read_bytes() == b"private existing contents"

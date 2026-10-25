@@ -17,10 +17,12 @@
 import ast
 import json
 import os
+from collections.abc import Generator
 from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, NoReturn, cast
 from unittest.mock import ANY, MagicMock, patch
 
 import click
@@ -47,6 +49,9 @@ from celesto.types import (
     VMState,
     WorkspaceMount,
 )
+
+if TYPE_CHECKING:
+    from celesto.computer import _ComputerSandbox
 
 
 def _make_vm_info(
@@ -136,7 +141,7 @@ def test_top_level_help_mentions_json_for_agents() -> None:
 
 
 def test_create_help_describes_backend_specific_guest_default(
-    capsys: pytest.CaptureFixture,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Create help should describe the OS option and its auto-detected default."""
     ret = main(["sandbox", "create", "--help"])
@@ -147,7 +152,7 @@ def test_create_help_describes_backend_specific_guest_default(
     assert "auto-detected" in help_text
 
 
-def test_sandbox_help_describes_all_commands(capsys: pytest.CaptureFixture) -> None:
+def test_sandbox_help_describes_all_commands(capsys: pytest.CaptureFixture[str]) -> None:
     """Sandbox help should explain every command in plain language."""
     ret = main(["sandbox", "--help"])
 
@@ -191,7 +196,7 @@ def test_all_commands_have_short_descriptions() -> None:
     assert missing == []
 
 
-def test_json_error_preserves_empty_details(capsys: pytest.CaptureFixture) -> None:
+def test_json_error_preserves_empty_details(capsys: pytest.CaptureFixture[str]) -> None:
     """Explicit empty error details should survive JSON normalization."""
     from celesto.cli.output import emit_json
 
@@ -233,7 +238,7 @@ def test_json_error_preserves_empty_details(capsys: pytest.CaptureFixture) -> No
 def test_usage_errors_include_recovery_commands(
     argv: list[str],
     expected: list[str],
-    capsys: pytest.CaptureFixture,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Click usage errors should name concrete recovery commands."""
     ret = main(argv)
@@ -248,7 +253,7 @@ class TestCliEnv:
     """Tests for `celesto sandbox env` subcommands."""
 
     @pytest.fixture
-    def mock_vm_cls(self) -> MagicMock:
+    def mock_vm_cls(self) -> Generator[MagicMock, None, None]:
         with patch("celesto.facade.Celesto") as m:
             yield m
 
@@ -261,7 +266,7 @@ class TestCliEnv:
     def test_env_set_success(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Test `celesto sandbox env set` success path."""
         vm = self._setup_vm(mock_vm_cls)
@@ -318,7 +323,7 @@ class TestCliEnv:
     def test_env_set_malformed_pair_fails(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Test execution fails on malformed key=value pair."""
         ret = main(["sandbox", "env", "set", "vm001", "BADPAIR"])
@@ -330,7 +335,7 @@ class TestCliEnv:
     def test_env_unset_success(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Test `celesto sandbox env unset` success path."""
         vm = self._setup_vm(mock_vm_cls)
@@ -345,7 +350,7 @@ class TestCliEnv:
     def test_env_list_success(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Test `celesto sandbox env list` success path (masked by default)."""
         vm = self._setup_vm(mock_vm_cls)
@@ -363,7 +368,7 @@ class TestCliEnv:
     def test_env_list_show_values(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Test `celesto sandbox env list --show-values` reveals values."""
         vm = self._setup_vm(mock_vm_cls)
@@ -379,7 +384,7 @@ class TestCliEnv:
     def test_env_set_json(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox env set --json` should emit the shared envelope."""
         vm = self._setup_vm(mock_vm_cls)
@@ -399,7 +404,7 @@ class TestCliEnv:
     def test_env_unset_json(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox env unset --json` should emit removed and missing keys."""
         vm = self._setup_vm(mock_vm_cls)
@@ -416,7 +421,7 @@ class TestCliEnv:
     def test_env_list_json_masked(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox env list --json` should mask values by default."""
         vm = self._setup_vm(mock_vm_cls)
@@ -433,7 +438,7 @@ class TestCliEnv:
     def test_env_list_json_show_values(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox env list --json --show-values` should reveal values."""
         vm = self._setup_vm(mock_vm_cls)
@@ -478,7 +483,7 @@ class TestCliEnv:
     def test_vm_lookup_failure_prints_error(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Test handling of VM lookup failure."""
         mock_vm_cls.from_id.side_effect = Exception("Computer not found")
@@ -491,7 +496,7 @@ class TestCliEnv:
     def test_vm_no_network_prints_error(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Test handling of env operation failure from facade."""
         vm = self._setup_vm(mock_vm_cls)
@@ -508,7 +513,7 @@ class TestCliFile:
     """Tests for `celesto sandbox file` subcommands."""
 
     @pytest.fixture
-    def mock_vm_cls(self) -> MagicMock:
+    def mock_vm_cls(self) -> Generator[MagicMock, None, None]:
         with patch("celesto.facade.Celesto") as m:
             yield m
 
@@ -516,7 +521,7 @@ class TestCliFile:
         self,
         mock_vm_cls: MagicMock,
         tmp_path: Path,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox file upload` should copy a local file into a sandbox."""
         source = tmp_path / "note.txt"
@@ -574,7 +579,7 @@ class TestCliFile:
         self,
         mock_vm_cls: MagicMock,
         tmp_path: Path,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox file upload --json` should emit the upload destination."""
         source = tmp_path / "note.txt"
@@ -637,7 +642,7 @@ class TestCliFile:
         self,
         mock_vm_cls: MagicMock,
         tmp_path: Path,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox file download` should copy a guest file to the host."""
         destination = tmp_path / "note.txt"
@@ -667,7 +672,7 @@ class TestCliFile:
         self,
         mock_vm_cls: MagicMock,
         tmp_path: Path,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox file download --json` should emit the resolved local path."""
         destination = tmp_path / "note.txt"
@@ -747,7 +752,7 @@ class TestCliCreate:
         mock_vm_cls: MagicMock,
         mock_build_auto_config: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox create` should auto-generate a VM name when omitted."""
         monkeypatch.delenv("CELESTO_BACKEND", raising=False)
@@ -808,7 +813,7 @@ class TestCliCreate:
         mock_vm_cls: MagicMock,
         mock_build_auto_config: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox create` should build, start, and report a named VM."""
         monkeypatch.delenv("CELESTO_BACKEND", raising=False)
@@ -975,7 +980,7 @@ class TestCliCreate:
         mock_vm_cls: MagicMock,
         mock_build_auto_config: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox create --json` should emit the shared envelope."""
         monkeypatch.delenv("CELESTO_BACKEND", raising=False)
@@ -1160,7 +1165,7 @@ class TestCliCreate:
         self,
         mock_vm_cls: MagicMock,
         mock_build_auto_config: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Duplicate VM names should fail cleanly."""
         mock_build_auto_config.return_value = (MagicMock(vm_id="project-spacex"), "/tmp/id_ed25519")
@@ -1175,7 +1180,7 @@ class TestCliCreate:
     def test_create_invalid_name_failure(
         self,
         mock_build_auto_config: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Invalid VM IDs should be reported to the user."""
         mock_build_auto_config.side_effect = Exception("1 validation error for VMConfig")
@@ -1189,7 +1194,7 @@ class TestCliCreate:
     def test_create_image_build_failure(
         self,
         mock_build_auto_config: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Image build failures should surface actionable output."""
         mock_build_auto_config.side_effect = Exception("Docker is required to build images")
@@ -1492,7 +1497,7 @@ class TestCliWindowsBuildImage:
         # The builder writes the qcow2; simulate by touching it post-build.
         out_built = MagicMock()
         out_built.stat.return_value = MagicMock(st_size=12345)
-        out_built.__str__ = lambda self: str(out)  # noqa: ARG005
+        out_built.configure_mock(**{"__str__.return_value": str(out)})
         mock_builder = MagicMock()
         mock_builder.build.return_value = out_built
         mock_builder_cls.return_value = mock_builder
@@ -1585,7 +1590,7 @@ class TestCliWindowsBuildImage:
         virtio.touch()
         out_built = MagicMock()
         out_built.stat.return_value = MagicMock(st_size=999)
-        out_built.__str__ = lambda self: str(out)  # noqa: ARG005
+        out_built.configure_mock(**{"__str__.return_value": str(out)})
         mock_builder = MagicMock()
         mock_builder.build.return_value = out_built
         mock_builder_cls.return_value = mock_builder
@@ -1618,7 +1623,7 @@ class TestCliStop:
     def test_stop_success(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox stop` should stop an existing VM and report the result."""
         vm = MagicMock()
@@ -1639,7 +1644,7 @@ class TestCliStop:
     def test_stop_json(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox stop --json` should emit the shared envelope."""
         vm = MagicMock()
@@ -1659,7 +1664,7 @@ class TestCliStop:
     def test_stop_missing_vm_prints_error(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Missing VMs should surface a clean error."""
         mock_vm_cls.from_id.side_effect = Exception("Computer 'missing' not found")
@@ -1677,7 +1682,7 @@ class TestCliPauseResume:
     def test_pause_success(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox pause` should pause an existing VM and report the result."""
         vm = MagicMock()
@@ -1698,7 +1703,7 @@ class TestCliPauseResume:
     def test_resume_json(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox resume --json` should emit the shared envelope."""
         vm = MagicMock()
@@ -1722,7 +1727,7 @@ class TestCliVmStart:
     def test_start_success(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox start` should start a stopped VM and report the result."""
         vm = MagicMock()
@@ -1743,7 +1748,7 @@ class TestCliVmStart:
     def test_start_json(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox start --json` should emit the shared envelope."""
         vm = MagicMock()
@@ -1783,7 +1788,7 @@ class TestCliSnapshot:
     def test_snapshot_create_success(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox snapshot create` should create a snapshot from an existing VM."""
         vm = MagicMock()
@@ -1843,7 +1848,7 @@ class TestCliSnapshot:
     def test_snapshot_create_json(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox snapshot create --json` should emit snapshot metadata."""
         vm = MagicMock()
@@ -1866,7 +1871,7 @@ class TestCliSnapshot:
         self,
         mock_sdk_cls: MagicMock,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox snapshot restore --json` should report both snapshot and VM state."""
         sdk = mock_sdk_cls.return_value
@@ -1900,7 +1905,7 @@ class TestCliSnapshot:
     def test_snapshot_delete_success(
         self,
         mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox snapshot delete` should delete snapshot metadata and files."""
         sdk = mock_sdk_cls.return_value
@@ -1919,7 +1924,7 @@ class TestCliSnapshot:
     def test_snapshot_delete_clears_recovered_artifact(
         self,
         mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Snapshot delete should expose the recovery-record cleanup action."""
         from celesto.exceptions import SnapshotNotFoundError
@@ -1943,7 +1948,7 @@ class TestCliSnapshot:
     def test_snapshot_list_json(
         self,
         mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox snapshot list --json` should emit snapshot rows."""
         sdk = mock_sdk_cls.return_value
@@ -2029,13 +2034,13 @@ class TestCliPort:
     def test_port_list_reports_corrupt_state(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox port list` must report corrupt forwarding state as
         a CLI error carrying the reset command (regression: the raw
         RuntimeError escaped, so `--json` consumers got no envelope)."""
 
-        def corrupt(vm_id: str) -> list[dict]:
+        def corrupt(vm_id: str) -> NoReturn:
             raise RuntimeError(
                 f"Port forward state for '{vm_id}' is corrupt. "
                 f"Run rm -- '/tmp/{vm_id}.json' to reset it."
@@ -2107,7 +2112,7 @@ class TestCliShell:
         self,
         mock_vm_cls: MagicMock,
         mock_run: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         from celesto.exceptions import CelestoError
 
@@ -2141,7 +2146,7 @@ class TestCliShell:
         mock_vm_cls: MagicMock,
         mock_run: MagicMock,
         status: VMState,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         from celesto.exceptions import CelestoError
 
@@ -2191,7 +2196,7 @@ class TestCliShell:
     def test_shell_error_state_fails_fast(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         vm = MagicMock()
         vm.vm_id = "vm001"
@@ -2318,7 +2323,7 @@ class TestCliSSH:
         self,
         mock_vm_cls: MagicMock,
         mock_run: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """VMs in ERROR should not be auto-started or attached."""
         vm = MagicMock()
@@ -2340,7 +2345,7 @@ class TestCliSSH:
         self,
         mock_vm_cls: MagicMock,
         mock_run: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Missing VMs should surface a clean error."""
         mock_vm_cls.from_id.side_effect = Exception("Computer 'missing' not found")
@@ -2357,7 +2362,7 @@ class TestCliSSH:
         self,
         mock_vm_cls: MagicMock,
         _: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Missing host ssh binary should produce an actionable error."""
         vm = MagicMock()
@@ -2652,7 +2657,7 @@ class TestCliBrowser:
 
     @patch("celesto.browser._BrowserSandbox")
     def test_browser_start_json(
-        self, mock_browser_cls: MagicMock, capsys: pytest.CaptureFixture
+        self, mock_browser_cls: MagicMock, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """`celesto browser start --json` should emit machine-readable sandbox details."""
         session = MagicMock()
@@ -2705,7 +2710,7 @@ class TestCliBrowser:
     def test_browser_open_requires_viewer_url(
         self,
         mock_browser_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto browser open` should fail cleanly for headless sessions."""
         session = MagicMock()
@@ -2725,7 +2730,7 @@ class TestCliBrowser:
         mock_state_manager_cls: MagicMock,
         _mock_resolve_data_dir: MagicMock,
         mock_browser_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto browser stop --all` should stop every persisted sandbox."""
         state_manager = MagicMock()
@@ -2761,7 +2766,7 @@ class TestCliBrowser:
         mock_state_manager_cls: MagicMock,
         _mock_resolve_data_dir: MagicMock,
         mock_browser_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto browser stop --all` should show a concrete recovery command."""
         state_manager = MagicMock()
@@ -2787,7 +2792,7 @@ class TestCliBrowser:
     def test_browser_stop_failure_names_recovery_command(
         self,
         mock_browser_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto browser stop <id>` should show a concrete recovery command."""
         session = MagicMock()
@@ -2808,7 +2813,7 @@ class TestCliBrowser:
         self,
         mock_state_manager_cls: MagicMock,
         mock_browser_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Stopping a computer through browser commands should name the right command."""
         session = MagicMock()
@@ -2834,7 +2839,7 @@ class TestCliBrowser:
         _mock_state_manager_cls: MagicMock,
         mock_browser_cls: MagicMock,
         action: str,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """A missing browser session should say so instead of suggesting a retry."""
         mock_browser_cls.from_id.side_effect = BrowserSessionNotFoundError("ghost")
@@ -2853,7 +2858,7 @@ class TestCliBrowser:
         self,
         mock_state_manager_cls: MagicMock,
         _mock_resolve_data_dir: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto browser stop --all` should be a no-op when nothing is persisted."""
         state_manager = MagicMock()
@@ -2872,7 +2877,7 @@ class TestCliBrowser:
         self,
         mock_state_manager_cls: MagicMock,
         _mock_resolve_data_dir: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto browser list --json` should serialize stored browser sandboxes."""
         state_manager = MagicMock()
@@ -2922,14 +2927,25 @@ class TestCliComputer:
     def test_computer_start_json(
         self,
         mock_computer_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         computer = MagicMock()
         computer.computer_id = "computer-demo"
         computer.sandbox_id = "computer-demo"
         computer.template = "linux-desktop"
-        computer.display.viewer_url = "http://127.0.0.1:6080/vnc.html"
-        computer.display.vnc_url = "vnc://127.0.0.1:5900"
+        from celesto.computer import ComputerDisplay
+
+        # The display adapter needs only these properties from its sandbox owner.
+        computer.display = ComputerDisplay(
+            cast(
+                "_ComputerSandbox",
+                SimpleNamespace(
+                    viewer_url="http://127.0.0.1:6080/" + "a" * 64 + "/vnc.html",
+                    display_url=None,
+                    computer_id="computer-demo",
+                ),
+            )
+        )
         computer.browser.status = "ready"
         computer.browser.cdp_url = "http://127.0.0.1:9222"
         mock_computer_cls.return_value = computer
@@ -2944,6 +2960,7 @@ class TestCliComputer:
         payload = json.loads(capsys.readouterr().out)
         assert payload["command"] == "computer.create"
         assert payload["data"]["display"]["viewer_url"].startswith("http://127.0.0.1")
+        assert payload["data"]["display"]["vnc_url"] is None
         assert payload["data"]["browser"]["cdp_url"] == "http://127.0.0.1:9222"
 
     @pytest.mark.parametrize(
@@ -2960,7 +2977,7 @@ class TestCliComputer:
         option: str,
         value: str,
         example: str,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         ret = main(["computer", "create", "--desktop", option, value])
 
@@ -2973,7 +2990,7 @@ class TestCliComputer:
         self,
         mock_state_manager_cls: MagicMock,
         _mock_resolve_data_dir: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         state_manager = MagicMock()
         session = MagicMock(
@@ -3013,7 +3030,7 @@ class TestCliComputer:
         _mock_resolve_data_dir: MagicMock,
         guest_os: GuestOS,
         recovery: str,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`open` finds only Linux desktops, so other computers need another command."""
         state_manager = MagicMock()
@@ -3037,7 +3054,7 @@ class TestCliComputer:
         self,
         mock_state_manager_cls: MagicMock,
         _mock_resolve_data_dir: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         state_manager = MagicMock()
         state_manager.get_browser_session_config.side_effect = BrowserSessionNotFoundError("ghost")
@@ -3059,7 +3076,7 @@ class TestCliComputer:
         mock_state_manager_cls: MagicMock,
         _mock_resolve_data_dir: MagicMock,
         _mock_vm_from_id: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`desktop` finds only macOS computers, so a Linux desktop needs `computer open`."""
         state_manager = MagicMock()
@@ -3072,7 +3089,7 @@ class TestCliComputer:
         compact_error = " ".join(capsys.readouterr().err.replace("│", " ").split())
         assert "celesto computer open assistant" in compact_error
 
-    def test_computer_templates(self, capsys: pytest.CaptureFixture) -> None:
+    def test_computer_templates(self, capsys: pytest.CaptureFixture[str]) -> None:
         ret = main(["computer", "templates", "--json"])
 
         assert ret == 0
@@ -3099,6 +3116,7 @@ class TestCliUi:
             port=8080,
         )
 
+    @patch.dict(os.environ, {"CELESTO_DASHBOARD_TOKEN": "synthetic-test-dashboard-token"})
     @patch("celesto.cli.main.importlib.import_module")
     def test_ui_custom_port(self, mock_import: MagicMock) -> None:
         """Custom host/port should be forwarded to uvicorn."""
@@ -3135,7 +3153,7 @@ class TestCliUi:
     def test_ui_missing_dependency(
         self,
         _: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Missing dashboard extras should return an actionable error."""
         ret = main(["ui"])
@@ -3147,7 +3165,7 @@ class TestCliUi:
     def test_ui_invalid_port(
         self,
         mock_import: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Out-of-range ports should fail fast with usage error code."""
         mock_import.return_value = MagicMock()
@@ -3162,7 +3180,7 @@ class TestCliUi:
         self,
         mock_import: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Pre-release celesto version should auto-enable beta UI assets."""
         monkeypatch.setitem(main.__globals__, "_current_version_is_prerelease", lambda: True)
@@ -3186,7 +3204,7 @@ class TestCliUi:
         self,
         mock_import: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Stable celesto version should NOT auto-enable beta UI assets."""
         monkeypatch.setitem(main.__globals__, "_current_version_is_prerelease", lambda: False)
@@ -3205,7 +3223,7 @@ class TestCliList:
     """Tests for `celesto sandbox list`."""
 
     @pytest.fixture
-    def mock_sdk_cls(self) -> MagicMock:
+    def mock_sdk_cls(self) -> Generator[MagicMock, None, None]:
         with patch("celesto.vm.CelestoManager") as m:
             m.return_value.__enter__.return_value = m.return_value
             m.return_value.__exit__.side_effect = lambda *args: m.return_value.close()
@@ -3217,7 +3235,7 @@ class TestCliList:
     def test_list_empty(
         self,
         mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox list` with no running VMs should print a friendly message."""
         mock_sdk_cls.return_value.list_vms.return_value = []
@@ -3232,7 +3250,7 @@ class TestCliList:
     def test_list_shows_vms(
         self,
         mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox list` should show sandbox identity and provenance."""
         vms = [_make_vm_info("vm-abc123", VMState.RUNNING, "172.16.0.2", 2200, 12345)]
@@ -3256,7 +3274,7 @@ class TestCliList:
     def test_list_all_shows_running_and_stopped_vms(
         self,
         mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox list --all` should include stopped VMs."""
         vms = [
@@ -3278,7 +3296,7 @@ class TestCliList:
     def test_list_no_network(
         self,
         mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox list` should show '-' for a missing PID."""
         vms = [_make_vm_info("vm-abc123", VMState.RUNNING, "", None, None)]
@@ -3310,7 +3328,7 @@ class TestCliList:
     def test_list_json(
         self,
         mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox list --json` should emit structured data for running VMs."""
         mock_sdk_cls.return_value.list_vms.return_value = [
@@ -3343,7 +3361,7 @@ class TestCliList:
     def test_list_json_empty(
         self,
         mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox list --json` should emit an empty JSON array when nothing matches."""
         mock_sdk_cls.return_value.list_vms.return_value = []
@@ -3362,7 +3380,7 @@ class TestCliList:
     def test_list_all_json(
         self,
         mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox list --all --json` should emit all VM rows."""
         mock_sdk_cls.return_value.list_vms.return_value = [
@@ -3383,7 +3401,7 @@ class TestCliList:
     def test_list_status_filter_empty(
         self,
         mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox list --status stopped` with no results shows filtered message."""
         mock_sdk_cls.return_value.list_vms.return_value = []
@@ -3396,7 +3414,7 @@ class TestCliList:
     def test_list_sdk_error(
         self,
         mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox list` prints error and returns 1 on unexpected failure."""
         mock_sdk_cls.return_value.list_vms.side_effect = RuntimeError("db unavailable")
@@ -3410,7 +3428,7 @@ class TestCliList:
     def test_list_flags_stale_workspace_mount(
         self,
         mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
         tmp_path: Path,
     ) -> None:
         """`celesto sandbox list` should keep listing VMs whose host mount is gone,
@@ -3432,7 +3450,7 @@ class TestCliList:
     def test_list_warning_does_not_claim_running_sandbox_cannot_start(
         self,
         mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
         tmp_path: Path,
     ) -> None:
         """The warning must not falsely claim a running sandbox can't start.
@@ -3455,7 +3473,7 @@ class TestCliList:
     def test_list_json_includes_warnings(
         self,
         mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
         tmp_path: Path,
     ) -> None:
         """`celesto sandbox list --json` should expose stale mounts via `warnings`."""
@@ -3479,7 +3497,7 @@ class TestCliInfo:
     """Tests for `celesto sandbox info`."""
 
     @pytest.fixture
-    def mock_sdk_cls(self) -> MagicMock:
+    def mock_sdk_cls(self) -> Generator[MagicMock, None, None]:
         with patch("celesto.vm.CelestoManager") as m:
             m.return_value.__enter__.return_value = m.return_value
             m.return_value.__exit__.side_effect = lambda *args: m.return_value.close()
@@ -3523,7 +3541,7 @@ class TestCliInfo:
         self,
         mock_sdk_cls: MagicMock,
         tmp_path: Path,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox info <name>` should show the full details table."""
         rootfs = tmp_path / "ubuntu-noble-minimal-qemu-x86_64" / "rootfs.qcow2"
@@ -3555,10 +3573,14 @@ class TestCliInfo:
     def test_info_running_vm_queries_live_data(
         self,
         mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """For running VMs, info should overlay OS and used memory from SSH."""
         vm_info = self._make_info_vm(status=VMState.RUNNING)
+        mock_sdk_cls.return_value.data_dir = tmp_path
+        monkeypatch.setenv("CELESTO_DATA_DIR", str(tmp_path))
         mock_sdk_cls.return_value.state.get_vm.return_value = vm_info
         with patch("celesto.cli.main._query_live_vm_info") as mock_query:
             mock_query.return_value = {
@@ -3572,12 +3594,12 @@ class TestCliInfo:
         out = capsys.readouterr().out
         assert "Ubuntu 24.04.1 LTS" in out
         assert "312 / 1024 MiB used" in out
-        mock_query.assert_called_once_with(vm_info)
+        mock_query.assert_called_once_with(vm_info, data_dir=tmp_path)
 
     def test_info_running_vm_with_unreachable_ssh(
         self,
         mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """If SSH probe fails, info should still render with placeholders."""
         mock_sdk_cls.return_value.state.get_vm.return_value = self._make_info_vm(
@@ -3597,7 +3619,7 @@ class TestCliInfo:
     def test_info_handles_missing_network(
         self,
         mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox info` should render '-' when the VM has no network."""
         mock_sdk_cls.return_value.state.get_vm.return_value = self._make_info_vm(
@@ -3615,7 +3637,7 @@ class TestCliInfo:
         self,
         mock_sdk_cls: MagicMock,
         tmp_path: Path,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox info --json` should emit a structured envelope."""
         rootfs = tmp_path / "alpine-virt" / "rootfs.ext4"
@@ -3675,7 +3697,7 @@ class TestCliInfo:
     def test_info_not_found(
         self,
         mock_sdk_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox info` returns 1 and an error message when the VM is missing."""
         mock_sdk_cls.return_value.state.get_vm.side_effect = RuntimeError(
@@ -3692,7 +3714,7 @@ class TestCliInfo:
         self,
         mock_sdk_cls: MagicMock,
         tmp_path: Path,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """For qcow2 rootfs, disk size should report the guest-visible virtual size."""
         rootfs = tmp_path / "ubuntu" / "rootfs.qcow2"
@@ -3715,7 +3737,7 @@ class TestCliHelp:
 
     def test_sandbox_help_lists_nested_resource_groups(
         self,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`celesto sandbox --help` should expose sandbox-owned resources."""
         ret = main(["sandbox", "--help"])
@@ -3731,7 +3753,7 @@ class TestCliHelp:
     def test_old_root_sandbox_resource_groups_are_absent(
         self,
         command: str,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Sandbox-owned resource groups should not remain as root aliases."""
         ret = main([command, "--help"])
@@ -3887,7 +3909,7 @@ class TestCliImage:
         mock_vmm: MagicMock,
         mock_ensure_published: MagicMock,
         tmp_path: Path,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """A true no-op (cache dir untouched, nothing downloaded) reports
         already_cached, and pulling to a non-default dir warns that
@@ -3936,7 +3958,7 @@ class TestCliImage:
         mock_vmm: MagicMock,
         mock_ensure_published: MagicMock,
         tmp_path: Path,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Work without downloads (e.g. rootfs decompression) must not be
         reported as a cache hit (regression)."""
@@ -3977,7 +3999,7 @@ class TestCliImage:
         mock_vmm: MagicMock,
         mock_ensure_published: MagicMock,
         tmp_path: Path,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """A cache we cannot fully read must not be reported as a no-op pull.
 
@@ -4020,7 +4042,7 @@ class TestCliImage:
         mock_vmm: MagicMock,
         mock_ensure_published: MagicMock,
         tmp_path: Path,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """A directory we cannot descend into must not read as a complete scan.
 
@@ -4067,7 +4089,7 @@ class TestCliImage:
         mock_vmm: MagicMock,
         mock_ensure_published: MagicMock,
         tmp_path: Path,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Disk failures must not be blamed on the network (regression)."""
         mock_ensure_published.side_effect = OSError(28, "No space left on device")
@@ -4088,7 +4110,7 @@ class TestCliImage:
         mock_vmm: MagicMock,
         mock_ensure_published: MagicMock,
         tmp_path: Path,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """The suggested retry reproduces the user's invocation (regression:
         it used to drop --os/--image-dir)."""
@@ -4114,7 +4136,7 @@ class TestCliImage:
         mock_vmm: MagicMock,
         mock_ensure_published: MagicMock,
         tmp_path: Path,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """A fresh download (callback fired) reports already_cached=False."""
         from celesto.images.manager import LocalImage
@@ -4145,7 +4167,7 @@ class TestCliImage:
         self,
         mock_arch: MagicMock,
         mock_vmm: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         ret = main(["image", "pull", "nosuchpreset", "--json"])
 
@@ -4162,7 +4184,7 @@ class TestCliImage:
         self,
         mock_arch: MagicMock,
         mock_vmm: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """A valid preset with an unpublished os flavour names the default recovery."""
         ret = main(["image", "pull", "ubuntu", "--os", "alpine", "--json"])
@@ -4179,7 +4201,7 @@ class TestCliImage:
     def test_image_pull_unsupported_host_json(
         self,
         mock_arch: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """An undetectable host platform asks for explicit --arch/--vmm."""
         ret = main(["image", "pull", "ubuntu", "--json"])
@@ -4198,7 +4220,7 @@ class TestCliImage:
         mock_vmm: MagicMock,
         mock_ensure_published: MagicMock,
         tmp_path: Path,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         from celesto.exceptions import ImageError
 
@@ -4211,7 +4233,7 @@ class TestCliImage:
         assert payload["ok"] is False
         assert "celesto image pull ubuntu" in payload["error"]["recovery"]
 
-    def test_image_pull_parse_error_command_name(self, capsys: pytest.CaptureFixture) -> None:
+    def test_image_pull_parse_error_command_name(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Parse-time errors carry the dotted image.pull command name."""
         ret = main(["image", "pull", "--not-a-flag", "--json"])
 
@@ -4229,7 +4251,7 @@ class TestCliImage:
         ],
     )
     def test_computer_port_parse_error_command_name(
-        self, verb: str, expected: str, capsys: pytest.CaptureFixture
+        self, verb: str, expected: str, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Parse-time errors match the dotted name successful runs report."""
         ret = main(["computer", "port", verb, "--not-a-flag", "--json"])
@@ -4243,7 +4265,7 @@ class TestCliExec:
     """Tests for `celesto sandbox exec`."""
 
     @pytest.fixture
-    def mock_vm_cls(self) -> MagicMock:
+    def mock_vm_cls(self) -> Generator[MagicMock, None, None]:
         with patch("celesto.facade.Celesto") as m:
             yield m
 
@@ -4257,7 +4279,7 @@ class TestCliExec:
     def test_exec_prints_stdout_and_returns_exit_code(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`sandbox exec` runs the command and passes output/exit code through."""
 
@@ -4285,7 +4307,7 @@ class TestCliExec:
     def test_exec_nonzero_exit_code_propagates(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """A failing guest command surfaces its exit code and stderr."""
 
@@ -4300,7 +4322,7 @@ class TestCliExec:
     def test_exec_json_envelope(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`--json` emits the command result as a JSON envelope."""
 
@@ -4327,7 +4349,7 @@ class TestCliExec:
     def test_exec_lookup_failure_prints_error(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """A missing sandbox surfaces a human-facing error."""
         mock_vm_cls.from_id.side_effect = Exception("Computer 'missing' not found")
@@ -4340,7 +4362,7 @@ class TestCliExec:
     def test_exec_fails_when_not_running(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """A stopped sandbox is not started implicitly; exec errors out."""
         vm = self._setup_vm(mock_vm_cls)
@@ -4358,7 +4380,7 @@ class TestCliExec:
     def test_exec_not_running_json_recovery(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """The not-running error carries a JSON recovery that mentions --start."""
         vm = self._setup_vm(mock_vm_cls)
@@ -4391,7 +4413,7 @@ class TestCliExec:
     def test_exec_json_nonzero_populates_error(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """A non-zero guest exit keeps the envelope's ok<->error invariant."""
 
@@ -4428,7 +4450,7 @@ class TestCliExec:
     def test_exec_stderr_survives_broken_stdout(
         self,
         mock_vm_cls: MagicMock,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """A closed stdout pipe must not swallow the command's stderr."""
 
@@ -4467,7 +4489,7 @@ class TestCliLogs:
     """Tests for `celesto sandbox logs`."""
 
     @pytest.fixture
-    def mock_vm_cls(self) -> MagicMock:
+    def mock_vm_cls(self) -> Generator[MagicMock, None, None]:
         with patch("celesto.facade.Celesto") as m:
             yield m
 
@@ -4482,7 +4504,7 @@ class TestCliLogs:
         self,
         mock_vm_cls: MagicMock,
         tmp_path: Path,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`sandbox logs` prints the last N lines of the host log."""
         self._setup_vm(mock_vm_cls, tmp_path)
@@ -4537,7 +4559,7 @@ class TestCliLogs:
         self,
         mock_vm_cls: MagicMock,
         tmp_path: Path,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`--json` returns the log path and the tailed lines."""
         self._setup_vm(mock_vm_cls, tmp_path)
@@ -4555,7 +4577,7 @@ class TestCliLogs:
         self,
         mock_vm_cls: MagicMock,
         tmp_path: Path,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """A sandbox with no log file yields an actionable error."""
         self._setup_vm(mock_vm_cls, tmp_path)
@@ -4569,7 +4591,7 @@ class TestCliLogs:
         self,
         mock_vm_cls: MagicMock,
         tmp_path: Path,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Missing-log error is also emitted as a JSON envelope with recovery."""
         self._setup_vm(mock_vm_cls, tmp_path)
@@ -4586,7 +4608,7 @@ class TestCliLogs:
         self,
         mock_vm_cls: MagicMock,
         tmp_path: Path,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`--follow --json` is refused because streaming has no envelope."""
         self._setup_vm(mock_vm_cls, tmp_path)
@@ -4602,7 +4624,7 @@ class TestCliLogs:
         self,
         mock_vm_cls: MagicMock,
         tmp_path: Path,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """--follow must not append a newline to a final line still being written."""
         self._setup_vm(mock_vm_cls, tmp_path)
@@ -4658,7 +4680,7 @@ class TestCliLogs:
 class TestCliCompletion:
     """Tests for `celesto completion` and dynamic sandbox-name completion."""
 
-    def test_completion_bash_emits_script(self, capsys: pytest.CaptureFixture) -> None:
+    def test_completion_bash_emits_script(self, capsys: pytest.CaptureFixture[str]) -> None:
         """`celesto completion bash` prints a sourceable completion script."""
         ret = main(["completion", "bash"])
 
@@ -4685,7 +4707,7 @@ class TestCliCompletion:
     def test_completion_install_bash_writes_script_and_rc_line(
         self,
         fake_home: Path,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """`completion bash --install` persists the script and sources it from ~/.bashrc."""
         # Pin the platform: ~/.bashrc is the Linux answer, and the macOS answer
@@ -4743,7 +4765,7 @@ class TestCliCompletion:
         self,
         fake_home: Path,
         monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """A write failure yields an actionable error, not a traceback."""
         blocker = fake_home / "not-a-dir"

@@ -17,6 +17,7 @@
 import json
 import os
 import sqlite3
+import stat
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -124,6 +125,7 @@ class TestStateManagerVMOperations:
     ) -> None:
         """Persisted VM metadata should remain readable after cache cleanup."""
         state_manager.create_vm(sample_config)
+        assert sample_config.kernel_path is not None
         sample_config.kernel_path.unlink()
 
         vm_info = state_manager.get_vm("vm001")
@@ -761,7 +763,7 @@ class TestBrowserSessionStorage:
         updated = state_manager.update_browser_session(
             "browser-abc123",
             status=BrowserSessionState.READY,
-            cdp_url="http://127.0.0.1:39222",
+            cdp_url="http://127.0.0.1:39222/" + "a" * 64 + "/",
             live_url="http://127.0.0.1:36080/vnc.html",
             vnc_url="vnc://127.0.0.1:35900",
             debug_port=39222,
@@ -769,7 +771,9 @@ class TestBrowserSessionStorage:
         )
 
         assert updated.status == BrowserSessionState.READY
-        assert updated.cdp_url == "http://127.0.0.1:39222"
+        assert updated.cdp_url == "http://127.0.0.1:39222/" + "a" * 64 + "/"
+        assert "a" * 64 not in repr(updated)
+        assert "a" * 64 not in str(updated)
         assert updated.live_url == "http://127.0.0.1:36080/vnc.html"
         assert updated.vnc_url == "vnc://127.0.0.1:35900"
         assert updated.vnc_port == 35900
@@ -805,3 +809,63 @@ class TestBrowserSessionStorage:
         state_manager.delete_browser_session("browser-001")
         with pytest.raises(BrowserSessionNotFoundError):
             state_manager.get_browser_session("browser-001")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX filesystem permissions")
+@pytest.mark.parametrize("existing", [False, True])
+def test_inventory_files_are_private(tmp_path: Path, existing: bool) -> None:
+    """Database and active SQLite WAL files never expose saved connection URLs."""
+    path = tmp_path / "inventory.db"
+    if existing:
+        StateManager(path)
+        path.chmod(0o644)
+    previous_mask = os.umask(0o022)
+    try:
+        manager = StateManager(path)
+    finally:
+        os.umask(previous_mask)
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    # Keep an actual WAL connection active while Celesto writes the secret.
+    with sqlite3.connect(path) as connection:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("BEGIN")
+        connection.execute("SELECT * FROM browser_sessions").fetchall()
+        manager.create_browser_session(
+            BrowserSessionInfo(
+                session_id="private-browser",
+                vm_id="private-browser",
+                status=BrowserSessionState.READY,
+                cdp_url="http://127.0.0.1:9222/" + "b" * 64 + "/",
+            ),
+            BrowserSessionConfig(session_id="private-browser"),
+        )
+        cdp_url = manager.get_browser_session("private-browser").cdp_url
+        assert cdp_url is not None
+        assert "b" * 64 in cdp_url
+        for suffix in ("-wal", "-shm"):
+            assert stat.S_IMODE(Path(str(path) + suffix).stat().st_mode) == 0o600
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX filesystem permissions")
+@pytest.mark.parametrize("link_kind", ["symlink", "hardlink", "writable-parent"])
+def test_inventory_refuses_unsafe_locations(tmp_path: Path, link_kind: str) -> None:
+    victim = tmp_path / "existing.db"
+    StateManager(victim)
+    victim.chmod(0o644)
+    before = victim.read_bytes()
+    path = tmp_path / "inventory.db"
+    if link_kind == "symlink":
+        path.symlink_to(victim)
+    elif link_kind == "hardlink":
+        path.hardlink_to(victim)
+    else:
+        parent = tmp_path / "shared"
+        parent.mkdir(mode=0o777)
+        parent.chmod(0o777)
+        path = parent / "inventory.db"
+    with pytest.raises((OSError, ValueError)):
+        StateManager(path)
+    assert victim.read_bytes() == before
+    assert stat.S_IMODE(victim.stat().st_mode) == 0o644
+    if link_kind == "writable-parent":
+        assert stat.S_IMODE(path.parent.stat().st_mode) == 0o777

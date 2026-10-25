@@ -18,10 +18,11 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
-import json
 import sys
+from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -29,7 +30,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 MODULE_PATH = REPO_ROOT / "examples" / "agent_tools" / "pydanticai_agent_browser.py"
 
 
-def _load_module():
+def _load_module() -> ModuleType:
     spec = importlib.util.spec_from_file_location("pydanticai_agent_browser", MODULE_PATH)
     assert spec is not None
     assert spec.loader is not None
@@ -37,110 +38,6 @@ def _load_module():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
-
-
-def test_parse_browser_start_output_extracts_session_metadata() -> None:
-    module = _load_module()
-    payload = {
-        "command": "browser.start",
-        "ok": True,
-        "data": {
-            "session_id": "browser-abc123",
-            "cdp_url": "http://127.0.0.1:39222",
-            "viewer_url": "http://127.0.0.1:36080/vnc.html?autoconnect=1&resize=scale",
-            "display_url": "vnc://127.0.0.1:35900",
-            "artifacts_dir": "/tmp/browser-abc123",
-        },
-    }
-
-    parsed = module._parse_browser_start_output(json.dumps(payload))
-
-    assert parsed is not None
-    assert parsed["session_id"] == "browser-abc123"
-    assert parsed["cdp_url"] == "http://127.0.0.1:39222"
-    assert parsed["cdp_port"] == 39222
-    assert parsed["viewer_url"] == "http://127.0.0.1:36080/vnc.html?autoconnect=1&resize=scale"
-    assert parsed["display_url"] == "vnc://127.0.0.1:35900"
-    assert parsed["artifacts_dir"] == "/tmp/browser-abc123"
-
-
-def test_parse_browser_start_output_returns_none_for_non_json() -> None:
-    module = _load_module()
-
-    parsed = module._parse_browser_start_output("not json")
-
-    assert parsed is None
-
-
-def test_parse_browser_start_output_requires_cdp_url() -> None:
-    module = _load_module()
-    payload = {
-        "command": "browser.start",
-        "ok": True,
-        "data": {
-            "session_id": "browser-abc123",
-            "cdp_url": None,
-        },
-    }
-
-    with pytest.raises(RuntimeError, match="usable cdp_url"):
-        module._parse_browser_start_output(json.dumps(payload))
-
-
-def test_format_command_result_includes_normalized_browser_section() -> None:
-    module = _load_module()
-    session = {
-        "session_id": "browser-abc123",
-        "cdp_url": "http://127.0.0.1:39222",
-        "cdp_port": 39222,
-        "viewer_url": "http://127.0.0.1:36080/vnc.html",
-        "display_url": "vnc://127.0.0.1:35900",
-        "artifacts_dir": "/tmp/browser-abc123",
-    }
-
-    formatted = module._format_command_result(0, '{"ok": true}', "", parsed_browser_session=session)
-
-    assert "exit_code: 0" in formatted
-    assert 'stdout:\n{"ok": true}' in formatted
-    assert "stderr:\n<empty>" in formatted
-    assert "parsed_browser_session:" in formatted
-    assert "session_id: browser-abc123" in formatted
-    assert "cdp_port: 39222" in formatted
-    assert "display_url: vnc://127.0.0.1:35900" in formatted
-    assert "artifacts_dir: /tmp/browser-abc123" in formatted
-
-
-def test_run_host_bash_logs_command_and_result(monkeypatch, capsys) -> None:
-    module = _load_module()
-
-    def fake_run(*args, **kwargs):
-        del args, kwargs
-        return module.subprocess.CompletedProcess(
-            args=["bash", "-lc", "echo hi"],
-            returncode=0,
-            stdout="hello\n",
-            stderr="",
-        )
-
-    monkeypatch.setattr(module.subprocess, "run", fake_run)
-    ctx = SimpleNamespace(deps=module.BrowserCliDeps())
-
-    result = module.run_host_bash(ctx, "echo hi")
-
-    captured = capsys.readouterr()
-    assert "Running command: echo hi" in captured.out
-    assert "Command result:" in captured.out
-    assert "stdout:\nhello" in captured.out
-    assert result.startswith("exit_code: 0")
-
-
-def test_prompt_tells_model_to_read_help_and_plan_first() -> None:
-    module = _load_module()
-
-    assert "First read `agent-browser --help`." in module.SYSTEM_INSTRUCTIONS
-    assert "Decide on the exact commands before you run them." in module.SYSTEM_INSTRUCTIONS
-    assert "Read `agent-browser --help`" in module.DEMO_PROMPT
-    assert "Make a short plan" in module.DEMO_PROMPT
 
 
 def test_build_parser_accepts_optional_input_override() -> None:
@@ -157,3 +54,32 @@ def test_resolve_prompt_falls_back_to_demo_prompt() -> None:
 
     assert module._resolve_prompt(None) == module.DEMO_PROMPT
     assert module._resolve_prompt("Open example.com") == "Open example.com"
+
+
+def test_model_tool_cannot_execute_host_shell(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Untrusted model arguments never gain command execution on the operator machine."""
+    module = _load_module()
+    tools: list[Callable[..., str]] = []
+
+    class Agent:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def tool(self, **kwargs: object) -> Callable[[Callable[..., str]], None]:
+            return lambda fn: tools.append(fn)
+
+    monkeypatch.setattr(module, "_require_dependency", lambda *_args: Agent)
+    module._build_agent()
+    marker = tmp_path / "host-command-ran"
+    page = SimpleNamespace(
+        title=lambda: "Fixture",
+        url="https://example.com/",
+        locator=lambda _selector: SimpleNamespace(aria_snapshot=lambda: "Fixture content"),
+    )
+    ctx = SimpleNamespace(deps=module.BrowserCliDeps(page=page))
+    with suppress(ValueError, RuntimeError):
+        tools[0](ctx, f"touch {marker}")
+    assert not marker.exists(), "A model-selected command executed on the operator machine"
+    assert "Fixture content" in tools[0](ctx, "observe")

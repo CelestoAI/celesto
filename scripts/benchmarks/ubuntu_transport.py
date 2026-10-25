@@ -33,18 +33,22 @@ import shutil
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from boot_telemetry import collect_boot_telemetry, summarize_boot_telemetry  # noqa: E402
+if TYPE_CHECKING:
+    from scripts.benchmarks.boot_telemetry import collect_boot_telemetry, summarize_boot_telemetry
+else:
+    from boot_telemetry import collect_boot_telemetry, summarize_boot_telemetry
 
 from celesto.facade import Celesto, _build_auto_config  # noqa: E402
 from celesto.images.published import _images_release_tag  # noqa: E402
@@ -195,6 +199,7 @@ def _config_for_variant(
     rootfs_source: RootfsSource,
 ) -> tuple[Any, str | None, Path, Path | None]:
     config, ssh_key_path = _build_auto_config(os="ubuntu", backend=backend, vm_name=vm_name)
+    assert config.rootfs_path is not None
     published_rootfs = Path(config.rootfs_path)
     patched_rootfs = None
     if rootfs_source == "current-init":
@@ -717,7 +722,11 @@ def main() -> None:
         default="auto",
         help="Snapshot type for --include-snapshot. auto uses diff snapshots.",
     )
-    parser.add_argument("--output", type=Path, default=Path("/tmp/celesto-ubuntu-transport.json"))
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="Create a new report at this path (default: a unique private temporary file).",
+    )
     parser.add_argument("--json", action="store_true", help="Print the full JSON report.")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
@@ -744,11 +753,24 @@ def main() -> None:
         snapshot_type=args.snapshot_type,
     )
     payload = json.dumps(report, indent=2)
-    args.output.write_text(payload + "\n")
+    if args.output is None:
+        with tempfile.NamedTemporaryFile(
+            mode="w", prefix="celesto-ubuntu-transport-", suffix=".json", delete=False
+        ) as report_file:
+            report_file.write(payload + "\n")
+            output_path = Path(report_file.name)
+    else:
+        output_path = args.output
+        try:
+            # Exclusive creation rejects symlinks and hardlinks atomically.
+            with output_path.open("x") as report_file:
+                report_file.write(payload + "\n")
+        except FileExistsError:
+            parser.error(f"Report already exists at '{output_path}'; choose a new --output path.")
     if args.json:
         print(payload)
     else:
-        print(f"Wrote {args.output}")
+        print(f"Wrote {output_path}")
         print(_format_variant_summary_table(report))
 
 

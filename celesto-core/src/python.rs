@@ -188,15 +188,18 @@ fn clone_or_sparse_copy(py: Python<'_>, source: &str, target: &str) -> PyResult<
 }
 
 #[pyfunction]
-#[pyo3(signature = (source, target, chunk_size=1048576))]
+#[pyo3(signature = (source, target, chunk_size=1048576, max_output_bytes=None))]
 fn decompress_zstd_sparse(
     py: Python<'_>,
     source: &str,
     target: &str,
     chunk_size: usize,
+    max_output_bytes: Option<u64>,
 ) -> PyResult<String> {
-    py.detach(|| crate::disk::decompress_zstd_sparse(source, target, chunk_size))
-        .map_err(|error| pyo3::exceptions::PyOSError::new_err(error.to_string()))
+    py.detach(|| {
+        crate::disk::decompress_zstd_sparse_bounded(source, target, chunk_size, max_output_bytes)
+    })
+    .map_err(|error| pyo3::exceptions::PyOSError::new_err(error.to_string()))
 }
 
 #[cfg(unix)]
@@ -237,11 +240,7 @@ fn firecracker_wait_for_socket(py: Python<'_>, socket_path: &str, timeout: f64) 
 
 #[cfg(not(unix))]
 #[pyfunction]
-fn firecracker_wait_for_socket(
-    _py: Python<'_>,
-    _socket_path: &str,
-    _timeout: f64,
-) -> PyResult<()> {
+fn firecracker_wait_for_socket(_py: Python<'_>, _socket_path: &str, _timeout: f64) -> PyResult<()> {
     Err(pyo3::exceptions::PyOSError::new_err(
         "Not available on this platform",
     ))

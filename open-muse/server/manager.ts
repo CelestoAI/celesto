@@ -890,7 +890,7 @@ export class ConversationManager {
         ? await this.runtime.computerProvider.reconnect(context.computerReference)
         : await this.runtime.computerProvider.create({
             viewport: { width: 1440, height: 900 },
-            network: this.fixtureStore ? "off" : "open",
+            network: this.fixtureStore ? "off" : "public",
           });
       if (!computer) {
         context.sessionLifecycle = "error";

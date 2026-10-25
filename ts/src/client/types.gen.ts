@@ -105,7 +105,7 @@ export type ComputerDisplayResponse = {
     /**
      * Vnc Url
      */
-    vnc_url: string;
+    vnc_url?: string | null;
 };
 
 /**
@@ -214,7 +214,9 @@ export type CreateBrowserSessionRequest = {
         mode: 'off';
     } & OffNetworkPolicy) | ({
         mode: 'restricted';
-    } & RestrictedNetworkPolicy);
+    } & RestrictedNetworkPolicy) | ({
+        mode: 'public';
+    } & PublicNetworkPolicy);
 };
 
 /**
@@ -246,7 +248,9 @@ export type CreateComputerRequest = {
         mode: 'off';
     } & OffNetworkPolicy) | ({
         mode: 'restricted';
-    } & RestrictedNetworkPolicy);
+    } & RestrictedNetworkPolicy) | ({
+        mode: 'public';
+    } & PublicNetworkPolicy);
     /**
      * Workspace
      */
@@ -300,7 +304,9 @@ export type CreateSandboxRequest = {
         mode: 'off';
     } & OffNetworkPolicy) | ({
         mode: 'restricted';
-    } & RestrictedNetworkPolicy);
+    } & RestrictedNetworkPolicy) | ({
+        mode: 'public';
+    } & PublicNetworkPolicy);
 };
 
 /**
@@ -461,6 +467,18 @@ export type OpenNetworkPolicy = {
      * Mode
      */
     mode: 'open';
+};
+
+/**
+ * PublicNetworkPolicy
+ *
+ * Allow public HTTP(S) through the QEMU browser proxy.
+ */
+export type PublicNetworkPolicy = {
+    /**
+     * Mode
+     */
+    mode: 'public';
 };
 
 /**
