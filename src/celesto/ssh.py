@@ -511,7 +511,7 @@ class SSHClient:
             ValueError: If *command* is empty.
             OperationTimeoutError: If the command exceeds *timeout*.
             CelestoError: If the SSH connection cannot be established, or if
-                the command's stdout and stderr together exceed 16 MiB (use
+                the command's stdout and stderr together exceed 8 MiB (use
                 :meth:`run_stream` for large output).
         """
         if not command or not command.strip():
