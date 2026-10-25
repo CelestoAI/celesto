@@ -13,7 +13,13 @@ from typing import Literal
 
 from celesto.browser import _BrowserSandbox
 from celesto.exceptions import BrowserSessionNotFoundError, CelestoError
-from celesto.types import BrowserSessionState, CommandResult, ComputerEvent, VMState
+from celesto.types import (
+    BrowserSessionState,
+    CommandResult,
+    ComputerCapability,
+    ComputerEvent,
+    VMState,
+)
 
 _HEALTH_CHECK_INTERVAL_SECONDS = 2.0
 
@@ -35,14 +41,9 @@ class ComputerDisplay:
         return value
 
     @property
-    def vnc_url(self) -> str:
-        value = self._computer.display_url
-        if value is None:
-            raise CelestoError(
-                f"Computer '{self._computer.computer_id}' has no VNC display; "
-                "delete it and create another."
-            )
-        return value
+    def vnc_url(self) -> str | None:
+        """Legacy raw VNC address; secure local sessions leave it unavailable."""
+        return self._computer.display_url
 
 
 class ComputerBrowser:
@@ -103,8 +104,13 @@ class ComputerFiles:
         with tempfile.NamedTemporaryFile(prefix="celesto-computer-read-", delete=False) as handle:
             local_path = Path(handle.name)
         try:
-            stage_command = "runuser -u agent -- sh -c " + shlex.quote(
-                f"install -m 0600 -- {shlex.quote(str(guest_path))} {shlex.quote(guest_temporary)}"
+            # Root owns the directory and output descriptor, while only the
+            # source read runs as agent. The agent cannot replace this staging
+            # entry between its permission check and privileged file transfer.
+            stage_command = (
+                f"umask 077; mkdir -m 0700 -- {shlex.quote(guest_temporary)} && "
+                f"runuser -u agent -- cat -- {shlex.quote(str(guest_path))} "
+                f"> {shlex.quote(guest_temporary + '/data')}"
             )
             staged = self._computer.vm.run(stage_command, timeout=30, shell="raw")
             if not staged.ok:
@@ -112,13 +118,15 @@ class ComputerFiles:
                     f"Could not read '{guest_path}' as the computer user; "
                     "choose a readable file and retry."
                 )
-            self._computer.vm.download_file(guest_temporary, local_path, max_bytes=max_bytes)
+            self._computer.vm.download_file(
+                guest_temporary + "/data", local_path, max_bytes=max_bytes
+            )
             return local_path.read_bytes()
         finally:
             local_path.unlink(missing_ok=True)
             with suppress(Exception):
                 self._computer.vm.run(
-                    f"rm -f -- {shlex.quote(guest_temporary)}",
+                    f"rm -rf -- {shlex.quote(guest_temporary)}",
                     timeout=10,
                     shell="raw",
                 )
@@ -167,9 +175,8 @@ class _ComputerSandbox(_BrowserSandbox):
     """A complete Linux desktop with one managed Chromium application."""
 
     template = "linux-desktop"
-    capabilities = (
+    capabilities: tuple[ComputerCapability, ...] = (
         "display.viewer",
-        "display.vnc",
         "browser.cdp",
         "sandbox.exec",
         "sandbox.files",

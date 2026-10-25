@@ -18,4 +18,6 @@ Addresses for watching and controlling the visible Linux desktop.
 
 ### vncUrl
 
-> `readonly` **vncUrl**: `string`
+> `readonly` **vncUrl**: `string` \| `null`
+
+Legacy raw VNC endpoint; secure local computers return null. Use viewerUrl.

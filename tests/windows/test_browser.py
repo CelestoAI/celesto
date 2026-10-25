@@ -14,10 +14,12 @@
 
 """Tests for browser session orchestration."""
 
+import json
 import threading
 from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Literal, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -34,12 +36,23 @@ from celesto.exceptions import BrowserSessionNotFoundError, CelestoError
 from celesto.runtime.boot_profiles import KernelBootProfile
 from celesto.types import (
     BrowserSessionConfig,
+    BrowserSessionInfo,
     BrowserSessionState,
     CommandResult,
+    ComputerEvent,
+    InternetSettings,
     PortForwardConfig,
     VMConfig,
     VMState,
     WorkspaceMount,
+)
+
+_CAPABILITY = "a" * 64
+_ACCESS_REPLY = json.dumps(
+    {
+        "browser": {"port": 9222, "capability": _CAPABILITY},
+        "viewer": {"port": 6080, "capability": _CAPABILITY},
+    }
 )
 
 
@@ -161,7 +174,7 @@ def test_celesto_computer_factory_starts_linux_desktop(mock_sandbox_cls: MagicMo
     """The computer factory should create one desktop-and-browser session."""
     sandbox = MagicMock(spec=_ComputerSandbox)
     mock_sandbox_cls.return_value = sandbox
-    events: list[dict[str, object]] = []
+    events: list[ComputerEvent] = []
     progress = MagicMock()
 
     result = Celesto.computer(
@@ -170,7 +183,7 @@ def test_celesto_computer_factory_starts_linux_desktop(mock_sandbox_cls: MagicMo
         display={"width": 1440, "height": 900},
         resources={"memory_mib": 3072, "disk_mib": 8192, "vcpus": 2},
         on_progress=progress,
-        on_event=events.append,  # type: ignore[arg-type]
+        on_event=events.append,
     )
 
     assert result is sandbox
@@ -218,10 +231,13 @@ def test_computer_health_failure_emits_error_and_updates_status(
 ) -> None:
     """A required process exit should make the owned computer visibly unusable."""
     computer = object.__new__(_ComputerSandbox)
-    computer._info = SimpleNamespace(
-        session_id="computer-demo",
-        vm_id="vm-computer-demo",
-        status=BrowserSessionState.READY,
+    computer._info = cast(
+        BrowserSessionInfo,
+        SimpleNamespace(
+            session_id="computer-demo",
+            vm_id="vm-computer-demo",
+            status=BrowserSessionState.READY,
+        ),
     )
     computer._state = MagicMock()
     computer._state.update_browser_session.return_value = SimpleNamespace(
@@ -231,9 +247,9 @@ def test_computer_health_failure_emits_error_and_updates_status(
     )
     computer._monitor_stop = threading.Event()
     computer._monitor_thread = None
-    events: list[dict[str, object]] = []
+    events: list[ComputerEvent] = []
     computer._event_callback = events.append
-    computer._failed_required_process = lambda: "openbox"
+    monkeypatch.setattr(computer, "_failed_required_process", lambda: "openbox")
     monkeypatch.setattr("celesto.computer._HEALTH_CHECK_INTERVAL_SECONDS", 0)
 
     computer._monitor_required_processes()
@@ -367,7 +383,7 @@ def test_computer_browser_reports_failed_relaunch() -> None:
     computer._launch_guest_browser.assert_called_once_with()
 
 
-def test_computer_browser_launch_error_hides_guest_output() -> None:
+def test_computer_browser_launch_error_hides_guest_output(monkeypatch: pytest.MonkeyPatch) -> None:
     """Launch failures should name the recovery command without exposing guest output."""
     computer = object.__new__(_BrowserSandbox)
     computer._info = MagicMock(session_id="computer-demo")
@@ -383,8 +399,8 @@ def test_computer_browser_launch_error_hides_guest_output() -> None:
         stdout="private stdout",
         stderr="private stderr",
     )
-    computer._guest_profile_dir = MagicMock(return_value="/profile")
-    computer._guest_download_dir = MagicMock(return_value="/downloads")
+    monkeypatch.setattr(computer, "_guest_profile_dir", MagicMock(return_value="/profile"))
+    monkeypatch.setattr(computer, "_guest_download_dir", MagicMock(return_value="/downloads"))
 
     with pytest.raises(CelestoError) as exc_info:
         computer._launch_guest_browser()
@@ -414,7 +430,7 @@ def test_computer_browser_status_follows_computer_lifecycle(
     computer._wait_for_cdp_http.assert_not_called()
 
 
-def test_computer_delete_keeps_failed_cleanup_retryable() -> None:
+def test_computer_delete_keeps_failed_cleanup_retryable(monkeypatch: pytest.MonkeyPatch) -> None:
     """A failed VM deletion must not discard the session record or local handle."""
     computer = object.__new__(_ComputerSandbox)
     computer._state = MagicMock()
@@ -425,14 +441,15 @@ def test_computer_delete_keeps_failed_cleanup_retryable() -> None:
     computer._state.update_browser_session.return_value = stopping_info
     computer._vm = MagicMock(status=VMState.RUNNING)
     computer._vm.delete.side_effect = [CelestoError("busy"), None]
-    computer.collect_artifacts = MagicMock()
-    computer.close = MagicMock()
+    monkeypatch.setattr(computer, "collect_artifacts", MagicMock())
+    close = MagicMock()
+    monkeypatch.setattr(computer, "close", close)
 
     with pytest.raises(CelestoError, match="busy"):
         computer.delete()
 
     computer._state.delete_browser_session.assert_not_called()
-    computer.close.assert_not_called()
+    close.assert_not_called()
     assert computer._state.update_browser_session.call_args_list[-1].kwargs == {
         "status": BrowserSessionState.ERROR
     }
@@ -441,7 +458,7 @@ def test_computer_delete_keeps_failed_cleanup_retryable() -> None:
 
     computer._state.delete_browser_session.assert_called_once_with("computer-demo")
     assert computer._info is deleted_info
-    computer.close.assert_called_once_with()
+    close.assert_called_once_with()
 
 
 def test_computer_delete_without_vm_preserves_persisted_state() -> None:
@@ -616,7 +633,7 @@ def test_build_browser_vm_config_passes_workspace_mounts_and_selects_qemu(
         session_id="browser-mounted",
         backend="auto",
         workspace_mounts=[mount],
-        internet_settings={"mode": "off"},
+        internet_settings=InternetSettings(mode="off"),
     )
 
     vm_config, _ = _build_browser_vm_config(
@@ -673,9 +690,8 @@ def test_build_browser_vm_config_allocates_qemu_live_port_forwards(
     assert [(forward.host_port, forward.guest_port) for forward in vm_config.port_forwards] == [
         (39011, 9222),
         (39012, 6080),
-        (39013, 5900),
     ]
-    assert mock_allocate_host_port.call_count == 3
+    assert mock_allocate_host_port.call_count == 2
 
 
 @patch("celesto.browser.platform.machine", return_value="x86_64")
@@ -683,6 +699,7 @@ def test_build_browser_vm_config_allocates_qemu_live_port_forwards(
 @patch("celesto.utils.ensure_ssh_key")
 @patch("celesto.images.builder.ImageBuilder")
 @patch("celesto.images.published.ensure_published_image")
+@pytest.mark.parametrize("network_mode", ["open", "public"])
 def test_build_computer_vm_config_uses_published_linux_desktop(
     mock_ensure_published_image: MagicMock,
     mock_builder_cls: MagicMock,
@@ -690,6 +707,7 @@ def test_build_computer_vm_config_uses_published_linux_desktop(
     mock_allocate_host_port: MagicMock,
     _mock_machine: MagicMock,
     tmp_path: Path,
+    network_mode: Literal["open", "public"],
 ) -> None:
     """Computer sessions should download the published desktop instead of building it."""
     kernel = tmp_path / "kernel"
@@ -713,6 +731,7 @@ def test_build_computer_vm_config_uses_published_linux_desktop(
             backend="qemu",
             mode="computer",
             disk_size_mib=8192,
+            internet_settings=InternetSettings(mode=network_mode),
         ),
     )
 
@@ -724,12 +743,22 @@ def test_build_computer_vm_config_uses_published_linux_desktop(
     assert vm_config.rootfs_path == rootfs
     assert vm_config.disk_size_mib == 8192
     assert vm_config.grow_filesystem is False
-    assert [(forward.host_port, forward.guest_port) for forward in vm_config.port_forwards] == [
-        (39101, 9222),
-        (39102, 6080),
-        (39103, 5900),
-    ]
-    assert mock_allocate_host_port.call_count == 3
+    if network_mode == "public":
+        from celesto.vm import CelestoManager
+
+        manager = CelestoManager(data_dir=tmp_path / "data", backend="qemu")
+        try:
+            manager._validate_network_policy(vm_config, "qemu")
+        finally:
+            manager.close()
+        assert vm_config.port_forwards == []
+        mock_allocate_host_port.assert_not_called()
+    else:
+        assert [(forward.host_port, forward.guest_port) for forward in vm_config.port_forwards] == [
+            (39101, 9222),
+            (39102, 6080),
+        ]
+        assert mock_allocate_host_port.call_count == 2
 
 
 @patch("celesto.browser.platform.machine", return_value="arm64")
@@ -931,6 +960,8 @@ def test_browser_session_start_persists_ready_state(
     vm.wait_for_guest_tcp_ports.side_effect = [False, True, True, True, True, True]
 
     def _run_side_effect(command: str, timeout: int = 30, shell: str = "login") -> CommandResult:
+        if command.startswith("python3 -c "):
+            return CommandResult(exit_code=0, stdout=_ACCESS_REPLY, stderr="")
         if command.startswith("/usr/local/bin/celesto-browser-session start"):
             return CommandResult(exit_code=0, stdout="", stderr="")
         return CommandResult(exit_code=0, stdout="", stderr="")
@@ -950,21 +981,23 @@ def test_browser_session_start_persists_ready_state(
     session.start()
 
     assert session.status == BrowserSessionState.READY
-    assert session.cdp_url == "http://127.0.0.1:39222"
-    assert session.browser_cdp_url == "http://127.0.0.1:39222"
+    assert session.cdp_url == f"http://127.0.0.1:39222/{_CAPABILITY}"
+    assert session.browser_cdp_url == f"http://127.0.0.1:39222/{_CAPABILITY}"
     mock_open.assert_called_once()
-    assert session.viewer_url == "http://127.0.0.1:36080/vnc.html?autoconnect=1&resize=scale"
-    assert session.display_url == "vnc://127.0.0.1:35900"
+    assert session.viewer_url == (
+        f"http://127.0.0.1:36080/{_CAPABILITY}/vnc.html"
+        f"?autoconnect=1&resize=scale&path={_CAPABILITY}/websockify"
+    )
+    assert session.display_url is None
     assert session.vm is vm
     persisted = session.refresh().info
     assert persisted.status == BrowserSessionState.READY
     assert persisted.debug_port == 39222
-    assert persisted.vnc_port == 35900
-    assert persisted.vnc_url == "vnc://127.0.0.1:35900"
+    assert persisted.vnc_port is None
+    assert persisted.vnc_url is None
     assert [call.kwargs for call in vm.expose_local.call_args_list] == [
         {"guest_port": 9222, "guest_loopback": False},
         {"guest_port": 6080, "guest_loopback": False},
-        {"guest_port": 5900, "guest_loopback": True},
     ]
     session.close()
 
@@ -987,7 +1020,11 @@ def test_computer_start_requires_healthy_desktop_processes(
     vm.status = VMState.CREATED
     vm.expose_local.side_effect = [39222, 36080, 35900]
     vm.wait_for_guest_tcp_ports.side_effect = [True, True, True, True, True, True]
-    vm.run.return_value = CommandResult(exit_code=1, stdout="", stderr="desktop missing")
+    vm.run.side_effect = lambda command, **_kwargs: (
+        CommandResult(exit_code=0, stdout=_ACCESS_REPLY, stderr="")
+        if command.startswith("python3 -c ")
+        else CommandResult(exit_code=1, stdout="", stderr="desktop missing")
+    )
     mock_vm_cls.return_value = vm
 
     session = _BrowserSandbox(
@@ -1039,6 +1076,8 @@ def test_browser_sandbox_start_uses_configured_qemu_cdp_forward(
     vm.wait_for_guest_tcp_ports.side_effect = [False, True]
 
     def _run_side_effect(command: str, timeout: int = 30, shell: str = "login") -> CommandResult:
+        if command.startswith("python3 -c "):
+            return CommandResult(exit_code=0, stdout=_ACCESS_REPLY, stderr="")
         del timeout, shell
         if command.startswith("/usr/local/bin/celesto-browser-session start"):
             return CommandResult(exit_code=0, stdout="", stderr="")
@@ -1059,7 +1098,7 @@ def test_browser_sandbox_start_uses_configured_qemu_cdp_forward(
 
     session.start()
 
-    assert session.cdp_url == "http://127.0.0.1:39001"
+    assert session.cdp_url == f"http://127.0.0.1:39001/{_CAPABILITY}"
     assert mock_open.call_count == 3
     mock_probe_local_port.assert_called_once_with(39001)
     vm.expose_local.assert_not_called()
@@ -1129,6 +1168,8 @@ def test_desktop_sandbox_start_exposes_viewer_and_display_only(
     vm.wait_for_guest_tcp_ports.side_effect = [False, True, True]
 
     def _run_side_effect(command: str, timeout: int = 30, shell: str = "login") -> CommandResult:
+        if command.startswith("python3 -c "):
+            return CommandResult(exit_code=0, stdout=_ACCESS_REPLY, stderr="")
         del timeout, shell
         if command.startswith("/usr/local/bin/celesto-browser-wait-port 9222"):
             raise AssertionError("desktop mode should not wait for CDP")
@@ -1152,11 +1193,13 @@ def test_desktop_sandbox_start_exposes_viewer_and_display_only(
     session.start()
 
     assert session.cdp_url is None
-    assert session.viewer_url == "http://127.0.0.1:36080/vnc.html?autoconnect=1&resize=scale"
-    assert session.display_url == "vnc://127.0.0.1:35900"
+    assert session.viewer_url == (
+        f"http://127.0.0.1:36080/{_CAPABILITY}/vnc.html"
+        f"?autoconnect=1&resize=scale&path={_CAPABILITY}/websockify"
+    )
+    assert session.display_url is None
     assert [call.kwargs for call in vm.expose_local.call_args_list] == [
         {"guest_port": 6080, "guest_loopback": False},
-        {"guest_port": 5900, "guest_loopback": True},
     ]
     session.close()
 
@@ -1192,3 +1235,49 @@ def test_browser_sandbox_stop_deletes_state_record(
 
     with pytest.raises(BrowserSessionNotFoundError):
         session.refresh()
+
+
+@pytest.mark.parametrize("authenticated", [False, True])
+@pytest.mark.parametrize("persistent", [False, True])
+def test_reconnect_requires_authenticated_saved_endpoints(
+    tmp_path: Path, authenticated: bool, persistent: bool
+) -> None:
+    from celesto.cli.state import SQLiteStateManager
+    from celesto.storage import MemoryStateManager
+
+    state = (
+        SQLiteStateManager(tmp_path / "inventory.db")
+        if persistent
+        else MemoryStateManager(tmp_path)
+    )
+    suffix = "/" + _CAPABILITY if authenticated else ""
+    info = BrowserSessionInfo(
+        session_id="browser-upgrade",
+        vm_id="browser-upgrade",
+        status=BrowserSessionState.READY,
+        cdp_url="http://127.0.0.1:39222" + suffix,
+        live_url="http://127.0.0.1:36080" + suffix + "/vnc.html",
+        vnc_url=None if authenticated else "vnc://127.0.0.1:35900",
+    )
+    state.create_browser_session(info, BrowserSessionConfig(session_id=info.session_id))
+    vm = MagicMock()
+    with patch("celesto.browser.Celesto.from_id", return_value=vm):
+        session = _BrowserSandbox.from_id(info.session_id, data_dir=tmp_path, state_manager=state)
+    session.refresh()
+    if authenticated:
+        assert session.info == info
+        assert session.cdp_url == info.cdp_url
+        session.close()
+    else:
+        assert session.status == BrowserSessionState.ERROR
+        assert session.info.cdp_url is None
+        assert session.info.live_url is None
+        assert session.info.vnc_url is None
+        assert state.get_browser_session(info.session_id).cdp_url is None
+        for operation in (session.connect_playwright, session.open_viewer, session.start):
+            with pytest.raises(CelestoError, match="celesto browser stop browser-upgrade"):
+                operation()
+        session.stop()
+        vm.delete.assert_called_once()
+        with pytest.raises(BrowserSessionNotFoundError):
+            state.get_browser_session(info.session_id)

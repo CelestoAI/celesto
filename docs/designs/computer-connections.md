@@ -6,6 +6,12 @@ Status: Implemented in the working tree on 2026-09-20; not released. Full local/
 Issue: [Celesto #552, milestone M2](https://github.com/CelestoAI/celesto/issues/552).
 Inspected SDK revision: `6cd1044`. Backend and previous SDK sources inspected from their default branches on 2026-09-20; recheck those contracts when implementing.
 
+The October 2026 security changes supersede this plan's local transport details:
+raw VNC listeners are retired, and local connections use authenticated gateways.
+See [secure local access](../security.md) and the current
+[connection helper](../../src/celesto/images/guest_connections.py). The original
+design below is retained as historical context.
+
 ## Scope
 
 Implement `Computer.browser()` and `Computer.display(mode=...)`, handwritten result types, cloud credential issuance, local attachment to the existing VM, enforced display modes, and connection tests/documentation. Cloud and local work share one public contract and one implementation PR. M2 is complete only after both providers pass acceptance tests.
@@ -119,12 +125,12 @@ Keep connection data-plane traffic outside the Python SDK: clients connect to th
 ## Cloud implementation
 
 1. Add `_CloudComputer.browser()` and `.display(mode=...)` using the existing generated `sync_detailed` calls and request enum. Preserve `x-current-organization` on every call.
-2. Use fresh GET state for attached handles. Poll only explicit transitional states (`creating`, `starting`, `restoring`, `pending`) within one monotonic connection-readiness deadline. Do not auto-start `stopped`/`restorable` computers or recreate missing ones. A proposed private connection budget is 30 seconds, separate from initial VM provisioning; cap each request/sleep to remaining time and preserve the client's original timeout afterward.
-3. Issue the connection POST at most once per public call. Treat 401/403/404/409/422/501 as final for that call. Surface 429/503 and transport failures without replaying issuance. A state change between GET and POST fails clearly; the caller can request a new connection explicitly.
-4. Keep backend capability/version checks authoritative. Do not reproduce its version allowlists or add a template-catalog fetch on every call. An initial unsupported template may only be discoverable after allocation; retain the computer for commands and explicit cleanup.
-5. Normalize responses through one private helper: require nonempty token and valid gateway URL; accept `wss` and explicitly local `ws` (normalize `https`/local `http` if returned); reject userinfo, fragments, malformed hosts, and preexisting token parameters. Preserve valid gateway paths/query parameters and add the encoded token with URL utilities. Never forward the API key to the gateway.
-6. Parse timezone-aware expiry; reject malformed, naive, missing or already-expired timestamps without echoing input. Verify returned display mode equals the requested mode; fail closed on mismatch. Do not return a writable connection for a read-only request.
-7. Translate connection failures to short, safe `CelestoError`/`CloudAPIError` messages. Preserve stable status codes. For a 409 while the computer is running, explain capability/readiness uncertainty without guessing from arbitrary response text. Do not weaken global response-body redaction to expose server details.
+1. Use fresh GET state for attached handles. Poll only explicit transitional states (`creating`, `starting`, `restoring`, `pending`) within one monotonic connection-readiness deadline. Do not auto-start `stopped`/`restorable` computers or recreate missing ones. A proposed private connection budget is 30 seconds, separate from initial VM provisioning; cap each request/sleep to remaining time and preserve the client's original timeout afterward.
+1. Issue the connection POST at most once per public call. Treat 401/403/404/409/422/501 as final for that call. Surface 429/503 and transport failures without replaying issuance. A state change between GET and POST fails clearly; the caller can request a new connection explicitly.
+1. Keep backend capability/version checks authoritative. Do not reproduce its version allowlists or add a template-catalog fetch on every call. An initial unsupported template may only be discoverable after allocation; retain the computer for commands and explicit cleanup.
+1. Normalize responses through one private helper: require nonempty token and valid gateway URL; accept `wss` and explicitly local `ws` (normalize `https`/local `http` if returned); reject userinfo, fragments, malformed hosts, and preexisting token parameters. Preserve valid gateway paths/query parameters and add the encoded token with URL utilities. Never forward the API key to the gateway.
+1. Parse timezone-aware expiry; reject malformed, naive, missing or already-expired timestamps without echoing input. Verify returned display mode equals the requested mode; fail closed on mismatch. Do not return a writable connection for a read-only request.
+1. Translate connection failures to short, safe `CelestoError`/`CloudAPIError` messages. Preserve stable status codes. For a 409 while the computer is running, explain capability/readiness uncertainty without guessing from arbitrary response text. Do not weaken global response-body redaction to expose server details.
 
 No backend/OpenAPI mutation is expected. If verification reveals a missing protocol/error contract, fix backend source first, export the snapshot and regenerate together; never hand-edit generated code.
 
@@ -183,10 +189,10 @@ Every failure has a required explicit error and test above. No silent fallback f
 
 The implementation is delivered in one PR, covering the originally planned T1–T3 boundaries.
 
-- [x] **T1: shared types and cloud connections.** Public types, generated issuance calls, normalization, facade/cloud tests, and documentation implemented.
-- [x] **T2: local image support.** Bundled guest helper, capability probes, locking, and independent view-only endpoints implemented and smoked with existing desktop images. Future image builds include the helper; release pins remain unchanged.
-- [x] **T3: attach locally to the same VM.** Explicit graphical template routing, shared configuration, forwarding reuse, and local contract/E2E tests implemented.
-- [ ] **T4: parity and release acceptance.** Source and installed-wheel local QEMU tests passed, including keyboard/mouse/clipboard enforcement and reconnect preservation. Live cloud validation is pending credentials. The opt-in cloud smoke covers CDP and the RFB handshake; cloud mode enforcement and expired-credential rejection still need live acceptance. Image/package release validation is outside this PR.
+- \[x\] **T1: shared types and cloud connections.** Public types, generated issuance calls, normalization, facade/cloud tests, and documentation implemented.
+- \[x\] **T2: local image support.** Bundled guest helper, capability probes, locking, and independent view-only endpoints implemented and smoked with existing desktop images. Future image builds include the helper; release pins remain unchanged.
+- \[x\] **T3: attach locally to the same VM.** Explicit graphical template routing, shared configuration, forwarding reuse, and local contract/E2E tests implemented.
+- \[ \] **T4: parity and release acceptance.** Source and installed-wheel local QEMU tests passed, including keyboard/mouse/clipboard enforcement and reconnect preservation. Live cloud validation is pending credentials. The opt-in cloud smoke covers CDP and the RFB handshake; cloud mode enforcement and expired-credential rejection still need live acceptance. Image/package release validation is outside this PR.
 
 Suggested verification commands during implementation:
 

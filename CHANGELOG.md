@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+## 0.1.9 — 2026-10-25
+
+### Security
+
+- Release the security hardening for local APIs, guest connections, SSH host-key verification, archive and image handling, and privileged setup.
+- Restrict supported browser sessions to public websites and replace raw VNC access with authenticated capability URLs.
+- Publish rebuilt kernels, root filesystems, and standalone guest-agent binaries for AMD64 and ARM64 with verified SHA-256 pins.
+
+## 0.1.8 — 2026-10-22
+
+### Fixed
+
+- Cloud creates send an `X-Celesto-Client` header, `cli` from the `celesto` command and `sdk` from Python code, so Celesto Cloud can tell CLI-created computers apart from SDK-created ones. Until Celesto Cloud supports the `cli` value, CLI-created computers are still recorded as `sdk`; creates succeed either way.
+
+## 0.1.7 — 2026-10-21
+
+### Fixed
+
+- Free-trial sandbox limits explain that stopped sandboxes still count, with options to reuse the sandbox, delete it, or add prepaid credit. Running-sandbox limits report the allowed count when available.
+- Stop/resume errors tell you to inspect the computer's state rather than delete it or check published ports.
+- Browser and display connection errors retain recognized permission guidance while keeping connection credentials private.
+- Unreadable creation responses warn that creation may have succeeded and include the creation request's support reference.
+- Validation errors identify safe field names and recognized constraints instead of discarding them behind a generic HTTP 422.
+
+### Added
+
+- Cloud HTTP errors expose stable codes, operation and computer context, safe request references, and recovery fields. `CloudOperationError` identifies transport, unreadable-response, and lifecycle-timeout failures and remains catchable as `CelestoError`. Existing `CloudAPIError` and HTTP status handling remain compatible.
+- Document structured error handling and operation-specific recovery. State-changing requests are never automatically replayed.
+
+## 0.1.6 — 2026-10-21
+
+### Fixed
+
+- Cloud API errors explain missing API key permissions, organization access, and recognized billing restrictions instead of showing the same message for every HTTP 403.
+- Document the named API key permissions needed to create, use, and clean up cloud computers.
+
+### Added
+
+- Build custom templates for Celesto Cloud with `Template`. Create one from a built-in template and a setup script with `Template.create()`, follow its build with `wait(on_log=print)`, and start computers from it with `create_computer()`. `Template.get()`, `Template.list()`, `Template.lint()`, `edit()`, `rebuild()`, `logs()` and `delete()` manage templates. A failed build raises `TemplateBuildError`, which names the failing script line and its exit code.
+
+### Changed
+
+- Refreshed the Celesto Cloud API snapshot that the SDK's private client is generated from.
+
 ## 0.1.5 — 2026-10-17
 
 ### Added

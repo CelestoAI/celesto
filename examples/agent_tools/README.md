@@ -1,57 +1,38 @@
-# PydanticAI Agent Browser Example
+# Browser agent examples
 
-Drive a Celesto browser from PydanticAI using the `agent-browser` CLI.
+Give an agent a disposable browser to read websites, interact with pages, and save a screenshot. Celesto starts and stops the computer for each run.
 
-## Flow Diagram
+## PydanticAI
 
-```mermaid
-flowchart TD
-    A[User runs script with prompt] --> B[PydanticAI Agent initialized]
-    B --> C[Agent plans browser automation steps]
-
-    C --> D[Start Celesto browser session]
-    D --> E{Browser ready?}
-    E -->|Yes| F[Get CDP port for remote control]
-    E -->|No| X[Error handling]
-
-    F --> G[Navigate to target URL]
-    G --> H[Take page snapshots]
-    H --> I[Interact with page elements]
-    I --> J[Scroll / click / extract data]
-
-    J --> K[Capture final screenshot]
-    K --> L[Get page title & URL]
-    L --> M[Stop browser session]
-
-    M --> N[Return summary to user]
-    N --> O((Done))
-
-    X --> M
-```
-
-## What It Does
-
-1. **Input** — User provides a prompt (e.g., "open amazon.com and tell me trending products")
-1. **Orchestration** — PydanticAI agent uses `run_host_bash` tool to execute Celesto and agent-browser CLI commands
-1. **Browser lifecycle** — Start a browser session in an isolated computer → control via CDP → stop when done
-1. **Output** — Screenshot, page summary, title, and URL returned to user
-
-## Prerequisites
+Install the dependencies and check that Celesto can run on your machine:
 
 ```bash
-pip install 'celesto==0.0.15a0' pydantic-ai
-brew install agent-browser  # or npm install -g agent-browser
-agent-browser install
+pip install celesto pydantic-ai playwright
 export OPENAI_API_KEY=...
 celesto doctor
 ```
 
-## Usage
+Run the news demo or supply a task:
 
 ```bash
-# Run the built-in demo (opens BBC News)
 python examples/agent_tools/pydanticai_agent_browser.py
-
-# Custom prompt
-python examples/agent_tools/pydanticai_agent_browser.py --input "Open example.com"
+python examples/agent_tools/pydanticai_agent_browser.py --input "Open https://example.com"
 ```
+
+The agent can navigate, observe, click, fill, and scroll in the session's browser. The application owns the session and saves the final screenshot to `artifacts/pydanticai-agent-browser/final.png`. Page content and model output cannot select shell commands, browser connection addresses, or screenshot destinations.
+
+## OpenAI computer use
+
+Install `openai` alongside `celesto` and `playwright`, then run:
+
+```bash
+python examples/agent_tools/computer_use_browser.py \
+  --start-url https://example.com \
+  --task "Summarize the main heading."
+```
+
+Page requests are limited to the starting domain and any domains supplied with `--allowed-domain`. Add a domain explicitly when a site needs resources from another domain. Chromium makes the requests inside the sandbox; each redirect is checked before the browser follows it, and the address bar shows the final URL.
+
+This example blocks new-tab navigations, embedded frames, workers, and outgoing WebSocket connections. These features create separate connections that the page policy cannot safely protect. Open the desired page directly with `--start-url` when a site relies on another tab or an embedded page.
+
+HTML documents are limited to 8 MiB. The example reads each document through the browser connection to apply its worker and frame policy before scripts run; page HTTP requests remain inside the sandbox. Larger documents stop the task.

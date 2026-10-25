@@ -22,6 +22,7 @@ export type BrowserSessionStatus =
 export type NetworkPolicy =
   | { mode: "open" }
   | { mode: "off" }
+  | { mode: "public" }
   | { mode: "restricted"; allowedCidrs: readonly string[] };
 
 /** Configure the operating system, resources, image, and network for a new sandbox. MiB means mebibytes, a memory and disk-size unit. */
@@ -177,7 +178,8 @@ export interface BrowserSessionCollection {
 /** Addresses for watching and controlling the visible Linux desktop. */
 export interface ComputerDisplayClient {
   readonly viewerUrl: string;
-  readonly vncUrl: string;
+  /** Legacy raw VNC endpoint; secure local computers return null. Use viewerUrl. */
+  readonly vncUrl: string | null;
 }
 
 /** Chromium included in a Linux computer, with automation available when it is open. */

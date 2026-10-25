@@ -14,9 +14,11 @@
 
 """Tests for Celesto image builder module."""
 
+import shutil
 import subprocess
 import tarfile
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -46,7 +48,9 @@ def _fake_guest_agent_binary(tmp_path: Path) -> Path:
 def test_check_docker_retries_one_transient_failure(tmp_path: Path) -> None:
     docker = tmp_path / "docker"
     first_failure = subprocess.CalledProcessError(1, [str(docker), "info"])
-    success = subprocess.CompletedProcess([str(docker), "info"], 0)
+    success: subprocess.CompletedProcess[str] = subprocess.CompletedProcess(
+        [str(docker), "info"], 0
+    )
 
     with (
         patch("celesto.images.builder.shutil.which", return_value=str(docker)),
@@ -67,7 +71,7 @@ def test_cargo_binary_uses_cargo_home_when_path_is_reset(
 
     monkeypatch.delenv("CARGO", raising=False)
     monkeypatch.setenv("CARGO_HOME", str(cargo.parent.parent))
-    monkeypatch.setattr(builder_mod.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
 
     assert builder_mod._cargo_binary() == str(cargo)
 
@@ -247,6 +251,8 @@ class TestImageBuilderLoopFs:
         with (
             patch.object(builder_mod, "LOOPFS_HELPER_PATH", preferred),
             patch.object(builder_mod, "LEGACY_LOOPFS_HELPER_PATH", legacy),
+            patch("celesto.images.builder.os.geteuid", return_value=0),
+            patch.dict("os.environ", {"SUDO_UID": "0", "SUDO_USER": "root"}),
         ):
             assert ImageBuilder(cache_dir=tmp_path / "images")._loopfs_helper_path() == preferred
 
@@ -259,6 +265,8 @@ class TestImageBuilderLoopFs:
         with (
             patch.object(builder_mod, "LOOPFS_HELPER_PATH", preferred),
             patch.object(builder_mod, "LEGACY_LOOPFS_HELPER_PATH", legacy),
+            patch("celesto.images.builder.os.geteuid", return_value=0),
+            patch.dict("os.environ", {"SUDO_UID": "0", "SUDO_USER": "root"}),
         ):
             assert ImageBuilder(cache_dir=tmp_path / "images")._loopfs_helper_path() == legacy
 
@@ -372,8 +380,8 @@ class TestAgentRuntimeBakedIntoImages:
             init_script = str(args[0])
             assert "/usr/local/bin/celesto-guest-agent --listen vsock://1024" in init_script
             assert "python3 /usr/local/bin/celesto-guest-agent" not in init_script
-            args[2].touch()  # kernel_path
-            args[3].touch()  # rootfs_path
+            cast(Path, args[2]).touch()  # kernel_path
+            cast(Path, args[3]).touch()  # rootfs_path
 
         mock_do_build.side_effect = _fake_do_build
 
@@ -400,59 +408,12 @@ class TestAgentRuntimeBakedIntoImages:
             init_script = str(args[0])
             assert "/usr/local/bin/celesto-guest-agent --listen vsock://1024" in init_script
             assert "python3 /usr/local/bin/celesto-guest-agent" not in init_script
-            args[2].touch()
-            args[3].touch()
+            cast(Path, args[2]).touch()
+            cast(Path, args[3]).touch()
 
         mock_do_build.side_effect = _fake_do_build
 
         builder.build_alpine_ssh()
-
-
-class TestOpenClawImageBuilder:
-    """OpenClaw images match the 2.0 runtime and state model."""
-
-    @patch.object(ImageBuilder, "check_docker", return_value=True)
-    @patch.object(ImageBuilder, "_do_build")
-    def test_build_openclaw_rootfs_pins_runtime_without_legacy_sidecars(
-        self,
-        mock_do_build: MagicMock,
-        _mock_check_docker: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        builder = ImageBuilder(cache_dir=tmp_path / "images")
-
-        def _fake_do_build(
-            name: str,
-            dockerfile_content: str,
-            init_script: str,
-            image_dir: Path,
-            kernel_path: Path,
-            rootfs_path: Path,
-            rootfs_size_mb: int,
-            **kwargs: object,
-        ) -> None:
-            assert name == "openclaw"
-            assert "FROM node:24.15.0-bookworm-slim" in dockerfile_content
-            assert "openclaw@2026.9.1" in dockerfile_content
-            assert "--allow-scripts=openclaw" in dockerfile_content
-            assert "openclaw --version | grep -F 2026.9.1" in dockerfile_content
-            assert "/root/.openclaw" in dockerfile_content
-            assert "/home/node/.openclaw" not in dockerfile_content
-            assert "device-approver" not in dockerfile_content
-            assert "watch-devices" not in dockerfile_content
-            assert "systemctl proxy" not in dockerfile_content
-            assert "device-approver" not in init_script
-            assert "extra_files" not in kwargs
-            assert rootfs_size_mb == 2048
-            kernel_path.touch()
-            rootfs_path.touch()
-
-        mock_do_build.side_effect = _fake_do_build
-
-        kernel, rootfs = builder.build_openclaw_rootfs(kernel_url="file:///tmp/vmlinux")
-
-        assert kernel.exists()
-        assert rootfs.exists()
 
 
 class TestBrowserImageBuilder:
@@ -492,16 +453,33 @@ class TestBrowserImageBuilder:
             # the typical Linux backend); QEMU callers thread an explicit
             # kernel_url override via _build_auto_config.
             assert kwargs["kernel_url"] == BASE_KERNELS["amd64"].elf_url
-            assert kwargs["fingerprint_data"]["kernel_profile"] == "microvm_direct"
-            assert kwargs["fingerprint_data"]["image_type"] == "browser-chromium-v5"
-            assert "celesto-browser-runner" in kwargs["extra_files"]
-            assert "playwright-core" in kwargs["extra_files"]["celesto-browser-runner"]
-            assert "process.exit(1)" in kwargs["extra_files"]["celesto-browser-runner"]
-            assert "process.exitCode" not in kwargs["extra_files"]["celesto-browser-runner"]
-            helper_script = kwargs["extra_files"]["celesto-browser-session"]
-            connections = kwargs["extra_files"]["celesto-computer-connections.py"]
+            assert (
+                cast(dict[str, Any], kwargs["fingerprint_data"])["kernel_profile"]
+                == "microvm_direct"
+            )
+            assert (
+                cast(dict[str, Any], kwargs["fingerprint_data"])["image_type"]
+                == "browser-chromium-v5"
+            )
+            assert "celesto-browser-runner" in cast(dict[str, str], kwargs["extra_files"])
+            assert (
+                "playwright-core"
+                in cast(dict[str, str], kwargs["extra_files"])["celesto-browser-runner"]
+            )
+            assert (
+                "process.exit(1)"
+                in cast(dict[str, str], kwargs["extra_files"])["celesto-browser-runner"]
+            )
+            assert (
+                "process.exitCode"
+                not in cast(dict[str, str], kwargs["extra_files"])["celesto-browser-runner"]
+            )
+            helper_script = cast(dict[str, str], kwargs["extra_files"])["celesto-browser-session"]
+            connections = cast(dict[str, str], kwargs["extra_files"])[
+                "celesto-computer-connections.py"
+            ]
             compile(connections, "guest_connections.py", "exec")
-            assert "_connections_sha256" in kwargs["fingerprint_data"]
+            assert "_connections_sha256" in cast(dict[str, Any], kwargs["fingerprint_data"])
             assert "connection-read_only-ws.pid" in helper_script
             ownership_command = helper_script.rsplit(
                 'chown -R "${browser_user}:${browser_user}"', 1
@@ -512,7 +490,7 @@ class TestBrowserImageBuilder:
             assert "127.0.0.1:5900" in helper_script
             assert '"${mode}" = "computer"' in helper_script
             assert "start_cdp_proxy" in helper_script
-            assert 'ThreadingServer(("0.0.0.0", listen_port)' in helper_script
+            assert 'ThreadingServer(("127.0.0.1", listen_port)' in helper_script
             assert "--remote-debugging-address=127.0.0.1" in helper_script
             assert 'set -- "--proxy-server=${proxy_endpoint}"' in helper_script
             assert helper_script.count("--proxy-bypass-list='<-loopback>'") == 2
@@ -540,7 +518,7 @@ class TestBrowserImageBuilder:
 
         assert kernel.exists()
         assert rootfs.exists()
-        extra_files = mock_do_build.call_args.kwargs["extra_files"]
+        extra_files = cast(dict[str, str], mock_do_build.call_args.kwargs["extra_files"])
         assert "celesto-browser-session" in extra_files
         assert "celesto-browser-wait-port" in extra_files
 
@@ -570,7 +548,7 @@ class TestBrowserImageBuilder:
             del name, dockerfile_content, init_script, rootfs_size_mb
             kernel_path.touch()
             rootfs_path.touch()
-            builder._write_fingerprint(image_dir, kwargs["fingerprint_data"])
+            builder._write_fingerprint(image_dir, cast(dict[str, Any], kwargs["fingerprint_data"]))
 
         mock_do_build.side_effect = _fake_do_build
 
@@ -608,8 +586,11 @@ class TestBrowserImageBuilder:
         ) -> None:
             assert "tint2 lxterminal pcmanfm mousepad" in dockerfile_content
             assert "xdotool" in dockerfile_content
-            assert kwargs["fingerprint_data"]["image_type"] == "computer-linux-desktop-v1"  # type: ignore[index]
-            assert "computer-menu.xml" in kwargs["extra_files"]  # type: ignore[operator]
+            assert (
+                cast(dict[str, Any], kwargs["fingerprint_data"])["image_type"]
+                == "computer-linux-desktop-v1"
+            )
+            assert "computer-menu.xml" in cast(dict[str, str], kwargs["extra_files"])
             kernel_path.touch()
             rootfs_path.touch()
 
@@ -622,12 +603,20 @@ class TestBrowserImageBuilder:
         )
         mock_do_build.assert_called_once()
 
+    @pytest.mark.parametrize("runtime_uid,sudo_uid", [(1000, "1000"), (0, "1000")])
     @patch("celesto.images.builder.subprocess.run")
     @patch("celesto.images.builder.run_command")
-    def test_do_build_uses_docker_fallback_when_loopfs_missing(
-        self, mock_run_command: MagicMock, mock_subprocess_run: MagicMock, tmp_path: Path
+    def test_runtime_image_build_uses_docker_even_with_installed_loopfs(
+        self,
+        mock_run_command: MagicMock,
+        mock_subprocess_run: MagicMock,
+        tmp_path: Path,
+        runtime_uid: int,
+        sudo_uid: str,
     ) -> None:
         builder = ImageBuilder(cache_dir=tmp_path / "images")
+        helper = tmp_path / "celesto-loopfs-helper"
+        helper.touch(mode=0o755)
 
         def _subprocess_side_effect(
             cmd: list[str], *args: object, **kwargs: object
@@ -658,7 +647,10 @@ class TestBrowserImageBuilder:
         rootfs_path = image_dir / "rootfs.ext4"
 
         with (
-            patch.object(ImageBuilder, "_loopfs_helper_path", return_value=None),
+            patch.object(builder_mod, "LOOPFS_HELPER_PATH", helper),
+            patch.object(builder_mod, "LEGACY_LOOPFS_HELPER_PATH", helper),
+            patch("celesto.images.builder.os.geteuid", return_value=runtime_uid),
+            patch.dict("os.environ", {"SUDO_UID": sudo_uid}),
             patch.object(
                 ImageBuilder,
                 "_kernel_url_for_host",

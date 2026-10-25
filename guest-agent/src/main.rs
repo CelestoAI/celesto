@@ -1,5 +1,5 @@
-use clap::Parser;
 use celesto_guest_agent::{docker, handler, server, terminal};
+use clap::Parser;
 use tokio::sync::watch;
 
 #[derive(Parser)]

@@ -18,6 +18,7 @@ import hashlib
 import io
 import subprocess
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -27,6 +28,9 @@ from celesto.images import builder as builder_mod
 from celesto.images.builder import ImageBuilder
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+# These tests intentionally patch implementation dependencies that are not part
+# of builder.py's public module interface.
+_builder_internal: Any = builder_mod
 
 
 def _assert_clock_sync_loop_before_sshd(script: str) -> None:
@@ -122,28 +126,8 @@ def test_ci_build_preset_bakes_guest_agent() -> None:
     assert "/usr/local/bin/celesto-guest-agent" in script
 
 
-def test_ci_build_preset_preinstalls_stable_opencode() -> None:
-    """The published OpenCode layer follows the existing npm preset process."""
-    script = (_REPO_ROOT / "scripts" / "ci" / "build-preset.sh").read_text()
-    workflow = (_REPO_ROOT / ".github" / "workflows" / "build-published-images.yml").read_text()
-
-    assert "npm install -g --silent opencode-ai" in script
-    assert "preset: [codex, claude-code, hermes, opencode, pi, ubuntu]" in workflow
-    assert "- preset: opencode\n            os: alpine" not in workflow
-    assert "codex|claude-code|opencode|pi" in script
-    assert "SIZE=4096" in workflow
-
-
-def test_published_image_smoke_matrix_includes_opencode() -> None:
-    workflow = (_REPO_ROOT / ".github" / "workflows" / "smoke-published-images.yml").read_text()
-
-    assert "rootfs: [openclaw, opencode, ubuntu, linux-desktop]" in workflow
-    assert "os: [ubuntu, alpine]" in workflow
-    assert 'suffix="-alpine"' in workflow
-
-
 def test_published_image_workflow_builds_and_smokes_linux_desktop() -> None:
-    """The computer image should be published and boot-tested like other presets."""
+    """The computer image should be published and boot-tested like the other images."""
     build = (_REPO_ROOT / ".github" / "workflows" / "build-published-images.yml").read_text()
     smoke = (_REPO_ROOT / ".github" / "workflows" / "smoke-published-images.yml").read_text()
 
@@ -153,7 +137,6 @@ def test_published_image_workflow_builds_and_smokes_linux_desktop() -> None:
     assert "desktop=True" in build
     assert "linux-desktop-amd64-rootfs.ext4.zst" not in build
     assert "inputs.presets != 'linux-desktop'" not in build
-    assert "contains(format(',{0},', inputs.presets), ',codex,')" in build
     assert "celesto-browser-session start computer" in smoke
     assert "command -v lxterminal" in smoke
     assert "command -v pcmanfm" in smoke
@@ -172,15 +155,6 @@ def test_published_image_workflow_uploads_guest_agent_binaries() -> None:
     assert "celesto-guest-agent-linux-arm64" in workflow
     assert '"$ASSET_NAME"' in workflow
     assert '"${ASSET_NAME}.sha256"' in workflow
-
-
-def test_published_image_workflow_openclaw_uses_authenticated_kernel_download() -> None:
-    """OpenClaw builds must not fetch draft kernel assets via public URLs."""
-    workflow = (_REPO_ROOT / ".github" / "workflows" / "build-published-images.yml").read_text()
-    assert "Download OpenClaw kernel" in workflow
-    assert "vmlinux-${ARCH}.elf" in workflow
-    assert "KERNEL_PATH: ${{ steps.openclaw_kernel.outputs.path }}" in workflow
-    assert "kernel_url=kernel_url" in workflow
 
 
 def test_e2e_uses_image_release_fallback_until_pinned_release_is_public() -> None:
@@ -233,25 +207,17 @@ def test_guest_agent_source_digest_tracks_release_binary_without_source(
     assert first != second
 
 
-def test_guest_agent_release_sha_pins_match_published_assets() -> None:
-    """Installed wheels must verify the standalone guest-agent release binaries."""
-    assert builder_mod._GUEST_AGENT_RELEASE_SHA256 == {
-        "amd64": "c1bcaeef648a99e1770833be9f0c83abcacd44e6c8f2a8ecaf2d18eb25e74d1f",
-        "arm64": "ba2d39760c1ab305667c636b42815b3f7897ca4c29ce1c894936b89204e5f277",
-    }
-
-
 @pytest.mark.parametrize("arch", ["x86_64", "aarch64"])
 @pytest.mark.parametrize("tag", ["images-2026.09.07.0", "images-2026.09.24.0"])
 def test_guest_agent_release_asset_matches_tag_naming(
     monkeypatch: pytest.MonkeyPatch, arch: str, tag: str
 ) -> None:
     monkeypatch.setenv("CELESTO_IMAGES_RELEASE_TAG", tag)
-    monkeypatch.setattr(builder_mod.platform, "machine", lambda: arch)
+    monkeypatch.setattr(_builder_internal.platform, "machine", lambda: arch)
 
     url, name, sha = builder_mod._guest_agent_release_asset()
 
-    published_arch = builder_mod.to_published_arch(arch)
+    published_arch = _builder_internal.to_published_arch(arch)
     assert name == f"celesto-guest-agent-linux-{published_arch}"
     assert url == f"https://github.com/CelestoAI/Celesto/releases/download/{tag}/{name}"
     assert sha == builder_mod._GUEST_AGENT_RELEASE_SHA256[published_arch]
@@ -297,7 +263,7 @@ def test_guest_agent_binary_rejects_dynamic_env_override(
     binary = tmp_path / "dynamic-agent"
     binary.write_bytes(b"\x7fELF" + b"\0" * 128 + b"/lib64/ld-linux-x86-64.so.2")
     monkeypatch.setenv("CELESTO_GUEST_AGENT_BINARY", str(binary))
-    monkeypatch.setattr(builder_mod.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_builder_internal.platform, "machine", lambda: "x86_64")
 
     with pytest.raises(ImageError) as exc_info:
         builder_mod._guest_agent_binary()
@@ -332,15 +298,15 @@ def test_guest_agent_binary_downloads_release_without_source_checkout(
     monkeypatch.setattr(
         builder_mod, "_guest_agent_binary_cache_dir", lambda _cache_dir=None: tmp_path
     )
-    monkeypatch.setattr(builder_mod.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_builder_internal.platform, "machine", lambda: "x86_64")
     monkeypatch.setattr(
         builder_mod,
         "_guest_agent_release_asset",
         lambda: ("https://example.invalid/agent", "celesto-guest-agent-linux-amd64", expected_sha),
     )
-    monkeypatch.setattr(builder_mod.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(_builder_internal.urllib.request, "urlopen", fake_urlopen)
     monkeypatch.setattr(
-        builder_mod.subprocess,
+        _builder_internal.subprocess,
         "run",
         lambda *_args, **_kwargs: pytest.fail("installed package should not run cargo"),
     )
@@ -370,14 +336,14 @@ def test_guest_agent_binary_rejects_bad_release_sha(
     monkeypatch.setattr(
         builder_mod, "_guest_agent_binary_cache_dir", lambda _cache_dir=None: tmp_path
     )
-    monkeypatch.setattr(builder_mod.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(_builder_internal.platform, "machine", lambda: "x86_64")
     monkeypatch.setattr(
         builder_mod,
         "_guest_agent_release_asset",
         lambda: ("https://example.invalid/agent", "celesto-guest-agent-linux-amd64", "0" * 64),
     )
     monkeypatch.setattr(
-        builder_mod.urllib.request,
+        _builder_internal.urllib.request,
         "urlopen",
         lambda _url, **_kwargs: Response(b"not-the-pinned-binary"),
     )

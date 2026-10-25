@@ -20,8 +20,9 @@ export interface OpenMuseComputer {
 
 export interface ComputerProvider {
   readonly id: ComputerProviderId;
-  create(options: { network: "open" | "off"; viewport: { width: number; height: number } }): Promise<OpenMuseComputer>;
+  create(options: { network: "open" | "off" | "public"; viewport: { width: number; height: number } }): Promise<OpenMuseComputer>;
   reconnect(reference: ComputerReference): Promise<OpenMuseComputer | undefined>;
+  deleteSaved?(reference: ComputerReference): Promise<void>;
 }
 
 export type ComputerProviderConfig =
@@ -33,14 +34,12 @@ type CloudComputer = Computer;
 export interface ProviderDependencies {
   createCelesto: () => CelestoClient;
   createCloudComputer: (options: Parameters<typeof Computer.create>[0], config: ClientConfig) => Promise<CloudComputer>;
-  getCloudComputer: (id: string, config: ClientConfig) => Promise<CloudComputer>;
   wait: (milliseconds: number) => Promise<void>;
 }
 
 const DEFAULT_DEPENDENCIES: ProviderDependencies = {
   createCelesto: () => new Celesto({ createTimeoutMs: 180_000 }),
   createCloudComputer: (options, config) => Computer.create(options, config) as Promise<CloudComputer>,
-  getCloudComputer: (id, config) => Computer.get(id, config) as Promise<CloudComputer>,
   wait: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
 };
 
@@ -75,6 +74,7 @@ function localComputerProvider(runtime: ProviderDependencies): ComputerProvider 
       const client = runtime.createCelesto();
       try {
         const computer = await client.computers.create({
+          ...(options.network === "public" ? { backend: "qemu" as const } : {}),
           display: options.viewport,
           network: { mode: options.network },
         });
@@ -105,7 +105,7 @@ function wrapCelestoComputer(client: CelestoClient, computer: ComputerSessionCli
       return { url };
     },
     async createDisplayConnection() {
-      const target = new URL("/websockify", computer.display.viewerUrl);
+      const target = new URL("websockify", computer.display.viewerUrl);
       target.protocol = target.protocol === "https:" ? "wss:" : "ws:";
       return { url: target.href };
     },
@@ -119,6 +119,9 @@ function cloudComputerProvider(config: Extract<ComputerProviderConfig, { provide
   return {
     id: "celesto",
     async create(options) {
+      if (options.network === "public") {
+        throw new Error("Public network enforcement is unavailable for Celesto Cloud. Set OPENMUSE_COMPUTER_PROVIDER=local and choose Start over.");
+      }
       const computer = await runtime.createCloudComputer({
         templateId: "browser-agent",
         networkPolicy: { mode: options.network },
@@ -127,13 +130,16 @@ function cloudComputerProvider(config: Extract<ComputerProviderConfig, { provide
     },
     async reconnect(reference) {
       if (reference.provider !== "celesto") return undefined;
+      throw new Error(`Public network enforcement cannot be verified for saved Celesto Cloud computer '${reference.id}'. Choose Start over to delete it, then set OPENMUSE_COMPUTER_PROVIDER=local and restart OpenMuse.`);
+    },
+    async deleteSaved(reference) {
+      if (reference.provider !== "celesto") throw new Error("Only saved Celesto Cloud computers can be deleted with this provider.");
       try {
-        const computer = await runtime.getCloudComputer(reference.id, clientConfig);
-        if (computer.status === "deleted" || computer.status === "deleting") return undefined;
-        return wrapCloudComputer(await waitForRunning(computer, runtime), runtime);
+        // Management access does not start the computer or mint browser access.
+        const computer = await Computer.get(reference.id, clientConfig);
+        await computer.delete();
       } catch (error) {
-        if (isNotFound(error)) return undefined;
-        throw error;
+        if (!isNotFound(error)) throw error;
       }
     },
   };

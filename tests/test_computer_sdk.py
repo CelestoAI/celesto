@@ -1,5 +1,7 @@
 """Lifecycle contract independent of installed virtualization software."""
 
+from pathlib import Path
+from typing import Literal, cast
 from unittest.mock import Mock
 
 import pytest
@@ -15,7 +17,7 @@ from celesto.exceptions import CelestoError, VMNotFoundError
 
 
 @pytest.fixture
-def runtime(monkeypatch):
+def runtime(monkeypatch: pytest.MonkeyPatch) -> tuple[Mock, Mock]:
     vm = Mock(vm_id="sbx-test")
     vm.run.return_value = CommandResult(stdout="hello\n", stderr="", exit_code=0)
     vm.run_stream.return_value = iter(
@@ -41,7 +43,9 @@ def runtime(monkeypatch):
     ],
 )
 @pytest.mark.parametrize("state", ["fresh", "running", "attached"])
-def test_local_published_ports_fail_without_partial_work(runtime, method, args, state):
+def test_local_published_ports_fail_without_partial_work(
+    runtime: tuple[Mock, Mock], method: str, args: tuple[int, ...], state: str
+) -> None:
     factory, vm = runtime
     if state == "attached":
         comp = Computer.get("sbx-test", local=True)
@@ -59,17 +63,22 @@ def test_local_published_ports_fail_without_partial_work(runtime, method, args, 
     assert vm.mock_calls == []
 
 
-def test_missing_cloud_key_and_invalid_lifetime_fail_before_allocation(runtime, monkeypatch):
+def test_missing_cloud_key_and_invalid_lifetime_fail_before_allocation(
+    runtime: tuple[Mock, Mock], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     factory, _ = runtime
     monkeypatch.delenv("CELESTO_API_KEY", raising=False)
+    # A developer's saved CLI login must not turn this missing-credential case
+    # into an authenticated configuration.
+    monkeypatch.setattr("celesto.cli._credentials.CREDENTIALS_PATH", tmp_path / "credentials")
     with pytest.raises(ValueError, match="CELESTO_API_KEY"):
         Computer(provider="cloud")
     with pytest.raises(ValueError, match="lifetime"):
-        Computer(local=True, lifetime="forever")
+        Computer(local=True, lifetime=cast(Literal["ephemeral", "persistent"], "forever"))
     factory.assert_not_called()
 
 
-def test_context_creates_once_and_deletes(runtime):
+def test_context_creates_once_and_deletes(runtime: tuple[Mock, Mock]) -> None:
     factory, vm = runtime
     comp = Computer(local=True)
     assert comp.id is None
@@ -87,7 +96,7 @@ def test_context_creates_once_and_deletes(runtime):
         comp.run("echo no")
 
 
-def test_local_run_stream_uses_same_lazy_lifecycle(runtime):
+def test_local_run_stream_uses_same_lazy_lifecycle(runtime: tuple[Mock, Mock]) -> None:
     factory, vm = runtime
     comp = Computer(local=True)
 
@@ -101,7 +110,7 @@ def test_local_run_stream_uses_same_lazy_lifecycle(runtime):
     vm.run_stream.assert_called_once_with("echo hello", timeout=30)
 
 
-def test_local_terminal_uses_same_lazy_lifecycle(runtime):
+def test_local_terminal_uses_same_lazy_lifecycle(runtime: tuple[Mock, Mock]) -> None:
     factory, vm = runtime
     comp = Computer(local=True)
 
@@ -117,16 +126,20 @@ def test_local_terminal_uses_same_lazy_lifecycle(runtime):
 
 
 @pytest.mark.parametrize("terminal_id", ["", "term_", "bad", "term_!", 1])
-def test_invalid_terminal_id_does_not_allocate(runtime, terminal_id):
+def test_invalid_terminal_id_does_not_allocate(
+    runtime: tuple[Mock, Mock], terminal_id: str | int
+) -> None:
     factory, _ = runtime
 
     with pytest.raises(ValueError, match="terminal_id"):
-        Computer(local=True).terminal(terminal_id=terminal_id)
+        Computer(local=True).terminal(terminal_id=cast(str, terminal_id))
 
     factory.assert_not_called()
 
 
-def test_local_terminal_reattachment_is_rejected_before_allocation(runtime):
+def test_local_terminal_reattachment_is_rejected_before_allocation(
+    runtime: tuple[Mock, Mock],
+) -> None:
     factory, _ = runtime
 
     with pytest.raises(ValueError, match="only supported for cloud"):
@@ -135,14 +148,14 @@ def test_local_terminal_reattachment_is_rejected_before_allocation(runtime):
     factory.assert_not_called()
 
 
-def test_exceptional_exit_deletes_and_preserves_error(runtime):
+def test_exceptional_exit_deletes_and_preserves_error(runtime: tuple[Mock, Mock]) -> None:
     _, vm = runtime
     with pytest.raises(RuntimeError, match="body"), Computer(local=True):
         raise RuntimeError("body")
     vm.delete.assert_called_once()
 
 
-def test_cleanup_failure_is_visible_and_retryable(runtime):
+def test_cleanup_failure_is_visible_and_retryable(runtime: tuple[Mock, Mock]) -> None:
     _, vm = runtime
     vm.delete.side_effect = [RuntimeError("cleanup"), None]
     comp = Computer(local=True)
@@ -153,7 +166,7 @@ def test_cleanup_failure_is_visible_and_retryable(runtime):
     assert vm.delete.call_count == 2
 
 
-def test_persistent_context_rejected_without_creation(runtime):
+def test_persistent_context_rejected_without_creation(runtime: tuple[Mock, Mock]) -> None:
     factory, vm = runtime
     comp = Computer(local=True, lifetime="persistent")
     with pytest.raises(ValueError, match="Persistent"), comp:
@@ -164,7 +177,7 @@ def test_persistent_context_rejected_without_creation(runtime):
     comp.delete()
 
 
-def test_start_failure_cleans_up(runtime):
+def test_start_failure_cleans_up(runtime: tuple[Mock, Mock]) -> None:
     _, vm = runtime
     vm.start.side_effect = RuntimeError("boot failed")
     comp = Computer(local=True)
@@ -173,7 +186,7 @@ def test_start_failure_cleans_up(runtime):
     vm.delete.assert_called_once()
 
 
-def test_start_and_cleanup_failure_keep_handle_for_retry(runtime):
+def test_start_and_cleanup_failure_keep_handle_for_retry(runtime: tuple[Mock, Mock]) -> None:
     _, vm = runtime
     vm.start.side_effect = RuntimeError("boot failed")
     vm.delete.side_effect = [RuntimeError("cleanup"), None]
@@ -186,7 +199,7 @@ def test_start_and_cleanup_failure_keep_handle_for_retry(runtime):
     comp.delete()
 
 
-def test_delete_before_creation_never_allocates(runtime):
+def test_delete_before_creation_never_allocates(runtime: tuple[Mock, Mock]) -> None:
     factory, _ = runtime
     comp = Computer(local=True)
     comp.delete()
@@ -195,7 +208,7 @@ def test_delete_before_creation_never_allocates(runtime):
     factory.assert_not_called()
 
 
-def test_get_does_not_start_or_recreate_missing_computer(runtime):
+def test_get_does_not_start_or_recreate_missing_computer(runtime: tuple[Mock, Mock]) -> None:
     factory, vm = runtime
     comp = Computer.get("sbx-test", local=True)
     vm.start.assert_not_called()
@@ -205,12 +218,12 @@ def test_get_does_not_start_or_recreate_missing_computer(runtime):
         Computer.get("missing", local=True)
 
 
-def test_misspelled_option_rejected_without_runtime_setup():
+def test_misspelled_option_rejected_without_runtime_setup() -> None:
     with pytest.raises(TypeError, match="unexpected keyword"):
         Computer(local=True, memroy=1024)
 
 
-def test_invalid_command_does_not_allocate(runtime):
+def test_invalid_command_does_not_allocate(runtime: tuple[Mock, Mock]) -> None:
     factory, _ = runtime
     comp = Computer(local=True)
     with pytest.raises(ValueError, match="command"):
@@ -220,7 +233,7 @@ def test_invalid_command_does_not_allocate(runtime):
     factory.assert_not_called()
 
 
-def test_cleanup_only_failure_can_be_retried(runtime):
+def test_cleanup_only_failure_can_be_retried(runtime: tuple[Mock, Mock]) -> None:
     _, vm = runtime
     vm.delete.side_effect = [RuntimeError("cleanup"), None]
     comp = Computer(local=True)
@@ -231,7 +244,7 @@ def test_cleanup_only_failure_can_be_retried(runtime):
     vm.close.assert_called_once()
 
 
-def test_nested_context_does_not_delete_outer_computer(runtime):
+def test_nested_context_does_not_delete_outer_computer(runtime: tuple[Mock, Mock]) -> None:
     _, vm = runtime
     with Computer(local=True) as comp:
         with pytest.raises(ValueError, match="active"), comp:
@@ -241,7 +254,7 @@ def test_nested_context_does_not_delete_outer_computer(runtime):
     vm.delete.assert_called_once()
 
 
-def test_already_missing_computer_can_be_deleted(runtime):
+def test_already_missing_computer_can_be_deleted(runtime: tuple[Mock, Mock]) -> None:
     _, vm = runtime
     comp = Computer.get("sbx-test", local=True)
     vm.delete.side_effect = VMNotFoundError("missing")
@@ -251,7 +264,7 @@ def test_already_missing_computer_can_be_deleted(runtime):
     vm.delete.assert_called_once()
 
 
-def test_runtime_constructor_failure_leaves_no_handle(runtime):
+def test_runtime_constructor_failure_leaves_no_handle(runtime: tuple[Mock, Mock]) -> None:
     factory, _ = runtime
     factory.side_effect = RuntimeError("invalid config")
     comp = Computer(local=True)
@@ -262,7 +275,7 @@ def test_runtime_constructor_failure_leaves_no_handle(runtime):
 
 
 @pytest.mark.e2e
-def test_persistent_computer_survives_creating_process(tmp_path):
+def test_persistent_computer_survives_creating_process(tmp_path: Path) -> None:
     """Boot a real VM in a child and reconnect after that process exits."""
     import subprocess
     import sys
@@ -271,6 +284,7 @@ def test_persistent_computer_survives_creating_process(tmp_path):
     # the parent can reconnect and clean up.
     script = """
 from pathlib import Path
+from typing import Literal, cast
 import sys
 from celesto import Computer
 root = Path(sys.argv[1])

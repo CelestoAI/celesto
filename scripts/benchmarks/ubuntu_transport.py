@@ -28,23 +28,28 @@ import argparse
 import hashlib
 import json
 import logging
+import os
 import platform
 import shutil
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
-from contextlib import suppress
+from contextlib import ExitStack, suppress
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import IO, TYPE_CHECKING, Any, Literal
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from boot_telemetry import collect_boot_telemetry, summarize_boot_telemetry  # noqa: E402
+if TYPE_CHECKING:
+    from scripts.benchmarks.boot_telemetry import collect_boot_telemetry, summarize_boot_telemetry
+else:
+    from boot_telemetry import collect_boot_telemetry, summarize_boot_telemetry
 
 from celesto.facade import Celesto, _build_auto_config  # noqa: E402
 from celesto.images.published import _images_release_tag  # noqa: E402
@@ -195,6 +200,7 @@ def _config_for_variant(
     rootfs_source: RootfsSource,
 ) -> tuple[Any, str | None, Path, Path | None]:
     config, ssh_key_path = _build_auto_config(os="ubuntu", backend=backend, vm_name=vm_name)
+    assert config.rootfs_path is not None
     published_rootfs = Path(config.rootfs_path)
     patched_rootfs = None
     if rootfs_source == "current-init":
@@ -717,7 +723,11 @@ def main() -> None:
         default="auto",
         help="Snapshot type for --include-snapshot. auto uses diff snapshots.",
     )
-    parser.add_argument("--output", type=Path, default=Path("/tmp/celesto-ubuntu-transport.json"))
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="Create a new report at this path (default: a unique private temporary file).",
+    )
     parser.add_argument("--json", action="store_true", help="Print the full JSON report.")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
@@ -735,20 +745,53 @@ def main() -> None:
         level=logging.INFO if args.verbose else logging.WARNING,
         format="%(message)s",
     )
-    report = run_benchmark(
-        iterations=args.iterations,
-        warm_exec_runs=args.warm_exec_runs,
-        rootfs_source=args.rootfs_source,
-        variants=selected_variants,
-        include_snapshot=args.include_snapshot,
-        snapshot_type=args.snapshot_type,
-    )
-    payload = json.dumps(report, indent=2)
-    args.output.write_text(payload + "\n")
+    with ExitStack() as report_files:
+        output_path = args.output
+        report_file: IO[str] | None = None
+        if output_path is not None:
+            try:
+                # Reserve the report before starting computers. Exclusive creation
+                # rejects symlinks and hardlinks atomically.
+                report_file = report_files.enter_context(
+                    open(output_path, "x", opener=lambda path, flags: os.open(path, flags, 0o600))
+                )
+            except FileExistsError:
+                parser.error(
+                    f"Report already exists at '{output_path}'; choose a new --output path."
+                )
+            except OSError as exc:
+                parser.error(
+                    f"Could not write report at '{output_path}': {exc.strerror}; "
+                    "choose a writable --output path in an existing folder."
+                )
+        report = run_benchmark(
+            iterations=args.iterations,
+            warm_exec_runs=args.warm_exec_runs,
+            rootfs_source=args.rootfs_source,
+            variants=selected_variants,
+            include_snapshot=args.include_snapshot,
+            snapshot_type=args.snapshot_type,
+        )
+        payload = json.dumps(report, indent=2)
+        if report_file is None:
+            report_file = report_files.enter_context(
+                tempfile.NamedTemporaryFile(
+                    mode="w", prefix="celesto-ubuntu-transport-", suffix=".json", delete=False
+                )
+            )
+            output_path = Path(report_file.name)
+        try:
+            report_file.write(payload + "\n")
+            report_file.close()
+        except OSError as exc:
+            parser.error(
+                f"Could not write report at '{output_path}': {exc.strerror}; "
+                "choose a writable --output path in an existing folder."
+            )
     if args.json:
         print(payload)
     else:
-        print(f"Wrote {args.output}")
+        print(f"Wrote {output_path}")
         print(_format_variant_summary_table(report))
 
 

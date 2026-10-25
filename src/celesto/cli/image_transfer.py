@@ -22,10 +22,12 @@ never carry encoding suffixes, so sibling files like ``x`` and ``x.zst``
 can't collide. Large files travel as zstd streams so sparse
 rootfs images stay small; files that are already ``.zst`` always travel
 raw (never re-compressed), so their manifest digest is also the digest of
-the installed file. The decompressed ``rootfs.ext4`` and its sidecar
-are omitted entirely when the compressed ``rootfs.ext4.zst`` is present and
-are recreated on load, byte-compatible with what ``ensure_published_image``
-expects.
+the installed file. The ``rootfs.ext4.from-sha256`` sidecar is never
+saved, and the decompressed ``rootfs.ext4`` is omitted whenever the
+compressed ``rootfs.ext4.zst`` is present; load recreates both from the
+digest of the ``.zst`` it installed, byte-compatible with what
+``ensure_published_image`` expects, so an archive can never assert which
+pinned bytes a rootfs came from.
 """
 
 from __future__ import annotations
@@ -39,6 +41,7 @@ import shlex
 import shutil
 import tarfile
 import tempfile
+import unicodedata
 from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
@@ -59,6 +62,7 @@ from celesto.cli.image import (
 from celesto.cli.output import console_stdout, emit_success
 from celesto.cli.prune import _format_bytes, _total_size
 from celesto.images.manager import resolve_image_dir
+from celesto.images.published import DECOMPRESSED_ROOTFS_SIDECAR_SUFFIX
 
 _SCHEMA_VERSION = 1
 _COPY_CHUNK = 1024 * 1024
@@ -70,13 +74,17 @@ _MANIFEST_SIZE_CAP = 10 * 1024 * 1024
 # compressed wire file, so archives never carry them alongside it.
 _DECOMPRESSED_ROOTFS = "rootfs.ext4"
 _ROOTFS_ZST = "rootfs.ext4.zst"
-_ROOTFS_SIDECAR = "rootfs.ext4.from-sha256"
+_ROOTFS_SIDECAR = _DECOMPRESSED_ROOTFS + DECOMPRESSED_ROOTFS_SIDECAR_SUFFIX
 # Builders hold this lock while rewriting an entry (see builder.py).
 _BUILD_LOCK = ".build.lock"
 
 
 class _EntryChangedError(Exception):
     """A file in the image shrank while it was being archived."""
+
+
+class _ImportBudgetError(Exception):
+    """The caller's extraction budget was exhausted, not an archive defect."""
 
 
 class ImageSavePayload(TypedDict):
@@ -118,6 +126,16 @@ class _HashingReader:
         chunk = self._fileobj.read(size)
         self._hasher.update(chunk)
         return chunk
+
+
+def _canonical_path(path: str) -> str:
+    """Key under which a declared path is compared with reserved names.
+
+    The image cache may live on a case-insensitive filesystem (macOS by
+    default), where ``rootfs.ext4.ZST`` lands as ``rootfs.ext4.zst``, so
+    every name rule and collision check works on this key, not the spelling.
+    """
+    return unicodedata.normalize("NFC", path).casefold()
 
 
 def _valid_relative_file_path(path: str) -> bool:
@@ -226,13 +244,10 @@ def run_image_save(
     # A symlinked wire file is skipped by the archive loop below, so
     # treating it as present would produce an archive with no rootfs.
     zst_present = zst_path.is_file() and not zst_path.is_symlink()
-    excluded = {_DECOMPRESSED_ROOTFS, _ROOTFS_SIDECAR} if zst_present else set()
-    sidecar_value: str | None = None
-    if zst_present and (entry / _ROOTFS_SIDECAR).is_file():
-        try:
-            sidecar_value = (entry / _ROOTFS_SIDECAR).read_text().strip()
-        except OSError:
-            sidecar_value = None
+    # The sidecar is a local cache key that load regenerates from the
+    # installed .zst digest; it never travels. The decompressed rootfs is
+    # regenerated too whenever the wire file is present.
+    excluded = {_DECOMPRESSED_ROOTFS, _ROOTFS_SIDECAR} if zst_present else {_ROOTFS_SIDECAR}
 
     warnings: list[str] = []
     files_meta: list[dict[str, Any]] = []
@@ -319,7 +334,6 @@ def run_image_save(
                 "created": datetime.now(UTC).isoformat(),
                 "name": archive_name,
                 "kind": _entry_kind(entry, root),
-                "rootfs_sidecar": sidecar_value,
                 "files": files_meta,
             }
             manifest_bytes = json.dumps(manifest, indent=2).encode()
@@ -400,8 +414,11 @@ def run_image_load(
     """Execute ``celesto image load``."""
     import zstandard
 
-    from celesto.host.disk import decompress_zstd_sparse
-    from celesto.images.published import _decompressed_rootfs_sidecar_value
+    from celesto.host.disk import ImageSizeLimitError, decompress_zstd_sparse
+    from celesto.images.published import (
+        _decompressed_rootfs_sidecar_value,
+        _looks_like_zstd_decode_error,
+    )
 
     root = resolve_image_dir(image_dir)
     in_path = Path(input_file)
@@ -422,6 +439,13 @@ def run_image_load(
             exit_code=2,
         )
 
+    def budget_exceeded() -> int:
+        return bad_archive(
+            "Image exceeds the import size budget and was not loaded.",
+            recovery="Free disk space or increase CELESTO_IMAGE_LOAD_MAX_BYTES, then retry "
+            f"'celesto image load -i {quoted_input}'.",
+        )
+
     try:
         tar = tarfile.open(in_path, "r:")  # noqa: SIM115 — closed by `with tar:` below
     except (OSError, tarfile.TarError) as exc:
@@ -438,7 +462,13 @@ def run_image_load(
         # A truncated archive can fail while listing members or reading the
         # manifest — that's damage, not a crash.
         try:
-            members = tar.getmembers()
+            members: list[tarfile.TarInfo] = []
+            for member in tar:
+                if len(members) >= 10000 or member.issparse():
+                    return bad_archive(
+                        "Archive contains sparse data or too many files and was not loaded."
+                    )
+                members.append(member)
             manifest_members = [m for m in members if m.name == _MANIFEST_MEMBER]
             if (
                 len(manifest_members) != 1
@@ -471,6 +501,7 @@ def run_image_load(
         # relative paths, are ever written to disk — extraction below builds
         # its own destination paths and never uses tar member names as paths.
         allowed: dict[str, dict[str, Any]] = {}
+        declared: set[str] = set()
         raw_files = manifest.get("files")
         for meta in raw_files if isinstance(raw_files, list) else [None]:
             if (
@@ -480,7 +511,7 @@ def run_image_load(
                 # .zst files always travel raw; a re-compressed one would
                 # install bytes that differ from the digest the manifest
                 # (and the regenerated rootfs sidecar) describes.
-                or (meta["path"].endswith(".zst") and meta["encoding"] != "raw")
+                or (_canonical_path(meta["path"]).endswith(".zst") and meta["encoding"] != "raw")
                 or not isinstance(meta.get("size"), int)
                 or isinstance(meta.get("size"), bool)
                 or meta["size"] < 0
@@ -489,10 +520,68 @@ def run_image_load(
                 or not _valid_relative_file_path(meta["path"])
             ):
                 return bad_archive()
+            key = _canonical_path(meta["path"])
+            if key in declared:
+                # Two spellings of one file would silently overwrite each
+                # other on a case-insensitive filesystem.
+                return bad_archive()
+            declared.add(key)
             allowed[f"files/{meta['path']}"] = meta
+        # save never emits these: dot-prefixed names are lock files, build
+        # fingerprints and in-progress artifacts, and the decompressed
+        # rootfs is regenerated below from the installed .zst so an archive
+        # cannot assert which pinned bytes a rootfs came from.
+        never_saved = {_DECOMPRESSED_ROOTFS} if _ROOTFS_ZST in declared else set()
+        # A directory squatting on one of the rootfs names would make every
+        # later start of a published image fail until the entry is removed.
+        reserved_dirs = tuple(f"{n}/" for n in (_DECOMPRESSED_ROOTFS, _ROOTFS_ZST, _ROOTFS_SIDECAR))
+        if any(
+            key in never_saved
+            or key.startswith(reserved_dirs)
+            or any(seg.startswith(".") for seg in key.split("/"))
+            for key in declared
+        ):
+            return bad_archive(
+                f"'{in_path}' contains files that 'celesto image save' never writes "
+                "and was not loaded.",
+                recovery="Recreate it on the source machine with "
+                f"'celesto image save {name} -o {shlex.quote(in_path.name)}'.",
+            )
+        try:
+            configured_budget = int(
+                os.environ.get("CELESTO_IMAGE_LOAD_MAX_BYTES", str(64 * 1024**3))
+            )
+            if configured_budget <= 0:
+                raise ValueError
+        except ValueError:
+            return bad_archive(
+                "CELESTO_IMAGE_LOAD_MAX_BYTES must be a positive integer; "
+                "correct it and retry the load."
+            )
+        # Preserve one GiB of free space. The caller, not the archive, owns this budget.
+        existing_parent = root
+        while not existing_parent.exists():
+            existing_parent = existing_parent.parent
+        budget = min(configured_budget, max(0, shutil.disk_usage(existing_parent).free - 1024**3))
+        if sum(meta["size"] for meta in allowed.values()) > budget:
+            return budget_exceeded()
+        written = 0
+
+        def charge(size: int) -> None:
+            nonlocal written
+            if size > budget - written:
+                raise _ImportBudgetError
+            written += size
+
         data_members = [m for m in members if m.name != _MANIFEST_MEMBER]
+        seen: set[str] = set()
         for member in data_members:
-            if not member.isreg() or member.name not in allowed:
+            if (
+                not member.isreg()
+                or member.issparse()
+                or member.name not in allowed
+                or member.name in seen
+            ):
                 return _fail(
                     command_name,
                     f"'{in_path}' contains unexpected entries and was not loaded.",
@@ -502,7 +591,18 @@ def run_image_load(
                     f"'celesto image save {name} -o {shlex.quote(in_path.name)}'.",
                     exit_code=2,
                 )
-        missing = set(allowed) - {m.name for m in data_members}
+            if member.size > budget:
+                return budget_exceeded()
+            if (
+                allowed[member.name]["encoding"] == "raw"
+                and member.size != allowed[member.name]["size"]
+            ):
+                return bad_archive(
+                    "Archive is damaged: member size disagrees with its manifest "
+                    "and was not loaded."
+                )
+            seen.add(member.name)
+        missing = set(allowed) - seen
         if missing:
             return bad_archive(f"'{in_path}' is incomplete and was not loaded.")
 
@@ -515,17 +615,19 @@ def run_image_load(
                 recovery=f"Run 'celesto image load -i {quoted_input} --force' to replace it.",
             )
 
-        manifest_sidecar = manifest.get("rootfs_sidecar")
-        have_sidecar = isinstance(manifest_sidecar, str) and bool(manifest_sidecar)
-
         target.parent.mkdir(parents=True, exist_ok=True)
-        partial = target.parent / f".{target.name}.partial-{os.getpid()}"
-        shutil.rmtree(partial, ignore_errors=True)
+        partial = Path(tempfile.mkdtemp(prefix=f".{target.name}.partial-", dir=target.parent))
         try:
-            partial.mkdir()
             zst_sha: str | None = None
+            installed = 0
             for member in data_members:
                 meta = allowed[member.name]
+                if _canonical_path(meta["path"]) == _ROOTFS_SIDECAR:
+                    # Older Celesto saved the sidecar for entries without a
+                    # .zst. It is a local cache key, never installed from an
+                    # archive: load regenerates it below when it applies.
+                    continue
+                installed += 1
                 destination = partial / meta["path"]
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 source = tar.extractfile(member)
@@ -533,12 +635,13 @@ def run_image_load(
                     raise tarfile.TarError(f"could not read '{member.name}' from the archive")
                 # Every member's stored bytes are verified against the
                 # manifest digest before use; for the always-raw
-                # rootfs.ext4.zst, that same digest doubles as the
-                # sidecar fallback.
+                # rootfs.ext4.zst, that same digest is the sole source of
+                # the regenerated sidecar value.
                 hasher = hashlib.sha256()
                 if meta["encoding"] == "raw":
                     with source, open(destination, "wb") as out:
                         while chunk := source.read(_COPY_CHUNK):
+                            charge(len(chunk))
                             out.write(chunk)
                             hasher.update(chunk)
                     digest = hasher.hexdigest()
@@ -548,40 +651,71 @@ def run_image_load(
                     tmp_zst = destination.with_name(destination.name + ".tmp.zst")
                     with source, open(tmp_zst, "wb") as out:
                         while chunk := source.read(_COPY_CHUNK):
+                            charge(len(chunk))
                             out.write(chunk)
                             hasher.update(chunk)
                     digest = hasher.hexdigest()
                     if digest != meta["sha256"]:
                         tmp_zst.unlink()
                         raise zstandard.ZstdError(f"'{meta['path']}' failed its integrity check")
-                    decompress_zstd_sparse(tmp_zst, destination)
+                    try:
+                        decompress_zstd_sparse(
+                            tmp_zst,
+                            destination,
+                            max_output_bytes=min(meta["size"], budget - written),
+                        )
+                        charge(destination.stat().st_size)
+                    except OSError as exc:
+                        if isinstance(exc, ImageSizeLimitError) and budget - written < meta["size"]:
+                            raise _ImportBudgetError from exc
+                        if _looks_like_zstd_decode_error(exc):
+                            raise zstandard.ZstdError(
+                                f"'{meta['path']}' is not a valid zstd stream"
+                            ) from exc
+                        raise
                     tmp_zst.unlink()
                 if destination.stat().st_size != meta["size"]:
                     raise zstandard.ZstdError(
                         f"'{meta['path']}' does not match the size the archive declares"
                     )
-                if meta["path"] == _ROOTFS_ZST:
+                if _canonical_path(meta["path"]) == _ROOTFS_ZST:
                     # Always raw (validated above), so this digest is also
                     # the digest of the installed file.
                     zst_sha = digest
 
             # Recreate what save deliberately left out, byte-compatible with
-            # what ensure_published_image validates on the next start.
+            # what ensure_published_image validates on the next start. This
+            # goes by what is on disk, not by manifest spellings: whenever a
+            # compressed rootfs was installed, the decompressed copy and the
+            # sidecar are rebuilt from its verified digest, and a value
+            # carried in the manifest (older archives) is ignored, since it
+            # is the archive author's claim.
             zst = partial / _ROOTFS_ZST
             rootfs = partial / _DECOMPRESSED_ROOTFS
-            if zst.is_file() and not rootfs.is_file():
-                decompress_zstd_sparse(zst, rootfs)
-                sidecar_value: str | None
-                if have_sidecar:
-                    sidecar_value = str(manifest_sidecar)
-                else:
-                    sidecar_value = _decompressed_rootfs_sidecar_value(zst_sha) if zst_sha else None
-                if sidecar_value:
-                    (partial / _ROOTFS_SIDECAR).write_text(sidecar_value)
+            if zst.is_file():
+                if zst_sha is None:
+                    raise tarfile.TarError("the compressed rootfs was not declared")
+                rootfs.unlink(missing_ok=True)
+                (partial / _ROOTFS_SIDECAR).unlink(missing_ok=True)
+                try:
+                    decompress_zstd_sparse(zst, rootfs, max_output_bytes=budget - written)
+                    charge(rootfs.stat().st_size)
+                except OSError as exc:
+                    if isinstance(exc, ImageSizeLimitError):
+                        raise _ImportBudgetError from exc
+                    if _looks_like_zstd_decode_error(exc):
+                        raise zstandard.ZstdError(
+                            f"'{_ROOTFS_ZST}' is not a valid zstd stream"
+                        ) from exc
+                    raise
+                (partial / _ROOTFS_SIDECAR).write_text(_decompressed_rootfs_sidecar_value(zst_sha))
 
             if target.exists():
                 _remove_existing_entry(target)
             partial.rename(target)
+        except _ImportBudgetError:
+            shutil.rmtree(partial, ignore_errors=True)
+            return budget_exceeded()
         except (tarfile.TarError, zstandard.ZstdError) as exc:
             shutil.rmtree(partial, ignore_errors=True)
             return bad_archive(f"'{in_path}' is damaged and was not loaded: {_brief_error(exc)}.")
@@ -612,7 +746,7 @@ def run_image_load(
         name=name,
         path=str(target),
         size_bytes=_total_size(target),
-        files=len(data_members),
+        files=installed,
         warnings=warnings,
     )
     if json_output:

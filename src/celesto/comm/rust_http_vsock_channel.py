@@ -62,6 +62,7 @@ _DEFAULT_MAX_STREAM_SIZE_BYTES = 256 * 1024 * 1024
 _DEFAULT_MAX_TAR_SIZE_BYTES = 512 * 1024 * 1024
 _DEFAULT_MAX_TERMINAL_FRAME_BYTES = 1024 * 1024
 _TAR_EXTRACT_CHUNK_BYTES = 64 * 1024
+_MAX_TAR_MEMBERS = 10000
 _MAX_PORTS_WAIT = 256
 _MAX_PORT_WAIT_TIMEOUT_SECONDS = 300.0
 _TERMINAL_FRAME_STDIN = 1
@@ -134,13 +135,13 @@ class ControlCapabilities:
 
     def enabled(self, *names: str) -> bool:
         for name in names:
-            value = self.features.get(name)
+            value: Any = self.features.get(name)
             if value is True:
                 return True
             if isinstance(value, str) and value.lower() == "true":
                 return True
 
-            value: Any = self.features
+            value = self.features
             for part in name.split("."):
                 if not isinstance(value, dict) or part not in value:
                     value = None
@@ -352,7 +353,7 @@ def _run_terminal_io(
     finally:
         if old_attrs is not None:
             with suppress(Exception):
-                termios.tcsetattr(stdin_fd, termios.TCSADRAIN, old_attrs)  # type: ignore[name-defined]
+                termios.tcsetattr(stdin_fd, termios.TCSADRAIN, old_attrs)
         if old_winch is not None:
             with suppress(Exception):
                 signal.signal(signal.SIGWINCH, old_winch)
@@ -468,6 +469,11 @@ def _tar_members(archive: tarfile.TarFile, data: bytes) -> list[tarfile.TarInfo]
         raise CelestoError(
             "Directory download from the computer uses extended headers it should not "
             "contain, so it was not extracted."
+        )
+    if len(members) > _MAX_TAR_MEMBERS:
+        raise CelestoError(
+            f"Directory download from the computer has more than {_MAX_TAR_MEMBERS} entries, "
+            "so it was not extracted. Download fewer files at a time."
         )
     trailer = data[archive.offset :]
     if len(trailer) < 2 * tarfile.BLOCKSIZE or trailer.strip(b"\0"):
@@ -683,6 +689,7 @@ class RustHttpVsockChannel:
         return sock
 
     def _open_uds(self, port: int | None = None) -> socket.socket:
+        assert self.uds_path is not None
         port = self.agent_port if port is None else port
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.settimeout(float(self.connect_timeout))
@@ -808,13 +815,13 @@ class RustHttpVsockChannel:
     def capabilities(self) -> ControlCapabilities:
         if self._capabilities is None:
             resp = self._request_json("GET", "/capabilities")
-            features = resp.get("features") if isinstance(resp.get("features"), dict) else {}
-            limits = resp.get("limits") if isinstance(resp.get("limits"), dict) else {}
+            features = resp.get("features")
+            limits = resp.get("limits")
             protocol_version = int(resp.get("protocol_version", 1))
             self._capabilities = ControlCapabilities(
                 protocol_version=protocol_version,
-                features=dict(features),
-                limits=dict(limits),
+                features=dict(features) if isinstance(features, dict) else {},
+                limits=dict(limits) if isinstance(limits, dict) else {},
                 terminal_port=int(resp.get("terminal_port", CELESTO_TERMINAL_PORT)),
             )
         return self._capabilities
@@ -828,6 +835,8 @@ class RustHttpVsockChannel:
 
     def _limit_bytes(self, name: str, default: int) -> int:
         value = self.capabilities.limits.get(name)
+        if value is None:
+            return default
         try:
             limit = int(value)
         except (TypeError, ValueError):

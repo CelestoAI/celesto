@@ -17,6 +17,7 @@
 import hashlib
 import re
 from collections import defaultdict
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier
@@ -65,13 +66,13 @@ def sample_entry() -> PublishedImage:
     for the .zst-handling tests.
     """
     return PublishedImage(
-        preset="codex",
+        preset="ubuntu",
         arch="amd64",
         vmm="firecracker",
         os="ubuntu",
-        kernel_url="https://example.com/codex-amd64-vmlinux.bin",
+        kernel_url="https://example.com/ubuntu-amd64-vmlinux.bin",
         kernel_sha256=hashlib.sha256(b"fake-kernel").hexdigest(),
-        rootfs_url="https://example.com/codex-amd64-rootfs.ext4",
+        rootfs_url="https://example.com/ubuntu-amd64-rootfs.ext4",
         rootfs_sha256=hashlib.sha256(b"fake-rootfs").hexdigest(),
     )
 
@@ -97,7 +98,7 @@ class TestNaming:
         assert published_module._images_release_tag() == "images-v0.0.16"
         assert "/images-v0.0.16/" in published_module._release_kernel_url("amd64", "elf")
         assert "/images-v0.0.16/" in published_module._release_asset_url(
-            "openclaw", "amd64", "rootfs.ext4.zst"
+            "linux-desktop", "amd64", "rootfs.ext4.zst"
         )
 
     def test_empty_release_tag_env_uses_pinned_tag(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -107,24 +108,24 @@ class TestNaming:
 
     def test_cache_name_includes_preset_version_arch_vmm(self) -> None:
         assert (
-            cache_name("codex", "amd64", "firecracker", version="0.0.13")
-            == "codex-v0.0.13-amd64-firecracker"
+            cache_name("ubuntu", "amd64", "firecracker", version="0.0.13")
+            == "ubuntu-v0.0.13-amd64-firecracker"
         )
 
     def test_cache_name_distinguishes_arches(self) -> None:
-        amd = cache_name("codex", "amd64", "firecracker", version="0.0.13")
-        arm = cache_name("codex", "arm64", "firecracker", version="0.0.13")
+        amd = cache_name("ubuntu", "amd64", "firecracker", version="0.0.13")
+        arm = cache_name("ubuntu", "arm64", "firecracker", version="0.0.13")
         assert amd != arm
 
     def test_cache_name_distinguishes_versions(self) -> None:
-        v1 = cache_name("codex", "amd64", "firecracker", version="0.0.13")
-        v2 = cache_name("codex", "amd64", "firecracker", version="0.0.14")
+        v1 = cache_name("ubuntu", "amd64", "firecracker", version="0.0.13")
+        v2 = cache_name("ubuntu", "amd64", "firecracker", version="0.0.14")
         assert v1 != v2
 
     def test_cache_name_distinguishes_vmms(self) -> None:
         """A user with both firecracker and qemu caches must not share a path."""
-        fc = cache_name("openclaw", "amd64", "firecracker", version="0.0.13")
-        qe = cache_name("openclaw", "amd64", "qemu", version="0.0.13")
+        fc = cache_name("linux-desktop", "amd64", "firecracker", version="0.0.13")
+        qe = cache_name("linux-desktop", "amd64", "qemu", version="0.0.13")
         assert fc != qe
 
     def test_cache_name_ubuntu_omits_os_suffix(self) -> None:
@@ -132,16 +133,16 @@ class TestNaming:
         so an existing on-disk cache from before the OS dimension landed
         is still picked up without forcing a re-download."""
         assert (
-            cache_name("codex", "amd64", "firecracker", version="0.0.13", os="ubuntu")
-            == "codex-v0.0.13-amd64-firecracker"
+            cache_name("ubuntu", "amd64", "firecracker", version="0.0.13", os="ubuntu")
+            == "ubuntu-v0.0.13-amd64-firecracker"
         )
 
     def test_cache_name_alpine_appends_os_suffix(self) -> None:
         """Alpine cache namespace is distinct from Ubuntu so users running
         both flavours don't share rootfs files."""
         assert (
-            cache_name("codex", "amd64", "firecracker", version="0.0.13", os="alpine")
-            == "codex-v0.0.13-amd64-firecracker-alpine"
+            cache_name("ubuntu", "amd64", "firecracker", version="0.0.13", os="alpine")
+            == "ubuntu-v0.0.13-amd64-firecracker-alpine"
         )
 
 
@@ -151,25 +152,25 @@ class TestLookup:
         sample_entry: PublishedImage,
         sample_manifest: dict[ManifestKey, PublishedImage],
     ) -> None:
-        assert lookup("codex", "amd64", "firecracker", manifest=sample_manifest) is sample_entry
+        assert lookup("ubuntu", "amd64", "firecracker", manifest=sample_manifest) is sample_entry
 
     def test_missing_pair_raises_image_error(
         self,
         sample_manifest: dict[ManifestKey, PublishedImage],
     ) -> None:
-        with pytest.raises(ImageError, match="No published image for preset 'codex'"):
-            lookup("codex", "arm64", "firecracker", manifest=sample_manifest)
+        with pytest.raises(ImageError, match="No published image for preset 'ubuntu'"):
+            lookup("ubuntu", "arm64", "firecracker", manifest=sample_manifest)
 
     def test_error_lists_available_tuples(
         self,
         sample_manifest: dict[ManifestKey, PublishedImage],
     ) -> None:
-        with pytest.raises(ImageError, match="codex/amd64/firecracker"):
-            lookup("openclaw", "amd64", "firecracker", manifest=sample_manifest)
+        with pytest.raises(ImageError, match="ubuntu/amd64/firecracker"):
+            lookup("linux-desktop", "amd64", "firecracker", manifest=sample_manifest)
 
     def test_error_when_manifest_empty(self) -> None:
         with pytest.raises(ImageError, match=r"available: \(none\)"):
-            lookup("codex", "amd64", "firecracker", manifest={})
+            lookup("ubuntu", "amd64", "firecracker", manifest={})
 
     def test_error_mentions_vmm_dimension(
         self,
@@ -177,7 +178,7 @@ class TestLookup:
     ) -> None:
         """Looking up a vmm that doesn't exist names it explicitly."""
         with pytest.raises(ImageError, match=r"vmm 'qemu'"):
-            lookup("codex", "amd64", "qemu", manifest=sample_manifest)
+            lookup("ubuntu", "amd64", "qemu", manifest=sample_manifest)
 
     def test_default_manifest_used_when_not_overridden(self) -> None:
         # Verify lookup against the default (bundled) manifest finds known
@@ -187,7 +188,7 @@ class TestLookup:
         first_key = next(iter(MANIFEST))
         assert lookup(*first_key) is MANIFEST[first_key]
         # An invented preset name is guaranteed to be missing — using a real
-        # preset like "hermes" risks silently passing once it ships rows.
+        # preset risks silently passing once it ships rows.
         with pytest.raises(ImageError, match="No published image"):
             lookup("definitely-not-a-real-preset", "arm64", "firecracker")  # type: ignore[arg-type]
 
@@ -198,7 +199,7 @@ class TestLookup:
         """Asking for alpine when only ubuntu is in the manifest must
         raise — falls through to install-at-boot at the CLI layer."""
         with pytest.raises(ImageError, match=r"os 'alpine'"):
-            lookup("codex", "amd64", "firecracker", "alpine", manifest=sample_manifest)
+            lookup("ubuntu", "amd64", "firecracker", "alpine", manifest=sample_manifest)
 
 
 class TestIsPresetPublished:
@@ -206,19 +207,19 @@ class TestIsPresetPublished:
         self,
         sample_manifest: dict[ManifestKey, PublishedImage],
     ) -> None:
-        assert is_preset_published("codex", "amd64", "firecracker", manifest=sample_manifest)
+        assert is_preset_published("ubuntu", "amd64", "firecracker", manifest=sample_manifest)
 
     def test_false_for_missing_arch(
         self,
         sample_manifest: dict[ManifestKey, PublishedImage],
     ) -> None:
-        assert not is_preset_published("codex", "arm64", "firecracker", manifest=sample_manifest)
+        assert not is_preset_published("ubuntu", "arm64", "firecracker", manifest=sample_manifest)
 
     def test_false_for_missing_vmm(
         self,
         sample_manifest: dict[ManifestKey, PublishedImage],
     ) -> None:
-        assert not is_preset_published("codex", "amd64", "qemu", manifest=sample_manifest)
+        assert not is_preset_published("ubuntu", "amd64", "qemu", manifest=sample_manifest)
 
     def test_accepts_arbitrary_preset_string(
         self,
@@ -231,7 +232,7 @@ class TestIsPresetPublished:
         )
 
     def test_empty_manifest_returns_false(self) -> None:
-        assert not is_preset_published("codex", "amd64", "firecracker", manifest={})
+        assert not is_preset_published("ubuntu", "amd64", "firecracker", manifest={})
 
     def test_default_manifest_used_when_not_overridden(self) -> None:
         # Cross-check against the bundled MANIFEST: at least one of its entries
@@ -255,13 +256,13 @@ class TestToImageSource:
         """Alpine entries must round-trip through cache_name with os='alpine'
         so the on-disk cache namespace matches what to_image_source produces."""
         entry = PublishedImage(
-            preset="codex",
+            preset="ubuntu",
             arch="amd64",
             vmm="firecracker",
             os="alpine",
-            kernel_url="https://example.com/codex-amd64-vmlinux.bin",
+            kernel_url="https://example.com/ubuntu-amd64-vmlinux.bin",
             kernel_sha256=hashlib.sha256(b"fake-kernel").hexdigest(),
-            rootfs_url="https://example.com/codex-amd64-alpine-rootfs.ext4",
+            rootfs_url="https://example.com/ubuntu-amd64-alpine-rootfs.ext4",
             rootfs_sha256=hashlib.sha256(b"fake-rootfs").hexdigest(),
         )
         source = to_image_source(entry, version="0.0.13")
@@ -287,14 +288,14 @@ class TestEnsurePublishedImage:
         sample_manifest: dict[ManifestKey, PublishedImage],
     ) -> None:
         version = "0.0.13"
-        image_dir = tmp_path / cache_name("codex", "amd64", "firecracker", version=version)
+        image_dir = tmp_path / cache_name("ubuntu", "amd64", "firecracker", version=version)
         image_dir.mkdir(parents=True)
         (image_dir / "vmlinux.bin").write_bytes(b"fake-kernel")
         (image_dir / "rootfs.ext4").write_bytes(b"fake-rootfs")
 
         with patch("celesto.images.manager.requests.get") as mock_get:
             local = ensure_published_image(
-                "codex",
+                "ubuntu",
                 "amd64",
                 "firecracker",
                 cache_dir=tmp_path,
@@ -330,7 +331,7 @@ class TestEnsurePublishedImage:
         mock_get.side_effect = factory
 
         local = ensure_published_image(
-            "codex",
+            "ubuntu",
             "amd64",
             "firecracker",
             cache_dir=tmp_path,
@@ -367,7 +368,7 @@ class TestEnsurePublishedImage:
         mock_get.side_effect = factory
 
         ensure_published_image(
-            "codex",
+            "ubuntu",
             "amd64",
             "firecracker",
             cache_dir=tmp_path,
@@ -388,7 +389,7 @@ class TestEnsurePublishedImage:
     ) -> None:
         with pytest.raises(ImageError, match="No published image"):
             ensure_published_image(
-                "codex",
+                "ubuntu",
                 "arm64",
                 "firecracker",
                 cache_dir=tmp_path,
@@ -411,7 +412,7 @@ class TestEnsurePublishedImage:
         version = "0.0.13"
         # Pre-populate two distinct caches at the expected paths.
         for vmm in ("firecracker", "qemu"):
-            image_dir = tmp_path / cache_name("codex", "amd64", vmm, version=version)  # type: ignore[arg-type]
+            image_dir = tmp_path / cache_name("ubuntu", "amd64", vmm, version=version)  # type: ignore[arg-type]
             image_dir.mkdir(parents=True)
             (image_dir / "vmlinux.bin").write_bytes(f"kernel-{vmm}".encode())
             (image_dir / "rootfs.ext4").write_bytes(b"shared-rootfs")
@@ -419,20 +420,20 @@ class TestEnsurePublishedImage:
         # Build a manifest with both vmm rows pointing at distinct kernel URLs.
         manifest: dict[ManifestKey, PublishedImage] = {}
         for vmm in ("firecracker", "qemu"):
-            manifest[("codex", "amd64", vmm, "ubuntu")] = PublishedImage(  # type: ignore[index]
-                preset="codex",
+            manifest[("ubuntu", "amd64", vmm, "ubuntu")] = PublishedImage(  # type: ignore[index]
+                preset="ubuntu",
                 arch="amd64",
                 vmm=vmm,  # type: ignore[arg-type]
                 os="ubuntu",
-                kernel_url=f"https://example.com/codex-{vmm}-kernel",
+                kernel_url=f"https://example.com/ubuntu-{vmm}-kernel",
                 kernel_sha256=hashlib.sha256(f"kernel-{vmm}".encode()).hexdigest(),
-                rootfs_url="https://example.com/codex-rootfs.ext4",
+                rootfs_url="https://example.com/ubuntu-rootfs.ext4",
                 rootfs_sha256=hashlib.sha256(b"shared-rootfs").hexdigest(),
             )
 
         with patch("celesto.images.manager.requests.get") as mock_get:
             fc_local = ensure_published_image(
-                "codex",
+                "ubuntu",
                 "amd64",
                 "firecracker",
                 cache_dir=tmp_path,
@@ -440,7 +441,7 @@ class TestEnsurePublishedImage:
                 version=version,
             )
             qe_local = ensure_published_image(
-                "codex",
+                "ubuntu",
                 "amd64",
                 "qemu",
                 cache_dir=tmp_path,
@@ -478,13 +479,13 @@ class TestZstdDecompression:
         rootfs_zst = zstandard.ZstdCompressor(level=3).compress(rootfs_plain)
 
         entry = PublishedImage(
-            preset="codex",
+            preset="ubuntu",
             arch="amd64",
             vmm="firecracker",
             os="ubuntu",
-            kernel_url="https://example.com/codex-amd64-vmlinux.bin",
+            kernel_url="https://example.com/ubuntu-amd64-vmlinux.bin",
             kernel_sha256=hashlib.sha256(kernel_bytes).hexdigest(),
-            rootfs_url="https://example.com/codex-amd64-rootfs.ext4.zst",
+            rootfs_url="https://example.com/ubuntu-amd64-rootfs.ext4.zst",
             rootfs_sha256=hashlib.sha256(rootfs_zst).hexdigest(),
         )
         return entry, kernel_bytes, rootfs_zst, rootfs_plain
@@ -575,7 +576,7 @@ class TestZstdDecompression:
     ) -> None:
         """A refreshed .zst (different SHA) must re-decompress, not silently
         serve the stale .ext4 from the previous SHA. The bug this guards
-        against: the openclaw rootfs uid bake regression hid behind a
+        against: the linux-desktop rootfs uid bake regression hid behind a
         cached decompressed .ext4 even after the .zst was re-fetched."""
         entry, kernel_bytes, rootfs_zst, rootfs_plain = compressed_entry
         manifest = {(entry.preset, entry.arch, entry.vmm, entry.os): entry}
@@ -605,6 +606,161 @@ class TestZstdDecompression:
         assert (image_dir / "rootfs.ext4.from-sha256").read_text().strip() == (
             _decompressed_rootfs_sidecar_value(entry.rootfs_sha256)
         )
+
+    @patch("celesto.images.manager.requests.get")
+    def test_decompression_reruns_when_cached_zst_is_replaced(
+        self,
+        mock_get: MagicMock,
+        compressed_entry: tuple[PublishedImage, bytes, bytes, bytes],
+        tmp_path: Path,
+    ) -> None:
+        """A sidecar that already equals the pin must not keep a stale
+        rootfs.ext4 alive once ensure_image re-downloads the .zst: the
+        writable sidecar is a cache key, not proof of provenance (security
+        audit run-1)."""
+        entry, kernel_bytes, rootfs_zst, rootfs_plain = compressed_entry
+        manifest = {(entry.preset, entry.arch, entry.vmm, entry.os): entry}
+
+        import zstandard
+
+        tampered_plain = b"tampered rootfs content"
+        image_dir = tmp_path / cache_name(entry.preset, entry.arch, entry.vmm, "0.0.13")
+        image_dir.mkdir(parents=True)
+        (image_dir / "vmlinux.bin").write_bytes(kernel_bytes)
+        (image_dir / "rootfs.ext4.zst").write_bytes(zstandard.compress(tampered_plain))
+        (image_dir / "rootfs.ext4").write_bytes(tampered_plain)
+        (image_dir / "rootfs.ext4.from-sha256").write_text(
+            _decompressed_rootfs_sidecar_value(entry.rootfs_sha256)
+        )
+
+        bodies = [kernel_bytes, rootfs_zst]
+        call = {"i": 0}
+
+        def factory(*_args: object, **_kwargs: object) -> MagicMock:
+            body = bodies[call["i"]]
+            call["i"] += 1
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            resp.headers.get.return_value = None
+            resp.iter_content = lambda chunk_size, body=body: iter([body])
+            return resp
+
+        mock_get.side_effect = factory
+
+        local = ensure_published_image(
+            entry.preset,
+            entry.arch,
+            entry.vmm,
+            cache_dir=tmp_path,
+            manifest=manifest,
+            version="0.0.13",
+        )
+
+        assert mock_get.call_count == 2
+        assert local.rootfs_path.read_bytes() == rootfs_plain
+        assert (image_dir / "rootfs.ext4.from-sha256").read_text().strip() == (
+            _decompressed_rootfs_sidecar_value(entry.rootfs_sha256)
+        )
+
+    @patch("celesto.images.manager.requests.get")
+    def test_interrupted_redownload_drops_stale_sidecar(
+        self,
+        mock_get: MagicMock,
+        compressed_entry: tuple[PublishedImage, bytes, bytes, bytes],
+        tmp_path: Path,
+    ) -> None:
+        """A re-download that dies after its first byte must leave no
+        pin-matching sidecar beside the stale rootfs.ext4, or the next
+        start (whose .zst may by then verify) would serve it."""
+        entry, kernel_bytes, _rootfs_zst, _ = compressed_entry
+        manifest = {(entry.preset, entry.arch, entry.vmm, entry.os): entry}
+        image_dir = tmp_path / cache_name(entry.preset, entry.arch, entry.vmm, "0.0.13")
+        image_dir.mkdir(parents=True)
+        (image_dir / "vmlinux.bin").write_bytes(kernel_bytes)
+        (image_dir / "rootfs.ext4.zst").write_bytes(b"not the pinned zst")
+        (image_dir / "rootfs.ext4").write_bytes(b"tampered")
+        sidecar = image_dir / "rootfs.ext4.from-sha256"
+        sidecar.write_text(_decompressed_rootfs_sidecar_value(entry.rootfs_sha256))
+
+        def chunks() -> Iterator[bytes]:
+            yield kernel_bytes[:4]
+            raise ConnectionError("link dropped")
+
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.headers.get.return_value = None
+        resp.iter_content = lambda chunk_size: chunks()
+        mock_get.return_value = resp
+
+        with pytest.raises(Exception):  # noqa: B017 — any failure shape, the sidecar is what matters
+            ensure_published_image(
+                entry.preset,
+                entry.arch,
+                entry.vmm,
+                cache_dir=tmp_path,
+                manifest=manifest,
+                version="0.0.13",
+            )
+        assert not sidecar.exists()
+        assert (image_dir / "rootfs.ext4.zst").read_bytes() == b"not the pinned zst"
+
+    def test_unreadable_sidecar_is_treated_as_missing(
+        self,
+        compressed_entry: tuple[PublishedImage, bytes, bytes, bytes],
+        tmp_path: Path,
+    ) -> None:
+        """Garbage bytes in the sidecar must regenerate, not crash every start."""
+        entry, kernel_bytes, rootfs_zst, rootfs_plain = compressed_entry
+        manifest = {(entry.preset, entry.arch, entry.vmm, entry.os): entry}
+        image_dir = tmp_path / cache_name(entry.preset, entry.arch, entry.vmm, "0.0.13")
+        image_dir.mkdir(parents=True)
+        (image_dir / "vmlinux.bin").write_bytes(kernel_bytes)
+        (image_dir / "rootfs.ext4.zst").write_bytes(rootfs_zst)
+        (image_dir / "rootfs.ext4").write_bytes(b"stale")
+        (image_dir / "rootfs.ext4.from-sha256").write_bytes(b"\xff\xfe garbage")
+
+        with patch("celesto.images.manager.requests.get") as mock_get:
+            local = ensure_published_image(
+                entry.preset,
+                entry.arch,
+                entry.vmm,
+                cache_dir=tmp_path,
+                manifest=manifest,
+                version="0.0.13",
+            )
+            mock_get.assert_not_called()
+        assert local.rootfs_path.read_bytes() == rootfs_plain
+        assert (image_dir / "rootfs.ext4.from-sha256").read_text().strip() == (
+            _decompressed_rootfs_sidecar_value(entry.rootfs_sha256)
+        )
+
+    def test_directory_at_decompressed_path_is_replaced(
+        self,
+        compressed_entry: tuple[PublishedImage, bytes, bytes, bytes],
+        tmp_path: Path,
+    ) -> None:
+        """A directory squatting on rootfs.ext4 must not make every start
+        fail; the rebuild replaces it."""
+        entry, kernel_bytes, rootfs_zst, rootfs_plain = compressed_entry
+        manifest = {(entry.preset, entry.arch, entry.vmm, entry.os): entry}
+        image_dir = tmp_path / cache_name(entry.preset, entry.arch, entry.vmm, "0.0.13")
+        image_dir.mkdir(parents=True)
+        (image_dir / "vmlinux.bin").write_bytes(kernel_bytes)
+        (image_dir / "rootfs.ext4.zst").write_bytes(rootfs_zst)
+        (image_dir / "rootfs.ext4").mkdir()
+        (image_dir / "rootfs.ext4" / "x").write_bytes(b"x")
+
+        with patch("celesto.images.manager.requests.get") as mock_get:
+            local = ensure_published_image(
+                entry.preset,
+                entry.arch,
+                entry.vmm,
+                cache_dir=tmp_path,
+                manifest=manifest,
+                version="0.0.13",
+            )
+            mock_get.assert_not_called()
+        assert local.rootfs_path.read_bytes() == rootfs_plain
 
     @patch("celesto.images.manager.requests.get")
     def test_decompression_reruns_when_sidecar_format_is_old(
@@ -791,27 +947,27 @@ class TestBaseKernels:
 class TestBundledManifest:
     """Sanity checks for the entries hand-populated in MANIFEST."""
 
-    def test_openclaw_amd64_firecracker_entry_shape(self) -> None:
-        entry = MANIFEST.get(("openclaw", "amd64", "firecracker", "ubuntu"))
-        assert entry is not None, "openclaw/amd64/firecracker/ubuntu must be in MANIFEST"
+    def test_linux_desktop_amd64_firecracker_entry_shape(self) -> None:
+        entry = MANIFEST.get(("linux-desktop", "amd64", "firecracker", "ubuntu"))
+        assert entry is not None, "linux-desktop/amd64/firecracker/ubuntu must be in MANIFEST"
         assert len(entry.rootfs_sha256) == 64  # SHA-256 hex
         assert len(entry.kernel_sha256) == 64
-        assert entry.rootfs_url.endswith("openclaw-amd64-rootfs.ext4.zst")
+        assert entry.rootfs_url.endswith("linux-desktop-amd64-rootfs.ext4.zst")
         # Firecracker rows get the ELF-format kernel.
         assert entry.kernel_url.endswith("vmlinux-amd64.elf")
         assert "images-" in entry.rootfs_url
 
-    def test_openclaw_arm64_firecracker_entry_shape(self) -> None:
-        entry = MANIFEST.get(("openclaw", "arm64", "firecracker", "ubuntu"))
+    def test_linux_desktop_arm64_firecracker_entry_shape(self) -> None:
+        entry = MANIFEST.get(("linux-desktop", "arm64", "firecracker", "ubuntu"))
         assert entry is not None
         assert len(entry.rootfs_sha256) == 64
-        assert entry.rootfs_url.endswith("openclaw-arm64-rootfs.ext4.zst")
+        assert entry.rootfs_url.endswith("linux-desktop-arm64-rootfs.ext4.zst")
         assert entry.kernel_url.endswith("vmlinux-arm64.elf")
 
-    def test_openclaw_qemu_rows_use_image_format(self) -> None:
+    def test_linux_desktop_qemu_rows_use_image_format(self) -> None:
         """QEMU rows must use the Image-format kernel — see _kernel_format_for_vmm."""
-        amd_qemu = MANIFEST[("openclaw", "amd64", "qemu", "ubuntu")]
-        arm_qemu = MANIFEST[("openclaw", "arm64", "qemu", "ubuntu")]
+        amd_qemu = MANIFEST[("linux-desktop", "amd64", "qemu", "ubuntu")]
+        arm_qemu = MANIFEST[("linux-desktop", "arm64", "qemu", "ubuntu")]
         assert amd_qemu.kernel_url.endswith("vmlinux-amd64.image")
         assert arm_qemu.kernel_url.endswith("vmlinux-arm64.image")
 
@@ -828,8 +984,8 @@ class TestBundledManifest:
 
     def test_arches_have_distinct_rootfs_shas(self) -> None:
         """Sanity: copy-paste error would give both arches the same rootfs SHA."""
-        amd = MANIFEST[("openclaw", "amd64", "firecracker", "ubuntu")]
-        arm = MANIFEST[("openclaw", "arm64", "firecracker", "ubuntu")]
+        amd = MANIFEST[("linux-desktop", "amd64", "firecracker", "ubuntu")]
+        arm = MANIFEST[("linux-desktop", "arm64", "firecracker", "ubuntu")]
         assert amd.rootfs_sha256 != arm.rootfs_sha256
         assert amd.rootfs_url != arm.rootfs_url
 

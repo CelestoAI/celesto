@@ -53,18 +53,18 @@ def test_returned_name_passes_vm_id_validation() -> None:
 
 def test_custom_prefix() -> None:
     """A caller-supplied prefix replaces the default ``sbx`` in generated names."""
-    name = generate_sandbox_name(set(), prefix="codex")
-    assert name.startswith("codex-")
-    scientist = name.removeprefix("codex-")
+    name = generate_sandbox_name(set(), prefix="agent")
+    assert name.startswith("agent-")
+    scientist = name.removeprefix("agent-")
     assert scientist in SCIENTISTS
 
 
 def test_custom_prefix_with_collision() -> None:
-    taken = {f"codex-{s}" for s in SCIENTISTS}
-    name = generate_sandbox_name(taken, prefix="codex", rng=random.Random(0))
+    taken = {f"agent-{s}" for s in SCIENTISTS}
+    name = generate_sandbox_name(taken, prefix="agent", rng=random.Random(0))
 
-    assert name.startswith("codex-")
-    parts = name.removeprefix("codex-").split("-")
+    assert name.startswith("agent-")
+    parts = name.removeprefix("agent-").split("-")
     assert len(parts) == 2
     assert parts[0] in SCIENTISTS
     assert parts[1] in CITIES

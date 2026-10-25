@@ -1058,6 +1058,17 @@ def test_extract_tar_creates_files_private_before_applying_mode(
     assert seen_modes == [0o600]
 
 
+def test_extract_tar_rejects_too_many_members(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(vsock_channel, "_MAX_TAR_MEMBERS", 3)
+    data = _plain_tar({f"f{i}.txt": b"x" for i in range(4)})
+
+    with pytest.raises(CelestoError, match="more than 3 entries"):
+        _safe_extract_tar(data, tmp_path / "out")
+    assert not (tmp_path / "out" / "f0.txt").exists()
+
+
 def test_extract_tar_streams_members_in_bounded_chunks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

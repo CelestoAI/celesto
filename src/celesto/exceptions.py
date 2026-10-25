@@ -14,7 +14,10 @@
 
 """Exception hierarchy for Celesto SDK."""
 
-from typing import Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from celesto.types import TemplateBuildFailure
 
 _MAX_CLOUD_ERROR_DETAIL_LENGTH = 500
 
@@ -28,8 +31,41 @@ class CelestoError(Exception):
         self.details = details or {}
 
 
-class CloudAPIError(CelestoError):
-    """A cloud API request failed with an HTTP error status."""
+class _CloudError(CelestoError):
+    """Caller-safe context shared by HTTP and local cloud failures."""
+
+    def __init__(
+        self,
+        message: str,
+        details: dict[str, Any] | None = None,
+        *,
+        code: str,
+        operation: str | None = None,
+        computer_id: str | None = None,
+        request_id: str | None = None,
+        idempotency_key: str | None = None,
+        recovery_action: Literal["fix_and_retry", "inspect", "ask_human"] = "inspect",
+        side_effects: Literal["none", "unknown"] = "unknown",
+    ) -> None:
+        idem = idempotency_key
+        self.code = code
+        self.operation = operation
+        self.computer_id = computer_id
+        self.request_id = request_id
+        self.idempotency_key = idem
+        self.recovery_action = recovery_action
+        self.side_effects = side_effects
+        if request_id:
+            message += f" Request ID: {request_id}."
+        super().__init__(message, details=details)
+
+
+class CloudOperationError(_CloudError):
+    """A cloud transport, response, or lifecycle failure; inspect before retrying."""
+
+
+class CloudAPIError(_CloudError):
+    """An HTTP failure with a stable code and caller-safe recovery context."""
 
     def __init__(
         self,
@@ -37,27 +73,76 @@ class CloudAPIError(CelestoError):
         *,
         detail: str | None = None,
         recovery: str | None = None,
+        code: str | None = None,
+        operation: str | None = None,
+        computer_id: str | None = None,
+        request_id: str | None = None,
+        idempotency_key: str | None = None,
+        recovery_action: Literal["fix_and_retry", "inspect", "ask_human"] = "fix_and_retry",
+        side_effects: Literal["none", "unknown"] = "none",
+        required_scope: str | None = None,
+        running_limit: int | None = None,
+        validation_errors: tuple[dict[str, str], ...] = (),
     ) -> None:
+        idem = idempotency_key
         self.status_code = int(status_code)
+        self.required_scope = required_scope
+        self.running_limit = running_limit
+        self.validation_errors = validation_errors
         if recovery is None:
             recovery = (
                 "Check your API key and organization access."
                 if status_code in (401, 403)
                 else "Check the request and cloud dashboard before retrying."
             )
-        # Only the documented bad-request detail is retained, never the raw body.
+        # Preserve the existing bounded 400 detail contract. Other response
+        # bodies never enter details; structured context is allowlisted upstream.
         details = (
             {"detail": detail[:_MAX_CLOUD_ERROR_DETAIL_LENGTH]}
             if status_code == 400 and isinstance(detail, str)
             else {}
         )
-        super().__init__(f"Cloud API returned HTTP {status_code}. {recovery}", details=details)
+        super().__init__(
+            f"Cloud API returned HTTP {status_code}. {recovery}",
+            details=details,
+            code=code or f"http_{status_code}",
+            operation=operation,
+            computer_id=computer_id,
+            request_id=request_id,
+            idempotency_key=idem,
+            recovery_action=recovery_action,
+            side_effects=side_effects,
+        )
 
 
 class ValidationError(CelestoError):
     """Raised when input validation fails."""
 
     pass
+
+
+class TemplateBuildError(CelestoError):
+    """A custom template build ended without a usable image.
+
+    The build failed, or the template needs a rebuild because its base
+    template changed. ``failure`` names the failing script line when known.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        template_id: str,
+        status: str,
+        failure: "TemplateBuildFailure | None" = None,
+    ) -> None:
+        super().__init__(
+            message,
+            details={"template_id": template_id, "status": status},
+        )
+        self.template_id = template_id
+        self.status = status
+        self.failure = failure
 
 
 class VMAlreadyExistsError(CelestoError):

@@ -21,7 +21,7 @@ Celesto gives an AI agent its own computer for running code, browsing the web, a
 
 Each computer is a lightweight virtual machine, starts in about 500 ms, and can keep files and state between sessions. Because the agent runs in a separate computer instead of a process on your machine, Celesto provides a stronger boundary for untrusted code.
 
-These docs use one word for each idea. See the [glossary](GLOSSARY.md) for what "computer", "desktop", and "browser session" mean.
+These docs use one word for each idea. See the [glossary](GLOSSARY.md) for what "computer", "desktop", and "browser session" mean, or browse the [documentation index](docs/README.md) for guides.
 
 ## Built with Celesto: OpenMuse
 
@@ -132,6 +132,25 @@ with Computer(provider="cloud") as computer:
 | Local | Development, tests, and private workloads on your machine | Local virtualization setup |
 | Cloud | Remote tasks, persistent workspaces, and production workloads | Python package and `CELESTO_API_KEY` |
 
+### Start cloud computers with your packages installed
+
+A custom template is a built-in template plus your own setup commands. Celesto runs the commands once and saves the result, so every cloud computer you create from the template starts with your packages ready:
+
+```python
+from celesto import Template
+
+template = Template.create(
+    name="data-env",
+    build_script="apt-get install -y ffmpeg\npip install pandas",
+)
+template.wait(on_log=print)  # prints the build log; returns when the build is ready
+
+with template.create_computer() as computer:
+    print(computer.run("ffmpeg -version").stdout)
+```
+
+The build script runs once, as root, and stops at the first failing command. Files can't be uploaded with it, so list packages directly instead of using `pip install -r requirements.txt`. Check a script first with `Template.lint(script)`, load a template with `Template.get("tpl_...")`, or pass its ID as `CloudComputer(template_id="tpl_...")`. See the [custom templates guide](https://docs.celesto.ai/cloud/features/custom-templates) for limits, errors, and rebuilding.
+
 ## Agents and automation
 
 Celesto commands print readable output by default. Add `--json` when a script or agent needs stable, machine-readable output. Every JSON response contains `ok`, `command`, `exit_code`, `data`, and `error` fields.
@@ -161,14 +180,6 @@ celesto computer delete agent-job --json
 ```
 
 Use unique names for concurrent jobs. Prefer `exec` for automation; reserve `shell`, `ssh`, and `desktop` for interactive work. Commands return a nonzero exit code on failure, and JSON errors include a recovery command when Celesto can provide one.
-
-For a coding agent with its CLI already installed, start a preset directly:
-
-```bash
-celesto codex start
-```
-
-Celesto also provides presets for Claude Code, Pi, Hermes, OpenCode, and OpenClaw. See the [agent presets guide](docs/guides/agent-presets.md) for credentials, naming, and unattended usage.
 
 ## Inspect and connect
 
@@ -213,12 +224,11 @@ from celesto import Celesto
 with Celesto.browser(headless=False) as browser:
     print(browser.cdp_url)
     print(browser.viewer_url)
-    print(browser.display_url)
 ```
 
 - `cdp_url`: connect Playwright or another CDP client.
 - `viewer_url`: watch the browser from another browser.
-- `display_url`: connect a VNC client or computer-use agent.
+- `display_url`: unavailable for raw VNC; use the authenticated browser viewer.
 
 Use `headless=True` when the agent only needs CDP. Start a visible browser from the CLI with:
 
@@ -380,29 +390,6 @@ Use `mode="restricted"` with `allowed_cidrs` to allow specific IPv4 addresses or
 
 An `allowed_domains` list resolves domains during setup and permits the resulting IP addresses. It does not check the hostname on each connection. DNS servers do not receive automatic access. See the [network guide](docs/guides/networking.md) for supported combinations.
 
-### Start a code agent
-
-Run a supported code agent in its own computer so it can edit and execute code without direct access to your machine:
-
-```bash
-celesto codex start
-celesto claude start
-celesto pi start
-celesto hermes start
-celesto opencode start
-celesto openclaw start --name openclaw-work --no-attach
-```
-
-Open the private OpenClaw dashboard after the computer starts:
-
-```bash
-celesto openclaw open-ui openclaw-work
-```
-
-The first OpenClaw start can take several minutes while Celesto installs its supported Node.js runtime and pinned OpenClaw release. See the [agent presets guide](docs/guides/agent-presets.md) for credentials and dashboard access.
-
-<a href="https://youtu.be/j1qyrTsI0Jw"><img src="https://img.youtube.com/vi/j1qyrTsI0Jw/maxresdefault.jpg" alt="Code agents in a Celesto computer" width="480" /></a>
-
 ## Examples
 
 ### Start here
@@ -430,9 +417,9 @@ Each example includes any extra package command it requires.
 
 Each computer runs in its own virtual machine, which provides a stronger isolation boundary than process-level containers. Isolation still depends on secure configuration of your machine, the hypervisor, images, credentials, shared folders, and networking.
 
-Celesto trusts a new local computer on its first connection to simplify development. Do not expose computer ports to the public internet without authentication and network controls. Treat writable shared folders, forwarded credentials, and services the computer can reach on your machine as explicit trust decisions.
+Celesto verifies a computer's SSH identity before sending credentials. Updated managed Linux images supply their public key through the local boot console; other images require a trusted known-hosts file. Do not expose computer ports to the public internet without authentication and network controls. Treat writable shared folders, forwarded credentials, and services the computer can reach on your machine as explicit trust decisions.
 
-See [SECURITY.md](SECURITY.md) for the security policy, threat model, and disclosure process.
+See [secure local access](docs/security.md) for dashboard tokens, private browser links, SSH setup, and upgrade requirements. See [SECURITY.md](SECURITY.md) for the security policy and disclosure process.
 
 ## Performance
 

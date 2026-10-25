@@ -19,7 +19,7 @@ import socket
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 from celesto.exceptions import (
     BrowserSessionAlreadyExistsError,
@@ -420,6 +420,7 @@ class MemoryStateManager:
         session_id: str,
         *,
         status: BrowserSessionState | None = None,
+        clear_endpoints: bool = False,
         cdp_url: str | None = None,
         live_url: str | None = None,
         vnc_url: str | None = None,
@@ -432,7 +433,7 @@ class MemoryStateManager:
     ) -> BrowserSessionInfo:
         with self._lock:
             current = self.get_browser_session(session_id)
-            updates = {
+            updates: dict[str, Any] = {
                 key: value
                 for key, value in {
                     "status": status,
@@ -447,6 +448,9 @@ class MemoryStateManager:
                 }.items()
                 if value is not None
             }
+            if clear_endpoints:
+                for key in ("cdp_url", "live_url", "vnc_url", "debug_port", "vnc_port"):
+                    updates.setdefault(key, None)
             updated = current.model_copy(update=updates)
             self._browser_sessions[session_id] = updated
             if config is not None:
