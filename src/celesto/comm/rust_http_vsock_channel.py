@@ -741,6 +741,9 @@ class RustHttpVsockChannel:
         if value is None or isinstance(value, bool):
             # Absent limits use the default; JSON true would otherwise become a 1-byte cap.
             return default
+        if isinstance(value, float) and not value.is_integer():
+            # A fractional byte count is malformed; truncating 1.5 would mean a 1-byte cap.
+            return default
         try:
             limit = int(value)
         except (TypeError, ValueError, OverflowError):
