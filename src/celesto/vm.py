@@ -20,6 +20,7 @@ Orchestrates VM lifecycle, networking, and state management across runtimes.
 from __future__ import annotations
 
 import asyncio
+import atexit
 import base64
 import errno
 import hashlib
@@ -34,6 +35,7 @@ import shlex
 import shutil
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import threading
@@ -42,7 +44,7 @@ from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, TextIO
+from typing import Any, Literal, TextIO, cast
 from uuid import uuid4
 
 from celesto._compat import existing_legacy_path
@@ -57,6 +59,7 @@ from celesto.exceptions import (
     VMAlreadyExistsError,
     VMNotFoundError,
 )
+from celesto.host._public_egress_session import PublicEgressSession
 from celesto.host.manager import HostCapability, HostManager
 from celesto.host.network import NetworkManager, check_network_prerequisites, resolve_domains_to_ips
 from celesto.runtime.backends import (
@@ -80,6 +83,7 @@ from celesto.runtime.libkrun import LibkrunRuntimeAdapter
 from celesto.runtime.qemu import QEMU_ROOT_NODE_NAME, QemuRuntimeAdapter
 from celesto.runtime.qemu_args import build_qemu_argv
 from celesto.runtime.vz import VzRuntimeAdapter
+from celesto.ssh_trust import save_snapshot_host_key, snapshot_host_key
 from celesto.storage import (
     SSH_PORT_END,
     SSH_PORT_START,
@@ -101,6 +105,34 @@ from celesto.types import (
     VsockConfig,
 )
 from celesto.utils import RUNTIME_PRIVILEGE_SETUP_HINT, which
+
+
+def _validate_cleanup_id(vm_id: str) -> None:
+    # Cleanup also runs after an inventory miss, so VMConfig is not a guard.
+    if (
+        not isinstance(vm_id, str)
+        or re.fullmatch(r"[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?", vm_id) is None
+    ):
+        raise ValueError("Invalid sandbox name; run 'celesto sandbox list' to choose a sandbox.")
+
+
+def _reject_external_qcow2_files(path: Path) -> None:
+    """Inspect only the fixed header, without following any image references."""
+    with path.open("rb") as source:
+        header = source.read(104)
+    # QEMU itself rejects malformed headers; only valid QCOW headers carry references.
+    if len(header) < 20 or header[:4] != b"QFI\xfb":
+        return
+    version = int.from_bytes(header[4:8], "big")
+    backing_offset = int.from_bytes(header[8:16], "big")
+    backing_length = int.from_bytes(header[16:20], "big")
+    external_data = version >= 3 and bool(int.from_bytes(header[72:80], "big") & (1 << 2))
+    if version not in {2, 3} or backing_offset or backing_length or external_data:
+        raise CelestoError(
+            f"Image '{path.name}' refers to external files or an unsupported format; "
+            "choose a standalone image and retry the create command."
+        )
+
 
 logger = logging.getLogger(__name__)
 
@@ -247,14 +279,74 @@ def _get_sudo_user_info() -> pwd.struct_passwd | None:
         return None
 
 
+def _mkdir_private(path: Path) -> None:
+    """Create missing components privately without changing existing directories."""
+    try:
+        path.mkdir(mode=0o700)
+    except FileNotFoundError:
+        _mkdir_private(path.parent)
+        _mkdir_private(path)
+        return
+    except FileExistsError:
+        if not path.is_dir():
+            raise
+        return
+
+    # A root process acting for another account must leave every new parent
+    # traversable by that account, not just the final data directory.
+    owner = _get_sudo_user_info()
+    if owner is not None:
+        descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.chown(descriptor, owner.pw_uid, owner.pw_gid)
+        finally:
+            os.close(descriptor)
+
+
 def _is_usable_dir(path: Path) -> bool:
     """Return True if *path* exists/is creatable and writable."""
     try:
-        path.mkdir(parents=True, exist_ok=True)
+        _mkdir_private(path)
     except OSError:
         return False
 
     return os.access(path, os.W_OK | os.X_OK)
+
+
+def _open_runtime_log(path: Path, *, ssh_host_key: str | None = None) -> TextIO:
+    """Start a private console without following or truncating an unsafe file."""
+    descriptor = os.open(
+        path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, 0o600
+    )
+    try:
+        info = os.fstat(descriptor)
+        owners = {os.geteuid()}
+        owner = _get_sudo_user_info()
+        if owner is not None:
+            owners.add(owner.pw_uid)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid not in owners or info.st_nlink != 1:
+            raise PermissionError(
+                f"Console file '{path}' cannot be used safely; run "
+                f"'celesto computer delete {path.stem}' before recreating the computer."
+            )
+        # A previous boot may have created a group-writable log. Validate the
+        # retained descriptor before changing its mode or discarding its data.
+        os.fchmod(descriptor, 0o600)
+        os.ftruncate(descriptor, 0)
+    except BaseException:
+        os.close(descriptor)
+        raise
+    handle = os.fdopen(descriptor, "w")
+    try:
+        if ssh_host_key is not None:
+            # A memory restore resumes past init. Provision its saved, verified
+            # identity before a runtime process can write any guest output.
+            handle.write(f"CELESTO_SSH_HOST_KEY {ssh_host_key}\n")
+            handle.flush()
+        return handle
+    except BaseException:
+        handle.close()
+        raise
 
 
 def _candidate_data_dirs() -> list[Path]:
@@ -290,13 +382,13 @@ def resolve_data_dir(data_dir: Path | None = None) -> Path:
     """
     if data_dir is not None:
         resolved = data_dir.expanduser()
-        resolved.mkdir(parents=True, exist_ok=True)
+        _mkdir_private(resolved)
         return resolved
 
     env_override = os.environ.get(DEFAULT_DATA_DIR_ENV)
     if env_override:
         resolved = Path(env_override).expanduser()
-        resolved.mkdir(parents=True, exist_ok=True)
+        _mkdir_private(resolved)
         return resolved
 
     for candidate in _candidate_data_dirs():
@@ -456,7 +548,7 @@ class CelestoManager:
         self.disk_dir = self.data_dir / "disks"
         self.snapshot_dir = self.data_dir / "snapshots"
         self.disk_dir.mkdir(parents=True, exist_ok=True)
-        self.snapshot_dir.mkdir(parents=True, exist_ok=True)
+        _mkdir_private(self.snapshot_dir)
 
         # Under sudo, keep the chosen user-state path owned by the real user.
         owner = _get_sudo_user_info()
@@ -470,6 +562,15 @@ class CelestoManager:
         self.state: StateManagerProtocol = state_manager or MemoryStateManager(self.data_dir)
         self.network = NetworkManager()
         self.host = HostManager()
+        self._public_egress: dict[str, PublicEgressSession] = {}
+        self._active_vm_operations: set[str] = set()
+        self._vm_operation_lock = threading.Lock()
+        self._close_requested = False
+        self._closing = False
+        # Keep launched runtime identity if persistence or teardown fails. Its
+        # proxy port must stay reserved until the process is actually stopped.
+        self._unrecorded_public_launches: dict[str, VMInfo] = {}
+        self._public_egress_exit_registered = False
 
         # Track open log file handles per VM for proper cleanup
         self._log_files: dict[str, TextIO] = {}
@@ -534,9 +635,48 @@ class CelestoManager:
 
         Closes open log-file handles.  Calling ``close()`` more than once
         is safe (idempotent).
+        If a lifecycle operation is in progress, cleanup is deferred until
+        the last operation finishes.
         """
-        if self._closed:
-            return
+        with self._vm_operation_lock:
+            if self._closed or self._closing:
+                return
+            self._close_requested = True
+            if self._active_vm_operations:
+                # Waiting here would deadlock a launch running on this event
+                # loop. Its final operation releases the claim and closes us.
+                return
+            self._closing = True
+        try:
+            self._close_resources()
+        finally:
+            with self._vm_operation_lock:
+                self._closing = False
+                self._close_requested = self._closed
+
+    def _close_resources(self) -> None:
+        """Close after all lifecycle operations have released their claims."""
+        # A public-mode guest must stop before its proxy listener is released.
+        # Otherwise a later process could inherit that same local port.
+        failures: list[tuple[str, Exception]] = []
+        for vm_id in list(self._public_egress):
+            try:
+                self._stop_claimed(vm_id, 10.0)
+                self._stop_public_egress(vm_id)
+            except Exception as exc:
+                failures.append((vm_id, exc))
+        if failures:
+            # Keep failed guests' proxies, inventory, and process handles alive
+            # for another close attempt, after trying every independent guest.
+            if len(failures) == 1:
+                raise failures[0][1]
+            recovery = ", then ".join(
+                f"'celesto computer stop {vm_id}'" for vm_id, _error in failures
+            )
+            raise ExceptionGroup(
+                f"Celesto could not finish closing; run {recovery}.",
+                [error for _vm_id, error in failures],
+            )
         for fh in self._log_files.values():
             with suppress(Exception):
                 fh.close()
@@ -893,7 +1033,9 @@ class CelestoManager:
 
         Lock order is always lifecycle → snapshot-by-VM → snapshot-ID. A
         caller must never acquire a lifecycle lock while holding a snapshot
-        lock, and must never hold two lifecycle locks at once.
+        lock, and must never hold two lifecycle locks at once. Start, stop and
+        delete take this session's operation claim first; the claim fails
+        instead of waiting, so it cannot deadlock against this lock.
         """
         lock = self._acquire_operation_lock(
             self._lifecycle_lock_name(vm_id),
@@ -1013,6 +1155,8 @@ class CelestoManager:
             raise CelestoError("QEMU backend requires qemu-img to materialize managed disks")
 
         source_format = source_format or ("qcow2" if source_path.suffix == ".qcow2" else "raw")
+        if source_format == "qcow2":
+            _reject_external_qcow2_files(source_path)
         result = subprocess.run(
             [
                 str(qemu_img),
@@ -1056,6 +1200,8 @@ class CelestoManager:
             raise CelestoError("QEMU backend requires qemu-img to create overlay disks")
 
         base_format = backing_format or ("qcow2" if base_path.suffix == ".qcow2" else "raw")
+        if base_format == "qcow2":
+            _reject_external_qcow2_files(base_path)
         result = subprocess.run(
             [
                 str(qemu_img),
@@ -1142,6 +1288,7 @@ class CelestoManager:
         self._ensure_disk_can_be_resized(config)
         if config.disk_size_mib is None and not config.grow_filesystem:
             return config
+        assert config.rootfs_path is not None  # VMConfig requires a disk for non-macOS guests.
 
         if config.effective_rootfs_format == "qcow2":
             if config.grow_filesystem:
@@ -1325,6 +1472,9 @@ class CelestoManager:
 
         In ``shared`` mode, uses ``rootfs_path`` directly.
         """
+        assert config.rootfs_path is not None  # macOS uses _materialize_macos_bundle instead.
+        if config.effective_rootfs_format == "qcow2":
+            _reject_external_qcow2_files(config.rootfs_path)
         if config.disk_mode == "shared":
             return config
 
@@ -1601,6 +1751,14 @@ class CelestoManager:
 
     def _ensure_snapshot_supported(self, vm_info: VMInfo) -> None:
         """Validate whether snapshot operations are supported for a VM."""
+        if (
+            vm_info.config.internet_settings is not None
+            and vm_info.config.internet_settings.mode == "public"
+        ):
+            raise CelestoError(
+                f"Computer '{vm_info.vm_id}' uses a live public browsing connection; "
+                "create a new computer instead of taking a snapshot."
+            )
         if vm_info.config.guest_os is GuestOS.WINDOWS:
             # Snapshotting a Windows VM faithfully needs the qcow2, the OVMF
             # NVRAM, AND the swtpm state captured atomically; that's a
@@ -1634,6 +1792,7 @@ class CelestoManager:
         self, vm_info: VMInfo, snapshot_type: SnapshotType = SnapshotType.FULL
     ) -> None:
         """Warn when snapshot creation looks likely to exhaust local disk space."""
+        assert vm_info.config.rootfs_path is not None  # Caller already requires a managed disk.
         rootfs_size = vm_info.config.rootfs_path.stat().st_size
         # DISK snapshots don't dump guest RAM, so the memory term doesn't apply.
         if snapshot_type == SnapshotType.DISK:
@@ -1715,6 +1874,7 @@ class CelestoManager:
             )
             return
 
+        assert network.guest_ip is not None  # NetworkConfig requires an address in NAT mode.
         user = os.environ.get("USER", "root")
         self.network.prepare_tap_device(
             network.tap_device,
@@ -1750,6 +1910,7 @@ class CelestoManager:
     def _teardown_tap_network_for_restore(self, vm_id: str, network: NetworkConfig) -> None:
         """Best-effort teardown for host networking provisioned during restore."""
         if network.ssh_host_port is not None:
+            assert network.guest_ip is not None  # Bridge configurations cannot have SSH forwards.
             with suppress(Exception):
                 self.network.cleanup_ssh_port_forward(
                     vm_id=vm_id,
@@ -1953,6 +2114,63 @@ class CelestoManager:
             recovery_command=f"celesto computer create --name {config.vm_id} --help",
         )
 
+    def _prepare_public_egress(self, vm_info: VMInfo) -> VMInfo:
+        settings = vm_info.config.internet_settings
+        if settings is None or settings.mode != "public":
+            return vm_info
+        if vm_info.vm_id in self._unrecorded_public_launches:
+            raise CelestoError(
+                f"Computer '{vm_info.vm_id}' is still stopping; "
+                "close its Celesto session and retry."
+            )
+        self._stop_public_egress(vm_info.vm_id)
+        if vm_info.network is None:
+            raise CelestoError(f"Computer '{vm_info.vm_id}' has no network; create it again.")
+        session = PublicEgressSession(
+            vm_info.vm_id,
+            guest_network="qemu-slirp",
+            network=vm_info.network,
+        )
+        self._public_egress[vm_info.vm_id] = session
+        if not self._public_egress_exit_registered:
+            atexit.register(self.close)
+            self._public_egress_exit_registered = True
+        return self.state.update_vm(vm_info.vm_id, network=session.prepare())
+
+    @contextmanager
+    def _vm_operation_guard(self, vm_id: str, action: str) -> Iterator[None]:
+        """Keep one caller per manager responsible for a VM's lifecycle."""
+        with self._vm_operation_lock:
+            if self._closed:
+                raise CelestoError(
+                    f"This session is closed; create a new session, then run "
+                    f"'celesto computer {action} {vm_id}'."
+                )
+            if self._close_requested:
+                raise CelestoError(
+                    f"This session is closing; retry with 'celesto computer {action} {vm_id}'."
+                )
+            if vm_id in self._active_vm_operations:
+                raise CelestoError(
+                    f"Computer '{vm_id}' is busy; wait for that call to finish "
+                    f"before retrying 'celesto computer {action} {vm_id}'."
+                )
+            self._active_vm_operations.add(vm_id)
+        try:
+            yield
+        finally:
+            with self._vm_operation_lock:
+                self._active_vm_operations.remove(vm_id)
+                finish_close = self._close_requested and not self._active_vm_operations
+            if finish_close:
+                self.close()
+
+    def _stop_public_egress(self, vm_id: str) -> None:
+        session = self._public_egress.get(vm_id)
+        if session is not None:
+            session.delete()
+            del self._public_egress[vm_id]
+
     @staticmethod
     def _policy_destinations(config: VMConfig) -> list[str] | None:
         settings = config.internet_settings
@@ -1993,6 +2211,19 @@ class CelestoManager:
 
         backend = self._backend_for_vm(vm_info)
         self._validate_network_policy(vm_info.config, backend)
+        if (
+            vm_info.config.internet_settings is not None
+            and vm_info.config.internet_settings.mode == "public"
+        ):
+            if vm_info.status in {VMState.RUNNING, VMState.PAUSED}:
+                session = self._public_egress.get(vm_info.vm_id)
+                if session is None:
+                    raise CelestoError(
+                        f"Public browsing for '{vm_info.vm_id}' belongs to another session; "
+                        f"run 'celesto sandbox delete {vm_info.vm_id}' and create it again."
+                    )
+                session.require_ready()
+            return
         if not self._uses_host_tap_networking(vm_info.config, backend):
             return
 
@@ -2020,6 +2251,7 @@ class CelestoManager:
                     host_ip=network.gateway_ip,
                     netmask="32",
                 )
+        assert network.guest_ip is not None  # Bridge mode returned above.
         self.network.add_route(network.guest_ip, network.tap_device)
         self._setup_policy_network(vm_info.config, network.tap_device, network.guest_ip)
 
@@ -2433,6 +2665,7 @@ class CelestoManager:
         if managed_disk_existed and (
             effective_config.disk_size_mib is not None or effective_config.grow_filesystem
         ):
+            assert managed_disk_path is not None
             managed_disk_backup = self._backup_existing_managed_disk(managed_disk_path)
         try:
             if effective_config.guest_os is GuestOS.MACOS:
@@ -2645,39 +2878,7 @@ class CelestoManager:
         vm_id: str,
         boot_timeout: float = 30.0,
     ) -> VMInfo:
-        """Start a microVM."""
-        if not vm_id:
-            raise ValueError("vm_id cannot be empty")
-        with self._lifecycle_lock(vm_id):
-            return self._start_locked(vm_id, boot_timeout=boot_timeout)
-
-    def start_from_current_state(
-        self,
-        vm_id: str,
-        boot_timeout: float = 30.0,
-    ) -> tuple[VMInfo, Literal["running", "resumed", "started"]]:
-        """Start or resume a computer based on its current inventory state.
-
-        Unlike :meth:`start`, this re-reads the row inside the lifecycle
-        lock, so a facade holding a stale handle cannot no-op on a cached
-        RUNNING status or fail on a cached STOPPED one.
-        """
-        if not vm_id:
-            raise ValueError("vm_id cannot be empty")
-        with self._lifecycle_lock(vm_id):
-            vm_info = self.state.get_vm(vm_id)
-            if vm_info.status == VMState.RUNNING:
-                return vm_info, "running"
-            if vm_info.status == VMState.PAUSED:
-                return self._resume_locked(vm_id), "resumed"
-            return self._start_locked(vm_id, boot_timeout=boot_timeout), "started"
-
-    def _start_locked(
-        self,
-        vm_id: str,
-        boot_timeout: float = 30.0,
-    ) -> VMInfo:
-        """Start a microVM while its lifecycle lock is held.
+        """Start a microVM.
 
         Args:
             vm_id: The VM identifier.
@@ -2694,6 +2895,37 @@ class CelestoManager:
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
 
+        # Claim before locking: a second caller in this session fails fast
+        # instead of polling a lock that its own event loop may need to release.
+        with self._vm_operation_guard(vm_id, "start"), self._lifecycle_lock(vm_id):
+            return self._start_claimed(vm_id, boot_timeout)
+
+    def start_from_current_state(
+        self,
+        vm_id: str,
+        boot_timeout: float = 30.0,
+    ) -> tuple[VMInfo, Literal["running", "resumed", "started"]]:
+        """Start or resume a computer based on its current inventory state.
+
+        Unlike :meth:`start`, this re-reads the row inside the lifecycle
+        lock, so a facade holding a stale handle cannot no-op on a cached
+        RUNNING status or fail on a cached STOPPED one.
+        """
+        if not vm_id:
+            raise ValueError("vm_id cannot be empty")
+        with self._vm_operation_guard(vm_id, "start"), self._lifecycle_lock(vm_id):
+            vm_info = self.state.get_vm(vm_id)
+            if vm_info.status == VMState.RUNNING:
+                return vm_info, "running"
+            if vm_info.status == VMState.PAUSED:
+                return self._resume_locked(vm_id), "resumed"
+            return self._start_claimed(vm_id, boot_timeout), "started"
+
+    def _start_claimed(self, vm_id: str, boot_timeout: float) -> VMInfo:
+        """Start after claiming the VM and taking its lifecycle lock.
+
+        Includes the state check and rollback.
+        """
         logger.info("Starting VM: %s", vm_id)
 
         # Get current state
@@ -2738,7 +2970,17 @@ class CelestoManager:
         log_path = self.data_dir / f"{vm_id}.log"
         adapter = self._runtime_adapter_for_backend(backend)
         try:
+            vm_info = self._prepare_public_egress(vm_info)
             launch = adapter.start(vm_info, log_path=log_path, boot_timeout=boot_timeout)
+            if vm_id in self._public_egress:
+                self._unrecorded_public_launches[vm_id] = vm_info.model_copy(
+                    update={
+                        "status": launch.status,
+                        "pid": launch.pid,
+                        "control_socket_path": launch.control_socket_path,
+                        "display": launch.display,
+                    }
+                )
             vm_info = self.state.update_vm(
                 vm_id,
                 status=launch.status,
@@ -2746,6 +2988,7 @@ class CelestoManager:
                 control_socket_path=launch.control_socket_path,
                 display=launch.display,
             )
+            self._unrecorded_public_launches.pop(vm_id, None)
             logger.info(
                 "VM started: %s (backend=%s, PID: %d)",
                 vm_id,
@@ -2753,8 +2996,13 @@ class CelestoManager:
                 launch.pid,
             )
             return vm_info
-        except Exception as e:
+        except BaseException as e:
             logger.error("Failed to start VM %s: %s", vm_id, e)
+            pending = self._unrecorded_public_launches.get(vm_id)
+            if pending is not None:
+                adapter.stop(pending, timeout=10.0)
+                del self._unrecorded_public_launches[vm_id]
+            self._stop_public_egress(vm_id)
             self.state.update_vm(
                 vm_id,
                 status=VMState.ERROR,
@@ -2766,14 +3014,7 @@ class CelestoManager:
             raise
 
     def stop(self, vm_id: str, timeout: float = 10.0) -> VMInfo:
-        """Stop a running microVM."""
-        if not vm_id:
-            raise ValueError("vm_id cannot be empty")
-        with self._lifecycle_lock(vm_id):
-            return self._stop_locked(vm_id, timeout=timeout)
-
-    def _stop_locked(self, vm_id: str, timeout: float = 10.0) -> VMInfo:
-        """Stop a running microVM while its lifecycle lock is held.
+        """Stop a running microVM.
 
         Args:
             vm_id: The VM identifier.
@@ -2788,9 +3029,19 @@ class CelestoManager:
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
 
+        with self._vm_operation_guard(vm_id, "stop"), self._lifecycle_lock(vm_id):
+            return self._stop_claimed(vm_id, timeout)
+
+    def _stop_claimed(self, vm_id: str, timeout: float) -> VMInfo:
+        """Stop after claiming the VM and taking its lifecycle lock.
+
+        ``close()`` also calls this once no operation holds a claim.
+        """
         logger.info("Stopping VM: %s", vm_id)
 
-        vm_info = self.state.get_vm(vm_id)
+        # A launched process may be newer than its inventory row if persistence
+        # and the first rollback both failed. Preserve its proxy until it stops.
+        vm_info = self._unrecorded_public_launches.get(vm_id) or self.state.get_vm(vm_id)
 
         if vm_info.status not in (VMState.RUNNING, VMState.PAUSED):
             logger.warning("VM %s is not running (status: %s)", vm_id, vm_info.status)
@@ -2798,6 +3049,8 @@ class CelestoManager:
 
         backend = self._backend_for_vm(vm_info)
         self._runtime_adapter_for_backend(backend).stop(vm_info, timeout=timeout)
+        self._unrecorded_public_launches.pop(vm_id, None)
+        self._stop_public_egress(vm_id)
         self._close_runtime_log(vm_id, backend, vm_info.control_socket_path)
         vm_info = self.state.update_vm(
             vm_id,
@@ -3160,7 +3413,7 @@ class CelestoManager:
         snapshot_persisted = False
 
         try:
-            snapshot_root.mkdir(parents=True, exist_ok=False)
+            snapshot_root.mkdir(mode=0o700, parents=True, exist_ok=False)
             self._warn_low_disk_space_for_snapshot(vm_info, snapshot_type)
             result = adapter.create_snapshot(
                 SnapshotCreateRequest(
@@ -3177,11 +3430,15 @@ class CelestoManager:
                     qemu_dirty_bitmap_backup=qemu_dirty_bitmap_backup,
                 )
             )
+            if snapshot_type != SnapshotType.DISK:
+                save_snapshot_host_key(self.data_dir, vm_id, snapshot_root)
 
+            assert vm_info.network is not None  # _ensure_snapshot_supported checks this.
             snapshot_info = SnapshotInfo(
                 snapshot_id=snapshot_id,
                 vm_id=vm_info.vm_id,
-                backend=backend,
+                # macOS cannot reach this point: it has no managed rootfs disk.
+                backend=cast(Literal["firecracker", "qemu", "libkrun"], backend),
                 artifacts=result.artifacts,
                 vm_config=vm_info.config,
                 network_config=vm_info.network,
@@ -3284,6 +3541,13 @@ class CelestoManager:
     ) -> VMInfo:
         """Restore one snapshot while its lifecycle and snapshot locks are held."""
         snapshot = self.get_snapshot(snapshot_id)
+        if (
+            snapshot.vm_config.internet_settings is not None
+            and snapshot.vm_config.internet_settings.mode == "public"
+        ):
+            raise CelestoError(
+                "Public browsing cannot restore an old connection; create a new computer instead."
+            )
         if snapshot.restored and not force:
             raise CelestoError("Snapshot already restored", {"snapshot_id": snapshot_id})
 
@@ -3343,7 +3607,9 @@ class CelestoManager:
                 )
 
         if existing_vm is not None and existing_vm.status in (VMState.RUNNING, VMState.PAUSED):
-            self._stop_locked(restore_vm_id)
+            # The lifecycle lock is already held; claim the VM as stop() would.
+            with self._vm_operation_guard(restore_vm_id, "stop"):
+                self._stop_claimed(restore_vm_id, 10.0)
             existing_vm = self.state.get_vm(restore_vm_id)
 
         managed_disk_path = self._instance_disk_path(
@@ -3462,6 +3728,11 @@ class CelestoManager:
                     log_path=log_path,
                     resume_vm=resume_vm,
                     boot_timeout=30.0,
+                    ssh_host_key=(
+                        snapshot_host_key(self._snapshot_root_for_id(snapshot_id))
+                        if snapshot.snapshot_type != SnapshotType.DISK
+                        else None
+                    ),
                 )
             )
             if restore_disk_path != managed_disk_path:
@@ -3591,16 +3862,20 @@ class CelestoManager:
         Raises:
             VMNotFoundError: If VM doesn't exist.
         """
-        if not vm_id:
-            raise ValueError("vm_id cannot be empty")
+        _validate_cleanup_id(vm_id)
 
-        with self._lifecycle_lock(vm_id):
-            self._delete_locked(vm_id)
+        with self._vm_operation_guard(vm_id, "delete"), self._lifecycle_lock(vm_id):
+            self._delete_claimed(vm_id)
 
-    def _delete_locked(self, vm_id: str) -> None:
-        """Delete one computer while its lifecycle lock is held."""
+    def _delete_claimed(self, vm_id: str) -> None:
+        """Delete after claiming the VM and taking its lifecycle lock.
+
+        The claim is not reentrant, so nested stops call :meth:`_stop_claimed`.
+        """
         logger.info("Deleting VM: %s", vm_id)
 
+        if vm_id in self._unrecorded_public_launches:
+            self._stop_claimed(vm_id, 10.0)
         # Stop if running
         try:
             vm_info = self.state.get_vm(vm_id)
@@ -3610,8 +3885,9 @@ class CelestoManager:
             raise
 
         if vm_info.status in (VMState.RUNNING, VMState.PAUSED):
-            self._stop_locked(vm_id)
+            self._stop_claimed(vm_id, 10.0)
 
+        self._stop_public_egress(vm_id)
         self._delete_macos_bundle(vm_info)
 
         # Cleanup all resources. Bridge deletion is strict so an owned host
@@ -3738,6 +4014,7 @@ class CelestoManager:
             with suppress(Exception):
                 vm_info = self.state.get_vm(vm_id)
                 if vm_info.network and vm_info.network.ssh_host_port is not None:
+                    assert vm_info.network.guest_ip is not None
                     self.network.cleanup_ssh_port_forward(
                         vm_id=vm_id,
                         guest_ip=vm_info.network.guest_ip,
@@ -3805,6 +4082,7 @@ class CelestoManager:
         root_node_name: str = QEMU_ROOT_NODE_NAME,
         firmware_vars_path: Path | None = None,
         swtpm_socket: Path | None = None,
+        ssh_host_key: str | None = None,
     ) -> subprocess.Popen[bytes]:
         """Start a QEMU process for the qemu backend.
 
@@ -3856,7 +4134,7 @@ class CelestoManager:
 
         logger.debug("Starting QEMU: %s", " ".join(cmd))
 
-        log_file = open(log_path, "w")  # noqa: SIM115 - must stay open for subprocess
+        log_file = _open_runtime_log(log_path, ssh_host_key=ssh_host_key)
 
         try:
             process = subprocess.Popen(
@@ -3873,6 +4151,16 @@ class CelestoManager:
         key = f"qemu:{vm_info.vm_id}"
         self._log_files[key] = log_file
         self._process_handles[process.pid] = process
+        if vm_info.vm_id in self._public_egress:
+            # Readiness can be interrupted before the adapter returns. Retain
+            # the child now so failed termination cannot release its listener.
+            self._unrecorded_public_launches[vm_info.vm_id] = vm_info.model_copy(
+                update={
+                    "status": VMState.RUNNING,
+                    "pid": process.pid,
+                    "control_socket_path": control_socket_path,
+                }
+            )
 
         logger.debug("Started QEMU: PID=%d, vm_id=%s", process.pid, vm_info.vm_id)
         return process
@@ -3881,6 +4169,8 @@ class CelestoManager:
         self,
         socket_path: Path,
         log_path: Path,
+        *,
+        ssh_host_key: str | None = None,
     ) -> subprocess.Popen[bytes]:
         """Start the Firecracker process.
 
@@ -3902,7 +4192,7 @@ class CelestoManager:
 
         cmd = [str(fc_path), "--api-sock", str(socket_path)]
 
-        log_file = open(log_path, "w")  # noqa: SIM115 - must stay open for subprocess
+        log_file = _open_runtime_log(log_path, ssh_host_key=ssh_host_key)
 
         try:
             process = subprocess.Popen(
@@ -3985,7 +4275,7 @@ class CelestoManager:
         cmd = [sys.executable, "-m", "celesto.runtime._libkrun_launcher", str(config_path)]
 
         logger.debug("Starting libkrun: %s", " ".join(shlex.quote(p) for p in cmd))
-        log_file = open(log_path, "w")  # noqa: SIM115 - must stay open for subprocess
+        log_file = _open_runtime_log(log_path)
 
         try:
             process = subprocess.Popen(
@@ -4224,6 +4514,7 @@ class CelestoManager:
             require_bridge_cleanup: Abort deletion and retain state when an owned
                 bridge interface cannot be removed.
         """
+        _validate_cleanup_id(vm_id)
         vm_info = self._vm_info_for_cleanup(vm_id)
         try:
             self._cleanup_host_resources(
@@ -4405,6 +4696,7 @@ class CelestoManager:
         path is derivable from the VM ID, which is what makes
         ``celesto sandbox delete <id>`` able to reclaim a leaked disk.
         """
+        _validate_cleanup_id(vm_id)
         retain_requested = vm_info is not None and vm_info.config.retain_disk_on_delete
 
         for managed_disk in self._managed_disks_for_cleanup(vm_id, vm_info):
@@ -4423,6 +4715,17 @@ class CelestoManager:
         # Secure Boot enrollment persists for a later VM with the
         # same ID.
         firmware_state = self.data_dir / "firmware" / vm_id
+        firmware_root = (self.data_dir / "firmware").resolve()
+        firmware_target = firmware_state.resolve()
+        if (
+            firmware_state.is_symlink()
+            or not firmware_target.is_relative_to(firmware_root)
+            or firmware_target == firmware_root
+        ):
+            raise CelestoError(
+                f"Saved firmware for '{vm_id}' points outside its folder; "
+                f"remove the link at '{firmware_state}', then run 'celesto sandbox delete {vm_id}'."
+            )
         if firmware_state.exists():
             if retain_requested:
                 logger.info(
@@ -4848,6 +5151,7 @@ class CelestoManager:
         if managed_disk_existed and (
             effective_config.disk_size_mib is not None or effective_config.grow_filesystem
         ):
+            assert managed_disk_path is not None
             managed_disk_backup = await asyncio.to_thread(
                 self._backup_existing_managed_disk,
                 managed_disk_path,
@@ -5040,8 +5344,10 @@ class CelestoManager:
         """Async version of :meth:`start`."""
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
-        async with self._async_lifecycle_lock(vm_id):
-            return await self._async_start_locked(vm_id, boot_timeout=boot_timeout)
+
+        with self._vm_operation_guard(vm_id, "start"):
+            async with self._async_lifecycle_lock(vm_id):
+                return await self._async_start_claimed(vm_id, boot_timeout)
 
     async def async_start_from_current_state(
         self,
@@ -5051,21 +5357,18 @@ class CelestoManager:
         """Async twin of :meth:`start_from_current_state`."""
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
-        async with self._async_lifecycle_lock(vm_id):
-            vm_info = self.state.get_vm(vm_id)
-            if vm_info.status == VMState.RUNNING:
-                return vm_info, "running"
-            if vm_info.status == VMState.PAUSED:
-                resumed = await _finish_thread_despite_cancel(self._resume_locked, vm_id)
-                return resumed, "resumed"
-            return await self._async_start_locked(vm_id, boot_timeout=boot_timeout), "started"
+        with self._vm_operation_guard(vm_id, "start"):
+            async with self._async_lifecycle_lock(vm_id):
+                vm_info = self.state.get_vm(vm_id)
+                if vm_info.status == VMState.RUNNING:
+                    return vm_info, "running"
+                if vm_info.status == VMState.PAUSED:
+                    resumed = await _finish_thread_despite_cancel(self._resume_locked, vm_id)
+                    return resumed, "resumed"
+                return await self._async_start_claimed(vm_id, boot_timeout), "started"
 
-    async def _async_start_locked(
-        self,
-        vm_id: str,
-        boot_timeout: float = 30.0,
-    ) -> VMInfo:
-        """Start a microVM while its async lifecycle lock is held."""
+    async def _async_start_claimed(self, vm_id: str, boot_timeout: float) -> VMInfo:
+        """Async launch under the same claim and lifecycle lock as synchronous callers."""
         logger.info("Starting VM (async): %s", vm_id)
 
         vm_info = self.state.get_vm(vm_id)
@@ -5107,9 +5410,35 @@ class CelestoManager:
         log_path = self.data_dir / f"{vm_id}.log"
         adapter = self._runtime_adapter_for_backend(backend)
         try:
-            launch = await adapter.async_start(
-                vm_info, log_path=log_path, boot_timeout=boot_timeout
-            )
+            vm_info = self._prepare_public_egress(vm_info)
+            cancelled = False
+            if vm_id in self._public_egress:
+                # QEMU startup runs in a worker thread. Cancellation must not
+                # abandon that thread and release its still-running guest's proxy.
+                launch_task = asyncio.create_task(
+                    adapter.async_start(vm_info, log_path=log_path, boot_timeout=boot_timeout)
+                )
+                while True:
+                    try:
+                        launch = await asyncio.shield(launch_task)
+                        break
+                    except asyncio.CancelledError:
+                        if launch_task.cancelled():
+                            raise
+                        cancelled = True
+            else:
+                launch = await adapter.async_start(
+                    vm_info, log_path=log_path, boot_timeout=boot_timeout
+                )
+            if vm_id in self._public_egress:
+                self._unrecorded_public_launches[vm_id] = vm_info.model_copy(
+                    update={
+                        "status": launch.status,
+                        "pid": launch.pid,
+                        "control_socket_path": launch.control_socket_path,
+                        "display": launch.display,
+                    }
+                )
             vm_info = self.state.update_vm(
                 vm_id,
                 status=launch.status,
@@ -5117,6 +5446,10 @@ class CelestoManager:
                 control_socket_path=launch.control_socket_path,
                 display=launch.display,
             )
+            if cancelled:
+                await self._async_stop_claimed(vm_id, 10.0)
+                raise asyncio.CancelledError
+            self._unrecorded_public_launches.pop(vm_id, None)
             logger.info(
                 "VM started (async): %s (backend=%s, PID: %d)",
                 vm_id,
@@ -5126,6 +5459,11 @@ class CelestoManager:
             return vm_info
         except Exception as e:
             logger.error("Failed to start VM %s: %s", vm_id, e)
+            pending = self._unrecorded_public_launches.get(vm_id)
+            if pending is not None:
+                await adapter.async_stop(pending, timeout=10.0)
+                del self._unrecorded_public_launches[vm_id]
+            self._stop_public_egress(vm_id)
             self.state.update_vm(
                 vm_id,
                 status=VMState.ERROR,
@@ -5140,14 +5478,16 @@ class CelestoManager:
         """Async version of :meth:`stop`."""
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
-        async with self._async_lifecycle_lock(vm_id):
-            return await self._async_stop_locked(vm_id, timeout=timeout)
 
-    async def _async_stop_locked(self, vm_id: str, timeout: float = 10.0) -> VMInfo:
-        """Stop a microVM while its async lifecycle lock is held."""
+        with self._vm_operation_guard(vm_id, "stop"):
+            async with self._async_lifecycle_lock(vm_id):
+                return await self._async_stop_claimed(vm_id, timeout)
+
+    async def _async_stop_claimed(self, vm_id: str, timeout: float) -> VMInfo:
+        """Async stop after claiming the VM and taking its lifecycle lock."""
         logger.info("Stopping VM (async): %s", vm_id)
 
-        vm_info = self.state.get_vm(vm_id)
+        vm_info = self._unrecorded_public_launches.get(vm_id) or self.state.get_vm(vm_id)
 
         if vm_info.status not in (VMState.RUNNING, VMState.PAUSED):
             logger.warning("VM %s is not running (status: %s)", vm_id, vm_info.status)
@@ -5155,6 +5495,8 @@ class CelestoManager:
 
         backend = self._backend_for_vm(vm_info)
         await self._runtime_adapter_for_backend(backend).async_stop(vm_info, timeout=timeout)
+        self._unrecorded_public_launches.pop(vm_id, None)
+        self._stop_public_egress(vm_id)
         self._close_runtime_log(vm_id, backend, vm_info.control_socket_path)
         vm_info = self.state.update_vm(
             vm_id,
@@ -5168,15 +5510,21 @@ class CelestoManager:
 
     async def async_delete(self, vm_id: str) -> None:
         """Async version of :meth:`delete`."""
-        if not vm_id:
-            raise ValueError("vm_id cannot be empty")
-        async with self._async_lifecycle_lock(vm_id):
-            await self._async_delete_locked(vm_id)
+        _validate_cleanup_id(vm_id)
 
-    async def _async_delete_locked(self, vm_id: str) -> None:
-        """Delete one computer while its async lifecycle lock is held."""
+        with self._vm_operation_guard(vm_id, "delete"):
+            async with self._async_lifecycle_lock(vm_id):
+                await self._async_delete_claimed(vm_id)
+
+    async def _async_delete_claimed(self, vm_id: str) -> None:
+        """Async delete after claiming the VM and taking its lifecycle lock.
+
+        The claim is not reentrant, so nested stops call :meth:`_async_stop_claimed`.
+        """
         logger.info("Deleting VM (async): %s", vm_id)
 
+        if vm_id in self._unrecorded_public_launches:
+            await self._async_stop_claimed(vm_id, 10.0)
         try:
             vm_info = self.state.get_vm(vm_id)
         except VMNotFoundError:
@@ -5184,8 +5532,9 @@ class CelestoManager:
             raise
 
         if vm_info.status in (VMState.RUNNING, VMState.PAUSED):
-            await self._async_stop_locked(vm_id)
+            await self._async_stop_claimed(vm_id, 10.0)
 
+        self._stop_public_egress(vm_id)
         await asyncio.to_thread(self._delete_macos_bundle, vm_info)
 
         require_bridge_cleanup = (
@@ -5207,6 +5556,9 @@ class CelestoManager:
 
     async def _async_materialize_rootfs(self, config: VMConfig) -> VMConfig:
         """Async version of :meth:`_materialize_rootfs`."""
+        assert config.rootfs_path is not None  # macOS materializes its machine bundle instead.
+        if config.effective_rootfs_format == "qcow2":
+            _reject_external_qcow2_files(config.rootfs_path)
         if config.disk_mode == "shared":
             return config
 
@@ -5249,6 +5601,8 @@ class CelestoManager:
 
         overlay_path.parent.mkdir(parents=True, exist_ok=True)
         base_format = backing_format or ("qcow2" if base_path.suffix == ".qcow2" else "raw")
+        if base_format == "qcow2":
+            _reject_external_qcow2_files(base_path)
         await async_run_command(
             [
                 str(qemu_img),
@@ -5302,7 +5656,7 @@ class CelestoManager:
         cmd = [sys.executable, "-m", "celesto.runtime._libkrun_launcher", str(config_path)]
 
         logger.debug("Async starting libkrun: %s", " ".join(shlex.quote(part) for part in cmd))
-        log_file = open(log_path, "w")  # noqa: SIM115 - must stay open while process runs
+        log_file = _open_runtime_log(log_path)
 
         try:
             process = await asyncio.create_subprocess_exec(
@@ -5342,6 +5696,7 @@ class CelestoManager:
         require_bridge_cleanup: bool = False,
     ) -> None:
         """Async version of :meth:`_cleanup_resources`."""
+        _validate_cleanup_id(vm_id)
         vm_info = self._vm_info_for_cleanup(vm_id)
         try:
             await self._async_cleanup_host_resources(

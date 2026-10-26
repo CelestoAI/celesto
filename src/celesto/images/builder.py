@@ -63,8 +63,8 @@ _GUEST_AGENT_CRATE_DIR = _REPO_ROOT / "guest-agent"
 _GUEST_AGENT_BUILD_FILE = "celesto-guest-agent"
 _GUEST_AGENT_GUEST_PATH = "/usr/local/bin/celesto-guest-agent"
 _GUEST_AGENT_RELEASE_SHA256: dict[str, str] = {
-    "amd64": "c1bcaeef648a99e1770833be9f0c83abcacd44e6c8f2a8ecaf2d18eb25e74d1f",
-    "arm64": "ba2d39760c1ab305667c636b42815b3f7897ca4c29ce1c894936b89204e5f277",
+    "amd64": "0d49151277d29dedcb9514aa9c2859f6741bc4559aa1be236138b1be849bf865",
+    "arm64": "2b973307e1362d16d6debf96e844bec5239cc76ba9949e3dfb6201e42e932bd1",
 }
 
 
@@ -997,7 +997,7 @@ class ThreadingServer(socketserver.ThreadingTCPServer):
     daemon_threads = True
 
 
-with ThreadingServer(("0.0.0.0", listen_port), ProxyHandler) as server:
+with ThreadingServer(("127.0.0.1", listen_port), ProxyHandler) as server:
     server.serve_forever()
 PY
     echo $! >"${RUNTIME_DIR}/cdp-proxy.pid"
@@ -1031,11 +1031,11 @@ start_live_stack() {
         echo $! >"${RUNTIME_DIR}/tint2.pid"
     fi
 
-    nohup x11vnc -display :99 -nopw -forever -shared -rfbport 5900 \
+    nohup x11vnc -display :99 -localhost -nopw -forever -shared -rfbport 5900 \
         >"${LOG_DIR}/x11vnc.log" 2>&1 &
     echo $! >"${RUNTIME_DIR}/x11vnc.pid"
 
-    nohup websockify --web="${NOVNC_WEB_ROOT}" "${live_port}" 127.0.0.1:5900 \
+    nohup websockify --web="${NOVNC_WEB_ROOT}" "127.0.0.1:${live_port}" 127.0.0.1:5900 \
         >"${LOG_DIR}/websockify.log" 2>&1 &
     echo $! >"${RUNTIME_DIR}/websockify.pid"
 
@@ -1273,7 +1273,7 @@ async function main() {
   if (Buffer.byteLength(source) > 20000) {
     throw new Error("Playwright program exceeds 20,000 bytes.");
   }
-  const browser = await chromium.connectOverCDP("http://127.0.0.1:9222");
+  const browser = await chromium.connectOverCDP("http://127.0.0.1:9223");
   const context = browser.contexts()[0];
   if (!context) throw new Error("Browser context is unavailable.");
   const pages = context.pages();
@@ -1404,6 +1404,13 @@ COPY init /init
 RUN chmod +x /init
 """
 
+        connections_helper = (
+            "ACCESS_SOURCE = "
+            + repr(Path(__file__).with_name("guest_access.py").read_text())
+            + "\n"
+            + Path(__file__).with_name("guest_connections.py").read_text()
+        )
+
         # ssh_public_key is intentionally not in the fingerprint and not baked
         # into the rootfs — see VMConfig.ssh_public_key + /init parser.
         _ = key_value
@@ -1418,9 +1425,7 @@ RUN chmod +x /init
                 "_browser_session_sha256": hashlib.sha256(browser_session_sh.encode()).hexdigest(),
                 "_wait_port_sha256": hashlib.sha256(wait_port_py.encode()).hexdigest(),
                 "_browser_runner_sha256": hashlib.sha256(browser_runner_js.encode()).hexdigest(),
-                "_connections_sha256": hashlib.sha256(
-                    Path(__file__).with_name("guest_connections.py").read_bytes()
-                ).hexdigest(),
+                "_connections_sha256": hashlib.sha256(connections_helper.encode()).hexdigest(),
             },
             dockerfile_content,
             init_script,
@@ -1453,9 +1458,7 @@ RUN chmod +x /init
                     "celesto-browser-session": browser_session_sh,
                     "celesto-browser-wait-port": wait_port_py,
                     "celesto-browser-runner": browser_runner_js,
-                    "celesto-computer-connections.py": Path(__file__)
-                    .with_name("guest_connections.py")
-                    .read_text(),
+                    "celesto-computer-connections.py": connections_helper,
                     **({"computer-menu.xml": computer_menu_xml} if desktop else {}),
                 },
                 kernel_url=resolved_kernel_url,
@@ -1730,6 +1733,14 @@ if ! ls /etc/ssh/ssh_host_*_key >/dev/null 2>&1; then
     ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N "" -q 2>/dev/null
 fi
 log_ts "ssh-hostkey-check-done"
+# Publish only the public identity through the local boot console before SSH.
+for HOSTKEY in /etc/ssh/ssh_host_ed25519_key.pub \\
+    /etc/ssh/ssh_host_ecdsa_key.pub /etc/ssh/ssh_host_rsa_key.pub; do
+    if [ -s "$HOSTKEY" ]; then
+        awk '{{print "CELESTO_SSH_HOST_KEY " $1 " " $2; exit}}' "$HOSTKEY"
+        break
+    fi
+done
 
 # Pull authorized_keys from the kernel cmdline if the host injected one.
 # Format: celesto.authorized_key_b64=<base64-of-the-pubkey-line>. The legacy
@@ -1777,7 +1788,13 @@ done
         return self._base_init_script()
 
     def _loopfs_helper_path(self) -> Path | None:
-        """Return the preferred or legacy privileged helper when executable."""
+        """Use loop mounts only in a trusted root process; otherwise use Docker."""
+        if (
+            os.geteuid() != 0
+            or os.environ.get("SUDO_UID", "0") != "0"
+            or os.environ.get("SUDO_USER", "root") != "root"
+        ):
+            return None
         for candidate in (LOOPFS_HELPER_PATH, LEGACY_LOOPFS_HELPER_PATH):
             if candidate.is_file() and os.access(candidate, os.X_OK):
                 return candidate
@@ -1837,7 +1854,9 @@ done
         """
         from celesto.images.published import BASE_KERNELS
 
-        celesto_arch = "amd64" if self._host_arch_key() == "x86_64" else "arm64"
+        celesto_arch: typing.Literal["amd64", "arm64"] = (
+            "amd64" if self._host_arch_key() == "x86_64" else "arm64"
+        )
         return BASE_KERNELS[celesto_arch].image_url
 
     def _resolve_kernel_url(
@@ -1856,7 +1875,9 @@ done
             return kernel_url
         from celesto.images.published import BASE_KERNELS
 
-        celesto_arch = "amd64" if self._host_arch_key() == "x86_64" else "arm64"
+        celesto_arch: typing.Literal["amd64", "arm64"] = (
+            "amd64" if self._host_arch_key() == "x86_64" else "arm64"
+        )
         return BASE_KERNELS[celesto_arch].elf_url
 
     def _fingerprint_with_content(
@@ -1946,6 +1967,8 @@ done
         tmpdir: Path,
     ) -> None:
         """Create and populate ext4 rootfs via loopfs helper (Linux path)."""
+        if type(rootfs_size_mb) is not int or rootfs_size_mb <= 0:
+            raise ValueError("rootfs_size_mb must be a positive integer")
         logger.info("  [3/4] Creating ext4 filesystem (%dMB)...", rootfs_size_mb)
         subprocess.run(
             ["dd", "if=/dev/zero", f"of={rootfs_path}", "bs=1M", f"count={rootfs_size_mb}"],
@@ -1999,6 +2022,8 @@ done
         This path avoids Linux loop mounts and works on macOS where
         ``mkfs.ext4`` and loop devices are typically unavailable.
         """
+        if type(rootfs_size_mb) is not int or rootfs_size_mb <= 0:
+            raise ValueError("rootfs_size_mb must be a positive integer")
         logger.info("  [3/4] Creating ext4 filesystem via Docker helper (%dMB)...", rootfs_size_mb)
 
         # Validate tar member paths up-front so a malicious docker export
@@ -2074,6 +2099,8 @@ done
         fingerprint_data: dict[str, typing.Any] | None = None,
     ) -> None:
         """Execute the Docker build and image conversion."""
+        if type(rootfs_size_mb) is not int or rootfs_size_mb <= 0:
+            raise ValueError("rootfs_size_mb must be a positive integer")
         docker_tag = f"celesto-{name}"
         # Bake the guest agent into every image. Centralized here so all five
         # build_* recipes inherit it without each repeating the COPY; /init
@@ -2251,16 +2278,18 @@ class DockerRootfsBuilder:
             arch=resolved_arch,
             cache_dir=self.cache_dir,
         )
-        return BootImage(
-            name=self.name,
-            rootfs_path=rootfs_path,
-            rootfs_format="raw-ext4",
-            kernel_path=kernel_path,
-            boot=boot,
-            boot_args=boot_args,
-            backend=resolved_backend,
-            arch=resolved_arch,
-            ssh_capable=self.ssh_capable,
+        return BootImage.model_validate(
+            {
+                "name": self.name,
+                "rootfs_path": rootfs_path,
+                "rootfs_format": "raw-ext4",
+                "kernel_path": kernel_path,
+                "boot": boot,
+                "boot_args": boot_args,
+                "backend": resolved_backend,
+                "arch": resolved_arch,
+                "ssh_capable": self.ssh_capable,
+            }
         )
 
     def ensure(
@@ -2342,7 +2371,7 @@ class DockerRootfsBuilder:
             cached_data = json.loads(metadata_path.read_text())
         except (OSError, json.JSONDecodeError):
             return False
-        return cached_data == expected_data
+        return bool(cached_data == expected_data)
 
     def _build_rootfs(
         self,

@@ -20,10 +20,12 @@ Firecracker on macOS errors out at startup.
 1. Celesto installed and `celesto setup` completed for your platform.
 1. The default image is already pulled (`celesto doctor` will tell you, or run
    `celesto sandbox create --name probe` once and `celesto sandbox delete probe`).
-1. Linux only: `celesto setup` configured the host networking and your user can
-   talk to Firecracker.
+1. Linux only: Firecracker networking needs an explicitly privileged
+   administrator process. Setup no longer grants passwordless networking
+   commands; see [administrator setup](../../docs/security.md#administrator-setup).
 
-The lifecycle benchmark never escalates with `sudo`. Set things up first.
+The lifecycle benchmark never escalates automatically. Choose the required
+privileges before launching it, or use QEMU's default networking.
 
 ## Running
 
@@ -114,8 +116,14 @@ helpers when direct TAP privileges are available; rerun the benchmark with
 `sudo` or another root/CAP_NET_ADMIN launch path to measure that speedup.
 `forced-off` sets `CELESTO_DISABLE_NATIVE_NETWORKING=1`, and
 `unprivileged-fallback` is skipped unless native can be attempted without
-direct TAP privileges and the existing sudo fallback is available. Run
-`celesto setup` first if the sudo fallback is missing.
+direct TAP privileges and an independently configured sudo fallback is available.
+Celesto setup removes its old unrestricted grants; it does not enable this
+fallback. To run the networking benchmark as an administrator from the source
+checkout after installing dependencies:
+
+```bash
+sudo -- "$PWD/.venv/bin/python" scripts/benchmarks/networking.py --json
+```
 
 ## Ubuntu Transport Comparison
 

@@ -48,10 +48,13 @@ from typing import TYPE_CHECKING
 
 from celesto.exceptions import CelestoError
 from celesto.runtime.backends import BACKEND_QEMU
+from celesto.ssh import validate_host_key_alias
 from celesto.types import GuestOS, VMConfig
 
 if TYPE_CHECKING:
-    pass
+    from contextlib import AbstractContextManager
+
+    from celesto import Celesto
 
 logger = logging.getLogger(__name__)
 
@@ -230,7 +233,9 @@ class WindowsImageBuilder:
         username: Local admin account name baked into the install.
         password: Local admin account password baked into the install.
             **Override this in production**; the default is for POC use.
-        hostname: Windows computer name.
+        hostname: Windows computer name and stable SSH known_hosts alias.
+            Provision its public host key through a trusted console or image
+            process before the SSH readiness check can authenticate.
         edition: Edition name to install, as it appears in install.wim
             (default ``"Windows 11 Pro"``).
         disk_size_mib: Virtual size of the target qcow2.
@@ -258,6 +263,7 @@ class WindowsImageBuilder:
         self.username = username
         self.password = password
         self.hostname = hostname
+        validate_host_key_alias(hostname)
         self.edition = edition
         self.disk_size_mib = disk_size_mib
         self.build_timeout_s = build_timeout_s
@@ -321,6 +327,7 @@ class WindowsImageBuilder:
                 install_config,
                 ssh_user=self.username,
                 ssh_password=self.password,
+                ssh_host_key_alias=self.hostname,
             )
             logger.info(
                 "Spawning unattended-install VM %s "
@@ -389,7 +396,7 @@ class WindowsImageBuilder:
                 "or pass a different --output path."
             )
 
-    def _poll_for_ready_marker(self, vm) -> None:  # noqa: ANN001 — circular Celesto type
+    def _poll_for_ready_marker(self, vm: Celesto) -> None:
         """Block until ``C:\\celesto-ready.txt`` is present in the guest.
 
         The install reboots Windows multiple times before reaching
@@ -443,7 +450,7 @@ class WindowsImageBuilder:
         )
 
 
-def _suppress():
+def _suppress() -> AbstractContextManager[None]:
     """Tiny contextlib.suppress(Exception) used to keep teardown best-effort."""
     from contextlib import suppress
 

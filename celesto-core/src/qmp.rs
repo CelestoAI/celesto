@@ -635,7 +635,7 @@ impl PyQmpClient {
     ) -> PyResult<String> {
         let arguments = arguments_json
             .as_deref()
-            .map(|value| serde_json::from_str(value))
+            .map(serde_json::from_str)
             .transpose()
             .map_err(|e| {
                 qmp_py_err(QmpError::Json {

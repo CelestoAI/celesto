@@ -88,11 +88,12 @@ Images are stored in `~/.celesto/images`. To keep them somewhere else, set the `
 | `celesto computer start ID --cloud` / `stop ID --cloud` | Resume or stop a cloud computer. Without `--cloud`, `start` and `stop` act on local computers. |
 | `celesto computer port publish` / `unpublish` | Publish or unpublish a cloud computer's port on a public URL. Local `port expose` only forwards to your machine. |
 | `celesto computer templates` | List the available desktop templates. |
-| `celesto ui` | Start the local dashboard. |
-| `celesto server start` | Start the local HTTP API. |
+| `celesto ui` | Start the local dashboard and open the private sign-in link it prints. |
+| `celesto server start` | Start the local HTTP API; use its printed token in `Authorization: Bearer <token>`. |
 | `celesto windows build-image` | Build a Windows qcow2 image. |
 
 Computer commands select local execution by default; `--local` makes that choice explicit.
+Set `CELESTO_DASHBOARD_TOKEN` or `CELESTO_SERVER_TOKEN` before binding the corresponding service beyond localhost. See [secure local access](../security.md#open-the-dashboard) for token handling and browser-origin requirements.
 Use `--cloud` for cloud `create`, `list`, `info`, `start`, `stop`, `ssh`, `exec`, and `delete` commands; it cannot be combined with `--local`.
 Cloud `list` requests at most 50 computers by default; add `--limit NUMBER` to request more. If the response fills the limit, Celesto warns that more computers may exist, and JSON output sets `possibly_truncated` to `true`.
 The existing `open`, `logs`, and `templates` commands remain local-only.

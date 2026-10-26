@@ -42,7 +42,7 @@ from collections.abc import Callable, Iterator
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal, Protocol, TypedDict, TypeVar, cast
 from urllib.parse import urlparse
 
 from pydantic import TypeAdapter
@@ -99,7 +99,8 @@ from celesto.runtime.boot_profiles import (
     get_boot_profile_spec,
     to_published_arch,
 )
-from celesto.ssh import ShellKind, SSHClient
+from celesto.ssh import ShellKind, SSHClient, validate_host_key_alias
+from celesto.ssh_trust import openssh_host_key_options, trusted_host_key
 from celesto.storage import StateManagerProtocol
 from celesto.types import (
     BrowserSessionConfig,
@@ -140,8 +141,36 @@ _DEFAULT_DISPLAY_SANDBOX_BOOT_TIMEOUT = 90.0
 _LOCAL_FORWARD_PROBE_TIMEOUT = 2.0
 _LOCAL_FORWARD_PROBE_INTERVAL = 0.2
 _LOCAL_TUNNEL_START_TIMEOUT = 10.0
-_QEMU_MACHINE_ADAPTER = TypeAdapter(QemuMachine)
-_DisplaySandboxT = TypeVar("_DisplaySandboxT", bound=DisplaySandboxProtocol)
+_QEMU_MACHINE_ADAPTER: TypeAdapter[QemuMachine] = TypeAdapter(QemuMachine)
+_DisplaySandboxT = TypeVar("_DisplaySandboxT", bound=DisplaySandboxProtocol, covariant=True)
+
+
+class _DisplaySandboxFactory(Protocol[_DisplaySandboxT]):
+    def __call__(
+        self,
+        config: BrowserSessionConfig,
+        *,
+        data_dir: Path | None,
+        socket_dir: Path | None,
+        ssh_key_path: str | None,
+        on_progress: Callable[[str], None] | None,
+    ) -> _DisplaySandboxT: ...
+
+
+class _DownloadOptions(TypedDict, total=False):
+    on_download: Callable[[str, int, int | None], None]
+
+
+class _ManagedEnvChannel(Protocol):
+    def set_managed_env(
+        self, env_vars: dict[str, str], *, merge: bool = True
+    ) -> dict[str, str]: ...
+
+    def unset_managed_env(self, keys: list[str]) -> dict[str, str]: ...
+
+    def list_managed_env(self) -> dict[str, str]: ...
+
+
 _LOCAL_FORWARD_MAX_PORT_ATTEMPTS = 10
 _AUTO_CONFIG_DEFAULT_MEM_SIZE_MIB = {
     GuestOS.ALPINE: 512,
@@ -582,6 +611,7 @@ def _build_auto_config(
 ) -> tuple[VMConfig, str | None]:
     """Build the default SSH-ready VM config used by zero-config flows."""
     requested_os = _normalize_guest_os(os) if os is not None else None
+    resolved_os: GuestOS
     if requested_os is GuestOS.MACOS:
         resolved_backend = resolve_backend_for_guest(backend, requested_os)
         backend_status = None
@@ -727,9 +757,10 @@ def _build_auto_config(
 
     # Pick the kernel format the runtime backend requires. Same kernel source,
     # different container: ``elf`` for Firecracker / libkrun, ``image`` for QEMU.
-    from celesto.images.published import BASE_KERNELS, _kernel_format_for_vmm
+    from celesto.images.published import BASE_KERNELS, Vmm, _kernel_format_for_vmm
 
-    kernel_fmt = _kernel_format_for_vmm(resolved_backend)  # type: ignore[arg-type]
+    # The macOS branch returned above; the resolved Linux backend is one of these VMMs.
+    kernel_fmt = _kernel_format_for_vmm(cast(Vmm, resolved_backend))
     base_kernel_url = BASE_KERNELS[to_published_arch(platform.machine())].url_for(kernel_fmt)
 
     kernel, rootfs = builder.build_alpine_ssh_key(
@@ -991,6 +1022,9 @@ class Celesto:
             ``key_filename`` over ``password`` if both are passed —
             Celesto clears the key path internally so the password is
             actually tried.)
+        ssh_host_key_alias: Stable entry in the trusted known_hosts file, useful
+            when a Windows computer's forwarded SSH port changes. Supply its
+            verified public key independently of the SSH connection.
         internet_settings: Network access controls. Accepts an
             :class:`~celesto.types.InternetSettings` instance or a dict
             (e.g. ``{"mode": "off"}``). Use ``InternetSettings(mode="off")``
@@ -1036,6 +1070,7 @@ class Celesto:
         ssh_user: str = "root",
         ssh_key_path: str | None = None,
         ssh_password: str | None = None,
+        ssh_host_key_alias: str | None = None,
         comm_channel: CommChannelKind | None = None,
         internet_settings: InternetSettings | dict[str, Any] | None = None,
         mounts: list[str] | None = None,
@@ -1044,6 +1079,7 @@ class Celesto:
         state_manager: StateManagerProtocol | None = None,
         on_download: Callable[[str, int, int | None], None] | None = None,
     ) -> None:
+        ssh_host_key_alias = validate_host_key_alias(ssh_host_key_alias)
         if internet_settings is not None:
             if vm_id is not None:
                 raise ValidationError("Policy cannot change on reconnect; omit internet_settings.")
@@ -1156,7 +1192,9 @@ class Celesto:
             else:
                 # S3 image mode
                 logger.info("Resolving image from %s...", image)
-                download_options = {"on_download": on_download} if on_download is not None else {}
+                download_options: _DownloadOptions = (
+                    {"on_download": on_download} if on_download is not None else {}
+                )
                 config, ssh_key_path = _build_s3_image_config(
                     image=image,
                     backend=backend,
@@ -1205,6 +1243,7 @@ class Celesto:
         self._ssh_user = ssh_user
         self._ssh_key_path = ssh_key_path
         self._ssh_password = ssh_password
+        self._ssh_host_key_alias = ssh_host_key_alias
         self._comm_channel_request: CommChannelKind | None = comm_channel
         self._default_ssh_key_path: str | None = None
 
@@ -1251,7 +1290,7 @@ class Celesto:
     @classmethod
     def _start_display_sandbox(
         cls,
-        sandbox_cls: type[_DisplaySandboxT],
+        sandbox_cls: _DisplaySandboxFactory[_DisplaySandboxT],
         *,
         mode: Literal["headless", "live", "desktop", "computer"],
         session_id: str | None,
@@ -1798,7 +1837,7 @@ class Celesto:
                 )
             control_env = self._control_env_channel(timeout=boot_timeout)
             if control_env is not None:
-                injected = sorted(control_env.set_managed_env(env_vars).keys())  # type: ignore[attr-defined]
+                injected = sorted(control_env.set_managed_env(env_vars).keys())
             else:
                 ssh = self._ensure_ssh_for_env(timeout=boot_timeout)
                 injector = inject_env_vars_windows if self._is_windows_guest() else inject_env_vars
@@ -2006,7 +2045,7 @@ class Celesto:
     def _prepare_run(
         self,
         command: str,
-        timeout: int,
+        timeout: float,
         shell: Literal["login", "raw"],
     ) -> tuple[CommChannel, RunContext]:
         """Prepare the shared local execution path and fire pre-run callbacks."""
@@ -2071,7 +2110,7 @@ class Celesto:
     def run(
         self,
         command: str,
-        timeout: int = 30,
+        timeout: float = 30,
         shell: Literal["login", "raw"] = "login",
     ) -> CommandResult:
         """Execute a command on the guest via SSH.
@@ -2201,7 +2240,7 @@ class Celesto:
             return inject_env_vars_windows(ssh, env_vars, merge=merge)
         control_env = self._control_env_channel()
         if control_env is not None:
-            return sorted(control_env.set_managed_env(env_vars, merge=merge).keys())  # type: ignore[attr-defined]
+            return sorted(control_env.set_managed_env(env_vars, merge=merge).keys())
         ssh = self._ensure_ssh_for_env()
         return inject_env_vars(ssh, env_vars, merge=merge)
 
@@ -2222,8 +2261,8 @@ class Celesto:
             return remove_env_vars_windows(ssh, keys)
         control_env = self._control_env_channel()
         if control_env is not None:
-            before = control_env.list_managed_env()  # type: ignore[attr-defined]
-            control_env.unset_managed_env(keys)  # type: ignore[attr-defined]
+            before = control_env.list_managed_env()
+            control_env.unset_managed_env(keys)
             return {key: before[key] for key in keys if key in before}
         ssh = self._ensure_ssh_for_env()
         return remove_env_vars(ssh, keys)
@@ -2235,7 +2274,7 @@ class Celesto:
             return read_env_vars_windows(ssh)
         control_env = self._control_env_channel()
         if control_env is not None:
-            return control_env.list_managed_env()  # type: ignore[attr-defined]
+            return control_env.list_managed_env()
         ssh = self._ensure_ssh_for_env()
         return read_env_vars(ssh)
 
@@ -2488,7 +2527,7 @@ class Celesto:
         """
         if not ports:
             raise ValueError("ports cannot be empty")
-        invalid_ports = [
+        invalid_ports: list[int] = [
             port for port in ports if isinstance(port, bool) or not isinstance(port, int)
         ]
         invalid_ports.extend(port for port in ports if isinstance(port, int) and port < 1)
@@ -2570,6 +2609,24 @@ class Celesto:
         channel = self._ensure_shell_control(timeout=timeout)
         return int(channel.attach_terminal())  # type: ignore[attr-defined]
 
+    def _ssh_identity_options(self, host: str, port: int) -> list[str]:
+        alias = getattr(self, "_ssh_host_key_alias", None)
+        if alias is None:
+            return openssh_host_key_options(self.data_dir, self._vm_id, host, port)
+        known_hosts = Path(
+            os.environ.get("CELESTO_SSH_KNOWN_HOSTS") or "~/.ssh/known_hosts"
+        ).expanduser()
+        return [
+            "-o",
+            "StrictHostKeyChecking=yes",
+            "-o",
+            f"HostKeyAlias={alias}",
+            "-o",
+            f"UserKnownHostsFile={known_hosts}",
+            "-o",
+            "GlobalKnownHostsFile=/dev/null",
+        ]
+
     def _ssh_attach_command(self) -> list[str]:
         """Return an interactive SSH command using the resolved ready endpoint."""
         if not self._ssh_ready or self._ssh is None:
@@ -2580,10 +2637,7 @@ class Celesto:
 
         command = [
             "ssh",
-            "-o",
-            "StrictHostKeyChecking=no",
-            "-o",
-            "UserKnownHostsFile=/dev/null",
+            *self._ssh_identity_options(self._ssh.host, self._ssh.port),
             "-o",
             "LogLevel=ERROR",
             "-p",
@@ -2633,10 +2687,7 @@ class Celesto:
 
         command = [
             "ssh",
-            "-o",
-            "StrictHostKeyChecking=no",
-            "-o",
-            "UserKnownHostsFile=/dev/null",
+            *self._ssh_identity_options(host, port),
             "-o",
             "LogLevel=ERROR",
             "-p",
@@ -2728,6 +2779,7 @@ class Celesto:
             candidate_ports.append(fallback_port)
 
         guest_ip = self._info.network.guest_ip
+        assert guest_ip is not None  # NetworkConfig requires an address outside bridge mode.
         attempts: list[str] = []
         should_try_nftables = not guest_loopback and self._should_try_nftables_local_forward()
         should_try_qemu_hostfwd = (
@@ -2908,6 +2960,7 @@ class Celesto:
                 {"vm_id": self._vm_id},
             )
 
+        assert self._info.network.guest_ip is not None  # Only NAT networks own local forwards.
         self._sdk.network.cleanup_local_port_forward(
             vm_id=self._vm_id,
             guest_ip=self._info.network.guest_ip,
@@ -2999,6 +3052,7 @@ class Celesto:
                 f"address from the bridged network.",
                 {"vm_id": self._vm_id, "network_mode": "bridge"},
             )
+        assert self._info.network.guest_ip is not None  # Bridge mode returned above.
         return self._info.network.guest_ip
 
     def refresh(self) -> Celesto:
@@ -3408,7 +3462,7 @@ modprobe 9pnet_virtio""".strip()
             self._ssh = None
         self._ssh_ready = False
         if hasattr(self, "_probed_endpoint"):
-            self._probed_endpoint = None
+            self._probed_endpoint: tuple[str, int] | None = None
 
     def _ensure_control_cache_attrs(self) -> None:
         """Initialize control-channel cache fields for legacy test fixtures."""
@@ -3456,6 +3510,7 @@ modprobe 9pnet_virtio""".strip()
             effective_key_path: str | None = None
         else:
             effective_key_path = key_path
+        alias = getattr(self, "_ssh_host_key_alias", None)
         return SSHClient(
             host=host,
             user=self._ssh_user,
@@ -3464,6 +3519,12 @@ modprobe 9pnet_virtio""".strip()
             password=self._ssh_password,
             connect_timeout=connect_timeout,
             shell_kind=self._guest_shell_kind(),
+            host_key=None if alias is not None else trusted_host_key(self.data_dir, self._vm_id),
+            sandbox_name=self._vm_id,
+            host_key_provider=(
+                None if alias is not None else lambda: trusted_host_key(self.data_dir, self._vm_id)
+            ),
+            host_key_alias=alias,
         )
 
     def _ensure_control_for_file_transfer(self) -> CommChannel:
@@ -3495,7 +3556,7 @@ modprobe 9pnet_virtio""".strip()
         self,
         *,
         timeout: float = _DEFAULT_RUN_READY_TIMEOUT,
-    ) -> CommChannel | None:
+    ) -> _ManagedEnvChannel | None:
         """Return a managed-env control channel, or None when SSH fallback is allowed."""
         if self._is_windows_guest():
             return None
@@ -3511,7 +3572,8 @@ modprobe 9pnet_virtio""".strip()
             return None
         supports = getattr(channel, "supports", None)
         if callable(supports) and supports("env_managed", "env.managed") is True:
-            return channel
+            # The negotiated env.managed capability supplies these three methods.
+            return cast(_ManagedEnvChannel, channel)
         if resolution.kind == "vsock":
             raise self._managed_env_required_error()
         return None
@@ -3668,6 +3730,7 @@ modprobe 9pnet_virtio""".strip()
         for forward in self._local_forwards.values():
             if forward.guest_port == 22:
                 endpoints.append(("127.0.0.1", forward.host_port))
+        assert self._info.network.guest_ip is not None  # Bridge mode returned above.
         endpoints.append((self._info.network.guest_ip, 22))
 
         unique: list[tuple[str, int]] = []
@@ -4029,10 +4092,7 @@ modprobe 9pnet_virtio""".strip()
             "BatchMode=yes",
             "-o",
             "ExitOnForwardFailure=yes",
-            "-o",
-            "StrictHostKeyChecking=no",
-            "-o",
-            "UserKnownHostsFile=/dev/null",
+            *self._ssh_identity_options(ssh_host, ssh_port),
             "-o",
             "LogLevel=ERROR",
             "-o",

@@ -53,7 +53,7 @@ class CommChannel(Protocol):
     def run(
         self,
         command: str,
-        timeout: int = 30,
+        timeout: float = 30,
         shell: ShellMode = "login",
     ) -> CommandResult:
         """Execute *command* on the guest and return its result."""
@@ -62,7 +62,7 @@ class CommChannel(Protocol):
     def run_stream(
         self,
         command: str,
-        timeout: int = 30,
+        timeout: float = 30,
         shell: ShellMode = "login",
     ) -> Iterator[CommandEvent]:
         """Execute *command* and yield output as it arrives."""

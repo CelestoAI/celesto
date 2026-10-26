@@ -93,6 +93,13 @@ fn read_response(reader: &mut impl Read) -> Result<(u16, Vec<u8>), FirecrackerEr
         .parse::<u16>()
         .map_err(|error| FirecrackerError::Other(format!("invalid HTTP status: {error}")))?;
     let content_length = parse_content_length(&headers)?;
+    // Firecracker control responses are small JSON documents, not disk images.
+    const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
+    if content_length.is_some_and(|length| length > MAX_RESPONSE_BYTES) {
+        return Err(FirecrackerError::Other(
+            "HTTP response body is too large (limit: 1048576 bytes)".to_string(),
+        ));
+    }
     let mut payload = response[split + marker.len()..].to_vec();
     if let Some(content_length) = content_length {
         if payload.len() > content_length {
@@ -136,6 +143,13 @@ mod tests {
     use std::thread;
 
     #[test]
+    fn rejects_oversized_response_before_reading_body() {
+        let response = b"HTTP/1.1 200 OK\r\nContent-Length: 1048577\r\n\r\n";
+        let error = read_response(&mut &response[..]).unwrap_err();
+        assert!(error.to_string().contains("too large"), "{error}");
+    }
+
+    #[test]
     fn parses_status_and_payload() {
         let response = b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\n{\"ok\":true}";
         let (status, payload) = read_response(&mut &response[..]).unwrap();
@@ -167,7 +181,9 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn request_does_not_half_close_before_reading_response() {
-        let socket_path = std::env::temp_dir().join(format!(
+        // macOS gives each process a long TMPDIR path, but Unix socket paths are
+        // limited to SUN_LEN bytes. Keep this test socket under the short /tmp path.
+        let socket_path = std::path::Path::new("/tmp").join(format!(
             "celesto-firecracker-test-{}-{}.sock",
             std::process::id(),
             std::time::SystemTime::now()

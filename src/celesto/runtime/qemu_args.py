@@ -31,8 +31,9 @@ from __future__ import annotations
 
 import os
 import platform
+import shlex
+import sys
 from pathlib import Path
-from typing import cast
 
 from celesto.exceptions import CelestoError
 from celesto.host._public_egress import (
@@ -84,7 +85,7 @@ def _requested_qemu_machine(vm_info: VMInfo) -> QemuMachine:
     """Return the requested QEMU machine, with env as an operator override."""
     env_value = os.environ.get(_QEMU_MACHINE_ENV, "").strip().lower()
     if env_value in _QEMU_MACHINE_VALUES:
-        return cast(QemuMachine, env_value)
+        return env_value
     return vm_info.config.qemu_machine
 
 
@@ -228,7 +229,7 @@ def build_qemu_argv(
     disk_format = vm_info.config.qemu_rootfs_format
     root_drive_id = f"{root_node_name}-drive"
     drive_arg = (
-        f"file={vm_info.config.rootfs_path},if=none,format={disk_format},"
+        f"file={_qemu_value(vm_info.config.rootfs_path)},if=none,format={disk_format},"
         f"id={root_drive_id},node-name={root_node_name}"
     )
     if tap_mode:
@@ -246,14 +247,21 @@ def build_qemu_argv(
         netdev_options = [f"user,id=net0,dns={QEMU_SLIRP_DNS}", *hostfwd_rules]
         settings = vm_info.config.internet_settings
         proxy_host_port = vm_info.network.egress_proxy_host_port
+        if settings is not None and settings.mode == "public" and proxy_host_port is None:
+            raise CelestoError(
+                f"Public browsing is unavailable for '{vm_info.vm_id}'; "
+                f"run 'celesto sandbox delete {vm_info.vm_id}' and create it again."
+            )
         if proxy_host_port is not None:
+            relay = Path(__file__).resolve().parents[1] / "host" / "_public_egress_relay.py"
+            relay_command = shlex.join([sys.executable, "-I", str(relay), str(proxy_host_port)])
             netdev_options.extend(
                 [
                     "restrict=on",
                     "ipv6=off",
                     (
                         f"guestfwd=tcp:{QEMU_PUBLIC_PROXY_GUEST_IP}:"
-                        f"{QEMU_PUBLIC_PROXY_GUEST_PORT}-tcp:127.0.0.1:{proxy_host_port}"
+                        f"{QEMU_PUBLIC_PROXY_GUEST_PORT}-cmd:{_qemu_value(relay_command)}"
                     ),
                 ]
             )
@@ -317,7 +325,7 @@ def build_qemu_argv(
         readonly = ["readonly=on"] if drive_suffix == ".iso" else []
         extra_drive_arg = ",".join(
             [
-                f"file={drive_path}",
+                f"file={_qemu_value(drive_path)}",
                 "if=none",
                 f"format={drive_format}",
                 *readonly,
@@ -335,7 +343,9 @@ def build_qemu_argv(
             tag = ws.resolved_tag(index)
             fsdev_id = f"fsdev-{tag}"
             workspace_fsdev_ids.append((fsdev_id, tag))
-            fsdev_opts = f"local,id={fsdev_id},path={ws.host_path},security_model=mapped-xattr"
+            fsdev_opts = (
+                f"local,id={fsdev_id},path={_qemu_value(ws.host_path)},security_model=mapped-xattr"
+            )
             if not ws.writable:
                 fsdev_opts += ",readonly=on"
             cmd.extend(["-fsdev", fsdev_opts])
@@ -344,7 +354,7 @@ def build_qemu_argv(
         cmd.extend(
             [
                 "-qmp",
-                f"unix:{control_socket_path},server=on,wait=off",
+                f"unix:{_qemu_value(control_socket_path)},server=on,wait=off",
             ]
         )
     if start_paused:
@@ -441,10 +451,10 @@ def build_qemu_argv(
                     "-drive",
                     (
                         f"if=pflash,format=raw,unit=0,readonly=on,"
-                        f"file={platform_spec.firmware.code_path}"
+                        f"file={_qemu_value(platform_spec.firmware.code_path)}"
                     ),
                     "-drive",
-                    f"if=pflash,format=raw,unit=1,file={firmware_vars_path}",
+                    f"if=pflash,format=raw,unit=1,file={_qemu_value(firmware_vars_path)}",
                 ]
             )
 
@@ -459,7 +469,7 @@ def build_qemu_argv(
             cmd.extend(
                 [
                     "-chardev",
-                    f"socket,id=chrtpm,path={swtpm_socket}",
+                    f"socket,id=chrtpm,path={_qemu_value(swtpm_socket)}",
                     "-tpmdev",
                     "emulator,id=tpm0,chardev=chrtpm",
                     "-device",
@@ -531,3 +541,8 @@ def build_qemu_argv(
         cmd.extend(["-device", f"{vsock_device},guest-cid={vm_info.config.vsock.guest_cid}"])
 
     return cmd
+
+
+def _qemu_value(value: object) -> str:
+    """Keep a value inside QEMU's comma-delimited option grammar."""
+    return str(value).replace(",", ",,")

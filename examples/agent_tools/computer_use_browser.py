@@ -42,16 +42,17 @@ import argparse
 import base64
 import os
 import sys
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
-from urllib.parse import urlparse
+from typing import TYPE_CHECKING, Any, Literal, cast
+from urllib.parse import urljoin, urlparse
 
 from celesto import Celesto, CelestoError
 
 if TYPE_CHECKING:
     from openai.types.responses import ResponseComputerToolCall
-    from playwright.sync_api import Browser, BrowserContext, Page
+    from playwright.sync_api import Browser, BrowserContext, Page, Route, WebSocketRoute
 
 
 DEFAULT_MODEL = "gpt-5.4"
@@ -183,12 +184,19 @@ def _task_prompt(config: ComputerUseConfig) -> str:
 
 
 def _is_allowed_url(url: str, allowed_domains: tuple[str, ...]) -> bool:
-    parsed = urlparse(url)
-    if parsed.scheme in {"about", "blob", "data"}:
+    # Chromium treats backslashes as authority separators in HTTP URLs;
+    # urllib does not. Reject ambiguous input before checking the hostname.
+    if any(character == "\\" or ord(character) < 33 or ord(character) == 127 for character in url):
+        return False
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    if url == "about:blank":
         return True
     if parsed.scheme in {"http", "https"}:
-        return _normalized_host(url) in allowed_domains
-    return url == "" or parsed.scheme == ""
+        return not (parsed.username or parsed.password) and _normalized_host(url) in allowed_domains
+    return False
 
 
 def _require_dependency(import_path: str, install_hint: str) -> Any:
@@ -375,12 +383,157 @@ def _run_action(page: Page, action: Any) -> None:
         _release_keys(page, held_keys)
 
 
-def _run_actions(page: Page, actions: list[Any]) -> None:
+def _run_actions(page: Page, actions: list[Any], config: ComputerUseConfig) -> None:
     for action in actions:
+        if not _is_allowed_url(page.url, config.allowed_domains):
+            raise RuntimeError(
+                "The page left the allowed domains; restart with an allowed starting URL."
+            )
         _run_action(page, action)
+        if not _is_allowed_url(page.url, config.allowed_domains):
+            raise RuntimeError(
+                "The page left the allowed domains; restart with an allowed starting URL."
+            )
     page.wait_for_timeout(400)
     with suppress(Exception):
         page.wait_for_load_state("domcontentloaded", timeout=2000)
+
+
+def _install_domain_policy(
+    context: BrowserContext, config: ComputerUseConfig
+) -> Callable[[Page], None]:
+    """Keep requests in Chromium and reject each redirect before it is followed.
+
+    The normal route guard covers first requests, including new tabs. Chromium's
+    response interception checks redirect destinations before continuing them;
+    Playwright's host-side HTTP client is never used to retrieve page content.
+    Service workers must be blocked when the context is created. WebSockets are
+    disabled because relaying them through Playwright would run outside the VM.
+    """
+    existing = cast(
+        "tuple[tuple[str, ...], Callable[[Page], None]] | None",
+        getattr(context, "_celesto_domain_policy", None),
+    )
+    if existing is not None:
+        domains, protect = existing
+        if domains != config.allowed_domains:
+            raise RuntimeError("Create a new browser context before changing allowed domains.")
+        return protect
+    guarded_pages: set[Page] = set()
+
+    def protect_page(page: Page) -> None:
+        if page in guarded_pages:
+            return
+        session = context.new_cdp_session(page)
+
+        def check_response(event: dict[str, Any]) -> None:
+            url = event["request"]["url"]
+            allowed = _is_allowed_url(url, config.allowed_domains)
+            if event.get("responseStatusCode") in {301, 302, 303, 307, 308}:
+                for header in event.get("responseHeaders", []):
+                    if header["name"].lower() == "location":
+                        allowed = allowed and _is_allowed_url(
+                            urljoin(url, header["value"]), config.allowed_domains
+                        )
+            if not allowed:
+                session.send(
+                    "Fetch.failRequest",
+                    {"requestId": event["requestId"], "errorReason": "BlockedByClient"},
+                )
+                return
+            if (
+                event.get("resourceType") == "Document"
+                and event.get("responseStatusCode") is not None
+                and event["responseStatusCode"] not in {301, 302, 303, 307, 308}
+            ):
+                # Keep HTTP inside Chromium. Read only the already-received
+                # document, with a fixed limit, to add a browser-enforced policy
+                # before scripts can create blob workers or embedded frames.
+                # Header-only CDP updates are not reliable with route handlers.
+                stream = None
+                try:
+                    stream = session.send(
+                        "Fetch.takeResponseBodyAsStream", {"requestId": event["requestId"]}
+                    )["stream"]
+                    body = bytearray()
+                    while True:
+                        chunk = session.send("IO.read", {"handle": stream, "size": 65536})
+                        data = (
+                            base64.b64decode(chunk["data"])
+                            if chunk.get("base64Encoded")
+                            else chunk["data"].encode("utf-8")
+                        )
+                        if len(body) + len(data) > 8 * 1024 * 1024:
+                            raise RuntimeError(
+                                "The page exceeds the example's document size limit."
+                            )
+                        body.extend(data)
+                        if chunk.get("eof"):
+                            break
+                    headers = [
+                        header
+                        for header in event.get("responseHeaders", [])
+                        if header["name"].lower()
+                        not in {"content-length", "content-encoding", "transfer-encoding"}
+                    ]
+                    headers.append(
+                        {
+                            "name": "Content-Security-Policy",
+                            "value": "worker-src 'none'; frame-src 'none'",
+                        }
+                    )
+                    session.send(
+                        "Fetch.fulfillRequest",
+                        {
+                            "requestId": event["requestId"],
+                            "responseCode": event["responseStatusCode"],
+                            "responseHeaders": headers,
+                            "body": base64.b64encode(body).decode("ascii"),
+                        },
+                    )
+                except Exception:
+                    session.send(
+                        "Fetch.failRequest",
+                        {"requestId": event["requestId"], "errorReason": "BlockedByClient"},
+                    )
+                finally:
+                    if stream is not None:
+                        session.send("IO.close", {"handle": stream})
+            else:
+                session.send("Fetch.continueRequest", {"requestId": event["requestId"]})
+
+        session.on("Fetch.requestPaused", check_response)
+        session.send(
+            "Fetch.enable", {"patterns": [{"urlPattern": "*", "requestStage": "Response"}]}
+        )
+        guarded_pages.add(page)
+
+    def route_request(route: Route) -> None:
+        if not _is_allowed_url(route.request.url, config.allowed_domains):
+            route.abort("blockedbyclient")
+            return
+        try:
+            # A popup can request its first document before the page event.
+            # Response interception cannot cover a request already in flight,
+            # so reject that navigation rather than release it unprotected.
+            frame = route.request.frame
+            protected = frame.page in guarded_pages and frame == frame.page.main_frame
+        except Exception:
+            protected = False
+        if not protected:
+            route.abort("blockedbyclient")
+            return
+        route.continue_()
+
+    def route_websocket(route: WebSocketRoute) -> None:
+        # An intercepted socket is local until connect_to_server is called.
+        # Keep it inert; closing during document parsing can deadlock Chromium.
+        route.on_message(lambda _message: None)
+
+    context.route("**/*", route_request)
+    context.route_web_socket("**/*", route_websocket)
+    context._celesto_domain_policy = (config.allowed_domains, protect_page)
+    return protect_page
 
 
 def _enforce_allowed_pages(
@@ -409,8 +562,15 @@ def _enforce_allowed_pages(
             selected.bring_to_front()
         return selected
 
+    protect_page = _install_domain_policy(context, config)
     recovered_page = context.new_page()
+    protect_page(recovered_page)
     recovered_page.goto(config.start_url, wait_until="domcontentloaded")
+    if not _is_allowed_url(recovered_page.url, config.allowed_domains):
+        recovered_page.close()
+        raise RuntimeError(
+            "The starting page left the allowed domains; choose an allowed starting URL."
+        )
     _log(f"reopened allowed start URL: {config.start_url}")
     return recovered_page
 
@@ -451,14 +611,13 @@ def _run_task(config: ComputerUseConfig) -> ComputerUseResult:
             _log(f"display_url={session.display_url}")
 
         browser: Browser = session.connect_playwright()
-        context = (
-            browser.contexts[0]
-            if browser.contexts
-            else browser.new_context(
-                viewport={"width": config.viewport_width, "height": config.viewport_height}
-            )
+        context = browser.new_context(
+            viewport={"width": config.viewport_width, "height": config.viewport_height},
+            service_workers="block",
         )
+        protect_page = _install_domain_policy(context, config)
         page = context.pages[0] if context.pages else context.new_page()
+        protect_page(page)
         page.goto(config.start_url, wait_until="domcontentloaded")
         page = _enforce_allowed_pages(context, page, config)
         _log(f"loaded {page.url}")
@@ -496,7 +655,7 @@ def _run_task(config: ComputerUseConfig) -> ComputerUseResult:
             else:
                 _log("actions: <none>")
             previous_url = page.url
-            _run_actions(page, actions)
+            _run_actions(page, actions, config)
             page = _enforce_allowed_pages(context, _active_page(context, page), config)
             if page.url != previous_url:
                 _log(f"url changed: {previous_url} -> {page.url}")

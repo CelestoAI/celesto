@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
+use std::ffi::{CStr, CString};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
+use std::os::fd::{AsRawFd, FromRawFd};
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Component, Path, PathBuf};
 
 #[derive(Debug, Serialize)]
@@ -120,6 +123,7 @@ fn create_temp_file(parent: &Path, prefix: &str) -> Result<(File, PathBuf), Stri
         match OpenOptions::new()
             .write(true)
             .create_new(true)
+            .mode(0o600)
             .open(&tmp_path)
         {
             Ok(file) => return Ok((file, tmp_path)),
@@ -190,13 +194,10 @@ pub fn extract_directory_tar(path: &str, data: &[u8]) -> FilePutResponse {
     if path.is_empty() {
         return response_error("missing path");
     }
-    let target = PathBuf::from(path);
-    if let Err(error) = fs::create_dir_all(&target) {
-        return response_error(format!("cannot create directory: {error}"));
-    }
-    if !target.is_dir() {
-        return response_error("destination is not a directory");
-    }
+    let target = match open_destination(Path::new(path)) {
+        Ok(target) => target,
+        Err(error) => return response_error(error),
+    };
 
     match extract_tar_into(&target, data) {
         Ok(()) => FilePutResponse {
@@ -314,7 +315,7 @@ fn pad_tar_entry(out: &mut Vec<u8>, size: u64) {
     }
 }
 
-fn extract_tar_into(root: &Path, archive: &[u8]) -> Result<(), String> {
+fn extract_tar_into(root: &File, archive: &[u8]) -> Result<(), String> {
     let mut offset = 0usize;
     while offset + 512 <= archive.len() {
         let header = &archive[offset..offset + 512];
@@ -332,24 +333,22 @@ fn extract_tar_into(root: &Path, archive: &[u8]) -> Result<(), String> {
         if offset + size_usize > archive.len() {
             return Err("tar entry extends past archive end".to_string());
         }
-        let target = root.join(&relative);
-
         match typeflag {
             b'5' => {
-                create_safe_directory(root, &target)?;
-                let _ = fs::set_permissions(&target, fs::Permissions::from_mode(mode & 0o777));
+                let directory = create_safe_directory(root, &relative)?;
+                directory
+                    .set_permissions(fs::Permissions::from_mode(mode & 0o777))
+                    .map_err(|error| format!("cannot set directory mode: {error}"))?;
             }
             b'0' | 0 => {
-                let parent = target
-                    .parent()
-                    .ok_or_else(|| "tar entry has no parent directory".to_string())?;
-                create_safe_directory(root, parent)?;
-                reject_symlink_path(root, &target)?;
-                durable_atomic_write(
-                    &target,
-                    Some(mode & 0o777),
+                let parent =
+                    create_safe_directory(root, relative.parent().unwrap_or(Path::new("")))?;
+                let name = path_name(relative.file_name().unwrap())?;
+                atomic_archive_write(
+                    &parent,
+                    &name,
+                    mode & 0o777,
                     &archive[offset..offset + size_usize],
-                    ".celesto-tar",
                 )?;
             }
             _ => return Err(format!("unsupported tar entry type: {}", typeflag as char)),
@@ -414,63 +413,174 @@ fn validate_relative_archive_path(path: &str) -> Result<PathBuf, String> {
     Ok(relative)
 }
 
-fn create_safe_directory(root: &Path, target: &Path) -> Result<(), String> {
-    let relative = target.strip_prefix(root).map_err(|_| {
-        format!(
-            "tar entry escaped destination directory: {}",
-            target.display()
-        )
-    })?;
-    let mut cursor = root.to_path_buf();
-    for component in relative.components() {
-        cursor.push(component.as_os_str());
-        match fs::symlink_metadata(&cursor) {
-            Ok(metadata) => {
-                if metadata.file_type().is_symlink() {
-                    return Err(format!(
-                        "tar entry would write through a symlink: {}",
-                        cursor.display()
-                    ));
-                }
-                if !metadata.is_dir() {
-                    return Err(format!(
-                        "tar entry path collides with a non-directory: {}",
-                        cursor.display()
-                    ));
-                }
-                continue;
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(format!("cannot inspect directory: {error}")),
-        }
-        if let Err(error) = fs::create_dir(&cursor) {
-            return Err(format!("cannot create directory: {error}"));
-        }
-    }
-    Ok(())
+fn path_name(name: &std::ffi::OsStr) -> Result<CString, String> {
+    CString::new(name.as_bytes()).map_err(|_| "path contains a zero byte".to_string())
 }
 
-fn reject_symlink_path(root: &Path, target: &Path) -> Result<(), String> {
-    let relative = target.strip_prefix(root).map_err(|_| {
-        format!(
-            "tar entry escaped destination directory: {}",
-            target.display()
+fn open_directory_at(parent: &File, name: &CStr) -> Result<File, String> {
+    let fd = unsafe {
+        libc::openat(
+            parent.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
         )
-    })?;
-    let mut cursor = root.to_path_buf();
-    for component in relative.components() {
-        cursor.push(component.as_os_str());
-        if fs::symlink_metadata(&cursor)
-            .map(|metadata| metadata.file_type().is_symlink())
-            .unwrap_or(false)
-        {
-            return Err(format!(
-                "tar entry would write through a symlink: {}",
-                cursor.display()
-            ));
+    };
+    if fd < 0 {
+        Err(format!(
+            "cannot open directory (symlink or non-directory): {}",
+            std::io::Error::last_os_error()
+        ))
+    } else {
+        Ok(unsafe { File::from_raw_fd(fd) })
+    }
+}
+
+fn open_destination(path: &Path) -> Result<File, String> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|error| error.to_string())?
+            .join(path)
+    };
+    // The caller may intentionally select an alias such as /var/run. Resolve
+    // only this destination prefix; archive entries must never follow aliases.
+    let mut existing = absolute.as_path();
+    let mut canonical = loop {
+        match fs::canonicalize(existing) {
+            Ok(path) => break path,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                existing = existing.parent().ok_or_else(|| error.to_string())?;
+            }
+            Err(error) => return Err(error.to_string()),
+        }
+    };
+    let mut missing = PathBuf::new();
+    for component in absolute
+        .strip_prefix(existing)
+        .map_err(|error| error.to_string())?
+        .components()
+    {
+        match component {
+            Component::Normal(name) => missing.push(name),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !missing.pop() {
+                    canonical.pop();
+                }
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                return Err("directory path is not safe".to_string());
+            }
         }
     }
-    Ok(())
+    // Reopen every canonical component without following symlinks so a symlink
+    // substituted after canonicalization cannot redirect extraction.
+    let mut directory = File::open("/").map_err(|error| error.to_string())?;
+    for component in canonical.components() {
+        if let Component::Normal(name) = component {
+            directory = open_directory_at(&directory, &path_name(name)?)?;
+        }
+    }
+    create_safe_directory(&directory, &missing)
+}
+
+fn create_safe_directory(root: &File, relative: &Path) -> Result<File, String> {
+    let mut directory = root.try_clone().map_err(|error| error.to_string())?;
+    for component in relative.components() {
+        let Component::Normal(name) = component else {
+            if component == Component::CurDir {
+                continue;
+            }
+            return Err("directory path is not safe".to_string());
+        };
+        let name = path_name(name)?;
+        let rc = unsafe { libc::mkdirat(directory.as_raw_fd(), name.as_ptr(), 0o755) };
+        if rc != 0 && std::io::Error::last_os_error().kind() != std::io::ErrorKind::AlreadyExists {
+            return Err(format!(
+                "cannot create directory: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        directory = open_directory_at(&directory, &name)?;
+    }
+    Ok(directory)
+}
+
+fn atomic_archive_write(parent: &File, name: &CStr, mode: u32, data: &[u8]) -> Result<(), String> {
+    // Keep the staging name inside a private directory. A writer of the upload
+    // destination cannot replace the staged file between the write and rename.
+    for attempt in 0..100 {
+        let stage_name = CString::new(format!(
+            ".celesto-tar-{}-{}-{attempt}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ))
+        .unwrap();
+        let rc = unsafe { libc::mkdirat(parent.as_raw_fd(), stage_name.as_ptr(), 0o700) };
+        if rc != 0 {
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                continue;
+            }
+            return Err(format!("cannot create temporary directory: {error}"));
+        }
+        let result = (|| {
+            let stage = open_directory_at(parent, &stage_name)?;
+            let metadata = stage.metadata().map_err(|error| error.to_string())?;
+            if metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o077 != 0 {
+                return Err("temporary directory is not private".to_string());
+            }
+            let fd = unsafe {
+                libc::openat(
+                    stage.as_raw_fd(),
+                    c"data".as_ptr(),
+                    libc::O_WRONLY
+                        | libc::O_CREAT
+                        | libc::O_EXCL
+                        | libc::O_NOFOLLOW
+                        | libc::O_CLOEXEC,
+                    0o600,
+                )
+            };
+            if fd < 0 {
+                return Err(format!(
+                    "cannot create temporary file: {}",
+                    std::io::Error::last_os_error()
+                ));
+            }
+            let mut file = unsafe { File::from_raw_fd(fd) };
+            let written = (|| -> Result<(), std::io::Error> {
+                file.write_all(data)?;
+                file.set_permissions(fs::Permissions::from_mode(mode))?;
+                file.sync_all()?;
+                let rc = unsafe {
+                    libc::renameat(
+                        stage.as_raw_fd(),
+                        c"data".as_ptr(),
+                        parent.as_raw_fd(),
+                        name.as_ptr(),
+                    )
+                };
+                if rc != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                parent.sync_all()
+            })();
+            unsafe {
+                libc::unlinkat(stage.as_raw_fd(), c"data".as_ptr(), 0);
+            }
+            written.map_err(|error| format!("cannot write archive file: {error}"))
+        })();
+        unsafe {
+            libc::unlinkat(parent.as_raw_fd(), stage_name.as_ptr(), libc::AT_REMOVEDIR);
+        }
+        return result;
+    }
+    Err("cannot create temporary directory".to_string())
 }
 
 #[cfg(test)]
@@ -480,6 +590,56 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     static TEMPFILE_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+    #[test]
+    fn upload_stage_is_private_before_writing() {
+        let dir = tempfile_dir();
+        let (file, path) = create_temp_file(&dir, ".celesto-test").unwrap();
+        let mode = file.metadata().unwrap().permissions().mode() & 0o777;
+        fs::remove_file(path).unwrap();
+        assert_eq!(mode & 0o077, 0, "stage is readable by other guest users");
+    }
+
+    #[test]
+    fn archive_remains_in_opened_destination_when_root_is_replaced() {
+        let parent = tempfile_dir();
+        let root = parent.join("root");
+        let moved = parent.join("original");
+        let outside = parent.join("outside");
+        fs::create_dir(&root).unwrap();
+        fs::create_dir(&outside).unwrap();
+        let mut archive = Vec::new();
+        for index in 0..128 {
+            append_tar_header(&mut archive, &format!("{index}.txt"), 0o600, 8192, b'0').unwrap();
+            archive.extend_from_slice(&[b'x'; 8192]);
+        }
+        archive.extend_from_slice(&[0u8; 1024]);
+        let attack_root = root.clone();
+        let attack_moved = moved.clone();
+        let attack_outside = outside.clone();
+        let attacker = std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while !attack_root.join("0.txt").exists() {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "first archive member was not written"
+                );
+                std::thread::yield_now();
+            }
+            fs::rename(&attack_root, attack_moved).unwrap();
+            std::os::unix::fs::symlink(attack_outside, attack_root).unwrap();
+        });
+        let result = extract_directory_tar(root.to_str().unwrap(), &archive);
+        attacker.join().unwrap();
+        let escaped = fs::read_dir(&outside).unwrap().count();
+        fs::remove_file(&root).unwrap();
+        fs::remove_dir_all(&parent).unwrap();
+        assert_eq!(
+            escaped, 0,
+            "archive followed a replacement destination symlink"
+        );
+        assert!(result.ok, "{:?}", result.error);
+    }
 
     #[test]
     fn put_into_directory_strips_traversal() {
@@ -547,15 +707,28 @@ mod tests {
 
         let archive = create_directory_tar(source.to_str().unwrap()).unwrap();
         let target = tempfile_dir();
-        let extract = extract_directory_tar(target.to_str().unwrap(), &archive);
-        assert!(extract.ok, "{:?}", extract.error);
+        let actual = target.join("actual");
+        fs::create_dir(&actual).unwrap();
+        fs::create_dir(actual.join("existing")).unwrap();
+        let alias = target.join("alias");
+        std::os::unix::fs::symlink(&actual, &alias).unwrap();
+        for (destination, expected) in [
+            (actual.clone(), actual.clone()),
+            (alias.join("existing"), actual.join("existing")),
+            (alias.join("missing/leaf"), actual.join("missing/leaf")),
+            (alias.join("existing/../parented"), actual.join("parented")),
+            (alias.join("missing-parent/../other"), actual.join("other")),
+        ] {
+            let extract = extract_directory_tar(destination.to_str().unwrap(), &archive);
+            assert!(extract.ok, "{destination:?}: {:?}", extract.error);
 
-        let extracted = target.join("sub").join("note.txt");
-        assert_eq!(fs::read(&extracted).unwrap(), b"hello");
-        assert_eq!(
-            fs::metadata(extracted).unwrap().permissions().mode() & 0o777,
-            0o640
-        );
+            let extracted = expected.join("sub/note.txt");
+            assert_eq!(fs::read(&extracted).unwrap(), b"hello");
+            assert_eq!(
+                fs::metadata(extracted).unwrap().permissions().mode() & 0o777,
+                0o640
+            );
+        }
     }
 
     #[test]
@@ -606,7 +779,7 @@ mod tests {
     }
 
     fn tempfile_dir() -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
+        let path = std::env::temp_dir().canonicalize().unwrap().join(format!(
             "celesto-agent-test-{}-{}",
             std::process::id(),
             TEMPFILE_COUNTER.fetch_add(1, Ordering::Relaxed)

@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 0.1.10 — 2026-10-25
+
+### Security
+
+- Make Celesto 0.1.10 require `celesto-core 2026.10.25` so new installs and upgrades receive the native hardening for disk-image staging, bounded decompression and Firecracker responses, and sysctl key validation.
+
+### Fixed
+
+- Restore dashboard builds after the Tailwind 4 dependency update by using its separate PostCSS plugin and retaining the dashboard's custom theme configuration.
+
+## 0.1.9 — 2026-10-25
+
+### Security
+
+- Release the security hardening for local APIs, guest connections, SSH host-key verification, archive and image handling, and privileged setup.
+- Restrict supported browser sessions to public websites and replace raw VNC access with authenticated capability URLs.
+- Publish rebuilt kernels, root filesystems, and standalone guest-agent binaries for AMD64 and ARM64 with verified SHA-256 pins.
+
 ## 0.1.8 — 2026-10-22
 
 ### Fixed

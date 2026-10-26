@@ -108,6 +108,37 @@ def test_pydanticai_examples_support_runtime_run_context_evaluation(
     assert evaluated is not None
 
 
+def test_pydanticai_browser_main_requests_public_qemu_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Protect the executable example's security default at the real session API.
+
+    Removing public mode permits private network access; omitting QEMU rejects
+    the policy on other defaults. Generic browser tests do not exercise main().
+    The VM constructor is intercepted; live egress is owned by network-policy e2e.
+    """
+    import celesto.browser
+    from celesto.types import BrowserSessionConfig
+
+    module = _load_module(AGENT_TOOL_EXAMPLES_DIR / "pydanticai_agent_browser.py")
+    monkeypatch.setattr(sys, "argv", ["pydanticai_agent_browser.py"])
+    monkeypatch.setattr(module, "_build_agent", lambda: None)
+    monkeypatch.setattr(module, "ARTIFACTS_DIR", tmp_path)
+
+    class SessionConfiguredError(Exception):
+        pass
+
+    def inspect_session(config: BrowserSessionConfig, **_kwargs: object) -> None:
+        assert config.backend == "qemu"
+        assert config.internet_settings is not None
+        assert config.internet_settings.mode == "public"
+        raise SessionConfiguredError
+
+    monkeypatch.setattr(celesto.browser, "_BrowserSandbox", inspect_session)
+    with pytest.raises(SessionConfiguredError):
+        module.main()
+
+
 def _readme_section(title: str) -> str:
     content = README_PATH.read_text(encoding="utf-8")
     match = re.search(

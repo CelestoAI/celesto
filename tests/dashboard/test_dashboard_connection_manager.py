@@ -16,10 +16,13 @@
 
 import asyncio
 from collections.abc import Callable
+from typing import cast
 
 import pytest
 
 pytest.importorskip("fastapi")
+
+from starlette.websockets import WebSocket
 
 from celesto.dashboard.connection_manager import ConnectionManager
 
@@ -28,6 +31,7 @@ class FakeWebSocket:
     """Minimal WebSocket stub for broadcast tests."""
 
     def __init__(self, on_send: Callable[[], None] | None = None, fail: bool = False) -> None:
+        self.scope: dict[str, list[str]] = {"subprotocols": []}
         self._on_send = on_send
         self._fail = fail
         self.sent: list[dict[str, object]] = []
@@ -51,11 +55,11 @@ def test_broadcast_uses_stable_snapshot_when_active_set_mutates() -> None:
     def mutate_active_set() -> None:
         nonlocal mutation_count
         mutation_count += 1
-        manager._active.add(FakeWebSocket())
+        manager._active.add(cast(WebSocket, FakeWebSocket()))
 
     ws1 = FakeWebSocket(on_send=mutate_active_set)
     ws2 = FakeWebSocket(on_send=mutate_active_set)
-    manager._active = {ws1, ws2}
+    manager._active = {cast(WebSocket, ws1), cast(WebSocket, ws2)}
 
     asyncio.run(manager.broadcast({"type": "tick"}))
 
@@ -69,7 +73,7 @@ def test_broadcast_removes_dead_connections() -> None:
     manager = ConnectionManager()
     alive = FakeWebSocket()
     dead = FakeWebSocket(fail=True)
-    manager._active = {alive, dead}
+    manager._active = {cast(WebSocket, alive), cast(WebSocket, dead)}
 
     asyncio.run(manager.broadcast({"type": "tick"}))
 
@@ -81,19 +85,19 @@ def test_connect_and_disconnect_track_connections() -> None:
     manager = ConnectionManager()
     websocket = FakeWebSocket()
 
-    asyncio.run(manager.connect(websocket))
+    asyncio.run(manager.connect(cast(WebSocket, websocket)))
     assert manager.connection_count == 1
 
-    manager.disconnect(websocket)
-    manager.disconnect(websocket)
+    manager.disconnect(cast(WebSocket, websocket))
+    manager.disconnect(cast(WebSocket, websocket))
     assert manager.connection_count == 0
 
 
 def test_send_personal_removes_failed_connection() -> None:
     manager = ConnectionManager()
     websocket = FakeWebSocket(fail=True)
-    manager._active.add(websocket)
+    manager._active.add(cast(WebSocket, websocket))
 
-    asyncio.run(manager.send_personal(websocket, {"type": "notice"}))
+    asyncio.run(manager.send_personal(cast(WebSocket, websocket), {"type": "notice"}))
 
     assert manager.connection_count == 0

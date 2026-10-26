@@ -14,7 +14,9 @@
 
 """Tests for Celesto VM facade module."""
 
+from collections.abc import Generator
 from pathlib import Path
+from typing import Literal, TypedDict
 from unittest.mock import ANY, MagicMock, call, patch
 
 import pytest
@@ -44,7 +46,7 @@ from tests.lifecycle_decision import use_real_start_decision
 
 
 @pytest.fixture(autouse=True)
-def _assume_backends_installed():
+def _assume_backends_installed() -> Generator[None, None, None]:
     """Make every backend look installed for the facade builder tests.
 
     These tests exercise config building and image download/build, not host
@@ -766,16 +768,19 @@ class TestSnapshot:
                 capture_policy=SnapshotCapturePolicy.LIVE_ONLY,
             )
 
-    def test_disk_snapshot_syncs_guest_before_sdk_snapshot(self) -> None:
+    def test_disk_snapshot_syncs_guest_before_sdk_snapshot(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Disk-only snapshots should flush guest filesystem buffers first."""
         vm = Celesto.__new__(Celesto)
         vm._vm_id = "vm001"
         vm._info = MagicMock(status=VMState.RUNNING)
-        vm._refresh_info = MagicMock()
-        vm._reset_runtime_state = MagicMock()
+        monkeypatch.setattr(vm, "_refresh_info", MagicMock())
+        monkeypatch.setattr(vm, "_reset_runtime_state", MagicMock())
 
         channel = MagicMock()
-        vm._ensure_control_for_operation = MagicMock(return_value=channel)
+        ensure_control = MagicMock(return_value=channel)
+        monkeypatch.setattr(vm, "_ensure_control_for_operation", ensure_control)
         vm._sdk = MagicMock()
         snapshot = MagicMock()
         vm._sdk.create_snapshot.return_value = snapshot
@@ -786,7 +791,7 @@ class TestSnapshot:
 
         assert vm.snapshot(snapshot_type=SnapshotType.DISK) is snapshot
 
-        vm._ensure_control_for_operation.assert_called_once_with(
+        ensure_control.assert_called_once_with(
             action="create a disk snapshot",
             timeout=10.0,
         )
@@ -804,16 +809,19 @@ class TestSnapshot:
             ),
         ]
 
-    def test_disk_snapshot_sync_failure_names_retry_command(self) -> None:
+    def test_disk_snapshot_sync_failure_names_retry_command(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Disk snapshot sync failures should include a concrete retry command."""
         vm = Celesto.__new__(Celesto)
         vm._vm_id = "vm001"
         vm._info = MagicMock(status=VMState.RUNNING)
-        vm._refresh_info = MagicMock()
+        monkeypatch.setattr(vm, "_refresh_info", MagicMock())
 
         channel = MagicMock()
         channel.sync.side_effect = CelestoError("sync failed")
-        vm._ensure_control_for_operation = MagicMock(return_value=channel)
+        ensure_control = MagicMock(return_value=channel)
+        monkeypatch.setattr(vm, "_ensure_control_for_operation", ensure_control)
 
         with pytest.raises(
             CelestoError,
@@ -821,34 +829,38 @@ class TestSnapshot:
         ):
             vm._sync_guest_for_disk_snapshot()
 
-    def test_disk_snapshot_sync_timeout_preserves_operation_context(self) -> None:
+    def test_disk_snapshot_sync_timeout_preserves_operation_context(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Timeouts should keep the low-level operation name visible to callers."""
         vm = Celesto.__new__(Celesto)
         vm._vm_id = "vm001"
         vm._info = MagicMock(status=VMState.RUNNING)
-        vm._refresh_info = MagicMock()
+        monkeypatch.setattr(vm, "_refresh_info", MagicMock())
 
         channel = MagicMock()
         channel.sync.side_effect = OperationTimeoutError(
             "guest agent request: POST /sync",
             10.0,
         )
-        vm._ensure_control_for_operation = MagicMock(return_value=channel)
+        ensure_control = MagicMock(return_value=channel)
+        monkeypatch.setattr(vm, "_ensure_control_for_operation", ensure_control)
 
         with pytest.raises(OperationTimeoutError, match=r"POST /sync"):
             vm._sync_guest_for_disk_snapshot()
 
-    def test_disk_snapshot_best_effort_flush_continues_after_sync_failure(self) -> None:
+    def test_disk_snapshot_best_effort_flush_continues_after_sync_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Continuity snapshots may proceed crash-consistently when sync is unavailable."""
         vm = Celesto.__new__(Celesto)
         vm._vm_id = "vm001"
         vm._info = MagicMock(status=VMState.RUNNING)
-        vm._refresh_info = MagicMock()
-        vm._reset_runtime_state = MagicMock()
-        vm._ensure_control_for_operation = MagicMock()
-        vm._ensure_control_for_operation.return_value.sync.side_effect = CelestoError(
-            "sync unavailable"
-        )
+        monkeypatch.setattr(vm, "_refresh_info", MagicMock())
+        monkeypatch.setattr(vm, "_reset_runtime_state", MagicMock())
+        ensure_control = MagicMock()
+        monkeypatch.setattr(vm, "_ensure_control_for_operation", ensure_control)
+        ensure_control.return_value.sync.side_effect = CelestoError("sync unavailable")
         vm._sdk = MagicMock()
         expected = MagicMock()
         vm._sdk.create_snapshot.return_value = expected
@@ -1841,12 +1853,12 @@ class TestVMWindowsEnvDispatch:
         created_info = MagicMock(vm_id="vm-win", status=VMState.CREATED)
         created_info.config = config
         created_info.network.guest_ip = "172.16.0.2"
-        created_info.network.ssh_host_port = None
+        created_info.network.ssh_host_port = 2222
 
         running_info = MagicMock(vm_id="vm-win", status=VMState.RUNNING)
         running_info.config = config
         running_info.network.guest_ip = "172.16.0.2"
-        running_info.network.ssh_host_port = None
+        running_info.network.ssh_host_port = 2222
 
         mock_sdk = MagicMock()
         mock_sdk.create.return_value = created_info
@@ -3277,9 +3289,7 @@ class TestVMProperties:
         assert vm._ssh_attach_command() == [
             "ssh",
             "-o",
-            "StrictHostKeyChecking=no",
-            "-o",
-            "UserKnownHostsFile=/dev/null",
+            "StrictHostKeyChecking=yes",
             "-o",
             "LogLevel=ERROR",
             "-p",
@@ -3907,6 +3917,11 @@ class TestVMFileDownload:
             vm.download_file("", tmp_path / "out.txt")
 
 
+class _ImageOptions(TypedDict, total=False):
+    image: str
+    os: str
+
+
 @pytest.mark.parametrize(
     "settings",
     [
@@ -3917,7 +3932,7 @@ class TestVMFileDownload:
         {"mode": "restricted", "allowed_cidrs": ["1.1.1.1"], "allowed_ports": [443]},
     ],
 )
-def test_policy_errors_precede_image_preparation(settings):
+def test_policy_errors_precede_image_preparation(settings: dict[str, object]) -> None:
     from celesto import ValidationError
 
     with (
@@ -3925,7 +3940,11 @@ def test_policy_errors_precede_image_preparation(settings):
         patch("celesto.facade._build_local_image_config") as local,
         patch("celesto.facade.CelestoManager") as manager,
     ):
-        for kwargs in ({}, {"image": "/tmp/not-needed.qcow2", "os": "alpine"}):
+        options: tuple[_ImageOptions, ...] = (
+            {},
+            {"image": "/tmp/not-needed.qcow2", "os": "alpine"},
+        )
+        for kwargs in options:
             with pytest.raises(ValidationError) as error:
                 Celesto(internet_settings=settings, **kwargs)
             assert error.value.details["field"] == "internet_settings"
@@ -3935,7 +3954,7 @@ def test_policy_errors_precede_image_preparation(settings):
         manager.assert_not_called()
 
 
-def test_unsupported_policy_precedes_image_preparation():
+def test_unsupported_policy_precedes_image_preparation() -> None:
     from celesto import ValidationError
 
     with patch("celesto.facade._build_auto_config") as build:
@@ -3947,7 +3966,7 @@ def test_unsupported_policy_precedes_image_preparation():
         build.assert_not_called()
 
 
-def test_from_image_policy_errors_precede_kernel_preparation():
+def test_from_image_policy_errors_precede_kernel_preparation() -> None:
     from celesto import ValidationError
 
     with patch("celesto.facade.ensure_base_kernel_for_backend") as kernel:
@@ -3966,8 +3985,13 @@ def test_from_image_policy_errors_precede_kernel_preparation():
     ],
 )
 def test_from_image_qemu_policy_errors_name_recovery(
-    monkeypatch, explicit_name, host, network, policy, forwards
-):
+    monkeypatch: pytest.MonkeyPatch,
+    explicit_name: str | None,
+    host: str,
+    network: Literal["tap", "slirp"],
+    policy: dict[str, object],
+    forwards: list[PortForwardConfig | dict[str, int]] | None,
+) -> None:
     from celesto import ValidationError
 
     monkeypatch.setattr("celesto._network_policy.sys.platform", host)

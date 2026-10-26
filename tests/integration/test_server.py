@@ -30,6 +30,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from queue import Queue
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -54,6 +55,9 @@ from celesto.server.models import (
 )
 from celesto.types import BrowserSessionState, CommandResult, DesktopEndpoint, VMState
 
+if TYPE_CHECKING:
+    from celesto.computer import _ComputerSandbox
+
 
 class FakeBrowserSession:
     """Ready browser session returned by the facade stub."""
@@ -65,9 +69,9 @@ class FakeBrowserSession:
         self.session_id = session_id
         self.vm_id = f"vm-{session_id}"
         self.status = BrowserSessionState.READY
-        self.cdp_url = "http://127.0.0.1:9222"
-        self.viewer_url = "http://127.0.0.1:6080/vnc.html?autoconnect=1"
-        self.display_url = "vnc://127.0.0.1:5900"
+        self.cdp_url: str | None = "http://127.0.0.1:9222"
+        self.viewer_url: str | None = "http://127.0.0.1:6080/vnc.html?autoconnect=1"
+        self.display_url: str | None = "vnc://127.0.0.1:5900"
         self.info = SimpleNamespace(profile_id=profile_id)
         self.vm = SimpleNamespace(
             run=self._run,
@@ -128,9 +132,18 @@ class FakeComputer:
             "sandbox.exec",
             "sandbox.files",
         )
-        self.display = SimpleNamespace(
-            viewer_url="http://127.0.0.1:6081/vnc.html",
-            vnc_url="vnc://127.0.0.1:5901",
+        from celesto.computer import ComputerDisplay
+
+        # The display adapter reads only these properties from its sandbox owner.
+        self.display = ComputerDisplay(
+            cast(
+                "_ComputerSandbox",
+                SimpleNamespace(
+                    viewer_url="http://127.0.0.1:6081/vnc.html",
+                    display_url=None,
+                    computer_id=computer_id,
+                ),
+            )
         )
         self.browser = SimpleNamespace(
             status="ready",
@@ -167,7 +180,7 @@ class FakeComputer:
 class FakeCelesto:
     """Minimal stand-in for the Celesto facade."""
 
-    last_kwargs: dict | None = None
+    last_kwargs: dict[str, object] | None = None
     start_error: Exception | None = None
     # ids that from_id should reconnect to (simulating VMs that exist on
     # the host but are absent from this app's in-memory registry).
@@ -185,15 +198,16 @@ class FakeCelesto:
         FakeCelesto.last_kwargs = {
             key: value for key, value in kwargs.items() if key != "on_download"
         }
-        self.vm_id = kwargs.get("vm_id") or "sbx-test"
+        self.vm_id = cast(str, kwargs.get("vm_id") or "sbx-test")
         self.status = VMState.CREATED
 
     @classmethod
     def browser(cls, **kwargs: object) -> FakeBrowserSession:
         cls.last_kwargs = dict(kwargs)
+        profile_id = kwargs.get("profile_id")
         browser = FakeBrowserSession(
             str(kwargs.get("session_id") or "browser-test"),
-            kwargs.get("profile_id") if isinstance(kwargs.get("profile_id"), str) else None,
+            profile_id if isinstance(profile_id, str) else None,
         )
         if kwargs.get("headless") is True:
             browser.viewer_url = None
@@ -221,7 +235,7 @@ class FakeCelesto:
     # exec() hooks
     run_error: Exception | None = None
     run_result: CommandResult = CommandResult(exit_code=0, stdout="ok", stderr="")
-    last_run_args: tuple | None = None
+    last_run_args: tuple[str, int, str] | None = None
     # ids deleted via delete() this test
     deleted_ids: set[str] = set()
 
@@ -271,10 +285,15 @@ class FakeCelesto:
         Path(local_path).write_bytes(FakeCelesto.uploaded_files[guest_path])  # type: ignore[arg-type]
 
 
-def _handler(app: FastAPI, path: str, method: str) -> Callable:
+def _handler(app: FastAPI, path: str, method: str) -> Callable[..., Any]:
     """Return the endpoint callable for a given route path + method."""
     route = next(
-        r for r in app.routes if isinstance(r, APIRoute) and r.path == path and method in r.methods
+        r
+        for r in app.routes
+        if isinstance(r, APIRoute)
+        and r.path == path
+        and r.methods is not None
+        and method in r.methods
     )
     return route.endpoint
 
@@ -324,12 +343,14 @@ def test_create_and_delete_live_browser_session(app: FastAPI) -> None:
     delete = _handler(app, "/browser-sessions/{session_id}", "DELETE")
 
     result = create(
-        CreateBrowserSessionRequest(
-            session_id="browser-demo",
-            mode="live",
-            backend="qemu",
-            allow_downloads=False,
-            network={"mode": "off"},
+        CreateBrowserSessionRequest.model_validate(
+            {
+                "session_id": "browser-demo",
+                "mode": "live",
+                "backend": "qemu",
+                "allow_downloads": False,
+                "network": {"mode": "off"},
+            }
         )
     )
 
@@ -357,15 +378,15 @@ def test_create_run_and_delete_linux_computer(app: FastAPI) -> None:
     delete = _handler(app, "/computers/{computer_id}", "DELETE")
 
     result = create(
-        CreateComputerRequest(
-            computer_id="computer-demo",
-            network={"mode": "off"},
+        CreateComputerRequest.model_validate(
+            {"computer_id": "computer-demo", "network": {"mode": "off"}}
         )
     )
 
     assert isinstance(result, ComputerResponse)
     assert result.computer_id == "computer-demo"
     assert result.display.viewer_url == "http://127.0.0.1:6081/vnc.html"
+    assert result.display.vnc_url is None
     assert result.browser.cdp_url == "http://127.0.0.1:9223"
     assert FakeCelesto.last_kwargs is not None
     assert FakeCelesto.last_kwargs["network"] == {"mode": "off"}
@@ -426,10 +447,11 @@ def test_computer_operations_reject_once_deletion_begins(
     with ThreadPoolExecutor(max_workers=1) as executor:
         deletion = executor.submit(delete, "computer-demo")
         assert entered.wait(timeout=2)
-        for operation in (
+        operations: tuple[Callable[[], object], ...] = (
             lambda: execute("computer-demo", ExecRequest(command="whoami")),
             lambda: launch("computer-demo"),
-        ):
+        )
+        for operation in operations:
             with pytest.raises(HTTPException) as exc_info:
                 operation()
             assert exc_info.value.status_code == 409
@@ -549,7 +571,7 @@ def test_concurrent_computer_create_reserves_the_requested_name(
     entered = threading.Event()
     release = threading.Event()
 
-    def blocked_create(cls: type[FakeCelesto], **kwargs: object) -> FakeComputer:
+    def blocked_create(cls: type[FakeCelesto], /, **kwargs: object) -> FakeComputer:
         entered.set()
         assert release.wait(timeout=2)
         return FakeComputer(str(kwargs["name"]))
@@ -596,7 +618,7 @@ def test_failed_computer_response_releases_the_unregistered_computer(
         vnc_url = "vnc://127.0.0.1:5901"
 
     computer = FakeComputer("computer-demo")
-    computer.display = BrokenDisplay()
+    monkeypatch.setattr(computer, "display", BrokenDisplay())
     monkeypatch.setattr(
         FakeCelesto,
         "computer",
@@ -910,7 +932,9 @@ def test_create_forwards_restricted_network_policy(app: FastAPI) -> None:
     create = _handler(app, "/sandboxes", "POST")
 
     create(
-        CreateSandboxRequest(network={"mode": "restricted", "allowed_cidrs": ["203.0.113.0/24"]})
+        CreateSandboxRequest.model_validate(
+            {"network": {"mode": "restricted", "allowed_cidrs": ["203.0.113.0/24"]}}
+        )
     )
 
     assert FakeCelesto.last_kwargs == {

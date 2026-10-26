@@ -1,6 +1,6 @@
 [package]
 name = "celesto-core"
-version = "2026.9.22"
+version = "2026.10.25"
 description = "Rust-native core package for Celesto"
 documentation = "https://docs.rs/celesto-core"
 readme = "README.md"

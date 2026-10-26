@@ -24,6 +24,7 @@ from celesto.exceptions import CelestoError
 from celesto.runtime.guest_platforms import (
     _LINUX_SPEC,
     FirmwareSpec,
+    GuestPlatformSpec,
     _build_windows_spec,
 )
 from celesto.runtime.qemu_args import build_qemu_argv
@@ -123,7 +124,9 @@ def test_linux_x86_64_kvm_argv_byte_identical(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "system,binary", [("Linux", "qemu-system-x86_64"), ("Darwin", "qemu-system-aarch64")]
 )
-def test_slirp_off_preserves_forwards_and_shared_folder_devices(tmp_path, system, binary):
+def test_slirp_off_preserves_forwards_and_shared_folder_devices(
+    tmp_path: Path, system: str, binary: str
+) -> None:
     info = _qemu_vm_info(tmp_path)
     info = info.model_copy(
         update={
@@ -176,11 +179,12 @@ def test_slirp_public_proxy_is_the_only_guest_egress_path(
     )
 
     netdev = argv[argv.index("-netdev") + 1]
-    assert netdev == (
+    assert netdev.startswith(
         "user,id=net0,dns=10.0.2.3,hostfwd=tcp:127.0.0.1:2200-:22,"
         "restrict=on,ipv6=off,"
-        "guestfwd=tcp:10.0.2.100:3128-tcp:127.0.0.1:43128"
+        "guestfwd=tcp:10.0.2.100:3128-cmd:"
     )
+    assert "_public_egress_relay.py 43128" in netdev
 
 
 def test_root_drive_format_uses_declared_rootfs_format(tmp_path: Path) -> None:
@@ -466,6 +470,7 @@ def test_missing_ssh_host_port_raises(tmp_path: Path) -> None:
     """SSH control over QEMU slirp requires a reserved ssh_host_port."""
     vm_info = _qemu_vm_info(tmp_path)
     # Pydantic frozen model — swap the config/network for explicit SSH with no port.
+    assert vm_info.network is not None
     vm_info = vm_info.model_copy(
         update={
             "config": vm_info.config.model_copy(update={"comm_channel": "ssh"}),
@@ -509,7 +514,7 @@ def _windows_vm_info(tmp_path: Path, *, vm_id: str = "vm-win") -> VMInfo:
     )
 
 
-def _fake_windows_spec() -> object:
+def _fake_windows_spec() -> GuestPlatformSpec:
     """Build a Windows GuestPlatformSpec with mocked OVMF discovery."""
     fake = FirmwareSpec(
         code_path=Path("/usr/share/OVMF/OVMF_CODE_4M.secboot.fd"),
@@ -705,6 +710,7 @@ def _tap_vm_info(tmp_path: Path, *, ssh_host_port: int | None = None) -> VMInfo:
     """A Linux QEMU VMInfo wired for host-TAP networking."""
     base = _qemu_vm_info(tmp_path)
     config = base.config.model_copy(update={"qemu_network": "tap"})
+    assert base.network is not None
     network = base.network.model_copy(
         update={
             "tap_device": "tap5",
@@ -750,6 +756,7 @@ def test_build_qemu_argv_tap_mode_allows_no_ssh_host_port(tmp_path: Path) -> Non
 def test_build_qemu_argv_slirp_allows_no_ssh_host_port(tmp_path: Path) -> None:
     """Slirp can run without exposing guest SSH."""
     base = _qemu_vm_info(tmp_path)
+    assert base.network is not None
     network = base.network.model_copy(update={"ssh_host_port": None})
     vm = base.model_copy(update={"network": network})
     cmd = build_qemu_argv(
@@ -762,3 +769,29 @@ def test_build_qemu_argv_slirp_allows_no_ssh_host_port(tmp_path: Path) -> None:
     joined = " ".join(cmd)
     assert "user,id=net0,dns=10.0.2.3" in joined
     assert "-:22" not in joined
+
+
+def test_workspace_comma_stays_inside_export_path(tmp_path: Path) -> None:
+    vm_info = _qemu_vm_info(tmp_path)
+    workspace = tmp_path / "chosen,path=elsewhere"
+    workspace.mkdir()
+    vm_info = vm_info.model_copy(
+        update={
+            "config": vm_info.config.model_copy(
+                update={"workspace_mounts": [WorkspaceMount(host_path=workspace)]}
+            )
+        }
+    )
+    argv = build_qemu_argv(
+        vm_info,
+        qemu_bin=Path("/usr/bin/qemu-system-x86_64"),
+        boot_args=vm_info.config.boot_args,
+        platform_spec=_LINUX_SPEC,
+        host_system="Linux",
+        control_socket_path=tmp_path / "control,server=off.sock",
+    )
+    fsdev = argv[argv.index("-fsdev") + 1]
+    assert f"path={str(workspace).replace(',', ',,')},security_model=" in fsdev
+
+    qmp = argv[argv.index("-qmp") + 1]
+    assert "control,,server=off.sock,server=on" in qmp

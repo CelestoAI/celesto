@@ -16,16 +16,18 @@
 
 ``Celesto.start()`` asks the manager to choose between "already running",
 "resume" and "boot" from the current inventory, inside the computer's
-lifecycle lock. Facade tests stub the manager with ``MagicMock`` and set up
-``start``/``resume``/``async_start``. :func:`use_real_start_decision` makes
-the stub's ``start_from_current_state`` run the real manager code, with a
-real lock, and route each action to those stubbed calls. The stub's
-inventory is whatever it last reported for the computer.
+operation claim and lifecycle lock. Facade tests stub the manager with
+``MagicMock`` and set up ``start``/``resume``/``async_start``.
+:func:`use_real_start_decision` makes the stub's ``start_from_current_state``
+run the real manager code, with a real claim and lock, and route each action
+to those stubbed calls. The stub's inventory is whatever it last reported for
+the computer.
 """
 
 from __future__ import annotations
 
 import tempfile
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -52,15 +54,21 @@ def use_real_start_decision(mock_sdk: MagicMock, lock_dir: Path | None = None) -
     manager = CelestoManager.__new__(CelestoManager)
     manager.data_dir = lock_dir or Path(tempfile.mkdtemp(prefix="celesto-start-decision-"))
     manager.state = SimpleNamespace(get_vm=current)
-    manager._start_locked = lambda vm_id, boot_timeout=30.0: remember(
+    # State read by the real per-session operation claim.
+    manager._vm_operation_lock = threading.Lock()
+    manager._active_vm_operations = set()
+    manager._closed = False
+    manager._close_requested = False
+    manager._closing = False
+    manager._start_claimed = lambda vm_id, boot_timeout=30.0: remember(
         mock_sdk.start(vm_id, boot_timeout=boot_timeout)
     )
     manager._resume_locked = lambda vm_id: remember(mock_sdk.resume(vm_id))
 
-    async def async_start_locked(vm_id: str, boot_timeout: float = 30.0) -> Any:
+    async def async_start_claimed(vm_id: str, boot_timeout: float = 30.0) -> Any:
         return remember(await mock_sdk.async_start(vm_id, boot_timeout=boot_timeout))
 
-    manager._async_start_locked = async_start_locked
+    manager._async_start_claimed = async_start_claimed
 
     mock_sdk.start_from_current_state = MagicMock(side_effect=manager.start_from_current_state)
     mock_sdk.async_start_from_current_state = manager.async_start_from_current_state

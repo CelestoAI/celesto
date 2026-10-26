@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "celesto"
-version = "0.1.8"
+version = "0.1.10"
 description = "Sandbox for computer-using agents with a unified API for VMMs — Firecracker, QEMU, and libkrun."
 readme = "README.md"
 license = "Apache-2.0"
@@ -33,7 +33,7 @@ dependencies = [
     "typing-extensions>=4.16.0",
     "websockets>=14.0",
     "click>=8.0",
-    "celesto-core~=2026.9.22",
+    "celesto-core~=2026.10.25",
     "paramiko>=3.0",
     "pycdlib>=1.14.0",
     "pydantic>=2.0",
@@ -57,7 +57,9 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=4.0",
     "ruff>=0.15.0",
-    "mypy>=1.0",
+    "mypy>=2.3.1",
+    "types-paramiko",
+    "types-requests",
     "pre-commit>=4.6.2",
 ]
 s3 = [
@@ -107,6 +109,7 @@ ignore = ["UP042"]
 
 [tool.mypy]
 python_version = "3.11"
+mypy_path = ["$MYPY_CONFIG_FILE_DIR/src", "$MYPY_CONFIG_FILE_DIR/celesto-core/python"]
 strict = true
 warn_return_any = true
 warn_unused_ignores = true

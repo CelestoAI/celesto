@@ -28,14 +28,11 @@ For policy details, see [SECURITY.md](SECURITY.md).
 1. Install dependencies with `uv`.
 
 ```bash
-uv sync --extra dev
+uv sync --extra dev --extra dashboard --extra server
 ```
 
-Optional dashboard dependencies:
-
-```bash
-uv sync --extra dev --extra dashboard
-```
+The test suite includes dashboard and local API checks, so development setup
+includes their dependencies.
 
 ### Runtime Prerequisites (for backend/runtime work)
 
@@ -88,10 +85,34 @@ uv run pre-commit install
 uv run pre-commit run --all-files
 ```
 
+The mypy hook uses the project environment, including the development, dashboard,
+and server dependencies, so it checks the same library types used at runtime.
+Development dependencies require mypy 2.3.1 or newer. TypeDoc owns the generated
+files under `docs/typescript/api/`; regenerate them with `cd ts && npm run docs`
+instead of formatting them with mdformat.
+
 Notes:
 
 - Type annotations are expected for new code (`mypy` runs in strict mode).
 - Keep tests deterministic and avoid requiring privileged host setup unless the test explicitly targets runtime integration paths.
+
+For the browser security checks, install Node.js 24, build the dashboard, and
+install Chromium before running the tests:
+
+```bash
+npm ci --prefix ui
+npm run build --prefix ui
+uv run --with playwright --with websockets --with 'pydantic-ai-slim[openai]' python -m playwright install --with-deps chromium
+uv run --with playwright --with websockets --with 'pydantic-ai-slim[openai]' pytest -m e2e tests/e2e/test_browser_examples_security.py tests/e2e/test_dashboard_browser_security.py tests/e2e/test_pydanticai_browser.py
+```
+
+Ordinary Linux E2E jobs build an unreleased Ubuntu candidate from a copy of a
+SHA-verified published image, installing the current startup script and guest
+agent. A temporary CI catalog entry serves that candidate on the runner's
+loopback address through the normal image download and cache path. Each job
+retains the compressed candidate, SHA-256 manifest, and source provenance for
+three days. These runs do not validate a published image release; the explicit
+`policy_release_validation` workflow mode continues to use published assets.
 
 ## Pull Request Guidelines
 

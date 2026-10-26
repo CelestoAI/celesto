@@ -21,6 +21,7 @@ import importlib.metadata
 import os
 import platform
 import re
+import secrets
 import shlex
 import subprocess
 import sys
@@ -41,6 +42,7 @@ from rich.progress import (
     DownloadColumn,
     Progress,
     SpinnerColumn,
+    TaskID,
     TextColumn,
     TimeElapsedColumn,
     TransferSpeedColumn,
@@ -63,11 +65,13 @@ from celesto.exceptions import VMNotFoundError
 from celesto.types import BrowserSessionState, DesktopEndpoint, GuestOS, VMState
 
 if TYPE_CHECKING:
+    from rich.console import Console
+
     from celesto.cli.service import CLIService
     from celesto.facade import Celesto as FacadeVM
     from celesto.images.published import Arch, Vmm
     from celesto.storage import StateManagerProtocol
-    from celesto.types import BrowserSessionInfo, SnapshotInfo, VMConfig, VMInfo
+    from celesto.types import BrowserSessionInfo, CommandResult, SnapshotInfo, VMConfig, VMInfo
 
 DASHBOARD_ALLOW_BETA_ENV = "CELESTO_DASHBOARD_ALLOW_BETA"
 DASHBOARD_URL_ENV = "CELESTO_DASHBOARD_URL"
@@ -662,7 +666,7 @@ def _guess_os_from_paths(vm: VMInfo) -> str | None:
     return None
 
 
-def _query_live_vm_info(vm: VMInfo) -> dict[str, object]:
+def _query_live_vm_info(vm: VMInfo, data_dir: Path | None = None) -> dict[str, object]:
     """Query a running VM via SSH for OS pretty-name and used memory.
 
     Connects directly with a short ``connect_timeout`` so half-dead VMs
@@ -673,6 +677,8 @@ def _query_live_vm_info(vm: VMInfo) -> dict[str, object]:
     placeholders without surfacing transient SSH errors to the user.
     """
     from celesto.ssh import SSHClient
+    from celesto.ssh_trust import trusted_host_key
+    from celesto.vm import resolve_data_dir
 
     network = vm.network
     if network is None:
@@ -684,6 +690,8 @@ def _query_live_vm_info(vm: VMInfo) -> dict[str, object]:
     if network.ssh_host_port is not None:
         host, port = "127.0.0.1", network.ssh_host_port
     else:
+        # NetworkConfig requires an address for NAT; bridge mode returned above.
+        assert network.guest_ip is not None
         host, port = network.guest_ip, 22
 
     key_path = Path.home() / ".celesto" / "keys" / "id_ed25519"
@@ -692,6 +700,8 @@ def _query_live_vm_info(vm: VMInfo) -> dict[str, object]:
         port=port,
         key_path=str(key_path) if key_path.exists() else None,
         connect_timeout=3,
+        host_key=trusted_host_key(data_dir or resolve_data_dir(), vm.vm_id),
+        sandbox_name=vm.vm_id,
     )
 
     cmd = (
@@ -837,7 +847,7 @@ def _run_info(*, vm_id: str, json_output: bool, command_name: str = "sandbox.inf
             vm = sdk.state.get_vm(vm_id)
             live_data: dict[str, object] | None = None
             if vm.status == VMState.RUNNING:
-                live_data = _query_live_vm_info(vm)
+                live_data = _query_live_vm_info(vm, data_dir=sdk.data_dir)
             data = _info_payload(vm, live_data=live_data)
             if json_output:
                 emit_json(command_name, 0, data=data)
@@ -893,8 +903,8 @@ def _render_create_result(data: CreatePayload) -> None:
 
 def _build_and_boot_with_progress(
     *,
-    console: object,
-    build_fn: object,
+    console: Console,
+    build_fn: Callable[[Callable[[str, int, int | None], None]], tuple[VMConfig, str | None]],
     boot_timeout: int,
     prepare_message: str = "Preparing image...",
     comm_channel: str | None = None,
@@ -903,7 +913,7 @@ def _build_and_boot_with_progress(
     writable_mounts: bool = False,
     network_mode: str | None = None,
     bridge_name: str | None = None,
-) -> object:
+) -> FacadeVM:
     """Build a VM config and boot it, showing a Rich progress bar.
 
     Displays per-file download progress when the OS image is not cached,
@@ -911,12 +921,7 @@ def _build_and_boot_with_progress(
     check completes.
     Returns a started :class:`~celesto.facade.Celesto` instance.
     """
-    from rich.console import Console
-
-    _console: Console = console  # type: ignore[assignment]
-    _build_fn: Callable[..., Any] = build_fn  # type: ignore[assignment]
-
-    download_tasks: dict[str, Any] = {}
+    download_tasks: dict[str, TaskID] = {}
 
     with Progress(
         SpinnerColumn(),
@@ -925,7 +930,7 @@ def _build_and_boot_with_progress(
         DownloadColumn(),
         TransferSpeedColumn(),
         TimeElapsedColumn(),
-        console=_console,
+        console=console,
         transient=True,
     ) as progress:
 
@@ -935,7 +940,7 @@ def _build_and_boot_with_progress(
             progress.update(download_tasks[label], advance=chunk)
 
         prepare_task = progress.add_task(prepare_message, total=None)
-        config, ssh_key_path = _build_fn(on_download)
+        config, ssh_key_path = build_fn(on_download)
         config = _apply_network_attachment(
             config, network_mode=network_mode, bridge_name=bridge_name
         )
@@ -1100,7 +1105,7 @@ def _run_create(args: SimpleNamespace) -> int:
             resolved_backend = resolve_backend(args.backend)
         image_uri: str | None = getattr(args, "image", None)
         use_s3_image = image_uri is not None
-        use_local_image = use_s3_image and _is_local_image(image_uri)
+        use_local_image = image_uri is not None and _is_local_image(image_uri)
 
         # S3 images carry their own OS in the manifest, so --os would
         # conflict. Local images need --os to disambiguate, so the pair
@@ -1199,7 +1204,7 @@ def _run_create(args: SimpleNamespace) -> int:
         if not use_s3_image and args.disk_size_mib is None and resolved_guest_os is GuestOS.UBUNTU:
             args.disk_size_mib = 4096
 
-        if use_local_image:
+        if image_uri is not None and use_local_image:
             # Local image path (Windows POC). The build is a file existence
             # check — fast, no download — but we still funnel through the
             # same builder/progress shape so the JSON/non-JSON branches
@@ -1255,7 +1260,7 @@ def _run_create(args: SimpleNamespace) -> int:
                     comm_channel=args.comm_channel,
                     boot_timeout=args.boot_timeout,
                 )
-        elif use_s3_image:
+        elif image_uri is not None:
             # S3 image path
             if not args.json:
                 console = console_stdout()
@@ -1784,7 +1789,7 @@ def _run_snapshot(args: SimpleNamespace) -> int:
                 vm.close()
 
     if args.snapshot_action == "restore":
-        vm: Celesto | None = None
+        vm = None
         try:
             vm = Celesto.from_snapshot(
                 args.snapshot_id,
@@ -1796,7 +1801,7 @@ def _run_snapshot(args: SimpleNamespace) -> int:
                 snapshot = sdk.get_snapshot(args.snapshot_id)
             row = _snapshot_row(snapshot)
             network = vm.info.network
-            data: SnapshotRestorePayload = {
+            restore_data: SnapshotRestorePayload = {
                 "snapshot": row,
                 "vm": {
                     "name": vm.vm_id,
@@ -1806,9 +1811,9 @@ def _run_snapshot(args: SimpleNamespace) -> int:
                 },
             }
             if json_output:
-                emit_json(command_name, 0, data=data)
+                emit_json(command_name, 0, data=restore_data)
             else:
-                _render_snapshot_restore(data)
+                _render_snapshot_restore(restore_data)
             return 0
         except Exception as exc:
             return _emit_cli_error(command_name, 1, exc, json_output=json_output)
@@ -1854,12 +1859,12 @@ def _run_snapshot(args: SimpleNamespace) -> int:
         with _cli_service().manager() as sdk:
             snapshots = sdk.list_snapshots(vm_id=args.vm_id)
         rows = [_snapshot_row(snapshot) for snapshot in snapshots]
-        data: SnapshotListPayload = {
+        list_data: SnapshotListPayload = {
             "filters": {"vm_id": args.vm_id},
             "snapshots": rows,
         }
         if json_output:
-            emit_json(command_name, 0, data=data)
+            emit_json(command_name, 0, data=list_data)
             return 0
 
         if not rows:
@@ -2270,7 +2275,7 @@ def _bring_sandbox_up(
             wait()
 
 
-def _emit_command_result(command_name: str, result: Any, *, json_output: bool) -> int:
+def _emit_command_result(command_name: str, result: CommandResult, *, json_output: bool) -> int:
     """Preserve command output and exit status across sandbox and computer commands."""
     if json_output:
         error = None
@@ -2474,7 +2479,7 @@ def _port_forward_operation_lock(vm_id: str) -> Iterator[None]:
         yield
 
 
-def _load_port_forwards(vm_id: str) -> list[dict]:
+def _load_port_forwards(vm_id: str) -> list[dict[str, Any]]:
     """Read a sandbox's forwarding state while holding its process lock."""
     import fcntl
 
@@ -2485,7 +2490,7 @@ def _load_port_forwards(vm_id: str) -> list[dict]:
         return _load_port_forwards_unlocked(vm_id, path)
 
 
-def _load_port_forwards_unlocked(vm_id: str, path: Path) -> list[dict]:
+def _load_port_forwards_unlocked(vm_id: str, path: Path) -> list[dict[str, Any]]:
     import json
 
     if not path.exists():
@@ -2507,7 +2512,7 @@ def _load_port_forwards_unlocked(vm_id: str, path: Path) -> list[dict]:
     return data
 
 
-def _save_port_forwards_unlocked(path: Path, forwards: list[dict]) -> None:
+def _save_port_forwards_unlocked(path: Path, forwards: list[dict[str, Any]]) -> None:
     import json
 
     temporary_path: Path | None = None
@@ -2532,8 +2537,8 @@ def _save_port_forwards_unlocked(path: Path, forwards: list[dict]) -> None:
 
 def _mutate_port_forwards(
     vm_id: str,
-    mutate: Callable[[list[dict]], list[dict]],
-) -> list[dict]:
+    mutate: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
     """Serialize a forwarding-state read/modify/write transaction."""
     import fcntl
 
@@ -2549,7 +2554,7 @@ def _mutate_port_forwards(
 def _remove_port_forward(vm_id: str, host_port: int, guest_port: int) -> None:
     """Remove one forwarding record without overwriting concurrent updates."""
 
-    def remove(forwards: list[dict]) -> list[dict]:
+    def remove(forwards: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [
             item
             for item in forwards
@@ -2572,7 +2577,7 @@ def _track_port_forward(vm: FacadeVM, vm_id: str, host_port: int, guest_port: in
         if tracked.tunnel_proc is not None:
             forward_entry["pid"] = tracked.tunnel_proc.pid
 
-    def replace(forwards: list[dict]) -> list[dict]:
+    def replace(forwards: list[dict[str, Any]]) -> list[dict[str, Any]]:
         current = [
             item
             for item in forwards
@@ -2689,7 +2694,7 @@ def _run_port_close(args: SimpleNamespace) -> int:
                 None,
             )
             ssh_tunnel_entry = entry is not None and entry.get("transport") == "ssh_tunnel"
-            if ssh_tunnel_entry and entry.get("pid"):
+            if ssh_tunnel_entry and entry is not None and entry.get("pid"):
                 import os
                 import signal
                 import subprocess as _sp
@@ -2866,12 +2871,28 @@ def _run_server_start(
             json_output=False,
         )
 
+    token = os.environ.get("CELESTO_SERVER_TOKEN")
+    if not token and host not in {"127.0.0.1", "localhost", "::1"}:
+        return _emit_cli_error(
+            "server",
+            2,
+            ValueError(
+                "Remote access requires CELESTO_SERVER_TOKEN; "
+                "set a private token, then rerun 'celesto server start'."
+            ),
+            json_output=False,
+        )
+    from celesto.server.app import create_app
+
+    server_app = create_app(auth_token=token)
+    if not token:
+        print(f"Bearer token: {server_app.state.auth_token}")
     display_host = "localhost" if host in {"0.0.0.0", "::"} else host
     print(f"Celesto HTTP API listening on http://{display_host}:{port}")
     print(f"OpenAPI spec: http://{display_host}:{port}/openapi.json")
 
     try:
-        uvicorn.run("celesto.server.app:create_app", host=host, port=port, factory=True)
+        uvicorn.run(server_app, host=host, port=port)
         return 0
     except KeyboardInterrupt:
         return 130
@@ -2905,14 +2926,39 @@ def _run_ui(host: str, port: int, allow_beta: bool) -> int:
         allow_beta = True
 
     display_host = "localhost" if host in {"0.0.0.0", "::"} else host
-    dashboard_url = f"http://{display_host}:{port}"
+    token = os.environ.get("CELESTO_DASHBOARD_TOKEN")
+    if not token and host not in {"127.0.0.1", "localhost", "::1"}:
+        return _emit_cli_error(
+            "ui",
+            2,
+            ValueError(
+                "Remote access requires CELESTO_DASHBOARD_TOKEN; "
+                "set a private token, then rerun 'celesto ui'."
+            ),
+            json_output=False,
+        )
+    if token and not re.fullmatch(r"[A-Za-z0-9._~-]+", token):
+        return _emit_cli_error(
+            "ui",
+            2,
+            ValueError(
+                "CELESTO_DASHBOARD_TOKEN contains characters the browser cannot use; "
+                "run 'export CELESTO_DASHBOARD_TOKEN=$(openssl rand -hex 32)', "
+                "then rerun 'celesto ui'."
+            ),
+            json_output=False,
+        )
+    previous_dashboard_token = token
+    token = token or secrets.token_urlsafe(32)
+    os.environ["CELESTO_DASHBOARD_TOKEN"] = token
+    dashboard_url = f"http://{display_host}:{port}/login#token={token}"
 
     previous_allow_beta = os.environ.get(DASHBOARD_ALLOW_BETA_ENV)
     previous_dashboard_url = os.environ.get(DASHBOARD_URL_ENV)
 
     if allow_beta:
         os.environ[DASHBOARD_ALLOW_BETA_ENV] = "1"
-    os.environ[DASHBOARD_URL_ENV] = dashboard_url
+    os.environ[DASHBOARD_URL_ENV] = dashboard_url.partition("#")[0]
 
     _render_ui_startup(host, port, dashboard_url, allow_beta=allow_beta, auto_beta=auto_beta)
 
@@ -2929,6 +2975,10 @@ def _run_ui(host: str, port: int, allow_beta: bool) -> int:
             json_output=False,
         )
     finally:
+        if previous_dashboard_token is None:
+            os.environ.pop("CELESTO_DASHBOARD_TOKEN", None)
+        else:
+            os.environ["CELESTO_DASHBOARD_TOKEN"] = previous_dashboard_token
         if allow_beta:
             if previous_allow_beta is None:
                 os.environ.pop(DASHBOARD_ALLOW_BETA_ENV, None)
@@ -3154,7 +3204,7 @@ def _run_browser(args: SimpleNamespace) -> int:
     """Handle ``celesto browser`` commands."""
     from celesto.browser import _BrowserSandbox
     from celesto.exceptions import BrowserSessionNotFoundError
-    from celesto.types import BrowserSessionConfig
+    from celesto.types import BrowserSessionConfig, BrowserViewport
 
     json_output = getattr(args, "json", False)
     command_name = f"browser.{args.browser_action}" if args.browser_action else "browser"
@@ -3175,7 +3225,7 @@ def _run_browser(args: SimpleNamespace) -> int:
                 timeout_minutes=args.timeout_minutes,
                 viewport_width=args.viewport_width,
                 viewport_height=args.viewport_height,
-                viewport={"width": args.viewport_width, "height": args.viewport_height},
+                viewport=BrowserViewport(width=args.viewport_width, height=args.viewport_height),
                 record_video=args.record_video,
                 allow_downloads=not args.no_downloads,
                 mem_size_mib=args.memory_mib,
@@ -3230,7 +3280,7 @@ def _run_browser(args: SimpleNamespace) -> int:
             failures: list[str] = []
             stopped_session_ids: list[str] = []
             for session_info in sessions:
-                session: _BrowserSandbox | None = None
+                session = None
                 try:
                     session = _BrowserSandbox.from_id(session_info.session_id, state_manager=state)
                     session.stop()
@@ -3256,7 +3306,7 @@ def _run_browser(args: SimpleNamespace) -> int:
             print(f"Stopped {len(stopped_session_ids)} browser session(s).")
             return 0
 
-        session: _BrowserSandbox | None = None
+        session = None
         try:
             assert args.session_id is not None
             state = _cli_state_manager()
@@ -3270,6 +3320,7 @@ def _run_browser(args: SimpleNamespace) -> int:
             print(f"Stopped browser session '{args.session_id}'.")
             return 0
         except Exception as exc:
+            reported_error: Exception
             if isinstance(exc, BrowserSessionNotFoundError):
                 reported_error = _browser_session_not_found(args.session_id)
             elif isinstance(exc, ValueError):
@@ -3285,7 +3336,7 @@ def _run_browser(args: SimpleNamespace) -> int:
                 session.close()
 
     if args.browser_action == "open":
-        session: _BrowserSandbox | None = None
+        session = None
         try:
             session = _BrowserSandbox.from_id(args.session_id, state_manager=_cli_state_manager())
             if session._session_config.mode == "computer":
@@ -3315,7 +3366,7 @@ def _run_browser(args: SimpleNamespace) -> int:
                 session.close()
 
     if args.browser_action == "logs":
-        session: _BrowserSandbox | None = None
+        session = None
         try:
             session = _BrowserSandbox.from_id(args.session_id, state_manager=_cli_state_manager())
             if session._session_config.mode == "computer":
@@ -3346,14 +3397,14 @@ def _run_browser(args: SimpleNamespace) -> int:
             if status is None or info.status == status
         ]
         rows = _browser_rows(sessions)
-        data: BrowserListPayload = {
+        list_data: BrowserListPayload = {
             "filters": {
                 "status": args.status,
             },
             "sessions": rows,
         }
         if json_output:
-            emit_json(command_name, 0, data=data)
+            emit_json(command_name, 0, data=list_data)
             return 0
 
         if not sessions:
@@ -3370,7 +3421,7 @@ def _run_computer(args: SimpleNamespace) -> int:
     """Handle ``celesto computer`` commands."""
     from celesto.computer import _ComputerSandbox
     from celesto.exceptions import BrowserSessionNotFoundError
-    from celesto.types import BrowserSessionConfig
+    from celesto.types import BrowserSessionConfig, BrowserViewport
 
     action = args.computer_action
     command_name = f"computer.{action}"
@@ -3407,7 +3458,7 @@ def _run_computer(args: SimpleNamespace) -> int:
                 mode="computer",
                 viewport_width=args.width,
                 viewport_height=args.height,
-                viewport={"width": args.width, "height": args.height},
+                viewport=BrowserViewport(width=args.width, height=args.height),
                 mem_size_mib=args.memory_mib,
                 disk_size_mib=args.disk_size_mib,
             )
@@ -3432,7 +3483,6 @@ def _run_computer(args: SimpleNamespace) -> int:
             else:
                 print(f"Started computer '{computer.computer_id}'.")
                 print(f"  Viewer URL: {computer.display.viewer_url}")
-                print(f"  VNC URL: {computer.display.vnc_url}")
                 print(f"  Chromium CDP URL: {computer.browser.cdp_url or 'closed'}")
             return 0
         except Exception as exc:
@@ -3456,7 +3506,7 @@ def _run_computer(args: SimpleNamespace) -> int:
         except Exception as exc:
             return _emit_cli_error(command_name, 1, exc, json_output=json_output)
 
-    computer: _ComputerSandbox | None = None
+    computer = None
     try:
         try:
             _require_display_session_mode(state, args.computer_id, "computer")
