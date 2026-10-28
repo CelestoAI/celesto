@@ -96,12 +96,45 @@ jobs:
           gh api \
             -H "Accept: application/vnd.github.raw" \
             "/repos/${{ github.repository }}/contents/src/celesto/images/published.py?ref=$fallback" \
-            > src/celesto/images/published.py || gh api \
+            > "$RUNNER_TEMP/rootfs-fallback.py" || gh api \
             -H "Accept: application/vnd.github.raw" \
             "/repos/${{ github.repository }}/contents/src/celesto/images/published.py?ref=$fallback" \
-            > src/celesto/images/published.py
+            > "$RUNNER_TEMP/rootfs-fallback.py"
+          python3 - "$RUNNER_TEMP/rootfs-fallback.py" "$fallback" <<'PYTHON'
+          import ast
+          import re
+          import sys
+          from pathlib import Path
+
+          fallback_path, fallback_tag = sys.argv[1:]
+          target = Path("src/celesto/images/published.py")
+          source = target.read_text()
+
+          def assignments(text):
+              return {node.targets[0].id: node for node in ast.parse(text).body
+                      if isinstance(node, ast.Assign) and len(node.targets) == 1
+                      and isinstance(node.targets[0], ast.Name)}
+
+          current = assignments(source)
+          fallback = assignments(Path(fallback_path).read_text())
+          # Preserve all current kernel pins and APIs: only rootfs release data moves.
+          updates = {"IMAGES_RELEASE_TAG": fallback_tag}
+          for name in current:
+              if name.endswith("_ROOTFS_SHA"):
+                  if name not in fallback:
+                      raise SystemExit(f"Published fallback lacks rootfs pin {name}")
+                  digest = ast.literal_eval(fallback[name].value)
+                  if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+                      raise SystemExit(f"Invalid published rootfs pin {name}")
+                  updates[name] = digest
+          lines = source.splitlines(keepends=True)
+          for name in sorted(updates, key=lambda item: current[item].lineno, reverse=True):
+              node = current[name]
+              lines[node.lineno - 1:node.end_lineno] = [f"{name} = {updates[name]!r}\n"]
+          target.write_text("".join(lines))
+          PYTHON
           echo "tag=" >> "$GITHUB_OUTPUT"
-          echo "Pinned image release $source_tag is not public yet; using published-image catalog from $fallback"
+          echo "Pinned image release $source_tag is not public yet; using published-image catalog from $fallback (rootfs pins only; current kernels preserved)"
 
       - name: Set up Python 3.13
         uses: actions/setup-python@v5

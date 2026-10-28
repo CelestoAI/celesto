@@ -348,7 +348,12 @@ jobs:
           ARCH: ${{ matrix.arch }}
         run: |
           mkdir -p kernel-assets
-          gh release download "$TAG" \
+          kernel_tag=$(awk -F'"' '/^KERNELS_RELEASE_TAG[[:space:]]*=/{print $2; exit}' src/celesto/images/published.py)
+          if [ "$ARCH" = arm64 ]; then
+            kernel_tag=$(awk -F'"' '/^ARM_KERNELS_RELEASE_TAG[[:space:]]*=/{print $2; exit}' src/celesto/images/published.py)
+          fi
+          test -n "$kernel_tag"
+          gh release download "$kernel_tag" \
             --repo "$GITHUB_REPOSITORY" \
             --pattern "vmlinux-${ARCH}.elf" \
             -D kernel-assets

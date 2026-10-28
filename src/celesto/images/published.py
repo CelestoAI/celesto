@@ -125,27 +125,9 @@ class BaseKernel(BaseModel):
         return self.elf_sha256 if fmt == "elf" else self.image_sha256
 
 
-# SINGLE SOURCE OF TRUTH for the GitHub Releases tag this CLI pulls
-# images from. Independent of the CLI version in ``pyproject.toml`` —
-# coupling them (via the previous ``_MANIFEST_VERSION``) meant a CLI
-# bump silently invalidated every manifest SHA pin.
-#
-# CI workflows (``build-microvm-kernel.yml``,
-# ``build-published-images.yml``) read this constant rather than
-# deriving from pyproject — change here flows to both sides.
-#
-# Bumping protocol — one PR:
-#   1. Edit this CalVer string (e.g. ``images-2026.06.14.0``).
-#      Bump the final sequence when publishing more than once on a day.
-#   2. Run the kernel + published-image workflows, copy SHAs from the
-#      step summaries into ``BASE_KERNELS`` and ``MANIFEST``.
-#   3. Promote the draft release on GitHub.
-#
-# CI no longer passes ``--clobber`` by default (see ``ci`` PR #280) — a
-# bump that forgets to land its SHA-resync commit will fail loud at the
-# upload step instead of silently swapping bytes under the existing
-# pins. Re-bakes against the same tag must opt in via the
-# ``force_overwrite`` workflow_dispatch input.
+# Rootfs assets are released independently of the Python package and kernels.
+# Build the image candidate, pin its actual rootfs hashes, and qualify it before
+# publishing the immutable release. The image workflow reads this constant.
 IMAGES_RELEASE_TAG = "images-2026.10.25.0"
 
 
@@ -194,16 +176,29 @@ def _release_asset_url(preset: Preset, arch: Arch, suffix: str, os: Os = "ubuntu
     return f"https://github.com/CelestoAI/Celesto/releases/download/{_images_release_tag()}/{slug}"
 
 
-def _release_kernel_url(arch: Arch, fmt: KernelFormat) -> str:
+# Kernels have an independent release cadence from preset root filesystems.
+KERNELS_RELEASE_TAG = "kernels-2026.10.28.0"
+# ARM sandbox kernels retain their independently pinned release.
+ARM_KERNELS_RELEASE_TAG = "images-2026.10.25.0"
+KernelProfile = Literal["sandbox", "github-ci"]
+
+
+def _release_kernel_url(arch: Arch, fmt: KernelFormat, profile: KernelProfile = "sandbox") -> str:
     """URL for a preset-independent kernel artifact.
 
     Asset naming: ``vmlinux-<arch>.{elf|image}``. Same Linux source build
     produces both formats (see ``kernel/microvm/build.sh``); the runtime picks
     by backend (Firecracker→elf, QEMU→image).
     """
+    tag = (
+        ARM_KERNELS_RELEASE_TAG
+        if arch == "arm64"
+        else os.environ.get("CELESTO_KERNELS_RELEASE_TAG") or KERNELS_RELEASE_TAG
+    )
     return (
         f"https://github.com/CelestoAI/Celesto/releases/download/"
-        f"{_images_release_tag()}/vmlinux-{arch}.{fmt}"
+        f"{tag}/"
+        f"vmlinux-{'github-ci-' if profile == 'github-ci' else ''}{arch}.{fmt}"
     )
 
 
@@ -214,15 +209,15 @@ def _release_kernel_url(arch: Arch, fmt: KernelFormat) -> str:
 # a future preset can't drift kernel SHAs across rows.
 #
 # SHAs come from the ``Build microvm Kernel`` workflow run that publishes
-# ``vmlinux-<arch>.{elf,image}`` to :data:`IMAGES_RELEASE_TAG`; they're
+# ``vmlinux-<arch>.{elf,image}`` to :data:`KERNELS_RELEASE_TAG`; they're
 # also visible in that workflow's step summary.
 BASE_KERNELS: dict[Arch, BaseKernel] = {
     "amd64": BaseKernel(
         arch="amd64",
         elf_url=_release_kernel_url("amd64", "elf"),
-        elf_sha256="d3bdd59697458e1aa700994ccdef14f7c3594d61653840ea2917fb07fa2991be",
+        elf_sha256="c84de1079890e77aa9b44ca1f3e6220cfe643e97e66d1aca2bc344ce75c49a0e",
         image_url=_release_kernel_url("amd64", "image"),
-        image_sha256="018afe8f81a05d621bc8e0400c7757a07c5a82a2c83f1bd8dc942c937b865dee",
+        image_sha256="a39bf2d165743be84b6e9607983bd2fb24ba63ace721269d746a87cfab1bf016",
     ),
     "arm64": BaseKernel(
         arch="arm64",
@@ -230,6 +225,17 @@ BASE_KERNELS: dict[Arch, BaseKernel] = {
         elf_sha256="1b69b9b01de2917ee62343fc868863f299cf789af4eadba594b6850fe39e3dc1",
         image_url=_release_kernel_url("arm64", "image"),
         image_sha256="8e9a859dde8280090cbc7d5cea6e2bb863dbea58edb56815f8e387a8eb4b88dc",
+    ),
+}
+
+
+CI_KERNELS: dict[Arch, BaseKernel] = {
+    "amd64": BaseKernel(
+        arch="amd64",
+        elf_url=_release_kernel_url("amd64", "elf", profile="github-ci"),
+        elf_sha256="24f9bbd3813c7c9c899764c1d7a1caea1677010b62320babb5438afc7396c789",
+        image_url=_release_kernel_url("amd64", "image", profile="github-ci"),
+        image_sha256="52fc02f5fd3140f46e00dd7d8498eba0a15e3ba212d0ba13dcf379cd0932d829",
     ),
 }
 
@@ -376,6 +382,7 @@ def to_image_source(entry: PublishedImage, version: str = __version__) -> ImageS
     return ImageSource(
         name=cache_name(entry.preset, entry.arch, entry.vmm, version, os=entry.os),
         kernel_url=entry.kernel_url,
+        kernel_filename=f"vmlinux-{entry.kernel_sha256}.bin",
         kernel_sha256=entry.kernel_sha256,
         rootfs_url=entry.rootfs_url,
         rootfs_sha256=entry.rootfs_sha256,
@@ -548,6 +555,7 @@ def ensure_base_kernel(
     arch: Arch,
     fmt: KernelFormat,
     *,
+    profile: KernelProfile = "sandbox",
     cache_dir: Path | None = None,
     registry: dict[Arch, BaseKernel] | None = None,
     version: str = __version__,
@@ -559,14 +567,16 @@ def ensure_base_kernel(
     build, different container formats. All consumers — the auto-config
     flow, the preset image builder, the published-image launcher — funnel
     through this function so there is exactly one kernel binary cached on
-    disk per ``(arch, fmt)``.
+    disk per profile, architecture, format, and content digest. Existing
+    VM configurations therefore keep their original kernel across upgrades.
 
     Args:
         arch: Guest CPU architecture.
         fmt: Binary format the runtime expects (``"elf"`` for Firecracker,
             ``"image"`` for QEMU).
         cache_dir: Override the default cache directory (mainly for tests).
-        registry: Override :data:`BASE_KERNELS` (mainly for tests).
+        profile: Controlled guest workload profile; defaults to sandbox.
+        registry: Override the selected profile registry (mainly for tests).
         version: Override the CLI version used to compute the cache name.
 
     Returns:
@@ -576,18 +586,20 @@ def ensure_base_kernel(
         ImageError: If no base kernel is registered for ``arch``, or if
             download / SHA verification fails.
     """
-    catalog = BASE_KERNELS if registry is None else registry
+    if profile not in {"sandbox", "github-ci"}:
+        raise ImageError(f"Unknown kernel profile '{profile}'.")
+    catalog = (
+        (BASE_KERNELS if profile == "sandbox" else CI_KERNELS) if registry is None else registry
+    )
     entry = catalog.get(arch)
     if entry is None:
         available = ", ".join(sorted(catalog)) or "(none)"
         raise ImageError(f"No base kernel registered for arch '{arch}' (available: {available}).")
     manager = ImageManager(cache_dir=cache_dir)
-    # Cache filename keeps the format suffix so the elf and image artifacts
-    # don't collide for the same (version, arch). Same dir is fine — both
-    # files coexist when a user runs both backends.
+    # Never replace bytes referenced by a saved VMConfig during a pin upgrade.
     return manager.ensure_rootfs_only(
         name=f"base-kernel-v{version}-{arch}",
         url=entry.url_for(fmt),
-        filename=f"vmlinux.{fmt}",
+        filename=f"vmlinux-{profile}-{entry.sha256_for(fmt)}.{fmt}",
         sha256=entry.sha256_for(fmt),
     )
