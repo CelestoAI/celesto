@@ -9,6 +9,7 @@ arch="$1"; kernels="$(realpath "$2")"; guest="$(realpath "$3")"
 mkdir -p "$proof/replaced-kernels" "$proof/run"
 cp "$kernels/vmlinux-github-ci-$arch.image" "$proof/replaced-kernels/vmlinux-$arch.image"
 cp "$kernels/vmlinux-github-ci-$arch.image" "$proof/replaced-kernels/vmlinux-github-ci-$arch.image"
+rm -f "$proof/run/sandbox-write.console.log"
 # A previous success must not survive qualification of the wrong candidate.
 printf '{"stale":true}\n' > "$proof/run/receipt.json"
 if bash "$(dirname "$0")/run.sh" "$arch" "$proof/replaced-kernels" "$guest" "$proof/run"; then

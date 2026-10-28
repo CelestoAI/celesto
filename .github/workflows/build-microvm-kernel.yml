@@ -254,7 +254,10 @@ jobs:
           # doesn't go unnoticed across PRs. The .config artifact has no
           # pin (it's a debugging aid, not a runtime input), so it's
           # skipped silently.
-          existing="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+          assets="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq '.assets[] | [.name, .digest] | @tsv')"
+          existing="$(printf '%s\n' "$assets" | cut -f1)"
+          tag_constant=KERNELS_RELEASE_TAG
+          if [ "$ARCH" = "arm64" ]; then tag_constant=ARM_KERNELS_RELEASE_TAG; fi
           drift_detected=0
           for f in \
             "kernel-out/${ASSET}.elf" \
@@ -275,8 +278,13 @@ jobs:
               *.image) local_sha="$IMAGE_SHA"; pinned_sha="$PINNED_IMAGE_SHA" ;;
               *)       continue ;;
             esac
+            remote_digest="$(printf '%s\n' "$assets" | awk -F '\t' -v name="$name" '$1 == name {print $2}')"
+            if [ -n "$pinned_sha" ] && [ "$remote_digest" != "sha256:$pinned_sha" ]; then
+              echo "Published asset $name does not match its pinned SHA-256 at $TAG." >&2
+              exit 1
+            fi
             if [ -n "$pinned_sha" ] && [ "$local_sha" != "$pinned_sha" ]; then
-              echo "::warning title=Kernel SHA drift::${name}: source on this branch builds ${local_sha} but BASE_KERNELS pins ${pinned_sha} at ${TAG}. Bump KERNELS_RELEASE_TAG in src/celesto/images/published.py to publish the new bytes."
+              echo "::warning title=Kernel SHA drift::${name}: source on this branch builds ${local_sha} but BASE_KERNELS pins ${pinned_sha} at ${TAG}. Bump ${tag_constant} in src/celesto/images/published.py to publish the new bytes."
               drift_detected=1
             fi
           done
@@ -300,6 +308,8 @@ jobs:
           else
             existing_assets_note="Existing assets were skipped (see upload step log)."
           fi
+          tag_constant=KERNELS_RELEASE_TAG
+          if [ "$ARCH" = "arm64" ]; then tag_constant=ARM_KERNELS_RELEASE_TAG; fi
           published_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/main/src/celesto/images/published.py"
           {
             echo "## microvm kernel build: \`${PROFILE}/${ARCH}\`"
@@ -315,6 +325,6 @@ jobs:
             if [ "${DRIFT_DETECTED:-0}" = "1" ]; then
               echo ""
               echo "> [!WARNING]"
-              echo "> Source on this branch builds different kernel bytes than \`BASE_KERNELS\` pins for \`${TAG}\`. Bump \`KERNELS_RELEASE_TAG\` in [\`src/celesto/images/published.py\`](${published_url}) to publish the new bytes."
+              echo "> Source on this branch builds different kernel bytes than \`BASE_KERNELS\` pins for \`${TAG}\`. Bump \`${tag_constant}\` in [\`src/celesto/images/published.py\`](${published_url}) to publish the new bytes."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
