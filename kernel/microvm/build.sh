@@ -8,7 +8,8 @@
 #                    defconfig (arm64)
 #
 # Output: vmlinux-<arch>.elf and vmlinux-<arch>.image in $OUT_DIR (default: $PWD),
-#         plus vmlinux-<arch>.config for debugging.
+#         plus vmlinux-<arch>.config for debugging. GitHub CI inserts github-ci-
+#         before the architecture; set CELESTO_KERNEL_PROFILE=github-ci.
 #
 # Usage:
 #   bash build.sh                                # builds for host arch
@@ -121,12 +122,21 @@ if [ ! -f "$ARCH_FRAGMENT" ]; then
 fi
 
 OUT_DIR="${OUT_DIR:-$PWD}"
-WORK_DIR="${WORK_DIR:-$(mktemp -d)}"
+PROFILE="${CELESTO_KERNEL_PROFILE:-sandbox}"
+case "$PROFILE" in
+    sandbox) ASSET="vmlinux-$CELESTO_ARCH" ;;
+    github-ci) ASSET="vmlinux-github-ci-$CELESTO_ARCH" ;;
+    *) echo "unknown kernel profile: $PROFILE" >&2; exit 2 ;;
+esac
+WORK_DIR="${WORK_DIR:-$(mktemp -d)}/$PROFILE-$CELESTO_ARCH"
+mkdir -p "$WORK_DIR"
+WORK_DIR="$(cd "$WORK_DIR" && pwd)"
+PROFILE_FRAGMENT="$SCRIPT_DIR/profiles/$PROFILE.fragment"
 TARBALL="$WORK_DIR/linux-$LINUX_VERSION.tar.xz"
 SRC_DIR="$WORK_DIR/linux-$LINUX_VERSION"
-ELF_ARTIFACT="$OUT_DIR/vmlinux-$CELESTO_ARCH.elf"
-IMAGE_ARTIFACT="$OUT_DIR/vmlinux-$CELESTO_ARCH.image"
-JOBS="$(job_count)"
+ELF_ARTIFACT="$OUT_DIR/${ASSET}.elf"
+IMAGE_ARTIFACT="$OUT_DIR/${ASSET}.image"
+JOBS="${JOBS:-$(job_count)}"
 
 echo "==> Linux $LINUX_VERSION → $CELESTO_ARCH (kernel ARCH=$KARCH)"
 echo "    work dir:    $WORK_DIR"
@@ -139,7 +149,7 @@ if [ ! -f "$TARBALL" ]; then
     echo "==> Downloading linux-$LINUX_VERSION.tar.xz"
     curl --fail --location --silent --show-error \
         --output "$TARBALL" \
-        "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-$LINUX_VERSION.tar.xz"
+        "https://cdn.kernel.org/pub/linux/kernel/v${LINUX_VERSION%%.*}.x/linux-$LINUX_VERSION.tar.xz"
 fi
 
 echo "==> Verifying tarball SHA-256"
@@ -159,7 +169,7 @@ echo "==> Generating .config (baseline=$DEFCONFIG + common + $CELESTO_ARCH fragm
 
 # merge_config.sh accepts multiple fragments; -m mode merges, preserving any
 # settings not mentioned. Common first, per-arch second.
-scripts/kconfig/merge_config.sh -m -O . .config "$COMMON_FRAGMENT" "$ARCH_FRAGMENT" >/dev/null
+scripts/kconfig/merge_config.sh -m -O . .config "$COMMON_FRAGMENT" "$ARCH_FRAGMENT" "$PROFILE_FRAGMENT" >/dev/null
 
 # olddefconfig fills in any new symbols introduced by Linux that weren't in
 # the merged base — picks each one's default. Without this, a Linux bump can
@@ -209,8 +219,14 @@ verify_fragment() {
         esac
     done < "$fragment"
 }
-verify_fragment "$COMMON_FRAGMENT"
-verify_fragment "$ARCH_FRAGMENT"
+# Validate the final directive for each symbol: child profiles may override
+# parent directives, but olddefconfig may not silently change that intent.
+awk '
+    /^# CONFIG_.* is not set/ { value[$2] = "# " $2 " is not set"; next }
+    /^CONFIG_.*=/ { split($1, parts, "="); value[parts[1]] = $1 }
+    END { for (symbol in value) print value[symbol] }
+' "$COMMON_FRAGMENT" "$ARCH_FRAGMENT" "$PROFILE_FRAGMENT" > "$WORK_DIR/effective.fragment"
+verify_fragment "$WORK_DIR/effective.fragment"
 [ "$fail" -eq 0 ] || { echo "==> Fragment verification failed"; exit 1; }
 
 # Local-iteration knob: when truthy, stop after fragment verification — the
@@ -236,13 +252,13 @@ echo "==> Building kernel ($JOBS jobs)"
 mkdir -p "$OUT_DIR"
 cp "$IMAGE_REL" "$IMAGE_ARTIFACT"
 cp "$ELF_REL" "$ELF_ARTIFACT"
-cp .config "$OUT_DIR/vmlinux-$CELESTO_ARCH.config"
+cp .config "$OUT_DIR/${ASSET}.config"
 
 # Strip the ELF: with the default kernel build it's ~290 MB on arm64
 # (debug_info + symbols). Firecracker doesn't need any of that. Keep
 # `--strip-debug` (not `--strip-all`) — preserves the symbol table for
 # tooling like crash dumps. Cuts the artifact by ~3x.
-strip --strip-debug "$ELF_ARTIFACT"
+"${CROSS_COMPILE:-}strip" --strip-debug "$ELF_ARTIFACT"
 
 # Sanity checks:
 #   ELF magic (7f 45 4c 46) on the .elf — Firecracker requires this.
@@ -262,4 +278,4 @@ fi
 echo "==> Done."
 echo "    $ELF_ARTIFACT    ($(wc -c <"$ELF_ARTIFACT" | tr -d ' ') bytes, ELF for Firecracker)"
 echo "    $IMAGE_ARTIFACT  ($(wc -c <"$IMAGE_ARTIFACT" | tr -d ' ') bytes, ${KMAKE_TARGET} for QEMU)"
-echo "    $OUT_DIR/vmlinux-$CELESTO_ARCH.config"
+echo "    $OUT_DIR/${ASSET}.config"

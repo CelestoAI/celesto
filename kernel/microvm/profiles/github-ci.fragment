@@ -1,0 +1,2 @@
+# GitHub CI inherits the sandbox baseline and adds XFS pool-volume support.
+CONFIG_XFS_FS=y

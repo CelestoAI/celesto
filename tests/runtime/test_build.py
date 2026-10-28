@@ -831,3 +831,72 @@ class TestFingerprintWithContent:
             {"ssh_password": "celesto"}, "FROM alpine:3.20", "init"
         )
         assert not builder._check_fingerprint(image_dir, edited)
+
+
+@pytest.mark.parametrize(
+    "recipe",
+    ["build_alpine_ssh", "build_alpine_ssh_key", "build_debian_ssh_key", "build_browser_rootfs"],
+)
+def test_recipe_kernel_pin_upgrade_preserves_saved_vm_kernel(
+    recipe: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Legacy recipe builders must not overwrite a saved VM's kernel either."""
+    import hashlib
+
+    from celesto.images import published
+
+    builder = ImageBuilder(cache_dir=tmp_path)
+    monkeypatch.setattr(builder, "check_docker", lambda: True)
+    monkeypatch.setattr(
+        builder_mod, "_guest_agent_binary", lambda *args: _fake_guest_agent_binary(tmp_path)
+    )
+    content = b"before"
+    fail_build = False
+
+    def build(
+        name: str,
+        dockerfile_content: str,
+        init_script: str,
+        image_dir: Path,
+        kernel_path: Path,
+        rootfs_path: Path,
+        rootfs_size_mb: int,
+        **kwargs: Any,
+    ) -> None:
+        if fail_build:
+            raise ImageError("rootfs build failed")
+        kernel_path.write_bytes(content)
+        rootfs_path.write_bytes(b"rootfs")
+        builder._write_fingerprint(image_dir, kwargs["fingerprint_data"])
+
+    monkeypatch.setattr(builder, "_do_build", build)
+    paths = []
+    for content in (b"before", b"after"):
+        digest = hashlib.sha256(content).hexdigest()
+        monkeypatch.setattr(
+            published,
+            "BASE_KERNELS",
+            {
+                arch: published.BaseKernel(
+                    arch=arch,
+                    elf_url="https://example.invalid/kernel.elf",
+                    image_url="https://example.invalid/kernel.image",
+                    elf_sha256=digest,
+                    image_sha256=digest,
+                )
+                for arch in ("amd64", "arm64")
+            },
+        )
+        args = (
+            ()
+            if recipe == "build_alpine_ssh"
+            else ("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMockKey user@test",)
+        )
+        paths.append(getattr(builder, recipe)(*args, name="upgrade-proof")[0])
+    assert paths[0] != paths[1]
+    assert [path.read_bytes() for path in paths] == [b"before", b"after"]
+
+    fail_build = True
+    with pytest.raises(ImageError, match="rootfs build failed"):
+        getattr(builder, recipe)(*args, name="upgrade-proof", rootfs_size_mb=2049)
+    assert [path.read_bytes() for path in paths] == [b"before", b"after"]

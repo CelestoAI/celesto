@@ -1,0 +1,68 @@
+#!/bin/bash
+# Runs as PID 1 in the disposable kernel qualification guest.
+set -Eeuo pipefail
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export HOME=/root
+trap 'status=$?; if [ "$status" -ne 0 ]; then echo "KERNEL_SMOKE_FAIL status=$status line=$LINENO"; if [ -f /run/dockerd.log ]; then cat /run/dockerd.log; fi; fi; sync; /bin/busybox poweroff -f' EXIT
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+test "$(findmnt -n -o FSTYPE /dev)" = devtmpfs
+exec </dev/console >/dev/console 2>&1
+echo KERNEL_SMOKE_STAGE=console-ready
+mkdir -p /run /sys/fs/cgroup /data /xfs
+mount -t tmpfs tmpfs /run
+mount -t cgroup2 cgroup2 /sys/fs/cgroup
+profile=$(sed -n 's/.*celesto_profile=\([^ ]*\).*/\1/p' /proc/cmdline)
+phase=$(sed -n 's/.*celesto_phase=\([^ ]*\).*/\1/p' /proc/cmdline)
+expected=$(sed -n 's/.*celesto_expected_kernel=\([^ ]*\).*/\1/p' /proc/cmdline)
+test "$(uname -r)" = "$expected"
+unshare --user --map-root-user --net sh -c 'test "$(id -u)" = 0; ip link set lo up'
+mount /dev/vdb /data
+if [ "$phase" = write ]; then echo "$profile" > /data/preserved; else test "$(cat /data/preserved)" = "$profile"; fi
+if [ "$profile" = github-ci ]; then
+    grep -qw xfs /proc/filesystems
+    mount /dev/vdc /xfs
+    echo xfs-reflink-proof > /xfs/source
+    cp --reflink=always /xfs/source /xfs/clone
+    cmp /xfs/source /xfs/clone
+    umount /xfs
+else
+    if grep -qw xfs /proc/filesystems; then
+        echo "Sandbox kernel unexpectedly supports XFS" >&2
+        exit 1
+    fi
+fi
+container_root=$(mktemp -d /tmp/kernel-smoke-container.XXXXXX)
+mkdir -p "$container_root/bin" "$container_root/www"
+cp /bin/busybox "$container_root/bin/"
+ln -s busybox "$container_root/bin/sh"
+ln -s busybox "$container_root/bin/httpd"
+ln -s busybox "$container_root/bin/wget"
+ln -s busybox "$container_root/bin/cat"
+printf 'bridge-network-ok\n' > "$container_root/www/index.html"
+tar -C "$container_root" -cf /run/container.tar .
+dockerd --host unix:///run/docker.sock --data-root=/data/docker > /run/dockerd.log 2>&1 &
+for attempt in $(seq 1 120); do
+    if docker info >/dev/null 2>&1; then break; fi
+    if [ "$((attempt % 15))" -eq 0 ]; then tail -10 /run/dockerd.log; fi
+    sleep 1
+done
+docker info || { cat /run/dockerd.log; exit 1; }
+driver=$(docker info --format '{{.Driver}}')
+case "$driver" in overlay2|overlayfs) ;; *) echo "Unexpected Docker storage driver: $driver" >&2; exit 1;; esac
+echo "KERNEL_SMOKE_DOCKER_DRIVER=$driver"
+docker import /run/container.tar kernel-smoke:local
+docker network create smoke-net
+docker run -d --name smoke-server --network smoke-net kernel-smoke:local httpd -f -p 8000 -h /www
+docker run -i --rm --network smoke-net --memory=64m --cpus=0.5 kernel-smoke:local sh -es <<'CONTAINER'
+/bin/busybox awk '$2 == "/" && $3 == "overlay" { found=1 } END { exit !found }' /proc/mounts
+test "$(cat /sys/fs/cgroup/memory.max)" = 67108864
+test "$(cat /sys/fs/cgroup/cpu.max)" = "50000 100000"
+test "$(wget -qO- http://smoke-server:8000)" = bridge-network-ok
+CONTAINER
+
+docker rm -f smoke-server
+docker network rm smoke-net
+kill -TERM %1
+wait %1 || true
+echo "KERNEL_SMOKE_PASS profile=$profile phase=$phase kernel=$(uname -r)"

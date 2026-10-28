@@ -34,6 +34,8 @@ from celesto.images.published import (
     MANIFEST,
     Arch,
     BaseKernel,
+    KernelFormat,
+    KernelProfile,
     ManifestKey,
     Preset,
     PublishedImage,
@@ -96,7 +98,13 @@ class TestNaming:
         monkeypatch.setenv("CELESTO_IMAGES_RELEASE_TAG", "images-v0.0.16")
 
         assert published_module._images_release_tag() == "images-v0.0.16"
-        assert "/images-v0.0.16/" in published_module._release_kernel_url("amd64", "elf")
+        assert "/images-v0.0.16/" not in published_module._release_kernel_url("amd64", "elf")
+        monkeypatch.setenv("CELESTO_KERNELS_RELEASE_TAG", "")
+        assert f"/{published_module.KERNELS_RELEASE_TAG}/" in published_module._release_kernel_url(
+            "amd64", "elf"
+        )
+        monkeypatch.setenv("CELESTO_KERNELS_RELEASE_TAG", "kernels-candidate")
+        assert "/kernels-candidate/" in published_module._release_kernel_url("amd64", "elf")
         assert "/images-v0.0.16/" in published_module._release_asset_url(
             "linux-desktop", "amd64", "rootfs.ext4.zst"
         )
@@ -286,11 +294,12 @@ class TestEnsurePublishedImage:
         self,
         tmp_path: Path,
         sample_manifest: dict[ManifestKey, PublishedImage],
+        sample_entry: PublishedImage,
     ) -> None:
         version = "0.0.13"
         image_dir = tmp_path / cache_name("ubuntu", "amd64", "firecracker", version=version)
         image_dir.mkdir(parents=True)
-        (image_dir / "vmlinux.bin").write_bytes(b"fake-kernel")
+        (image_dir / f"vmlinux-{sample_entry.kernel_sha256}.bin").write_bytes(b"fake-kernel")
         (image_dir / "rootfs.ext4").write_bytes(b"fake-rootfs")
 
         with patch("celesto.images.manager.requests.get") as mock_get:
@@ -305,7 +314,7 @@ class TestEnsurePublishedImage:
             mock_get.assert_not_called()
 
         assert isinstance(local, LocalImage)
-        assert local.kernel_path == image_dir / "vmlinux.bin"
+        assert local.kernel_path == image_dir / f"vmlinux-{sample_entry.kernel_sha256}.bin"
         assert local.rootfs_path == image_dir / "rootfs.ext4"
 
     @patch("celesto.images.manager.requests.get")
@@ -412,9 +421,11 @@ class TestEnsurePublishedImage:
         version = "0.0.13"
         # Pre-populate two distinct caches at the expected paths.
         for vmm in ("firecracker", "qemu"):
-            image_dir = tmp_path / cache_name("ubuntu", "amd64", vmm, version=version)  # type: ignore[arg-type]
+            image_dir = tmp_path / cache_name("ubuntu", "amd64", vmm, version=version)
             image_dir.mkdir(parents=True)
-            (image_dir / "vmlinux.bin").write_bytes(f"kernel-{vmm}".encode())
+            (
+                image_dir / f"vmlinux-{hashlib.sha256(f'kernel-{vmm}'.encode()).hexdigest()}.bin"
+            ).write_bytes(f"kernel-{vmm}".encode())
             (image_dir / "rootfs.ext4").write_bytes(b"shared-rootfs")
 
         # Build a manifest with both vmm rows pointing at distinct kernel URLs.
@@ -546,7 +557,7 @@ class TestZstdDecompression:
         # the cache-invalidation comment in published.py).
         image_dir = tmp_path / cache_name(entry.preset, entry.arch, entry.vmm, "0.0.13")
         image_dir.mkdir(parents=True)
-        (image_dir / "vmlinux.bin").write_bytes(kernel_bytes)
+        (image_dir / f"vmlinux-{entry.kernel_sha256}.bin").write_bytes(kernel_bytes)
         (image_dir / "rootfs.ext4.zst").write_bytes(rootfs_zst)
         (image_dir / "rootfs.ext4").write_bytes(rootfs_plain)
         (image_dir / "rootfs.ext4.from-sha256").write_text(
@@ -583,7 +594,7 @@ class TestZstdDecompression:
 
         image_dir = tmp_path / cache_name(entry.preset, entry.arch, entry.vmm, "0.0.13")
         image_dir.mkdir(parents=True)
-        (image_dir / "vmlinux.bin").write_bytes(kernel_bytes)
+        (image_dir / f"vmlinux-{entry.kernel_sha256}.bin").write_bytes(kernel_bytes)
         (image_dir / "rootfs.ext4.zst").write_bytes(rootfs_zst)
         (image_dir / "rootfs.ext4").write_bytes(rootfs_plain)
         # Versioned sidecar from a PREVIOUS rootfs SHA (not the one in `entry`).
@@ -626,7 +637,7 @@ class TestZstdDecompression:
         tampered_plain = b"tampered rootfs content"
         image_dir = tmp_path / cache_name(entry.preset, entry.arch, entry.vmm, "0.0.13")
         image_dir.mkdir(parents=True)
-        (image_dir / "vmlinux.bin").write_bytes(kernel_bytes)
+        (image_dir / f"vmlinux-{entry.kernel_sha256}.bin").write_bytes(kernel_bytes)
         (image_dir / "rootfs.ext4.zst").write_bytes(zstandard.compress(tampered_plain))
         (image_dir / "rootfs.ext4").write_bytes(tampered_plain)
         (image_dir / "rootfs.ext4.from-sha256").write_text(
@@ -676,7 +687,7 @@ class TestZstdDecompression:
         manifest = {(entry.preset, entry.arch, entry.vmm, entry.os): entry}
         image_dir = tmp_path / cache_name(entry.preset, entry.arch, entry.vmm, "0.0.13")
         image_dir.mkdir(parents=True)
-        (image_dir / "vmlinux.bin").write_bytes(kernel_bytes)
+        (image_dir / f"vmlinux-{entry.kernel_sha256}.bin").write_bytes(kernel_bytes)
         (image_dir / "rootfs.ext4.zst").write_bytes(b"not the pinned zst")
         (image_dir / "rootfs.ext4").write_bytes(b"tampered")
         sidecar = image_dir / "rootfs.ext4.from-sha256"
@@ -714,7 +725,7 @@ class TestZstdDecompression:
         manifest = {(entry.preset, entry.arch, entry.vmm, entry.os): entry}
         image_dir = tmp_path / cache_name(entry.preset, entry.arch, entry.vmm, "0.0.13")
         image_dir.mkdir(parents=True)
-        (image_dir / "vmlinux.bin").write_bytes(kernel_bytes)
+        (image_dir / f"vmlinux-{entry.kernel_sha256}.bin").write_bytes(kernel_bytes)
         (image_dir / "rootfs.ext4.zst").write_bytes(rootfs_zst)
         (image_dir / "rootfs.ext4").write_bytes(b"stale")
         (image_dir / "rootfs.ext4.from-sha256").write_bytes(b"\xff\xfe garbage")
@@ -745,7 +756,7 @@ class TestZstdDecompression:
         manifest = {(entry.preset, entry.arch, entry.vmm, entry.os): entry}
         image_dir = tmp_path / cache_name(entry.preset, entry.arch, entry.vmm, "0.0.13")
         image_dir.mkdir(parents=True)
-        (image_dir / "vmlinux.bin").write_bytes(kernel_bytes)
+        (image_dir / f"vmlinux-{entry.kernel_sha256}.bin").write_bytes(kernel_bytes)
         (image_dir / "rootfs.ext4.zst").write_bytes(rootfs_zst)
         (image_dir / "rootfs.ext4").mkdir()
         (image_dir / "rootfs.ext4" / "x").write_bytes(b"x")
@@ -775,7 +786,7 @@ class TestZstdDecompression:
 
         image_dir = tmp_path / cache_name(entry.preset, entry.arch, entry.vmm, "0.0.13")
         image_dir.mkdir(parents=True)
-        (image_dir / "vmlinux.bin").write_bytes(kernel_bytes)
+        (image_dir / f"vmlinux-{entry.kernel_sha256}.bin").write_bytes(kernel_bytes)
         (image_dir / "rootfs.ext4.zst").write_bytes(rootfs_zst)
         (image_dir / "rootfs.ext4").write_bytes(rootfs_plain)
         (image_dir / "rootfs.ext4.from-sha256").write_text(entry.rootfs_sha256)
@@ -850,7 +861,7 @@ class TestBaseKernels:
         assert len(entry.image_sha256) == 64
         assert entry.elf_url.endswith("vmlinux-amd64.elf")
         assert entry.image_url.endswith("vmlinux-amd64.image")
-        assert "images-" in entry.elf_url
+        assert "kernels-" in entry.elf_url
 
     def test_arm64_entry_shape(self) -> None:
         entry = BASE_KERNELS.get("arm64")
@@ -900,48 +911,93 @@ class TestBaseKernels:
         with pytest.raises(ImageError, match="No base kernel registered"):
             ensure_base_kernel("riscv64", "elf", cache_dir=tmp_path, registry={})  # type: ignore[arg-type]
 
-    def test_ensure_base_kernel_uses_cache_layout(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize("fmt", ["elf", "image"])
+    def test_kernel_upgrade_preserves_previously_returned_bytes(
+        self, tmp_path: Path, fmt: KernelFormat
     ) -> None:
-        """ensure_base_kernel should land at base-kernel-v<version>-<arch>/vmlinux.<fmt>
-        and request the right SHA per format."""
-        import celesto.images.published as published
+        """A saved VM must keep its kernel when the release pin advances."""
+        from functools import partial
+        from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+        from threading import Thread
 
-        captured: dict[str, object] = {}
-
-        def fake_ensure_rootfs_only(
-            self_: object,  # noqa: ARG001 (bound method receiver)
-            name: str,
-            *,
-            url: str,
-            filename: str,
-            sha256: str | None = None,
-            on_download: object = None,  # noqa: ARG001 (matches real signature)
-        ) -> Path:
-            captured["name"] = name
-            captured["url"] = url
-            captured["filename"] = filename
-            captured["sha256"] = sha256
-            return tmp_path / filename
-
-        monkeypatch.setattr(
-            published.ImageManager,
-            "ensure_rootfs_only",
-            fake_ensure_rootfs_only,
+        assets = tmp_path / "assets"
+        assets.mkdir()
+        server = ThreadingHTTPServer(
+            ("127.0.0.1", 0), partial(SimpleHTTPRequestHandler, directory=str(assets))
         )
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            paths = []
+            cases: list[tuple[KernelProfile, bytes]] = [
+                ("sandbox", b"old"),
+                ("github-ci", b"ci"),
+                ("sandbox", b"new"),
+            ]
+            for profile, content in cases:
+                (assets / "kernel").write_bytes(content)
+                digest = hashlib.sha256(content).hexdigest()
+                url = f"http://127.0.0.1:{server.server_port}/kernel"
+                entry = BaseKernel(
+                    arch="amd64", elf_url=url, image_url=url, elf_sha256=digest, image_sha256=digest
+                )
+                paths.append(
+                    ensure_base_kernel(
+                        "amd64",
+                        fmt,
+                        profile=profile,
+                        registry={"amd64": entry},
+                        cache_dir=tmp_path / "cache",
+                    )
+                )
+            assert len(set(paths)) == 3
+            assert [path.read_bytes() for path in paths] == [b"old", b"ci", b"new"]
+            # A corrupt candidate cannot silently reuse a prior profile/release.
+            bad = entry.model_copy(update={f"{fmt}_sha256": "0" * 64})
+            with pytest.raises(ImageError, match="mismatch"):
+                ensure_base_kernel(
+                    "amd64",
+                    fmt,
+                    profile="sandbox",
+                    registry={"amd64": bad},
+                    cache_dir=tmp_path / "cache",
+                )
+            assert [path.read_bytes() for path in paths] == [b"old", b"ci", b"new"]
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
 
-        path_elf = ensure_base_kernel("amd64", "elf", cache_dir=tmp_path, version="9.9.9z")
-        assert path_elf == tmp_path / "vmlinux.elf"
-        assert captured["name"] == "base-kernel-v9.9.9z-amd64"
-        assert captured["filename"] == "vmlinux.elf"
-        assert captured["sha256"] == BASE_KERNELS["amd64"].elf_sha256
-        assert captured["url"] == BASE_KERNELS["amd64"].elf_url
+    def test_published_kernel_upgrade_preserves_saved_vm_path(
+        self, tmp_path: Path, sample_entry: PublishedImage
+    ) -> None:
+        paths = []
+        for content in (b"old-kernel", b"new-kernel"):
+            entry = sample_entry.model_copy(
+                update={"kernel_sha256": hashlib.sha256(content).hexdigest()}
+            )
+            manifest: dict[ManifestKey, PublishedImage] = {
+                ("ubuntu", "amd64", "firecracker", "ubuntu"): entry
+            }
 
-        path_img = ensure_base_kernel("amd64", "image", cache_dir=tmp_path, version="9.9.9z")
-        assert path_img == tmp_path / "vmlinux.image"
-        assert captured["filename"] == "vmlinux.image"
-        assert captured["sha256"] == BASE_KERNELS["amd64"].image_sha256
-        assert captured["url"] == BASE_KERNELS["amd64"].image_url
+            def response(url: str, content: bytes = content, **kwargs: object) -> MagicMock:
+                result = MagicMock()
+                result.iter_content.return_value = [content if "vmlinux" in url else b"fake-rootfs"]
+                result.headers = {}
+                return result
+
+            with patch("celesto.images.manager.requests.get", side_effect=response):
+                paths.append(
+                    ensure_published_image(
+                        "ubuntu", "amd64", "firecracker", manifest=manifest, cache_dir=tmp_path
+                    ).kernel_path
+                )
+        assert paths[0] != paths[1]
+        assert [path.read_bytes() for path in paths] == [b"old-kernel", b"new-kernel"]
+
+    def test_unknown_kernel_profile_fails_closed(self, tmp_path: Path) -> None:
+        with pytest.raises(ImageError, match="profile"):
+            ensure_base_kernel("amd64", "image", profile="typo", cache_dir=tmp_path)  # type: ignore[arg-type]
 
 
 class TestBundledManifest:
@@ -996,8 +1052,13 @@ class TestBundledManifest:
             assert expected_segment in entry.rootfs_url, (
                 f"{key} rootfs_url doesn't reference {expected_segment}"
             )
-            assert expected_segment in entry.kernel_url, (
-                f"{key} kernel_url doesn't reference {expected_segment}"
+            kernel_tag = (
+                published_module.KERNELS_RELEASE_TAG
+                if entry.arch == "amd64"
+                else "images-2026.10.25.0"
+            )
+            assert f"/{kernel_tag}/" in entry.kernel_url, (
+                f"{key} kernel_url doesn't reference /{kernel_tag}/"
             )
 
     def test_entry_field_matches_manifest_key(self) -> None:
@@ -1172,7 +1233,7 @@ class TestDecompressZstd:
         src.write_bytes(zstandard.ZstdCompressor().compress(b"payload"))
         dst = tmp_path / "rootfs.ext4"
 
-        def _fail_after_creating_staging(_src: object, target: object, **_kwargs: object) -> str:
+        def _fail_after_creating_staging(_src: object, target: Path, **_kwargs: object) -> str:
             """Create the staging file, then fail with a non-OSError."""
             Path(target).write_bytes(b"\0" * 4096)
             raise zstandard.ZstdError("corrupt frame")
@@ -1198,7 +1259,7 @@ class TestDecompressZstd:
         src.write_bytes(zstandard.ZstdCompressor().compress(b"payload"))
         dst = tmp_path / "rootfs.ext4"
 
-        def _interrupt(_src: object, target: object, **_kwargs: object) -> str:
+        def _interrupt(_src: object, target: Path, **_kwargs: object) -> str:
             """Create the staging file, then raise KeyboardInterrupt."""
             Path(target).write_bytes(b"\0" * 4096)
             raise KeyboardInterrupt
