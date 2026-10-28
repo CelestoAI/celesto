@@ -52,11 +52,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64]
+        arch: [amd64, arm64]
         profile: [sandbox, github-ci]
+        exclude:
+          - arch: arm64
+            profile: github-ci
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     timeout-minutes: 90
     env:
+      ARCH: ${{ matrix.arch }}
       PROFILE: ${{ matrix.profile }}
       ASSET: vmlinux-${{ matrix.profile == 'github-ci' && 'github-ci-' || '' }}${{ matrix.arch }}
 
@@ -123,7 +127,9 @@ jobs:
             # workflow installs only the apt packages it needs to build
             # a kernel and skips the celesto Python deps (paramiko etc),
             # so `from celesto.images.published import …` would ImportError.
-            tag=$(awk -F'"' '/^KERNELS_RELEASE_TAG[[:space:]]*=/{print $2; exit}' src/celesto/images/published.py)
+            constant=KERNELS_RELEASE_TAG
+            if [ "$ARCH" = arm64 ]; then constant=ARM_KERNELS_RELEASE_TAG; fi
+            tag=$(awk -F'"' -v key="$constant" '$0 ~ "^" key "[[:space:]]*=" {print $2; exit}' src/celesto/images/published.py)
           fi
           if [ -z "$tag" ]; then
             echo "ERROR: KERNELS_RELEASE_TAG could not be parsed from src/celesto/images/published.py" >&2

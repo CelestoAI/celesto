@@ -134,7 +134,7 @@ jobs:
           target.write_text("".join(lines))
           PYTHON
           echo "tag=" >> "$GITHUB_OUTPUT"
-          echo "Pinned image release $source_tag is not public yet; using published rootfs data from $fallback with the current kernels"
+          echo "Pinned image release $source_tag is not public yet; using published-image catalog from $fallback (rootfs pins only; current kernels preserved)"
 
       - name: Set up Python 3.13
         uses: actions/setup-python@v5

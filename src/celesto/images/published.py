@@ -178,7 +178,7 @@ def _release_asset_url(preset: Preset, arch: Arch, suffix: str, os: Os = "ubuntu
 
 # Kernels have an independent release cadence from preset root filesystems.
 KERNELS_RELEASE_TAG = "kernels-2026.10.28.0"
-# The dataplane upgrade is AMD64-only; retain the existing SDK ARM kernel.
+# ARM sandbox kernels retain their independently pinned release.
 ARM_KERNELS_RELEASE_TAG = "images-2026.10.25.0"
 KernelProfile = Literal["sandbox", "github-ci"]
 

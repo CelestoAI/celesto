@@ -2,7 +2,7 @@
 
 Celesto builds separate guest kernels for ordinary sandboxes and GitHub CI.
 Both use the same pinned Linux source, common configuration, and architecture
-configuration. GitHub CI adds an XFS overlay for its storage proofs. Builds need
+configuration. GitHub CI adds an XFS overlay for filesystem-intensive workloads. Builds need
 Python 3 in addition to the compiler and kernel build dependencies; arm64 uses
 it to generate DRM register headers.
 
@@ -39,8 +39,7 @@ changing a release tag does not waive checksum verification.
 
 Runtime caches include the complete kernel digest in the filename. Existing
 saved VM configurations keep their original kernel path across an upgrade.
-New VMs and disks imported onto a new VM select the current template profile.
-The backend selects profiles from its controlled template registry.
+Callers choose a workload profile when resolving the guest kernel.
 
 ## Boot qualification
 
@@ -72,9 +71,8 @@ bash kernel/microvm/smoke/reject-ci-as-sandbox.sh \
 ```
 
 The negative-control receipt requires both rejection for the expected reason
-and removal of a deliberately planted stale success receipt. These checks supplement the
-backend's real pool-volume proof and AWS/OVH isolation qualification before
-host rollout.
+and removal of a deliberately planted stale success receipt. Applications should also qualify guest-agent integration and networking in
+their own environments before adopting a new kernel.
 
 ## Why this exists
 
@@ -167,7 +165,7 @@ That's what the fragments in this directory encode.
 | `config.arm64.fragment` | arm64-only deltas (PCI host-generic, PL011 console). Merged on top of `config.fragment` for arm64 builds. |
 | `build.sh` | The exact recipe CI runs. Also runnable locally — see below. |
 
-The dataplane release qualifies AMD64 only. The SDK’s existing ARM sandbox
+This release qualifies new AMD64 kernels. Existing ARM sandbox
 kernel pins remain unchanged; the GitHub CI profile is available on AMD64.
 
 ## Building locally
@@ -273,7 +271,7 @@ check the rootfs has a valid `/init`. If you see nothing at all, check
    Update `KERNELS_RELEASE_TAG`, `BASE_KERNELS`, and `CI_KERNELS` from those
    exact artifacts. Keep rootfs pins separate.
 
-1. Qualify the SDK and host integration on AWS and OVH before fleet rollout.
+1. Qualify SDK integration and networking in each supported runtime environment.
    Existing saved VMs retain their older kernels; upgrading the default does
    not patch a running guest. Recreating those guests needs a separate
    lifecycle plan that preserves their data.
