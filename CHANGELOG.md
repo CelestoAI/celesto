@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Stop sandbox creates failing with "database is locked" when many start at once on a busy disk. Celesto's saved VM data now uses SQLite write-ahead logging, so reads no longer wait for writes and commits no longer wait on several disk flushes each.
+
 ## 0.1.10 — 2026-10-25
 
 ### Security

@@ -18,6 +18,8 @@ import json
 import os
 import sqlite3
 import stat
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -67,6 +69,46 @@ def sample_config(tmp_path: Path) -> VMConfig:
         kernel_path=kernel,
         rootfs_path=rootfs,
     )
+
+
+class TestStateManagerConcurrency:
+    """A busy writer must not stall other sandboxes' reads."""
+
+    def test_read_does_not_wait_for_an_open_write(
+        self, state_manager: StateManager, sample_config: VMConfig
+    ) -> None:
+        state_manager.create_vm(sample_config)
+        writer = sqlite3.connect(state_manager.db_path, isolation_level=None)
+        try:
+            # Hold the strongest write lock, as a commit stuck on a slow disk does.
+            writer.execute("BEGIN EXCLUSIVE")
+            writer.execute("UPDATE vms SET status = 'running' WHERE id = 'vm001'")
+            started = time.monotonic()
+            vm = state_manager.get_vm("vm001")
+            assert time.monotonic() - started < 1
+            assert vm.status == VMState.CREATED
+        finally:
+            writer.close()
+
+    def test_concurrent_ip_allocations_get_distinct_ips(self, tmp_path: Path) -> None:
+        manager = StateManager(tmp_path / "test.db")
+        rootfs = tmp_path / "rootfs.ext4"
+        rootfs.touch()
+        vm_ids = [f"vm{index:03d}" for index in range(16)]
+        for vm_id in vm_ids:
+            manager.create_vm(
+                VMConfig(
+                    vm_id=vm_id, vcpu_count=1, memory=128, kernel_path=rootfs, rootfs_path=rootfs
+                )
+            )
+
+        def allocate(vm_id: str) -> str:
+            return StateManager(manager.db_path).allocate_ip(vm_id, f"tap-{vm_id}")
+
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            ips = list(pool.map(allocate, vm_ids))
+
+        assert len(set(ips)) == len(vm_ids)
 
 
 class TestStateManagerVMOperations:
