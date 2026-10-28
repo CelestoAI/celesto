@@ -58,7 +58,7 @@ jobs:
           - arch: arm64
             profile: github-ci
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
-    timeout-minutes: 90
+    timeout-minutes: 60
     env:
       ARCH: ${{ matrix.arch }}
       PROFILE: ${{ matrix.profile }}
@@ -226,6 +226,15 @@ jobs:
               --notes "Auto-generated draft release for Celesto published images. Verify SHA-256 sums and content before publishing." \
               || echo "Draft already exists (race with another matrix cell), continuing."
           fi
+          # Published assets are pinned by installed clients. Only drafts may
+          # be rebaked, even when force_overwrite was explicitly requested.
+          if [ "${FORCE_OVERWRITE:-false}" = "true" ]; then
+            is_draft=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')
+            if [ "$is_draft" != "true" ]; then
+              echo "Published kernel releases are immutable; choose a new draft release_tag." >&2
+              exit 1
+            fi
+          fi
           # Skip-if-exists. The bumping protocol at
           # published.py::KERNELS_RELEASE_TAG couples a tag to one
           # specific set of kernel bytes — same tag = same bytes — so a
@@ -236,7 +245,7 @@ jobs:
           # shipped CLI's BASE_KERNELS SHAs depend on are never swapped.
           # `force_overwrite=true` (workflow_dispatch only — push events
           # cannot set it) opts into clobbering for an intentional
-          # re-bake of the same tag.
+          # re-bake of the same draft tag.
           #
           # Drift canary: when an asset is skipped, compare the
           # locally-built SHA against the BASE_KERNELS pin. If they
