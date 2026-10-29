@@ -101,6 +101,19 @@ def test_pause_resume(vm: Celesto) -> None:
     assert vm.run("echo back").stdout.strip() == "back"
 
 
+def test_stop_keeps_files_written_just_before_it(vm: Celesto) -> None:
+    """A file written right before stop is still there after start (issue #668)."""
+    assert vm.run("echo kept > /root/written-before-stop.txt").exit_code == 0
+
+    vm.stop()
+    assert vm.status == VMState.STOPPED
+    vm.start(boot_timeout=BOOT_TIMEOUT)
+
+    result = vm.run("cat /root/written-before-stop.txt")
+    assert result.exit_code == 0, result.stderr
+    assert result.stdout.strip() == "kept"
+
+
 def test_stop_and_cleanup(vm: Celesto) -> None:
     """Stop transitions to STOPPED; delete removes the VM for good.
 
