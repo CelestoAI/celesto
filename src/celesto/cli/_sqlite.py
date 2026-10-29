@@ -15,7 +15,7 @@
 """SQLite-based state management for Celesto.
 
 Provides persistent storage for VM metadata, lifecycle states, and IP allocations.
-Uses exclusive transactions to prevent race conditions in IP assignment.
+Uses write-locking transactions to prevent race conditions in IP assignment.
 """
 
 from __future__ import annotations
@@ -24,8 +24,9 @@ import logging
 import os
 import sqlite3
 import stat
+import sys
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -69,8 +70,8 @@ logger = logging.getLogger(__name__)
 class SQLiteStateManager:
     """SQLite-backed state manager for Celesto.
 
-    Uses exclusive transactions for write operations and deferred
-    isolation for reads.
+    Uses write-ahead logging, so reads never wait for a write, and
+    immediate transactions for writes, which take the write lock up front.
     """
 
     def __init__(self, db_path: Path) -> None:
@@ -78,6 +79,7 @@ class SQLiteStateManager:
             raise ValueError("db_path cannot be None")
 
         self.db_path = db_path
+        self._enable_wal()
         self._init_schema()
         logger.info("SQLiteStateManager initialized with database: %s", db_path)
 
@@ -128,13 +130,33 @@ class SQLiteStateManager:
             # replacing this entry. Do not open/close an existing SQLite file:
             # POSIX close would drop locks held by another connection here.
             try:
-                path.chmod(0o600, follow_symlinks=False)
-            except NotImplementedError:
-                # Older POSIX builds lack no-follow chmod. The parent chain
-                # above excludes other writers, and lstat already rejected
-                # links. Avoid opening an existing DB just to fchmod it:
-                # closing that descriptor would release this process's locks.
-                path.chmod(0o600)
+                try:
+                    path.chmod(0o600, follow_symlinks=False)
+                except NotImplementedError:
+                    # Older POSIX builds lack no-follow chmod. The parent chain
+                    # above excludes other writers, and lstat already rejected
+                    # links. Avoid opening an existing DB just to fchmod it:
+                    # closing that descriptor would release this process's locks.
+                    path.chmod(0o600)
+            except FileNotFoundError:
+                # The last connection to close removes the WAL and shared-memory
+                # files; SQLite recreates them with the database's mode.
+                if not suffix:
+                    raise
+
+    def _enable_wal(self) -> None:
+        """Switch the inventory to write-ahead logging; the mode is saved in the file.
+
+        With the default rollback journal, a write blocks every reader, and each
+        commit waits for several disk flushes. On a host whose disk is busy
+        copying VM images, those flushes take seconds, and concurrent creates
+        queue until they hit the lock timeout.
+        """
+        self._secure_inventory()
+        with closing(sqlite3.connect(str(self.db_path), timeout=30.0)) as conn:
+            mode = conn.execute("PRAGMA journal_mode = WAL").fetchone()[0]
+        if mode != "wal":
+            logger.warning("SQLite kept journal mode %r for %s", mode, self.db_path)
 
     @contextmanager
     def _get_connection(self, exclusive: bool = False) -> Iterator[sqlite3.Connection]:
@@ -144,9 +166,18 @@ class SQLiteStateManager:
             timeout=30.0,
             isolation_level=None,
         )
+        if sys.version_info >= (3, 12):
+            # Connections here last one operation. Leave checkpoints to SQLite's
+            # automatic ones instead of flushing the whole log on every close.
+            conn.setconfig(sqlite3.SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, True)
         conn.execute("PRAGMA foreign_keys = ON")
+        # In WAL mode, NORMAL flushes at checkpoints instead of every commit and
+        # still keeps the file consistent after a crash.
+        conn.execute("PRAGMA synchronous = NORMAL")
         conn.row_factory = sqlite3.Row
-        conn.execute("BEGIN EXCLUSIVE" if exclusive else "BEGIN DEFERRED")
+        # IMMEDIATE takes the write lock before the first read, so two writers
+        # never both read the same free IP and then fail to upgrade.
+        conn.execute("BEGIN IMMEDIATE" if exclusive else "BEGIN DEFERRED")
         try:
             yield conn
             conn.commit()

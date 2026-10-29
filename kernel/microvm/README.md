@@ -1,15 +1,78 @@
 # Celesto microvm Kernel
 
-This directory holds the recipe for the **only** Linux kernels Celesto
-ships. One Linux source build per arch produces TWO artifacts that
-together cover every runtime Celesto supports:
+Celesto builds separate guest kernels for ordinary sandboxes and GitHub CI.
+Both use the same pinned Linux source, common configuration, and architecture
+configuration. GitHub CI adds an XFS overlay for filesystem-intensive workloads. Builds need
+Python 3 in addition to the compiler and kernel build dependencies; arm64 uses
+it to generate DRM register headers.
 
-- `vmlinux-<arch>.elf`  — the uncompressed ELF, for **Firecracker** and **libkrun**.
-- `vmlinux-<arch>.image` — the boot wrapper (`bzImage` on x86, `Image` on arm64), for **QEMU**.
+```text
+linux.version + linux.sha256
+  config.fragment + config.<arch>.fragment
+    profiles/sandbox.fragment       -> vmlinux-<arch>.{elf,image,config}
+    profiles/github-ci.fragment     -> vmlinux-github-ci-<arch>.{elf,image,config}
+```
 
-Both formats come from the same source build with the same Kconfig and
-boot identically; the difference is just the container the runtime
-expects.
+The sandbox profile keeps XFS disabled. The CI overlay enables it as a built-in
+driver; neither profile requires kernel modules or an initrd in production.
+Each build produces an ELF for Firecracker and an Image/bzImage for QEMU.
+
+Build a specific profile and architecture on Linux:
+
+```sh
+CELESTO_KERNEL_PROFILE=github-ci CELESTO_ARCH_OVERRIDE=amd64 \
+  OUT_DIR=/tmp/kernel-out bash kernel/microvm/build.sh
+```
+
+Cross builds also set `CROSS_COMPILE` to the matching toolchain prefix.
+`JOBS` limits compile parallelism. Work directories include both profile and
+architecture so one build cannot reuse another profile's configuration.
+Fragment validation checks the final requested value after child overrides,
+then rejects any value that Kconfig changes while resolving dependencies.
+
+Kernel releases use `KERNELS_RELEASE_TAG`, independently of rootfs releases at
+`IMAGES_RELEASE_TAG`. Candidate AMD64 kernel URLs can be selected with
+`CELESTO_KERNELS_RELEASE_TAG` before importing the SDK. ARM sandbox kernels
+retain their existing `ARM_KERNELS_RELEASE_TAG`. Pin the actual SHA-256
+for every profile, architecture, and format after building and qualification;
+changing a release tag does not waive checksum verification.
+
+Runtime caches include the complete kernel digest in the filename. Existing
+saved VM configurations keep their original kernel path across an upgrade.
+Callers choose a workload profile when resolving the guest kernel.
+
+## Boot qualification
+
+The smoke recipe in `smoke/` builds an Ubuntu guest with Docker and filesystem
+tools. Export one guest filesystem per architecture, then run on a Linux host
+with QEMU, e2fsprogs, xfsprogs, and Python 3 installed:
+
+```sh
+docker build --platform linux/amd64 -f kernel/microvm/smoke/Guest.Dockerfile \
+  -t celesto-kernel-smoke:amd64 kernel/microvm/smoke
+container=$(docker create celesto-kernel-smoke:amd64)
+mkdir -p /tmp/kernel-guest
+docker export "$container" | tar -C /tmp/kernel-guest -xf -
+docker rm "$container"
+bash kernel/microvm/smoke/run.sh amd64 /tmp/kernel-out /tmp/kernel-guest /tmp/kernel-proof
+```
+
+The AMD64 release runner boots each profile from an ext4 root filesystem
+in QEMU twice, checks ext4 persistence, namespaces, Docker overlay storage,
+container memory/CPU limits, bridge DNS/HTTP, and CI XFS mounting with reflinks.
+`receipt.json` records the tested kernel digests, sizes, checks, and console log
+paths. A failed rerun removes any previous success receipt. Run the negative
+control with a separate output directory to prove an XFS-enabled CI kernel is
+rejected when presented as the sandbox kernel:
+
+```sh
+bash kernel/microvm/smoke/reject-ci-as-sandbox.sh \
+  amd64 /tmp/kernel-out /tmp/kernel-guest /tmp/kernel-negative-proof
+```
+
+The negative-control receipt requires both rejection for the expected reason
+and removal of a deliberately planted stale success receipt. Applications should also qualify guest-agent integration and networking in
+their own environments before adopting a new kernel.
 
 ## Why this exists
 
@@ -25,7 +88,7 @@ we don't need (Bluetooth, USB, sound, gpio, …) — extra attack surface
 for a sandbox that just needs virtio + ext4 + sshd.
 
 The kernel built here closes that gap: a single in-house source build,
-microvm-tuned, on Linux 6.12.x LTS.
+microvm-tuned, on the upstream release pinned in `linux.version`.
 
 ## Runtime ↔ format compatibility
 
@@ -95,12 +158,15 @@ That's what the fragments in this directory encode.
 
 | File | Role |
 |---|---|
-| `linux.version` | Single line: the upstream Linux release we build (e.g. `6.12.10`). LTS-line for stability. |
+| `linux.version` | Single line: the upstream Linux release we build (e.g. `6.12.10`). Updated after checking upstream stable releases and advisories. |
 | `linux.sha256` | One `sha256sum -c` line for the tarball at `cdn.kernel.org`. |
 | `config.fragment` | Common deltas vs `x86_64_defconfig` (x86) / `defconfig` (arm64) — symbols that exist on both archs. Every line carries an inline `# why:` comment — that's the source of truth for "why is this in our kernel." |
 | `config.amd64.fragment` | x86-only deltas (8250 console). Merged on top of `config.fragment` for amd64 builds. |
 | `config.arm64.fragment` | arm64-only deltas (PCI host-generic, PL011 console). Merged on top of `config.fragment` for arm64 builds. |
 | `build.sh` | The exact recipe CI runs. Also runnable locally — see below. |
+
+This release qualifies new AMD64 kernels. Existing ARM sandbox
+kernel pins remain unchanged; the GitHub CI profile is available on AMD64.
 
 ## Building locally
 
@@ -181,37 +247,39 @@ check the rootfs has a valid `/init`. If you see nothing at all, check
 
 ## Updating Linux
 
-```sh
-# 1. Pick a newer 6.12.x patch from https://kernel.org
-echo 6.12.X > linux.version
+1. Check [kernel.org](https://kernel.org/releases.json) for the current stable
+   `latest_stable.version` value (rather than the maintained `stable` series entry)
+   and review advisories against the configured features.
 
-# 2. One-time setup: import the kernel.org release signing keys so we can
-#    verify checksums cryptographically, not just over HTTPS. Trusting only
-#    HTTPS means a CDN/TLS compromise could feed us a bogus checksum file.
-#    Keys and fingerprints: https://www.kernel.org/signature.html
-gpg --locate-keys torvalds@kernel.org gregkh@kernel.org
+1. Download its tarball and detached `.tar.sign` from the matching `v<major>.x`
+   directory. Verify the uncompressed tar signature against a maintainer
+   fingerprint published in [kernel.org's instructions](https://www.kernel.org/signature.html):
 
-# 3. Fetch the clearsigned checksum file, verify the signature, then extract
-#    the line for our pinned version. `gpg --verify` exits non-zero if the
-#    signature is bad or the signer isn't in your keyring.
-curl -sLO https://cdn.kernel.org/pub/linux/kernel/v6.x/sha256sums.asc
-gpg --verify sha256sums.asc
-grep "linux-$(cat linux.version).tar.xz" sha256sums.asc > linux.sha256
-rm sha256sums.asc
-cat linux.sha256  # sanity check
+   ```sh
+   xz -cd linux-<version>.tar.xz | gpg --verify linux-<version>.tar.sign -
+   sha256sum linux-<version>.tar.xz
+   ```
 
-# 4. Build locally to confirm the fragment still applies cleanly
-bash build.sh
-# If "Fragment verification failed", a symbol was renamed/moved in upstream
-# Linux. Check the message, find the new symbol name, update fragment.
+1. Update `linux.version` and `linux.sha256`, then build both profiles on AMD64. Resolve every fragment validation failure against upstream
+   Kconfig; preserve existing Docker and networking capabilities.
 
-# 5. Commit and push — CI rebuilds and re-uploads the kernel.
-```
+1. Run the boot qualification above. Save the source signature result,
+   compiler versions, effective configurations, artifact sizes and hashes,
+   and boot receipts.
+
+1. Publish the qualified artifacts under a new immutable kernel release tag.
+   Update `KERNELS_RELEASE_TAG`, `BASE_KERNELS`, and `CI_KERNELS` from those
+   exact artifacts. Keep rootfs pins separate.
+
+1. Qualify SDK integration and networking in each supported runtime environment.
+   Existing saved VMs retain their older kernels; upgrading the default does
+   not patch a running guest. Recreating those guests needs a separate
+   lifecycle plan that preserves their data.
 
 ## Naming convention (asymmetric, by design)
 
-The artifacts are named `vmlinux-<arch>.elf` (Firecracker / libkrun) and
-`vmlinux-<arch>.image` (QEMU) — both preset-independent. The existing
+Sandbox artifacts are named `vmlinux-<arch>.elf` (Firecracker / libkrun) and
+`vmlinux-<arch>.image` (QEMU) — both preset-independent. CI inserts `github-ci-` before the architecture. The existing
 **Firecracker** artifacts produced by the old per-preset build are named
 `<preset>-<arch>-vmlinux.bin` — per-preset, even though the kernel itself
 doesn't depend on the preset. That asymmetry is intentional for now: the
@@ -229,8 +297,8 @@ task.
 - **FUSE is built in.** Guest filesystems such as JuiceFS still need userspace
   packages in the rootfs, but the kernel must provide `/dev/fuse` because
   there is no initrd or module tree to load it later.
-- **Maintenance burden.** Bumping Linux means re-running `build.sh` once
-  to verify the fragment still applies, then committing. CI cache by input
-  hash means the rebuild is free until inputs change.
+- **Maintenance burden.** Bumping Linux means building both AMD64 profiles,
+  verifying the resolved fragments, and running the boot qualification above.
+  CI caches build artifacts by input hash until inputs change.
 - **Vendor independence.** We don't depend on third-party kernel publishers
   (iximiuz, etc.); we build from upstream sources only.

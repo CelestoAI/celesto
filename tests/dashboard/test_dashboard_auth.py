@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.datastructures import State
 from starlette.websockets import WebSocketDisconnect
 
 from celesto.dashboard import server
@@ -13,7 +14,7 @@ from celesto.types import VMInfo
 def test_dashboard_requires_capability_and_rejects_foreign_origin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(server.app.state, "auth_token", "owner-secret", raising=False)
+    monkeypatch.setattr(server.app, "state", State({"auth_token": "owner-secret"}))
     client = TestClient(server.app)
     assert client.get("/api/health").status_code == 401
     assert client.get("/api/health", headers={"Authorization": "Bearer wrong"}).status_code == 401
@@ -35,7 +36,7 @@ def test_dashboard_requires_capability_and_rejects_foreign_origin(
 def test_dashboard_login_never_grants_ambient_cookie_authority(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(server.app.state, "auth_token", "owner-secret", raising=False)
+    monkeypatch.setattr(server.app, "state", State({"auth_token": "owner-secret"}))
     client = TestClient(server.app)
     page = client.get("/login")
     assert page.status_code == 200
@@ -63,7 +64,7 @@ def test_dashboard_websocket_requires_origin_bound_capability(
         def list_vms(self) -> list[VMInfo]:
             return []
 
-    monkeypatch.setattr(server.app.state, "auth_token", "owner-secret", raising=False)
+    monkeypatch.setattr(server.app, "state", State({"auth_token": "owner-secret"}))
     monkeypatch.setattr(server, "_get_conn_manager", lambda _app: ConnectionManager())
     monkeypatch.setattr(server, "_get_state_manager", lambda _app: Inventory())
     client = TestClient(server.app)
@@ -91,7 +92,7 @@ def test_dashboard_rejects_stale_bundle_and_serves_public_auth_bootstrap(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(server, "_ui_dist", tmp_path)
-    monkeypatch.setattr(server.app.state, "auth_token", "owner-secret", raising=False)
+    monkeypatch.setattr(server.app, "state", State({"auth_token": "owner-secret"}))
     index = tmp_path / "index.html"
     index.write_text("<html>Old dashboard</html>")
     client = TestClient(server.app)

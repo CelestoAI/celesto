@@ -230,7 +230,7 @@ class TestBootImage:
         rootfs = _empty_file(tmp_path, "rootfs.ext4")
 
         with pytest.raises(ValueError, match="Extra inputs are not permitted"):
-            BootImage(
+            BootImage(  # type: ignore[call-arg]  # Deliberately invalid runtime input.
                 name="extra-field",
                 rootfs_path=rootfs,
                 rootfs_format="raw-ext4",
@@ -607,7 +607,7 @@ class TestEnsureBaseKernelForBackend:
         mock_ensure.return_value = kernel
 
         assert ensure_base_kernel_for_backend("qemu", arch="amd64") == kernel
-        mock_ensure.assert_called_once_with("amd64", "image", cache_dir=None)
+        mock_ensure.assert_called_once_with("amd64", "image", profile="sandbox", cache_dir=None)
 
     @patch("celesto.images.published.ensure_base_kernel")
     def test_firecracker_selects_elf_kernel(self, mock_ensure: MagicMock) -> None:
@@ -615,7 +615,7 @@ class TestEnsureBaseKernelForBackend:
         mock_ensure.return_value = kernel
 
         assert ensure_base_kernel_for_backend("firecracker", arch="arm64") == kernel
-        mock_ensure.assert_called_once_with("arm64", "elf", cache_dir=None)
+        mock_ensure.assert_called_once_with("arm64", "elf", profile="sandbox", cache_dir=None)
 
     @patch("celesto.images.published.ensure_base_kernel")
     def test_libkrun_selects_elf_kernel_on_linux(
@@ -627,7 +627,7 @@ class TestEnsureBaseKernelForBackend:
         mock_ensure.return_value = kernel
 
         assert ensure_base_kernel_for_backend("libkrun", arch="x86_64") == kernel
-        mock_ensure.assert_called_once_with("amd64", "elf", cache_dir=None)
+        mock_ensure.assert_called_once_with("amd64", "elf", profile="sandbox", cache_dir=None)
 
     @patch("celesto.images.published.ensure_base_kernel")
     def test_libkrun_selects_image_kernel_on_darwin(
@@ -640,7 +640,7 @@ class TestEnsureBaseKernelForBackend:
         mock_ensure.return_value = kernel
 
         assert ensure_base_kernel_for_backend("libkrun", arch="arm64") == kernel
-        mock_ensure.assert_called_once_with("arm64", "image", cache_dir=None)
+        mock_ensure.assert_called_once_with("arm64", "image", profile="sandbox", cache_dir=None)
 
     @patch("celesto.images.published.ensure_base_kernel")
     def test_host_arch_is_normalized(
@@ -653,4 +653,4 @@ class TestEnsureBaseKernelForBackend:
         monkeypatch.setattr("celesto.kernels.platform.machine", lambda: "aarch64")
 
         assert ensure_base_kernel_for_backend("qemu", arch="host") == kernel
-        mock_ensure.assert_called_once_with("arm64", "image", cache_dir=None)
+        mock_ensure.assert_called_once_with("arm64", "image", profile="sandbox", cache_dir=None)

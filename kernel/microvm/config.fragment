@@ -113,3 +113,11 @@ CONFIG_OVERLAY_FS=y             # why: writable scratch over a read-only share
 # Forces every config above to be `=y` (built into vmlinux). Removes the
 # need for an initrd to load drivers before mounting rootfs.
 # CONFIG_MODULES is not set
+
+# XFS is enabled only by the GitHub CI profile.
+# CONFIG_XFS_FS is not set
+
+# Linux 7.x gates legacy iptables raw/NAT behind these selectors.
+CONFIG_NETFILTER_XTABLES_LEGACY=y
+CONFIG_IP_NF_IPTABLES_LEGACY=y
+CONFIG_IP6_NF_IPTABLES_LEGACY=y

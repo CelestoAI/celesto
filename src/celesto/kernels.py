@@ -31,13 +31,14 @@ Vmm = Literal["firecracker", "qemu", "libkrun"]
 def _resolve_kernel_arch(arch: KernelArch | str) -> PublishedArch:
     """Resolve a user-facing arch value to Celesto's published-kernel arch key."""
     raw_arch = platform.machine() if arch == "host" else arch
-    return cast(PublishedArch, to_published_arch(raw_arch))
+    return to_published_arch(raw_arch)
 
 
 def ensure_base_kernel_for_backend(
     backend: str | None = None,
     arch: KernelArch | str = "host",
     *,
+    profile: Literal["sandbox", "github-ci"] = "sandbox",
     cache_dir: Path | None = None,
 ) -> Path:
     """Return the SHA-verified Celesto base kernel for a backend and arch.
@@ -45,7 +46,8 @@ def ensure_base_kernel_for_backend(
     Celesto publishes the same kernel build in two container formats. The
     backend determines which one is valid: Firecracker/libkrun use the ELF
     artifact, while QEMU uses the Image/bzImage artifact. This helper keeps
-    callers from knowing those release asset details.
+    callers from knowing those release asset details. The profile selects the
+    sandbox baseline or the GitHub CI extension.
     """
     from celesto.images.published import _kernel_format_for_vmm, ensure_base_kernel
 
@@ -56,5 +58,6 @@ def ensure_base_kernel_for_backend(
     return ensure_base_kernel(
         resolved_arch,
         kernel_format,
+        profile=profile,
         cache_dir=cache_dir,
     )

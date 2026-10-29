@@ -31,7 +31,7 @@ on:
     inputs:
       release_tag:
         description: >-
-          Release tag to smoke-test (e.g. images-2026.06.23.0). Leave empty
+          Rootfs release tag to smoke-test (e.g. images-2026.06.23.0). Leave empty
           to use IMAGES_RELEASE_TAG from published.py.
         type: string
         default: ""
@@ -107,14 +107,31 @@ jobs:
       - name: Download kernel
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.release.outputs.tag }}
           ARCH: ${{ matrix.arch }}
         run: |
           mkdir -p smoke
-          gh release download "$TAG" \
+          kernel_tag=$(awk -F'"' '/^KERNELS_RELEASE_TAG[[:space:]]*=/{print $2; exit}' src/celesto/images/published.py)
+          if [ "$ARCH" = arm64 ]; then
+            kernel_tag=$(awk -F'"' '/^ARM_KERNELS_RELEASE_TAG[[:space:]]*=/{print $2; exit}' src/celesto/images/published.py)
+          fi
+          test -n "$kernel_tag"
+          gh release download "$kernel_tag" \
               --repo "$GITHUB_REPOSITORY" \
               --pattern "vmlinux-${ARCH}.image" \
               -D smoke
+
+          python3 - <<'PYTHON' > "$RUNNER_TEMP/kernel.sha256"
+          import ast, os
+          from pathlib import Path
+          tree = ast.parse(Path("src/celesto/images/published.py").read_text())
+          registry = next(node.value for node in tree.body if isinstance(node, ast.AnnAssign)
+                          and isinstance(node.target, ast.Name) and node.target.id == "BASE_KERNELS")
+          entry = next(value for key, value in zip(registry.keys, registry.values)
+                       if ast.literal_eval(key) == os.environ["ARCH"])
+          digest = next(ast.literal_eval(kw.value) for kw in entry.keywords if kw.arg == "image_sha256")
+          print(f"{digest}  smoke/vmlinux-{os.environ['ARCH']}.image")
+          PYTHON
+          sha256sum -c "$RUNNER_TEMP/kernel.sha256"
 
       - name: Download rootfs
         env:

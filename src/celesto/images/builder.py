@@ -543,10 +543,10 @@ class ImageBuilder:
             ImageError: If Docker is not available or build fails.
         """
         image_dir = self.cache_dir / name
-        kernel_path = image_dir / "vmlinux.bin"
         rootfs_path = image_dir / "rootfs.ext4"
 
         resolved_kernel_url = self._resolve_kernel_url(kernel_profile, kernel_url)
+        kernel_path = self._kernel_cache_path(image_dir, resolved_kernel_url)
 
         # The /init script runs as PID 1 inside the VM and brings up SSH.
         init_script = self._default_init_script()
@@ -621,8 +621,6 @@ RUN chmod +x /init
             # Clean up partial build
             if rootfs_path.exists():
                 rootfs_path.unlink()
-            if kernel_path.exists():
-                kernel_path.unlink()
             if isinstance(e, ImageError):
                 raise
             raise ImageError(f"Image build failed: {e}") from e
@@ -652,10 +650,10 @@ RUN chmod +x /init
         key_value = self._resolve_public_key(ssh_public_key)
 
         image_dir = self.cache_dir / name
-        kernel_path = image_dir / "vmlinux.bin"
         rootfs_path = image_dir / "rootfs.ext4"
 
         resolved_kernel_url = self._resolve_kernel_url(kernel_profile, kernel_url)
+        kernel_path = self._kernel_cache_path(image_dir, resolved_kernel_url)
 
         init_script = self._default_init_script()
 
@@ -711,7 +709,6 @@ RUN chmod +x /init
 
             logger.info("Inputs changed for image '%s'. Rebuilding...", name)
             # Remove stale files
-            kernel_path.unlink(missing_ok=True)
             rootfs_path.unlink(missing_ok=True)
         elif not self.check_docker():
             raise self.docker_requirement_error()
@@ -734,8 +731,6 @@ RUN chmod +x /init
         except (subprocess.CalledProcessError, ImageError) as e:
             if rootfs_path.exists():
                 rootfs_path.unlink()
-            if kernel_path.exists():
-                kernel_path.unlink()
             if isinstance(e, ImageError):
                 raise
             raise ImageError(f"Image build failed: {e}") from e
@@ -767,10 +762,10 @@ RUN chmod +x /init
         key_value = self._resolve_public_key(ssh_public_key)
 
         image_dir = self.cache_dir / name
-        kernel_path = image_dir / "vmlinux.bin"
         rootfs_path = image_dir / "rootfs.ext4"
 
         resolved_kernel_url = self._resolve_kernel_url(kernel_profile, kernel_url)
+        kernel_path = self._kernel_cache_path(image_dir, resolved_kernel_url)
 
         init_script = self._default_init_script()
 
@@ -826,7 +821,6 @@ RUN chmod +x /init
 
             logger.info("Inputs changed for image '%s'. Rebuilding...", name)
             # Remove stale files
-            kernel_path.unlink(missing_ok=True)
             rootfs_path.unlink(missing_ok=True)
         elif not self.check_docker():
             raise self.docker_requirement_error()
@@ -849,8 +843,6 @@ RUN chmod +x /init
         except (subprocess.CalledProcessError, ImageError) as e:
             if rootfs_path.exists():
                 rootfs_path.unlink()
-            if kernel_path.exists():
-                kernel_path.unlink()
             if isinstance(e, ImageError):
                 raise
             raise ImageError(f"Image build failed: {e}") from e
@@ -883,10 +875,10 @@ RUN chmod +x /init
         key_value = self._resolve_public_key(ssh_public_key)
 
         image_dir = self.cache_dir / name
-        kernel_path = image_dir / "vmlinux.bin"
         rootfs_path = image_dir / "rootfs.ext4"
 
         resolved_kernel_url = self._resolve_kernel_url(kernel_profile, kernel_url)
+        kernel_path = self._kernel_cache_path(image_dir, resolved_kernel_url)
 
         init_script = self._default_init_script()
 
@@ -1439,7 +1431,6 @@ RUN chmod +x /init
                 return (kernel_path, rootfs_path)
 
             logger.info("Inputs changed for browser image '%s'. Rebuilding...", name)
-            kernel_path.unlink(missing_ok=True)
             rootfs_path.unlink(missing_ok=True)
 
         logger.info("Building browser image '%s'...", name)
@@ -1467,8 +1458,6 @@ RUN chmod +x /init
         except (subprocess.CalledProcessError, ImageError) as e:
             if rootfs_path.exists():
                 rootfs_path.unlink()
-            if kernel_path.exists():
-                kernel_path.unlink()
             if isinstance(e, ImageError):
                 raise
             raise ImageError(f"Image build failed: {e}") from e
@@ -1927,6 +1916,19 @@ done
         json_str = json.dumps(data, sort_keys=True)
         return hashlib.sha256(json_str.encode("utf-8")).hexdigest()
 
+    @staticmethod
+    def _kernel_cache_path(image_dir: Path, url: str) -> Path:
+        """Keep published kernel bytes stable for previously created VMs."""
+        from celesto.images.published import BASE_KERNELS, CI_KERNELS
+
+        for catalog in (BASE_KERNELS, CI_KERNELS):
+            for entry in catalog.values():
+                for fmt in ("elf", "image"):
+                    if url == entry.url_for(fmt):
+                        return image_dir / f"vmlinux-{entry.sha256_for(fmt)}.bin"
+        # Unpinned caller overrides retain their existing cache contract.
+        return image_dir / "vmlinux.bin"
+
     def _download_kernel(self, url: str, dest: Path) -> None:
         """Download kernel image to *dest*.
 
@@ -1936,28 +1938,47 @@ done
         fall back to a direct urllib fetch (no SHA — the override is the
         caller's responsibility).
         """
-        from celesto.images.published import BASE_KERNELS, ensure_base_kernel
+        from celesto.images.published import (
+            BASE_KERNELS,
+            CI_KERNELS,
+            Arch,
+            BaseKernel,
+            KernelProfile,
+            ensure_base_kernel,
+        )
 
-        # Recognise our own published kernel URLs (either format) and use the
-        # SHA-verified cached path.
-        for arch, entry in BASE_KERNELS.items():
-            if url == entry.elf_url:
-                cached = ensure_base_kernel(arch, "elf")
-                shutil.copy2(cached, dest)
-                return
-            if url == entry.image_url:
-                cached = ensure_base_kernel(arch, "image")
-                shutil.copy2(cached, dest)
-                return
+        catalogs: dict[KernelProfile, dict[Arch, BaseKernel]] = {
+            "sandbox": BASE_KERNELS,
+            "github-ci": CI_KERNELS,
+        }
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        # Publish only complete bytes. A failed rootfs rebuild must leave any
+        # kernel already referenced by a saved VM available throughout.
+        with tempfile.TemporaryDirectory(prefix=".kernel-", dir=dest.parent) as staging_dir:
+            staged = Path(staging_dir) / "kernel"
+            for profile, catalog in catalogs.items():
+                for arch, entry in catalog.items():
+                    for fmt in ("elf", "image"):
+                        if url == entry.url_for(fmt):
+                            expected = entry.sha256_for(fmt)
+                            if dest.is_file() and _sha256_file(dest) == expected:
+                                return
+                            cached = ensure_base_kernel(arch, fmt, profile=profile)
+                            shutil.copy2(cached, staged)
+                            if _sha256_file(staged) != expected:
+                                raise ImageError(f"Kernel SHA-256 mismatch for {url}")
+                            staged.replace(dest)
+                            return
 
-        try:
-            with (
-                urllib.request.urlopen(url, timeout=180) as response,
-                open(dest, "wb") as out,
-            ):
-                shutil.copyfileobj(response, out)
-        except (urllib.error.URLError, OSError) as e:
-            raise ImageError(f"Failed to download kernel from {url}: {e}") from e
+            try:
+                with (
+                    urllib.request.urlopen(url, timeout=180) as response,
+                    open(staged, "wb") as out,
+                ):
+                    shutil.copyfileobj(response, out)
+                staged.replace(dest)
+            except (urllib.error.URLError, OSError) as e:
+                raise ImageError(f"Failed to download kernel from {url}: {e}") from e
 
     def _create_ext4_with_loopfs(
         self,

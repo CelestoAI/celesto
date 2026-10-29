@@ -11,6 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
+from starlette.datastructures import State
 from starlette.routing import Mount
 
 from celesto.types import VMInfo
@@ -35,7 +36,7 @@ def test_dashboard_login_authenticates_ui_without_cross_port_cookies(
         def list_vms(self, *_args: object) -> list[VMInfo]:
             return []
 
-    monkeypatch.setattr(server.app.state, "auth_token", "browser-owner-token")
+    monkeypatch.setattr(server.app, "state", State({"auth_token": "browser-owner-token"}))
     monkeypatch.setattr(server, "_get_state_manager", lambda _app: Inventory())
     monkeypatch.setattr(server, "_get_sdk", lambda _app: object())
     monkeypatch.setattr(server, "_get_conn_manager", lambda _app: ConnectionManager())
