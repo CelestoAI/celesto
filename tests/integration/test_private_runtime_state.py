@@ -5,9 +5,13 @@ from __future__ import annotations
 import json
 import os
 import socket
+import sqlite3
 import stat
 import subprocess
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Literal
@@ -171,6 +175,80 @@ def test_cli_inventory_supports_platforms_without_nofollow_chmod(
         assert stat.S_IMODE((service.data_dir / "celesto.db").stat().st_mode) == 0o600
     finally:
         service.state_manager().close()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permits unlinking an open SQLite sidecar")
+@pytest.mark.parametrize("suffix", ["-journal", "-wal", "-shm"])
+def test_inventory_read_survives_sqlite_unlink_during_permission_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, suffix: str
+) -> None:
+    """A real SQLite commit can unlink a sidecar after pathname lookup resolved it."""
+    service = CLIService(data_dir=tmp_path / "inventory")
+    manager = service.state_manager()
+    database = service.data_dir / "celesto.db"
+    with closing(sqlite3.connect(database)) as prepare:
+        prepare.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        mode = prepare.execute(
+            "PRAGMA journal_mode = " + ("DELETE" if suffix == "-journal" else "WAL")
+        ).fetchone()[0]
+        prepare.execute("CREATE TABLE commit_probe(value INTEGER)")
+        prepare.execute("INSERT INTO commit_probe VALUES(0)")
+        prepare.commit()
+
+    ready = threading.Event()
+    commit = threading.Event()
+    committed = threading.Event()
+    sidecar = Path(str(database) + suffix)
+    observed: list[dict[str, str | int]] = []
+    original_lstat = Path.lstat
+
+    def writer() -> None:
+        try:
+            with closing(sqlite3.connect(database, isolation_level=None)) as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute("UPDATE commit_probe SET value=1")
+                ready.set()
+                assert commit.wait(10), "Permission check did not reach the sidecar"
+                connection.commit()
+        finally:
+            committed.set()
+
+    def commit_during_stat(path: Path, *args: Any, **kwargs: Any) -> os.stat_result:
+        if path != sidecar or observed:
+            return original_lstat(path, *args, **kwargs)
+        # Hold the resolved inode while SQLite performs its normal unlink.
+        # No main-database descriptor is opened/closed, preserving SQLite locks.
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            commit.set()
+            assert committed.wait(10), "SQLite did not finish its native commit"
+            info = os.fstat(descriptor)
+            assert stat.S_ISREG(info.st_mode)
+            assert info.st_uid == os.geteuid()
+            assert info.st_nlink == 0
+            observed.append(
+                {"suffix": suffix, "links": info.st_nlink, "mode": oct(stat.S_IMODE(info.st_mode))}
+            )
+            return info
+        finally:
+            os.close(descriptor)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(writer)
+        try:
+            assert ready.wait(10), "SQLite writer did not create its journal"
+            monkeypatch.setattr(Path, "lstat", commit_during_stat)
+            assert manager.list_vms() == []
+        finally:
+            commit.set()
+            future.result(timeout=15)
+            manager.close()
+    assert len(observed) == 1
+    with closing(sqlite3.connect(database)) as reader:
+        assert reader.execute("SELECT value FROM commit_probe").fetchone()[0] == 1
+    (tmp_path / "inventory-unlink-race.json").write_text(
+        json.dumps({"journal_mode": mode, "observed": observed, "commit_preserved": True})
+    )
 
 
 def test_manager_close_attempts_other_guests_and_retains_failed_proxy(

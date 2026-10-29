@@ -124,6 +124,18 @@ class SQLiteStateManager:
                 else:
                     os.close(descriptor)
                 info = path.lstat()
+            disappeared = False
+            # SQLite may unlink a sidecar after lookup resolved its inode.
+            # Re-read the current entry: a replacement must still pass every
+            # ownership/link check, while a removed sidecar needs no chmod.
+            while suffix and info.st_nlink == 0:
+                try:
+                    info = path.lstat()
+                except FileNotFoundError:
+                    disappeared = True
+                    break
+            if disappeared:
+                continue
             if not stat.S_ISREG(info.st_mode) or info.st_uid not in owners or info.st_nlink != 1:
                 raise PermissionError(f"Celesto cannot use an unsafe saved-data file: '{path}'.")
             # The trusted, non-writable directory prevents other accounts from
