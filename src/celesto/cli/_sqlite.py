@@ -446,22 +446,30 @@ class SQLiteStateManager:
         logger.info("Updated VM %s: status=%s, pid=%s", vm_id, status, pid)
         return self.get_vm(vm_id)
 
-    def mark_vm_error_if_pid(self, vm_id: str, pid: int) -> tuple[VMInfo, bool]:
-        """Mark a computer as failed only if its row still records *pid*.
+    def set_vm_status_if_pid(
+        self,
+        vm_id: str,
+        pid: int | None,
+        status: VMState,
+        *,
+        clear_pid: bool = False,
+    ) -> tuple[VMInfo, bool]:
+        """Set a running or paused computer's status only if its row still records *pid*.
 
-        A health check that saw *pid* die must not overwrite a newer
-        runtime that replaced it. Returns the current row and whether it
-        was changed.
+        A caller acting on an older read must not overwrite a stop, restart
+        or newer runtime that happened since. Returns the current row and
+        whether it was changed.
         """
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
 
+        pid_update = "pid = NULL, " if clear_pid else ""
         with self._get_connection(exclusive=True) as conn:
             result = conn.execute(
-                "UPDATE vms SET status = ?, pid = NULL, updated_at = ? "
-                "WHERE id = ? AND pid = ? AND status IN (?, ?)",
+                f"UPDATE vms SET status = ?, {pid_update}updated_at = ? "
+                "WHERE id = ? AND pid IS ? AND status IN (?, ?)",
                 (
-                    VMState.ERROR.value,
+                    status.value,
                     now_iso(),
                     vm_id,
                     pid,
@@ -472,7 +480,7 @@ class SQLiteStateManager:
             changed = result.rowcount > 0
 
         if changed:
-            logger.info("Marked VM %s as error after pid %s exited", vm_id, pid)
+            logger.info("Updated VM %s: status=%s while pid %s still matched", vm_id, status, pid)
         return self.get_vm(vm_id), changed
 
     def delete_vm(self, vm_id: str) -> None:

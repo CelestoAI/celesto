@@ -32,6 +32,16 @@ Ways each case can fail, written before the fix:
    runtime as failed and clears its process ID.
 5. Prune after the disk changes owner: prune deletes a disk that a recreated
    computer with the same name now uses.
+6. Cancelling an async start after QEMU launched: the lifecycle lock is
+   released while the launch is still running, the row keeps no process ID,
+   and the guest keeps running untracked. A later start then fights it for
+   the disk.
+7. Cancelling an async stop: the lock is released while QEMU is still
+   stopping, and the row still says "running" with a dead process ID.
+8. Cancelling an async delete: the lock is released while files are still
+   being removed, and the row survives with its disk gone.
+9. Stopping during a snapshot: the snapshot finishes afterwards and marks the
+   stopped computer "paused" with no process, so it can no longer start.
 
 Every test writes a JSON report of what happened, in order, to
 ``$CELESTO_E2E_ARTIFACT_DIR`` (or pytest's temporary folder), and checks that
@@ -44,6 +54,7 @@ import asyncio
 import json
 import os
 import platform
+import signal
 import subprocess
 import tempfile
 import threading
@@ -179,6 +190,10 @@ def live_case(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[LiveCa
                 manager.delete_snapshot(snapshot.snapshot_id)
         leftover_processes = _runtime_processes(data)
         report.facts["runtime_processes_after_cleanup"] = leftover_processes
+        # Fail below, but never leave a stray guest running on this machine.
+        for line in leftover_processes:
+            with suppress(ValueError, OSError):
+                os.kill(int(line.split(maxsplit=1)[0]), signal.SIGKILL)
         artifact_dir = Path(os.environ.get(ARTIFACT_DIR_ENV) or tmp_path)
         artifact = report.write(artifact_dir, f"{request.node.name}-{name}")
         print(f"lifecycle coordination report: {artifact}")
@@ -531,3 +546,242 @@ def test_prune_rechecks_ownership_before_deleting(
     assert str(disk) not in removed
     assert disk.exists(), "prune deleted the disk a recreated computer uses"
     assert answers
+
+
+# ---------------------------------------------------------------------------
+# 6-8. Cancelling an async operation finishes it before releasing the lock
+# ---------------------------------------------------------------------------
+
+
+def _lifecycle_lock_free(manager: CelestoManager, vm_id: str) -> bool:
+    """Return whether another caller could take *vm_id*'s lifecycle lock now."""
+    try:
+        lock = manager._acquire_operation_lock(
+            manager._lifecycle_lock_name(vm_id), timeout=0, vm_id=vm_id
+        )
+    except CelestoError:
+        return False
+    manager._release_vm_create_lock(lock)
+    return True
+
+
+def _row(state: SQLiteStateManager, vm_id: str) -> dict[str, Any]:
+    try:
+        info = state.get_vm(vm_id)
+    except VMNotFoundError:
+        return {"exists": False}
+    return {"exists": True, "status": info.status.value, "pid": info.pid}
+
+
+async def _cancel_while_gated(
+    case: LiveCase, gate: Gate, operation: Callable[[], Any]
+) -> tuple[dict[str, Any], str]:
+    """Cancel *operation* while *gate* holds its real work, then let it finish.
+
+    Returns what another caller could see while the work was held, and how
+    the cancelled call ended.
+    """
+    task = asyncio.ensure_future(operation())
+    entered = await asyncio.to_thread(gate.entered.wait, GATE_TIMEOUT)
+    assert entered, "the operation never reached its gated step"
+    task.cancel()
+    case.report.event("cancel_requested")
+    done, _pending = await asyncio.wait({task}, timeout=BLOCKED_SECONDS)
+    held = {
+        "returned_before_work_finished": bool(done),
+        "lock_free_while_work_runs": _lifecycle_lock_free(case.manager, case.name),
+        "row_while_work_runs": _row(case.state, case.name),
+    }
+    case.report.event("while_work_held", **held)
+    gate.released.set()
+    try:
+        await task
+    except asyncio.CancelledError:
+        ended = "cancelled"
+    except Exception as exc:  # noqa: BLE001 - reported by the test
+        ended = repr(exc)
+    else:
+        ended = "returned"
+    case.report.event("cancelled_call_ended", ended=ended)
+    return held, ended
+
+
+def _assert_finished_before_releasing(held: dict[str, Any], ended: str) -> None:
+    assert not held["returned_before_work_finished"], (
+        "the cancelled call returned while its work was still running"
+    )
+    assert not held["lock_free_while_work_runs"], (
+        "the lifecycle lock was released while the work was still running"
+    )
+    assert ended == "cancelled", f"the cancelled call ended with {ended}"
+
+
+def _assert_starts_cleanly(case: LiveCase) -> None:
+    """A fresh start boots exactly one answering guest."""
+    handle = case.handle()
+    handle.start(boot_timeout=BOOT_TIMEOUT)
+    handle.wait_for_ready(timeout=BOOT_TIMEOUT)
+    info = case.manager.get(case.name)
+    guests = _runtime_processes(case.data_dir)
+    answers = _guest_answers(handle)
+    case.report.event(
+        "started_again",
+        status=info.status.value,
+        pid=info.pid,
+        guest_processes=len(guests),
+        guest_answers=answers,
+    )
+    assert info.status == VMState.RUNNING
+    assert _pid_alive(info.pid)
+    assert len(guests) == 1, f"expected one guest process, found: {guests}"
+    assert answers
+
+
+def test_cancelled_async_start_stops_the_launched_guest(
+    live_case: LiveCase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case, report = live_case, live_case.report
+    case.manager.create(case.config)
+    gate = Gate()
+    original_start = QemuRuntimeAdapter.start
+
+    def gated_start(self: QemuRuntimeAdapter, vm_info: Any, **kw: Any) -> Any:
+        launch = original_start(self, vm_info, **kw)
+        if vm_info.vm_id == case.name:
+            report.event("guest_launched", pid=launch.pid, pid_alive=_pid_alive(launch.pid))
+            gate.hold_once()
+        return launch
+
+    monkeypatch.setattr(QemuRuntimeAdapter, "start", gated_start)
+
+    held, ended = asyncio.run(
+        _cancel_while_gated(
+            case, gate, lambda: case.manager.async_start(case.name, boot_timeout=BOOT_TIMEOUT)
+        )
+    )
+    after = _row(case.state, case.name)
+    guests = _runtime_processes(case.data_dir)
+    report.facts.update(held=held, ended=ended, row_after=after, guests_after=guests)
+
+    _assert_finished_before_releasing(held, ended)
+    assert after == {"exists": True, "status": "stopped", "pid": None}
+    assert guests == [], f"cancelled start left a guest running: {guests}"
+    monkeypatch.undo()
+    _assert_starts_cleanly(case)
+
+
+def test_cancelled_async_stop_finishes_stopping(
+    live_case: LiveCase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case, report = live_case, live_case.report
+    _boot(case)
+    gate = Gate()
+    original_stop = QemuRuntimeAdapter.stop
+
+    def gated_stop(self: QemuRuntimeAdapter, vm_info: Any, **kw: Any) -> None:
+        original_stop(self, vm_info, **kw)
+        if vm_info.vm_id == case.name:
+            report.event("guest_stopped", pid=vm_info.pid, pid_alive=_pid_alive(vm_info.pid))
+            gate.hold_once()
+
+    monkeypatch.setattr(QemuRuntimeAdapter, "stop", gated_stop)
+
+    held, ended = asyncio.run(
+        _cancel_while_gated(case, gate, lambda: case.manager.async_stop(case.name, timeout=3.0))
+    )
+    after = _row(case.state, case.name)
+    guests = _runtime_processes(case.data_dir)
+    report.facts.update(held=held, ended=ended, row_after=after, guests_after=guests)
+
+    _assert_finished_before_releasing(held, ended)
+    assert after == {"exists": True, "status": "stopped", "pid": None}
+    assert guests == []
+    monkeypatch.undo()
+    _assert_starts_cleanly(case)
+
+
+def test_cancelled_async_delete_finishes_deleting(
+    live_case: LiveCase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case, report = live_case, live_case.report
+    _boot(case)
+    disks = [path for path in case.manager.leftover_paths_for_vm(case.name) if path.exists()]
+    report.facts["disks"] = [str(path) for path in disks]
+    assert disks, "the computer has no disk to delete"
+    gate = Gate()
+    original_cleanup = CelestoManager._cleanup_vm_artifacts
+
+    def gated_cleanup(self: CelestoManager, vm_id: str, *args: Any, **kw: Any) -> None:
+        if vm_id == case.name:
+            report.event("delete_removing_files")
+            gate.hold_once()
+        original_cleanup(self, vm_id, *args, **kw)
+
+    monkeypatch.setattr(CelestoManager, "_cleanup_vm_artifacts", gated_cleanup)
+
+    held, ended = asyncio.run(
+        _cancel_while_gated(case, gate, lambda: case.manager.async_delete(case.name))
+    )
+    after = _row(case.state, case.name)
+    disks_after = [str(path) for path in disks if path.exists()]
+    guests = _runtime_processes(case.data_dir)
+    report.facts.update(
+        held=held, ended=ended, row_after=after, disks_after=disks_after, guests_after=guests
+    )
+
+    _assert_finished_before_releasing(held, ended)
+    assert after == {"exists": False}, "cancelled delete left the computer's row behind"
+    assert disks_after == []
+    assert guests == []
+
+
+# ---------------------------------------------------------------------------
+# 9. A snapshot does not revive a computer stopped while it was captured
+# ---------------------------------------------------------------------------
+
+
+def test_stop_during_snapshot_keeps_the_computer_stopped(
+    live_case: LiveCase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case, report = live_case, live_case.report
+    _boot(case)
+    gate = Gate()
+    original_capture = QemuRuntimeAdapter.create_snapshot
+
+    def gated_capture(self: QemuRuntimeAdapter, request: Any) -> Any:
+        result = original_capture(self, request)
+        if request.vm_info.vm_id == case.name:
+            report.event("snapshot_captured", source_status=result.source_status.value)
+            gate.hold_once()
+        return result
+
+    monkeypatch.setattr(QemuRuntimeAdapter, "create_snapshot", gated_capture)
+
+    snapshot_thread, snapshot = _in_thread(
+        lambda: case.manager.create_snapshot(
+            case.name, snapshot_type=SnapshotType.DISK, resume_source=True
+        )
+    )
+    assert gate.entered.wait(GATE_TIMEOUT), "snapshot never finished capturing"
+    case.manager.stop(case.name, timeout=3.0)
+    stopped = _row(case.state, case.name)
+    report.event("stopped_during_snapshot", row=stopped)
+
+    gate.released.set()
+    snapshot_thread.join(GATE_TIMEOUT)
+    after = _row(case.state, case.name)
+    snapshots = [item.snapshot_id for item in case.manager.list_snapshots(vm_id=case.name)]
+    report.event(
+        "snapshot_finished",
+        error=repr(snapshot.get("error")),
+        row=after,
+        snapshots=snapshots,
+    )
+    report.facts.update(row_after_stop=stopped, row_after_snapshot=after, snapshots=snapshots)
+
+    assert stopped == {"exists": True, "status": "stopped", "pid": None}
+    assert "error" not in snapshot, f"snapshot failed: {snapshot.get('error')!r}"
+    assert snapshot["result"].snapshot_id in snapshots
+    assert after == stopped, "the snapshot overwrote the stop that ran during it"
+    monkeypatch.undo()
+    _assert_starts_cleanly(case)

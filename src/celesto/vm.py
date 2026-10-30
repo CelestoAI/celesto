@@ -40,11 +40,11 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, TextIO, cast
+from typing import Any, Literal, TextIO, TypeVar, cast
 from uuid import uuid4
 
 from celesto._compat import existing_legacy_path
@@ -135,6 +135,8 @@ def _reject_external_qcow2_files(path: Path) -> None:
 
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 # Default paths
 DEFAULT_DATA_DIR_ENV = "CELESTO_DATA_DIR"
@@ -490,30 +492,39 @@ def _forget_held_lock(path: Path, token: _HeldOperationLock) -> None:
         del held[str(path)]
 
 
-async def _finish_thread_despite_cancel(func: Any, *args: Any) -> Any:
-    """Run *func* on a worker thread and wait for it even if cancelled.
+async def _wait_despite_cancel(work: Awaitable[_T]) -> tuple[_T, bool]:
+    """Wait for *work* to finish even if the caller is cancelled meanwhile.
 
     Cancelling a coroutine cannot stop a worker thread. Callers hold a
     lifecycle lock around this, so returning early would release the lock
-    while the thread is still changing the computer. Wait for the thread,
-    then re-raise the cancellation.
+    while the thread is still changing the computer. Returns the result and
+    whether a cancellation arrived, so the caller can record what the work
+    did before re-raising it.
     """
-    task = asyncio.ensure_future(asyncio.to_thread(func, *args))
+    task = asyncio.ensure_future(work)
     cancelled = False
     while True:
         try:
-            result = await asyncio.shield(task)
-            break
+            return await asyncio.shield(task), cancelled
         except asyncio.CancelledError:
             if task.cancelled():
                 raise
-            if task.done():
-                result = task.result()
-                break
             cancelled = True
+            if task.done():
+                return task.result(), cancelled
+
+
+async def _finish_despite_cancel(work: Awaitable[_T]) -> _T:
+    """Wait for *work* to finish, then re-raise any cancellation."""
+    result, cancelled = await _wait_despite_cancel(work)
     if cancelled:
         raise asyncio.CancelledError
     return result
+
+
+async def _finish_thread_despite_cancel(func: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
+    """Run *func* on a worker thread and finish it even if cancelled."""
+    return await _finish_despite_cancel(asyncio.to_thread(func, *args, **kwargs))
 
 
 class CelestoManager:
@@ -3466,14 +3477,16 @@ class CelestoManager:
                     adapter.resume(vm_info)
                 except Exception:
                     logger.exception(
-                        "Snapshot %s was created, but sandbox %s could not be resumed; "
-                        "leaving it paused",
+                        "Snapshot %s was created, but sandbox %s could not be resumed",
                         snapshot_id,
                         vm_id,
                     )
                 else:
                     source_status = VMState.RUNNING
-            self.state.update_vm(vm_id, status=source_status)
+            # Snapshots do not hold the lifecycle lock, so a stop or restart may
+            # have run during the capture. Write the status back only if the
+            # row still records the process that was captured.
+            self._set_status_if_pid(vm_id, vm_info.pid, source_status)
             return snapshot_info
         except Exception as original_error:
             snapshot_dir_removed = False
@@ -3503,7 +3516,7 @@ class CelestoManager:
             ):
                 with suppress(Exception):
                     adapter.resume(vm_info)
-                    self.state.update_vm(vm_id, status=VMState.RUNNING)
+                    self._set_status_if_pid(vm_id, vm_info.pid, VMState.RUNNING)
             if rollback_error is not None:
                 raise rollback_error from original_error
             raise
@@ -3956,6 +3969,29 @@ class CelestoManager:
                     snapshots[snapshot_id] = snapshot
         return sorted(snapshots.values(), key=lambda item: item.created_at)
 
+    def _set_status_if_pid(
+        self,
+        vm_id: str,
+        pid: int | None,
+        status: VMState,
+        *,
+        clear_pid: bool = False,
+    ) -> tuple[VMInfo, bool]:
+        """Set a running or paused computer's status only if its row still records *pid*.
+
+        Returns the current row and whether it was changed. Custom state
+        managers without ``set_vm_status_if_pid`` get a read-then-write,
+        which narrows the race but cannot close it.
+        """
+        conditional = getattr(self.state, "set_vm_status_if_pid", None)
+        if conditional is not None:
+            result: tuple[VMInfo, bool] = conditional(vm_id, pid, status, clear_pid=clear_pid)
+            return result
+        current = self.state.get_vm(vm_id)
+        if current.pid != pid or current.status not in (VMState.RUNNING, VMState.PAUSED):
+            return current, False
+        return self.state.update_vm(vm_id, status=status, clear_pid=clear_pid), True
+
     def refresh_status(self, vm_info: VMInfo) -> VMInfo:
         """Detect a dead VM process and demote the DB row to ERROR.
 
@@ -3972,21 +4008,9 @@ class CelestoManager:
         if self._is_process_running(vm_info.pid):
             return vm_info
         # vm_info may be stale: only demote the row if it still records this PID.
-        conditional = getattr(self.state, "mark_vm_error_if_pid", None)
-        if conditional is not None:
-            current, changed = conditional(vm_info.vm_id, vm_info.pid)
-        else:
-            current = self.state.get_vm(vm_info.vm_id)
-            changed = current.pid == vm_info.pid and current.status in (
-                VMState.RUNNING,
-                VMState.PAUSED,
-            )
-            if changed:
-                current = self.state.update_vm(
-                    vm_info.vm_id,
-                    status=VMState.ERROR,
-                    clear_pid=True,
-                )
+        current, changed = self._set_status_if_pid(
+            vm_info.vm_id, vm_info.pid, VMState.ERROR, clear_pid=True
+        )
         if changed:
             logger.warning("VM %s pid %d is gone; marking ERROR.", vm_info.vm_id, vm_info.pid)
         else:
@@ -5386,18 +5410,20 @@ class CelestoManager:
 
         backend = self._backend_for_vm(vm_info)
         self._validate_network_policy(vm_info.config, backend)
+        # Host network repairs run on worker threads; finish them before a
+        # cancellation releases the lifecycle lock.
         if (
             vm_info.config.internet_settings is not None
             and vm_info.config.internet_settings.has_explicit_restrictions
         ):
-            await asyncio.to_thread(self.ensure_network_connectivity, vm_info)
+            await _finish_thread_despite_cancel(self.ensure_network_connectivity, vm_info)
 
         if backend == BACKEND_VZ:
             self._enforce_macos_concurrency_limit(vm_id)
 
         # Bridge mode: revalidate every dependency and repair the owned TAP.
         if vm_info.network is not None and vm_info.network.mode == "bridge":
-            await asyncio.to_thread(
+            await _finish_thread_despite_cancel(
                 self._ensure_bridge_ready,
                 vm_id,
                 vm_info.network,
@@ -5411,25 +5437,12 @@ class CelestoManager:
         adapter = self._runtime_adapter_for_backend(backend)
         try:
             vm_info = self._prepare_public_egress(vm_info)
-            cancelled = False
-            if vm_id in self._public_egress:
-                # QEMU startup runs in a worker thread. Cancellation must not
-                # abandon that thread and release its still-running guest's proxy.
-                launch_task = asyncio.create_task(
-                    adapter.async_start(vm_info, log_path=log_path, boot_timeout=boot_timeout)
-                )
-                while True:
-                    try:
-                        launch = await asyncio.shield(launch_task)
-                        break
-                    except asyncio.CancelledError:
-                        if launch_task.cancelled():
-                            raise
-                        cancelled = True
-            else:
-                launch = await adapter.async_start(
-                    vm_info, log_path=log_path, boot_timeout=boot_timeout
-                )
+            # Cancellation cannot stop the launch's worker thread. Wait for the
+            # guest, record it, then stop it before re-raising, so a cancelled
+            # start never leaves a guest running untracked.
+            launch, cancelled = await _wait_despite_cancel(
+                adapter.async_start(vm_info, log_path=log_path, boot_timeout=boot_timeout)
+            )
             if vm_id in self._public_egress:
                 self._unrecorded_public_launches[vm_id] = vm_info.model_copy(
                     update={
@@ -5461,7 +5474,8 @@ class CelestoManager:
             logger.error("Failed to start VM %s: %s", vm_id, e)
             pending = self._unrecorded_public_launches.get(vm_id)
             if pending is not None:
-                await adapter.async_stop(pending, timeout=10.0)
+                # Finish the rollback even if cancelled; the start error is raised below.
+                await _wait_despite_cancel(adapter.async_stop(pending, timeout=10.0))
                 del self._unrecorded_public_launches[vm_id]
             self._stop_public_egress(vm_id)
             self.state.update_vm(
@@ -5494,7 +5508,12 @@ class CelestoManager:
             return vm_info
 
         backend = self._backend_for_vm(vm_info)
-        await self._runtime_adapter_for_backend(backend).async_stop(vm_info, timeout=timeout)
+        # Cancellation cannot stop the stop's worker thread. Finish it and
+        # record the stopped guest before re-raising, so the row never keeps
+        # a process that is gone.
+        _, cancelled = await _wait_despite_cancel(
+            self._runtime_adapter_for_backend(backend).async_stop(vm_info, timeout=timeout)
+        )
         self._unrecorded_public_launches.pop(vm_id, None)
         self._stop_public_egress(vm_id)
         self._close_runtime_log(vm_id, backend, vm_info.control_socket_path)
@@ -5506,6 +5525,8 @@ class CelestoManager:
             clear_display=True,
         )
         logger.info("VM stopped (async): %s (backend=%s)", vm_id, backend)
+        if cancelled:
+            raise asyncio.CancelledError
         return vm_info
 
     async def async_delete(self, vm_id: str) -> None:
@@ -5514,7 +5535,9 @@ class CelestoManager:
 
         with self._vm_operation_guard(vm_id, "delete"):
             async with self._async_lifecycle_lock(vm_id):
-                await self._async_delete_claimed(vm_id)
+                # A deletion cannot be undone halfway, so finish it before a
+                # cancellation releases the lock.
+                await _finish_despite_cancel(self._async_delete_claimed(vm_id))
 
     async def _async_delete_claimed(self, vm_id: str) -> None:
         """Async delete after claiming the VM and taking its lifecycle lock.
