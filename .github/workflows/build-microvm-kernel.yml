@@ -254,7 +254,9 @@ jobs:
           # doesn't go unnoticed across PRs. The .config artifact has no
           # pin (it's a debugging aid, not a runtime input), so it's
           # skipped silently.
-          assets="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq '.assets[] | [.name, .digest] | @tsv')"
+          # The REST lookup by tag returns 404 for drafts. The release CLI
+          # resolves drafts too, so qualification can precede publication.
+          assets="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[] | [.name, .digest] | @tsv')"
           existing="$(printf '%s\n' "$assets" | cut -f1)"
           tag_constant=KERNELS_RELEASE_TAG
           if [ "$ARCH" = "arm64" ]; then tag_constant=ARM_KERNELS_RELEASE_TAG; fi
