@@ -889,17 +889,26 @@ def test_inventory_files_are_private(tmp_path: Path, existing: bool) -> None:
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX filesystem permissions")
-@pytest.mark.parametrize("link_kind", ["symlink", "hardlink", "writable-parent"])
-def test_inventory_refuses_unsafe_locations(tmp_path: Path, link_kind: str) -> None:
+@pytest.mark.parametrize(
+    ("link_kind", "suffix"),
+    [
+        (kind, suffix)
+        for kind in ("symlink", "hardlink")
+        for suffix in ("", "-journal", "-wal", "-shm")
+    ]
+    + [("writable-parent", "")],
+)
+def test_inventory_refuses_unsafe_locations(tmp_path: Path, link_kind: str, suffix: str) -> None:
     victim = tmp_path / "existing.db"
     StateManager(victim)
     victim.chmod(0o644)
     before = victim.read_bytes()
     path = tmp_path / "inventory.db"
+    linked = Path(str(path) + suffix)
     if link_kind == "symlink":
-        path.symlink_to(victim)
+        linked.symlink_to(victim)
     elif link_kind == "hardlink":
-        path.hardlink_to(victim)
+        linked.hardlink_to(victim)
     else:
         parent = tmp_path / "shared"
         parent.mkdir(mode=0o777)

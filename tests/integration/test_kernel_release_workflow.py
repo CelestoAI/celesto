@@ -13,7 +13,13 @@ import yaml
 
 @pytest.mark.parametrize(
     "draft,force,corrupt",
-    [(False, True, False), (True, True, False), (False, False, False), (False, False, True)],
+    [
+        (False, True, False),
+        (True, True, False),
+        (True, False, False),
+        (False, False, False),
+        (False, False, True),
+    ],
 )
 def test_kernel_upload_preserves_published_release(
     tmp_path: Path, draft: bool, force: bool, corrupt: bool
@@ -44,8 +50,11 @@ if args[:2] == ["release", "view"]:
     if "isDraft" in args:
         print(os.environ["RELEASE_DRAFT"])
     elif "assets" in args:
-        print("\n".join(p.name for p in Path(os.environ["RELEASED"]).iterdir()))
+        for asset in Path(os.environ["RELEASED"]).iterdir():
+            print(asset.name + "\tsha256:" + hashlib.sha256(asset.read_bytes()).hexdigest())
 elif args[0] == "api":
+    if os.environ["RELEASE_DRAFT"] == "true":
+        sys.exit("gh: Not Found (HTTP 404)")
     for asset in Path(os.environ["RELEASED"]).iterdir():
         print(asset.name + "\tsha256:" + hashlib.sha256(asset.read_bytes()).hexdigest())
 elif args[:2] == ["release", "upload"]:

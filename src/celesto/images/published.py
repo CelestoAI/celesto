@@ -178,8 +178,8 @@ def _release_asset_url(preset: Preset, arch: Arch, suffix: str, os: Os = "ubuntu
 
 # Kernels have an independent release cadence from preset root filesystems.
 KERNELS_RELEASE_TAG = "kernels-2026.10.28.0"
-# ARM sandbox kernels retain their independently pinned release.
-ARM_KERNELS_RELEASE_TAG = "images-2026.10.25.0"
+# ARM sandbox kernels have an independently qualified Linux 7.3 release.
+ARM_KERNELS_RELEASE_TAG = "kernels-arm64-2026.10.29.0"
 KernelProfile = Literal["sandbox", "github-ci"]
 
 
@@ -222,9 +222,9 @@ BASE_KERNELS: dict[Arch, BaseKernel] = {
     "arm64": BaseKernel(
         arch="arm64",
         elf_url=_release_kernel_url("arm64", "elf"),
-        elf_sha256="1b69b9b01de2917ee62343fc868863f299cf789af4eadba594b6850fe39e3dc1",
+        elf_sha256="ca73ff604c483f0206b469c37bf7d9622bde9625f4c5ab9a917045c21c61bdea",
         image_url=_release_kernel_url("arm64", "image"),
-        image_sha256="8e9a859dde8280090cbc7d5cea6e2bb863dbea58edb56815f8e387a8eb4b88dc",
+        image_sha256="c6c9005b4c340c8c2b46922c33f56f064a580a650a31a7305ab9bbdcb117aa28",
     ),
 }
 
