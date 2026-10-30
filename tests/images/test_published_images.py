@@ -1055,7 +1055,7 @@ class TestBundledManifest:
             kernel_tag = (
                 published_module.KERNELS_RELEASE_TAG
                 if entry.arch == "amd64"
-                else "images-2026.10.25.0"
+                else "kernels-arm64-2026.10.29.0"
             )
             assert f"/{kernel_tag}/" in entry.kernel_url, (
                 f"{key} kernel_url doesn't reference /{kernel_tag}/"
