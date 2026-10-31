@@ -22,6 +22,8 @@ from __future__ import annotations
 import asyncio
 import atexit
 import base64
+import errno
+import hashlib
 import json
 import logging
 import math
@@ -38,11 +40,11 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, TextIO, cast
+from typing import Any, Literal, TextIO, TypeVar, cast
 from uuid import uuid4
 
 from celesto._compat import existing_legacy_path
@@ -133,6 +135,8 @@ def _reject_external_qcow2_files(path: Path) -> None:
 
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 # Default paths
 DEFAULT_DATA_DIR_ENV = "CELESTO_DATA_DIR"
@@ -230,6 +234,10 @@ def _qemu_install_hint() -> str:
 QEMU_GATEWAY_IP = "10.0.2.2"
 QEMU_NETMASK = "255.255.255.0"
 SNAPSHOT_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}[a-z0-9]$|^[a-z0-9]$")
+
+# Bounded polling: a waiter never parks a thread and can always be cancelled.
+OPERATION_LOCK_TIMEOUT_SECONDS = 30.0
+OPERATION_LOCK_POLL_SECONDS = 0.05
 
 # Backends that reach the user-mode ("usernet") branch bring their own
 # built-in NAT with fixed addresses: QEMU uses slirp's 10.0.2.0/24 and
@@ -430,6 +438,93 @@ def _vsock_not_supported_message(
         f"Cannot use vsock for computer '{vm_id}': {reason}; "
         f"create it with SSH by running: {recovery_command}."
     )
+
+
+@dataclass
+class _HeldOperationLock:
+    """One held operation lock, with its per-thread reuse count.
+
+    ``flock`` excludes by open file description, so re-opening a lock file
+    in the same process conflicts with ourselves. A method that already
+    holds a lock and calls another locked method therefore reuses this
+    token instead of taking the file a second time.
+    """
+
+    fcntl_module: Any | None
+    lock_file: TextIO | None
+    # Kept here because a file opened with ``os.fdopen`` reports its
+    # descriptor, not its path, as ``name``.
+    path: Path | None = None
+    depth: int = 1
+
+
+def _lock_component(name: str) -> str:
+    """Return *name* if it is safe inside a lock-file name, else a stable hash.
+
+    Valid computer and snapshot names keep readable lock files. Anything
+    else (a path, "..", a slash) cannot name a real computer, so it maps to
+    a hash instead of a path outside the lock folder.
+    """
+    if SNAPSHOT_ID_PATTERN.fullmatch(name):
+        return name
+    return "id-" + hashlib.sha256(name.encode("utf-8", "surrogateescape")).hexdigest()[:32]
+
+
+# Locks held by the current thread (sync only), so nested locked calls re-enter.
+_held_operation_locks = threading.local()
+
+
+def _held_lock_for(path: Path) -> _HeldOperationLock | None:
+    held: dict[str, _HeldOperationLock] = getattr(_held_operation_locks, "by_path", {})
+    return held.get(str(path))
+
+
+def _record_held_lock(path: Path, token: _HeldOperationLock) -> None:
+    held: dict[str, _HeldOperationLock] = getattr(_held_operation_locks, "by_path", None) or {}
+    held[str(path)] = token
+    _held_operation_locks.by_path = held
+
+
+def _forget_held_lock(path: Path, token: _HeldOperationLock) -> None:
+    """Drop *token* from this thread's registry, but never another caller's entry."""
+    held: dict[str, _HeldOperationLock] = getattr(_held_operation_locks, "by_path", {})
+    if held.get(str(path)) is token:
+        del held[str(path)]
+
+
+async def _wait_despite_cancel(work: Awaitable[_T]) -> tuple[_T, bool]:
+    """Wait for *work* to finish even if the caller is cancelled meanwhile.
+
+    Cancelling a coroutine cannot stop a worker thread. Callers hold a
+    lifecycle lock around this, so returning early would release the lock
+    while the thread is still changing the computer. Returns the result and
+    whether a cancellation arrived, so the caller can record what the work
+    did before re-raising it.
+    """
+    task = asyncio.ensure_future(work)
+    cancelled = False
+    while True:
+        try:
+            return await asyncio.shield(task), cancelled
+        except asyncio.CancelledError:
+            if task.cancelled():
+                raise
+            cancelled = True
+            if task.done():
+                return task.result(), cancelled
+
+
+async def _finish_despite_cancel(work: Awaitable[_T]) -> _T:
+    """Wait for *work* to finish, then re-raise any cancellation."""
+    result, cancelled = await _wait_despite_cancel(work)
+    if cancelled:
+        raise asyncio.CancelledError
+    return result
+
+
+async def _finish_thread_despite_cancel(func: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
+    """Run *func* on a worker thread and finish it even if cancelled."""
+    return await _finish_despite_cancel(asyncio.to_thread(func, *args, **kwargs))
 
 
 class CelestoManager:
@@ -777,66 +872,272 @@ class CelestoManager:
             return
         raise VMAlreadyExistsError(vm_id)
 
-    def _acquire_operation_lock(self, lock_name: str) -> tuple[Any | None, TextIO | None]:
-        """Acquire one named cross-process operation lock."""
+    def _operation_lock_busy_error(
+        self,
+        lock_name: str,
+        vm_id: str | None,
+        snapshot_id: str | None = None,
+    ) -> CelestoError:
+        """Build the product copy shown when another operation holds a lock."""
+        details = {
+            "vm_id": vm_id,
+            "snapshot_id": snapshot_id,
+            "lock": lock_name,
+            "reason": "operation_in_progress",
+        }
+        if vm_id is None and snapshot_id is not None:
+            return CelestoError(
+                f"Snapshot '{snapshot_id}' is in use by another operation. "
+                f"Retry in a moment, or run 'celesto computer snapshot list' to check it.",
+                details,
+            )
+        name = vm_id or lock_name.split(".", 1)[0]
+        return CelestoError(
+            f"Computer '{name}' is busy with another operation. Retry in a moment, "
+            f"or run 'celesto computer list' to check its state.",
+            details,
+        )
+
+    @staticmethod
+    def _lock_is_busy(exc: OSError) -> bool:
+        """Return whether a failed non-blocking flock means 'someone holds it'."""
+        return exc.errno in {errno.EAGAIN, errno.EACCES, errno.EWOULDBLOCK}
+
+    def _acquire_operation_lock(
+        self,
+        lock_name: str,
+        *,
+        timeout: float | None = OPERATION_LOCK_TIMEOUT_SECONDS,
+        vm_id: str | None = None,
+        snapshot_id: str | None = None,
+    ) -> _HeldOperationLock:
+        """Acquire one named cross-process operation lock, polling until *timeout*.
+
+        Acquisition never blocks a thread on ``flock``: it tries a
+        non-blocking lock, sleeps briefly while another process or thread
+        holds it, and fails with an actionable error once the budget runs
+        out. That keeps a cancelled or wedged operation from parking a
+        worker thread forever. ``timeout=None`` waits as long as it takes,
+        matching the older blocking locks.
+
+        A thread that already holds this lock re-enters it by bumping a
+        reuse count, so internal calls between locked methods do not
+        exclude each other.
+        """
+        lock_dir = self.data_dir / "locks"
+        lock_path = lock_dir / lock_name
+        held = _held_lock_for(lock_path)
+        if held is not None:
+            held.depth += 1
+            return held
+
         try:
             import fcntl
         except ImportError:
             # Celesto currently targets POSIX hosts. If fcntl is unavailable,
             # keep the old single-process behavior rather than failing import.
-            return None, None
+            return _HeldOperationLock(None, None)
+
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        owner = _get_sudo_user_info()
+        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o666)
+        lock_file = os.fdopen(fd, "r+")
+        if owner is not None:
+            self._ensure_path_owner(lock_dir, owner.pw_uid, owner.pw_gid)
+            self._ensure_path_owner(lock_path, owner.pw_uid, owner.pw_gid)
+        deadline = None if timeout is None else time.monotonic() + timeout
+        try:
+            while True:
+                try:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    token = _HeldOperationLock(fcntl, lock_file, lock_path)
+                    _record_held_lock(lock_path, token)
+                    return token
+                except OSError as exc:
+                    if not self._lock_is_busy(exc):
+                        raise
+                    if deadline is not None and time.monotonic() >= deadline:
+                        raise self._operation_lock_busy_error(
+                            lock_name, vm_id, snapshot_id
+                        ) from None
+                    time.sleep(OPERATION_LOCK_POLL_SECONDS)
+        except BaseException:
+            lock_file.close()
+            raise
+
+    async def _async_acquire_operation_lock(
+        self,
+        lock_name: str,
+        *,
+        timeout: float | None = OPERATION_LOCK_TIMEOUT_SECONDS,
+        vm_id: str | None = None,
+        snapshot_id: str | None = None,
+    ) -> _HeldOperationLock:
+        """Async twin of :meth:`_acquire_operation_lock`.
+
+        Polls with ``asyncio.sleep`` so a waiting coroutine occupies no
+        executor thread and can be cancelled between attempts. It does not
+        consult the thread-local registry: other coroutines on the same
+        event-loop thread must still exclude each other.
+        """
+        try:
+            import fcntl
+        except ImportError:
+            return _HeldOperationLock(None, None)
 
         lock_dir = self.data_dir / "locks"
+        lock_path = lock_dir / lock_name
         lock_dir.mkdir(parents=True, exist_ok=True)
-        lock_file = (lock_dir / lock_name).open("w")
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        return fcntl, lock_file
-
-    def _acquire_vm_create_lock(self, vm_id: str) -> tuple[Any | None, TextIO | None]:
-        """Acquire the create-time disk lock for one VM ID."""
-        return self._acquire_operation_lock(f"{vm_id}.create.lock")
+        owner = _get_sudo_user_info()
+        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o666)
+        lock_file = os.fdopen(fd, "r+")
+        if owner is not None:
+            self._ensure_path_owner(lock_dir, owner.pw_uid, owner.pw_gid)
+            self._ensure_path_owner(lock_path, owner.pw_uid, owner.pw_gid)
+        deadline = None if timeout is None else time.monotonic() + timeout
+        try:
+            while True:
+                try:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    return _HeldOperationLock(fcntl, lock_file, lock_path)
+                except OSError as exc:
+                    if not self._lock_is_busy(exc):
+                        raise
+                    if deadline is not None and time.monotonic() >= deadline:
+                        raise self._operation_lock_busy_error(
+                            lock_name, vm_id, snapshot_id
+                        ) from None
+                    await asyncio.sleep(OPERATION_LOCK_POLL_SECONDS)
+        except BaseException:
+            lock_file.close()
+            raise
 
     @staticmethod
-    def _release_vm_create_lock(lock: tuple[Any | None, TextIO | None]) -> None:
-        """Release a lock acquired by :meth:`_acquire_vm_create_lock`."""
-        fcntl_module, lock_file = lock
+    def _release_vm_create_lock(lock: _HeldOperationLock) -> None:
+        """Release a lock acquired by :meth:`_acquire_operation_lock`."""
+        fcntl_module, lock_file = lock.fcntl_module, lock.lock_file
         if lock_file is None:
+            return
+        lock.depth -= 1
+        if lock.depth > 0:
             return
         try:
             if fcntl_module is not None:
                 fcntl_module.flock(lock_file.fileno(), fcntl_module.LOCK_UN)
         finally:
             lock_file.close()
+            if lock.path is not None:
+                _forget_held_lock(lock.path, lock)
+
+    def _lifecycle_lock_name(self, vm_id: str) -> str:
+        """Return the name of the per-computer lifecycle lock file."""
+        return f"{_lock_component(vm_id)}.lifecycle.lock"
 
     @contextmanager
-    def _vm_create_lock(self, vm_id: str) -> Iterator[None]:
-        """Serialize create-time disk mutation for one VM ID."""
-        lock = self._acquire_vm_create_lock(vm_id)
+    def _lifecycle_lock(
+        self,
+        vm_id: str,
+        *,
+        timeout: float = OPERATION_LOCK_TIMEOUT_SECONDS,
+    ) -> Iterator[None]:
+        """Serialize every mutating operation on one computer.
+
+        Lock order is always lifecycle → snapshot-by-VM → snapshot-ID. A
+        caller must never acquire a lifecycle lock while holding a snapshot
+        lock, and must never hold two lifecycle locks at once. Start, stop and
+        delete take this session's operation claim first; the claim fails
+        instead of waiting, so it cannot deadlock against this lock.
+        """
+        lock = self._acquire_operation_lock(
+            self._lifecycle_lock_name(vm_id),
+            timeout=timeout,
+            vm_id=vm_id,
+        )
         try:
             yield
         finally:
             self._release_vm_create_lock(lock)
 
     @asynccontextmanager
-    async def _async_vm_create_lock(self, vm_id: str) -> AsyncIterator[None]:
-        """Async wrapper that acquires the file lock off the event loop."""
-        lock = await asyncio.to_thread(self._acquire_vm_create_lock, vm_id)
+    async def _async_lifecycle_lock(
+        self,
+        vm_id: str,
+        *,
+        timeout: float = OPERATION_LOCK_TIMEOUT_SECONDS,
+    ) -> AsyncIterator[None]:
+        """Async twin of :meth:`_lifecycle_lock`."""
+        lock = await self._async_acquire_operation_lock(
+            self._lifecycle_lock_name(vm_id),
+            timeout=timeout,
+            vm_id=vm_id,
+        )
         try:
             yield
         finally:
-            await asyncio.to_thread(self._release_vm_create_lock, lock)
+            self._release_vm_create_lock(lock)
 
     @contextmanager
-    def _snapshot_operation_locks(self, vm_id: str, snapshot_id: str) -> Iterator[None]:
-        """Serialize snapshots by source VM and globally unique snapshot ID."""
-        locks: list[tuple[Any | None, TextIO | None]] = []
+    def _snapshot_operation_locks(
+        self,
+        vm_id: str,
+        snapshot_id: str,
+        *,
+        include_lifecycle: bool = False,
+    ) -> Iterator[None]:
+        """Serialize snapshots by source VM and globally unique snapshot ID.
+
+        ``include_lifecycle`` nests the per-computer lifecycle lock
+        outermost, for operations that also mutate the computer's row or
+        disk. Snapshot deletion takes only the snapshot-ID lock, so it waits
+        for a restore of that snapshot but never for unrelated snapshot work.
+        """
+        locks: list[_HeldOperationLock] = []
         try:
-            locks.append(self._acquire_operation_lock(f"{vm_id}.snapshot.lock"))
-            locks.append(self._acquire_operation_lock(f"snapshot-{snapshot_id}.lock"))
+            if include_lifecycle:
+                locks.append(
+                    self._acquire_operation_lock(
+                        self._lifecycle_lock_name(vm_id),
+                        vm_id=vm_id,
+                    )
+                )
+            locks.append(
+                self._acquire_operation_lock(
+                    f"{_lock_component(vm_id)}.snapshot.lock",
+                    timeout=None,
+                    vm_id=vm_id,
+                )
+            )
+            locks.append(
+                self._acquire_operation_lock(
+                    f"snapshot-{_lock_component(snapshot_id)}.lock",
+                    timeout=None,
+                    vm_id=vm_id,
+                    snapshot_id=snapshot_id,
+                )
+            )
             yield
         finally:
             for lock in reversed(locks):
                 self._release_vm_create_lock(lock)
+
+    @contextmanager
+    def _snapshot_id_lock(
+        self,
+        snapshot_id: str,
+        *,
+        vm_id: str | None = None,
+    ) -> Iterator[None]:
+        """Serialize work on one snapshot ID without touching its computer's locks."""
+        lock = self._acquire_operation_lock(
+            f"snapshot-{_lock_component(snapshot_id)}.lock",
+            timeout=None,
+            vm_id=vm_id,
+            snapshot_id=snapshot_id,
+        )
+        try:
+            yield
+        finally:
+            self._release_vm_create_lock(lock)
 
     @staticmethod
     def _restore_staging_disk_path(managed_disk_path: Path) -> Path:
@@ -2337,79 +2638,94 @@ class CelestoManager:
 
         self._validate_network_policy(effective_config, backend)
 
-        with self._vm_create_lock(effective_config.vm_id):
-            self._ensure_vm_id_available(effective_config.vm_id)
-            managed_disk_path = self._managed_disk_path_for_create(effective_config, backend)
-            managed_disk_existed = (
-                managed_disk_path.exists() if managed_disk_path is not None else False
-            )
-            managed_disk_was_saved = managed_disk_existed and (
-                managed_disk_path is not None
-                and self._retained_marker_path(managed_disk_path).exists()
-            )
-            firmware_state = self.data_dir / "firmware" / effective_config.vm_id
-            firmware_existed = firmware_state.exists()
-            macos_bundle = (
-                effective_config.macos_machine.bundle_path
-                if effective_config.macos_machine is not None
-                else None
-            )
-            macos_bundle_existed = macos_bundle.exists() if macos_bundle is not None else False
-            vm_record_created = False
-            managed_disk_backup: list[tuple[Path, Path]] = []
-            if managed_disk_existed and (
-                effective_config.disk_size_mib is not None or effective_config.grow_filesystem
-            ):
-                assert managed_disk_path is not None
-                managed_disk_backup = self._backup_existing_managed_disk(managed_disk_path)
-            try:
-                if effective_config.guest_os is GuestOS.MACOS:
-                    self._materialize_macos_bundle(effective_config)
-                else:
-                    effective_config = self._materialize_rootfs(effective_config)
+        # Held through networking so a concurrent delete waits for setup to finish.
+        with self._lifecycle_lock(effective_config.vm_id):
+            return self._create_locked(config)
 
-                logger.info(
-                    "Creating VM: %s (backend=%s, disk_mode=%s)",
-                    effective_config.vm_id,
-                    backend,
-                    effective_config.disk_mode,
-                )
+    def _create_locked(self, config: VMConfig) -> VMInfo:
+        """Create one computer while its lifecycle lock is held."""
+        backend = self._backend_for_config(config)
+        effective_config = config
+        if effective_config.backend != backend:
+            effective_config = effective_config.model_copy(update={"backend": backend})
+        if (
+            effective_config.network_attachment.mode == "bridge"
+            and backend == BACKEND_QEMU
+            and effective_config.qemu_network != "tap"
+        ):
+            effective_config = effective_config.model_copy(update={"qemu_network": "tap"})
 
-                # Create VM record while still holding the create lock so a
-                # concurrent same-ID create cannot resize the same disk first.
-                # Resize/grow after persistence so a persistence failure cannot
-                # mutate a retained managed disk without a VM row.
-                self.state.create_vm(effective_config)
-                vm_record_created = True
-                # A row owns this disk again, so it is no longer a kept
-                # leftover. Only now: a create that fails after reusing a
-                # saved disk has to leave it marked as saved.
-                if managed_disk_path is not None:
-                    self._clear_retained_marker(managed_disk_path)
-                if effective_config.guest_os is not GuestOS.MACOS:
-                    effective_config = self._resize_materialized_rootfs(effective_config)
-                    self._materialize_firmware(effective_config)
-                self._discard_existing_managed_disk_backup(managed_disk_backup)
-            except BaseException:
-                # BaseException, not Exception: a Ctrl-C here lands between the
-                # disk being written and the VM row existing, and a disk with no
-                # row can never be found again.
-                self._restore_existing_managed_disk_backup(managed_disk_backup)
-                if vm_record_created:
-                    with suppress(Exception):
-                        self.state.delete_vm(effective_config.vm_id)
-                self._cleanup_unpersisted_managed_disk(
-                    managed_disk_path,
-                    existed_before=managed_disk_existed,
-                )
-                self._restore_retained_marker(managed_disk_path, managed_disk_was_saved)
-                self._cleanup_unpersisted_firmware(
-                    effective_config.vm_id,
-                    existed_before=firmware_existed,
-                )
-                if macos_bundle is not None and not macos_bundle_existed and macos_bundle.is_dir():
-                    shutil.rmtree(macos_bundle, ignore_errors=True)
-                raise
+        self._ensure_vm_id_available(effective_config.vm_id)
+        managed_disk_path = self._managed_disk_path_for_create(effective_config, backend)
+        managed_disk_existed = (
+            managed_disk_path.exists() if managed_disk_path is not None else False
+        )
+        managed_disk_was_saved = managed_disk_existed and (
+            managed_disk_path is not None and self._retained_marker_path(managed_disk_path).exists()
+        )
+        firmware_state = self.data_dir / "firmware" / effective_config.vm_id
+        firmware_existed = firmware_state.exists()
+        macos_bundle = (
+            effective_config.macos_machine.bundle_path
+            if effective_config.macos_machine is not None
+            else None
+        )
+        macos_bundle_existed = macos_bundle.exists() if macos_bundle is not None else False
+        vm_record_created = False
+        managed_disk_backup: list[tuple[Path, Path]] = []
+        if managed_disk_existed and (
+            effective_config.disk_size_mib is not None or effective_config.grow_filesystem
+        ):
+            assert managed_disk_path is not None
+            managed_disk_backup = self._backup_existing_managed_disk(managed_disk_path)
+        try:
+            if effective_config.guest_os is GuestOS.MACOS:
+                self._materialize_macos_bundle(effective_config)
+            else:
+                effective_config = self._materialize_rootfs(effective_config)
+
+            logger.info(
+                "Creating VM: %s (backend=%s, disk_mode=%s)",
+                effective_config.vm_id,
+                backend,
+                effective_config.disk_mode,
+            )
+
+            # Create VM record while still holding the create lock so a
+            # concurrent same-ID create cannot resize the same disk first.
+            # Resize/grow after persistence so a persistence failure cannot
+            # mutate a retained managed disk without a VM row.
+            self.state.create_vm(effective_config)
+            vm_record_created = True
+            # A row owns this disk again, so it is no longer a kept
+            # leftover. Only now: a create that fails after reusing a
+            # saved disk has to leave it marked as saved.
+            if managed_disk_path is not None:
+                self._clear_retained_marker(managed_disk_path)
+            if effective_config.guest_os is not GuestOS.MACOS:
+                effective_config = self._resize_materialized_rootfs(effective_config)
+                self._materialize_firmware(effective_config)
+            self._discard_existing_managed_disk_backup(managed_disk_backup)
+        except BaseException:
+            # BaseException, not Exception: a Ctrl-C here lands between the
+            # disk being written and the VM row existing, and a disk with no
+            # row can never be found again.
+            self._restore_existing_managed_disk_backup(managed_disk_backup)
+            if vm_record_created:
+                with suppress(Exception):
+                    self.state.delete_vm(effective_config.vm_id)
+            self._cleanup_unpersisted_managed_disk(
+                managed_disk_path,
+                existed_before=managed_disk_existed,
+            )
+            self._restore_retained_marker(managed_disk_path, managed_disk_was_saved)
+            self._cleanup_unpersisted_firmware(
+                effective_config.vm_id,
+                existed_before=firmware_existed,
+            )
+            if macos_bundle is not None and not macos_bundle_existed and macos_bundle.is_dir():
+                shutil.rmtree(macos_bundle, ignore_errors=True)
+            raise
 
         try:
             if backend == BACKEND_VZ:
@@ -2590,11 +2906,37 @@ class CelestoManager:
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
 
-        with self._vm_operation_guard(vm_id, "start"):
+        # Claim before locking: a second caller in this session fails fast
+        # instead of polling a lock that its own event loop may need to release.
+        with self._vm_operation_guard(vm_id, "start"), self._lifecycle_lock(vm_id):
             return self._start_claimed(vm_id, boot_timeout)
 
+    def start_from_current_state(
+        self,
+        vm_id: str,
+        boot_timeout: float = 30.0,
+    ) -> tuple[VMInfo, Literal["running", "resumed", "started"]]:
+        """Start or resume a computer based on its current inventory state.
+
+        Unlike :meth:`start`, this re-reads the row inside the lifecycle
+        lock, so a facade holding a stale handle cannot no-op on a cached
+        RUNNING status or fail on a cached STOPPED one.
+        """
+        if not vm_id:
+            raise ValueError("vm_id cannot be empty")
+        with self._vm_operation_guard(vm_id, "start"), self._lifecycle_lock(vm_id):
+            vm_info = self.state.get_vm(vm_id)
+            if vm_info.status == VMState.RUNNING:
+                return vm_info, "running"
+            if vm_info.status == VMState.PAUSED:
+                return self._resume_locked(vm_id), "resumed"
+            return self._start_claimed(vm_id, boot_timeout), "started"
+
     def _start_claimed(self, vm_id: str, boot_timeout: float) -> VMInfo:
-        """Start after claiming the VM, including its state check and rollback."""
+        """Start after claiming the VM and taking its lifecycle lock.
+
+        Includes the state check and rollback.
+        """
         logger.info("Starting VM: %s", vm_id)
 
         # Get current state
@@ -2698,10 +3040,14 @@ class CelestoManager:
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
 
-        with self._vm_operation_guard(vm_id, "stop"):
+        with self._vm_operation_guard(vm_id, "stop"), self._lifecycle_lock(vm_id):
             return self._stop_claimed(vm_id, timeout)
 
     def _stop_claimed(self, vm_id: str, timeout: float) -> VMInfo:
+        """Stop after claiming the VM and taking its lifecycle lock.
+
+        ``close()`` also calls this once no operation holds a claim.
+        """
         logger.info("Stopping VM: %s", vm_id)
 
         # A launched process may be newer than its inventory row if persistence
@@ -2731,7 +3077,11 @@ class CelestoManager:
         """Pause a running VM."""
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
+        with self._lifecycle_lock(vm_id):
+            return self._pause_locked(vm_id)
 
+    def _pause_locked(self, vm_id: str) -> VMInfo:
+        """Pause a running VM while its lifecycle lock is held."""
         vm_info = self.state.get_vm(vm_id)
 
         if vm_info.status != VMState.RUNNING:
@@ -2748,7 +3098,11 @@ class CelestoManager:
         """Resume a paused VM."""
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
+        with self._lifecycle_lock(vm_id):
+            return self._resume_locked(vm_id)
 
+    def _resume_locked(self, vm_id: str) -> VMInfo:
+        """Resume a paused VM while its lifecycle lock is held."""
         vm_info = self.state.get_vm(vm_id)
 
         if vm_info.status != VMState.PAUSED:
@@ -3123,14 +3477,16 @@ class CelestoManager:
                     adapter.resume(vm_info)
                 except Exception:
                     logger.exception(
-                        "Snapshot %s was created, but sandbox %s could not be resumed; "
-                        "leaving it paused",
+                        "Snapshot %s was created, but sandbox %s could not be resumed",
                         snapshot_id,
                         vm_id,
                     )
                 else:
                     source_status = VMState.RUNNING
-            self.state.update_vm(vm_id, status=source_status)
+            # Snapshots do not hold the lifecycle lock, so a stop or restart may
+            # have run during the capture. Write the status back only if the
+            # row still records the process that was captured.
+            self._set_status_if_pid(vm_id, vm_info.pid, source_status)
             return snapshot_info
         except Exception as original_error:
             snapshot_dir_removed = False
@@ -3160,7 +3516,7 @@ class CelestoManager:
             ):
                 with suppress(Exception):
                     adapter.resume(vm_info)
-                    self.state.update_vm(vm_id, status=VMState.RUNNING)
+                    self._set_status_if_pid(vm_id, vm_info.pid, VMState.RUNNING)
             if rollback_error is not None:
                 raise rollback_error from original_error
             raise
@@ -3176,6 +3532,27 @@ class CelestoManager:
         if not snapshot_id:
             raise ValueError("snapshot_id cannot be empty")
 
+        snapshot = self.get_snapshot(snapshot_id)
+        # Held through the artifact copy so snapshot deletion cannot remove the input.
+        with self._snapshot_operation_locks(
+            snapshot.vm_id,
+            snapshot_id,
+            include_lifecycle=True,
+        ):
+            return self._restore_snapshot_locked(
+                snapshot_id,
+                resume_vm=resume_vm,
+                force=force,
+            )
+
+    def _restore_snapshot_locked(
+        self,
+        snapshot_id: str,
+        *,
+        resume_vm: bool = False,
+        force: bool = False,
+    ) -> VMInfo:
+        """Restore one snapshot while its lifecycle and snapshot locks are held."""
         snapshot = self.get_snapshot(snapshot_id)
         if (
             snapshot.vm_config.internet_settings is not None
@@ -3243,7 +3620,9 @@ class CelestoManager:
                 )
 
         if existing_vm is not None and existing_vm.status in (VMState.RUNNING, VMState.PAUSED):
-            self.stop(restore_vm_id)
+            # The lifecycle lock is already held; claim the VM as stop() would.
+            with self._vm_operation_guard(restore_vm_id, "stop"):
+                self._stop_claimed(restore_vm_id, 10.0)
             existing_vm = self.state.get_vm(restore_vm_id)
 
         managed_disk_path = self._instance_disk_path(
@@ -3439,6 +3818,13 @@ class CelestoManager:
 
     def delete_snapshot(self, snapshot_id: str) -> None:
         """Delete snapshot files and metadata, including adopted recovery artifacts."""
+        self._snapshot_root_for_id(snapshot_id)
+        # Waits for any restore reading this snapshot.
+        with self._snapshot_id_lock(snapshot_id):
+            self._delete_snapshot_locked(snapshot_id)
+
+    def _delete_snapshot_locked(self, snapshot_id: str) -> None:
+        """Delete one snapshot while its snapshot locks are held."""
         snapshot_root = self._snapshot_root_for_id(snapshot_id)
 
         try:
@@ -3491,10 +3877,14 @@ class CelestoManager:
         """
         _validate_cleanup_id(vm_id)
 
-        with self._vm_operation_guard(vm_id, "delete"):
+        with self._vm_operation_guard(vm_id, "delete"), self._lifecycle_lock(vm_id):
             self._delete_claimed(vm_id)
 
     def _delete_claimed(self, vm_id: str) -> None:
+        """Delete after claiming the VM and taking its lifecycle lock.
+
+        The claim is not reentrant, so nested stops call :meth:`_stop_claimed`.
+        """
         logger.info("Deleting VM: %s", vm_id)
 
         if vm_id in self._unrecorded_public_launches:
@@ -3579,6 +3969,29 @@ class CelestoManager:
                     snapshots[snapshot_id] = snapshot
         return sorted(snapshots.values(), key=lambda item: item.created_at)
 
+    def _set_status_if_pid(
+        self,
+        vm_id: str,
+        pid: int | None,
+        status: VMState,
+        *,
+        clear_pid: bool = False,
+    ) -> tuple[VMInfo, bool]:
+        """Set a running or paused computer's status only if its row still records *pid*.
+
+        Returns the current row and whether it was changed. Custom state
+        managers without ``set_vm_status_if_pid`` get a read-then-write,
+        which narrows the race but cannot close it.
+        """
+        conditional = getattr(self.state, "set_vm_status_if_pid", None)
+        if conditional is not None:
+            result: tuple[VMInfo, bool] = conditional(vm_id, pid, status, clear_pid=clear_pid)
+            return result
+        current = self.state.get_vm(vm_id)
+        if current.pid != pid or current.status not in (VMState.RUNNING, VMState.PAUSED):
+            return current, False
+        return self.state.update_vm(vm_id, status=status, clear_pid=clear_pid), True
+
     def refresh_status(self, vm_info: VMInfo) -> VMInfo:
         """Detect a dead VM process and demote the DB row to ERROR.
 
@@ -3594,8 +4007,20 @@ class CelestoManager:
             return vm_info
         if self._is_process_running(vm_info.pid):
             return vm_info
-        logger.warning("VM %s pid %d is gone; marking ERROR.", vm_info.vm_id, vm_info.pid)
-        return self.state.update_vm(vm_info.vm_id, status=VMState.ERROR, clear_pid=True)
+        # vm_info may be stale: only demote the row if it still records this PID.
+        current, changed = self._set_status_if_pid(
+            vm_info.vm_id, vm_info.pid, VMState.ERROR, clear_pid=True
+        )
+        if changed:
+            logger.warning("VM %s pid %d is gone; marking ERROR.", vm_info.vm_id, vm_info.pid)
+        else:
+            logger.debug(
+                "VM %s pid %d is gone, but the row now records pid %s; keeping it.",
+                vm_info.vm_id,
+                vm_info.pid,
+                current.pid,
+            )
+        return current
 
     def reconcile(self) -> list[str]:
         """Reconcile state with actual system state.
@@ -4520,20 +4945,97 @@ class CelestoManager:
         if dry_run:
             return removable
 
-        removed: list[LeftoverArtifact] = []
+        by_vm: dict[str, list[LeftoverArtifact]] = {}
         for leftover in removable:
+            by_vm.setdefault(leftover.vm_id, []).append(leftover)
+
+        removed: list[LeftoverArtifact] = []
+        for vm_id in sorted(by_vm):
+            # A busy computer is in use, not a leftover.
             try:
-                leftover.path.unlink()
-            except FileNotFoundError:
+                lock = self._acquire_operation_lock(
+                    self._lifecycle_lock_name(vm_id),
+                    timeout=0,
+                    vm_id=vm_id,
+                )
+            except CelestoError:
+                logger.info("Skipping leftovers for %s: it is in use", vm_id)
                 continue
-            except OSError as exc:
-                logger.warning("Could not remove leftover file %s: %s", leftover.path, exc)
-                continue
-            logger.info(
-                "Removed leftover %s for %s: %s", leftover.kind, leftover.vm_id, leftover.path
-            )
-            removed.append(leftover)
+            try:
+                for leftover in self._still_reclaimable(
+                    vm_id,
+                    by_vm[vm_id],
+                    include_retained=include_retained,
+                ):
+                    try:
+                        leftover.path.unlink()
+                    except FileNotFoundError:
+                        continue
+                    except OSError as exc:
+                        logger.warning("Could not remove leftover file %s: %s", leftover.path, exc)
+                        continue
+                    logger.info(
+                        "Removed leftover %s for %s: %s",
+                        leftover.kind,
+                        leftover.vm_id,
+                        leftover.path,
+                    )
+                    removed.append(leftover)
+            finally:
+                self._release_vm_create_lock(lock)
         return removed
+
+    def _still_reclaimable(
+        self,
+        vm_id: str,
+        leftovers: list[LeftoverArtifact],
+        *,
+        include_retained: bool,
+    ) -> list[LeftoverArtifact]:
+        """Re-check scanned leftovers for *vm_id* while its lifecycle lock is held.
+
+        The scan ran without protection, so a computer with the same name
+        may have reclaimed the disk since. Ownership is checked again here,
+        right before deletion: inventory, browser sessions, retention and
+        running processes.
+        """
+        try:
+            self.state.get_vm(vm_id)
+        except VMNotFoundError:
+            pass
+        else:
+            logger.info("Skipping leftovers for %s: a computer owns them again", vm_id)
+            return []
+        with suppress(Exception):
+            for session in self.state.list_browser_sessions():
+                if vm_id in (session.session_id, session.vm_id):
+                    logger.info("Skipping leftovers for %s: a browser session owns them", vm_id)
+                    return []
+
+        in_use = self._running_process_args()
+        if in_use is None:
+            logger.warning("Skipping leftovers for %s: cannot list running processes", vm_id)
+            return []
+
+        still: list[LeftoverArtifact] = []
+        for leftover in leftovers:
+            if leftover.kind == "disk":
+                disk = leftover.path
+                # Companions share their disk's ownership, so test the disk.
+                for candidate in self._instance_disk_paths_for_id(vm_id):
+                    if leftover.path == candidate or leftover.path.name.startswith(
+                        f"{candidate.name}."
+                    ):
+                        disk = candidate
+                        break
+                if self._path_in_use(disk, in_use) or self._path_in_use(leftover.path, in_use):
+                    logger.info("Skipping in-use disk %s", leftover.path)
+                    continue
+                if not include_retained and self._retained_marker_path(disk).exists():
+                    logger.info("Skipping disk %s: it is kept on purpose", leftover.path)
+                    continue
+            still.append(leftover)
+        return still
 
     @staticmethod
     def _path_in_use(path: Path, process_args: str) -> bool:
@@ -4635,84 +5137,99 @@ class CelestoManager:
 
         self._validate_network_policy(effective_config, backend)
 
-        async with self._async_vm_create_lock(effective_config.vm_id):
-            self._ensure_vm_id_available(effective_config.vm_id)
-            managed_disk_path = self._managed_disk_path_for_create(effective_config, backend)
-            managed_disk_existed = (
-                managed_disk_path.exists() if managed_disk_path is not None else False
-            )
-            managed_disk_was_saved = managed_disk_existed and (
-                managed_disk_path is not None
-                and self._retained_marker_path(managed_disk_path).exists()
-            )
-            firmware_state = self.data_dir / "firmware" / effective_config.vm_id
-            firmware_existed = firmware_state.exists()
-            macos_bundle = (
-                effective_config.macos_machine.bundle_path
-                if effective_config.macos_machine is not None
-                else None
-            )
-            macos_bundle_existed = macos_bundle.exists() if macos_bundle is not None else False
-            vm_record_created = False
-            managed_disk_backup: list[tuple[Path, Path]] = []
-            if managed_disk_existed and (
-                effective_config.disk_size_mib is not None or effective_config.grow_filesystem
-            ):
-                assert managed_disk_path is not None
-                managed_disk_backup = await asyncio.to_thread(
-                    self._backup_existing_managed_disk,
-                    managed_disk_path,
-                )
-            try:
-                if effective_config.guest_os is GuestOS.MACOS:
-                    await asyncio.to_thread(self._materialize_macos_bundle, effective_config)
-                else:
-                    effective_config = await self._async_materialize_rootfs(effective_config)
+        # Held through networking so a concurrent delete waits for setup to finish.
+        async with self._async_lifecycle_lock(effective_config.vm_id):
+            return await self._async_create_locked(config)
 
-                logger.info(
-                    "Creating VM (async): %s (backend=%s, disk_mode=%s)",
-                    effective_config.vm_id,
-                    backend,
-                    effective_config.disk_mode,
-                )
+    async def _async_create_locked(self, config: VMConfig) -> VMInfo:
+        """Create one computer while its async lifecycle lock is held."""
+        backend = self._backend_for_config(config)
+        effective_config = config
+        if effective_config.backend != backend:
+            effective_config = effective_config.model_copy(update={"backend": backend})
+        if (
+            effective_config.network_attachment.mode == "bridge"
+            and backend == BACKEND_QEMU
+            and effective_config.qemu_network != "tap"
+        ):
+            effective_config = effective_config.model_copy(update={"qemu_network": "tap"})
 
-                self.state.create_vm(effective_config)
-                vm_record_created = True
-                # See create(): clear the mark only once a row owns the disk.
-                if managed_disk_path is not None:
-                    self._clear_retained_marker(managed_disk_path)
-                if effective_config.guest_os is not GuestOS.MACOS:
-                    effective_config = await asyncio.to_thread(
-                        self._resize_materialized_rootfs,
-                        effective_config,
-                    )
-                    # Firmware materialization is a small file copy — synchronous is fine.
-                    self._materialize_firmware(effective_config)
-                await asyncio.to_thread(
-                    self._discard_existing_managed_disk_backup,
-                    managed_disk_backup,
+        self._ensure_vm_id_available(effective_config.vm_id)
+        managed_disk_path = self._managed_disk_path_for_create(effective_config, backend)
+        managed_disk_existed = (
+            managed_disk_path.exists() if managed_disk_path is not None else False
+        )
+        managed_disk_was_saved = managed_disk_existed and (
+            managed_disk_path is not None and self._retained_marker_path(managed_disk_path).exists()
+        )
+        firmware_state = self.data_dir / "firmware" / effective_config.vm_id
+        firmware_existed = firmware_state.exists()
+        macos_bundle = (
+            effective_config.macos_machine.bundle_path
+            if effective_config.macos_machine is not None
+            else None
+        )
+        macos_bundle_existed = macos_bundle.exists() if macos_bundle is not None else False
+        vm_record_created = False
+        managed_disk_backup: list[tuple[Path, Path]] = []
+        if managed_disk_existed and (
+            effective_config.disk_size_mib is not None or effective_config.grow_filesystem
+        ):
+            assert managed_disk_path is not None
+            managed_disk_backup = await asyncio.to_thread(
+                self._backup_existing_managed_disk,
+                managed_disk_path,
+            )
+        try:
+            if effective_config.guest_os is GuestOS.MACOS:
+                await asyncio.to_thread(self._materialize_macos_bundle, effective_config)
+            else:
+                effective_config = await self._async_materialize_rootfs(effective_config)
+
+            logger.info(
+                "Creating VM (async): %s (backend=%s, disk_mode=%s)",
+                effective_config.vm_id,
+                backend,
+                effective_config.disk_mode,
+            )
+
+            self.state.create_vm(effective_config)
+            vm_record_created = True
+            # See create(): clear the mark only once a row owns the disk.
+            if managed_disk_path is not None:
+                self._clear_retained_marker(managed_disk_path)
+            if effective_config.guest_os is not GuestOS.MACOS:
+                effective_config = await asyncio.to_thread(
+                    self._resize_materialized_rootfs,
+                    effective_config,
                 )
-            except BaseException:
-                # See create(): Ctrl-C must not strand an unreferenced disk.
-                await asyncio.to_thread(
-                    self._restore_existing_managed_disk_backup,
-                    managed_disk_backup,
-                )
-                if vm_record_created:
-                    with suppress(Exception):
-                        self.state.delete_vm(effective_config.vm_id)
-                self._cleanup_unpersisted_managed_disk(
-                    managed_disk_path,
-                    existed_before=managed_disk_existed,
-                )
-                self._restore_retained_marker(managed_disk_path, managed_disk_was_saved)
-                self._cleanup_unpersisted_firmware(
-                    effective_config.vm_id,
-                    existed_before=firmware_existed,
-                )
-                if macos_bundle is not None and not macos_bundle_existed and macos_bundle.is_dir():
-                    await asyncio.to_thread(shutil.rmtree, macos_bundle, True)
-                raise
+                # Firmware materialization is a small file copy — synchronous is fine.
+                self._materialize_firmware(effective_config)
+            await asyncio.to_thread(
+                self._discard_existing_managed_disk_backup,
+                managed_disk_backup,
+            )
+        except BaseException:
+            # See create(): Ctrl-C must not strand an unreferenced disk.
+            await asyncio.to_thread(
+                self._restore_existing_managed_disk_backup,
+                managed_disk_backup,
+            )
+            if vm_record_created:
+                with suppress(Exception):
+                    self.state.delete_vm(effective_config.vm_id)
+            self._cleanup_unpersisted_managed_disk(
+                managed_disk_path,
+                existed_before=managed_disk_existed,
+            )
+            self._restore_retained_marker(managed_disk_path, managed_disk_was_saved)
+            self._cleanup_unpersisted_firmware(
+                effective_config.vm_id,
+                existed_before=firmware_existed,
+            )
+            if macos_bundle is not None and not macos_bundle_existed and macos_bundle.is_dir():
+                await asyncio.to_thread(shutil.rmtree, macos_bundle, True)
+            raise
 
         try:
             if backend == BACKEND_VZ:
@@ -4853,10 +5370,29 @@ class CelestoManager:
             raise ValueError("vm_id cannot be empty")
 
         with self._vm_operation_guard(vm_id, "start"):
-            return await self._async_start_claimed(vm_id, boot_timeout)
+            async with self._async_lifecycle_lock(vm_id):
+                return await self._async_start_claimed(vm_id, boot_timeout)
+
+    async def async_start_from_current_state(
+        self,
+        vm_id: str,
+        boot_timeout: float = 30.0,
+    ) -> tuple[VMInfo, Literal["running", "resumed", "started"]]:
+        """Async twin of :meth:`start_from_current_state`."""
+        if not vm_id:
+            raise ValueError("vm_id cannot be empty")
+        with self._vm_operation_guard(vm_id, "start"):
+            async with self._async_lifecycle_lock(vm_id):
+                vm_info = self.state.get_vm(vm_id)
+                if vm_info.status == VMState.RUNNING:
+                    return vm_info, "running"
+                if vm_info.status == VMState.PAUSED:
+                    resumed = await _finish_thread_despite_cancel(self._resume_locked, vm_id)
+                    return resumed, "resumed"
+                return await self._async_start_claimed(vm_id, boot_timeout), "started"
 
     async def _async_start_claimed(self, vm_id: str, boot_timeout: float) -> VMInfo:
-        """Async launch under the same claim used by synchronous callers."""
+        """Async launch under the same claim and lifecycle lock as synchronous callers."""
         logger.info("Starting VM (async): %s", vm_id)
 
         vm_info = self.state.get_vm(vm_id)
@@ -4874,18 +5410,20 @@ class CelestoManager:
 
         backend = self._backend_for_vm(vm_info)
         self._validate_network_policy(vm_info.config, backend)
+        # Host network repairs run on worker threads; finish them before a
+        # cancellation releases the lifecycle lock.
         if (
             vm_info.config.internet_settings is not None
             and vm_info.config.internet_settings.has_explicit_restrictions
         ):
-            await asyncio.to_thread(self.ensure_network_connectivity, vm_info)
+            await _finish_thread_despite_cancel(self.ensure_network_connectivity, vm_info)
 
         if backend == BACKEND_VZ:
             self._enforce_macos_concurrency_limit(vm_id)
 
         # Bridge mode: revalidate every dependency and repair the owned TAP.
         if vm_info.network is not None and vm_info.network.mode == "bridge":
-            await asyncio.to_thread(
+            await _finish_thread_despite_cancel(
                 self._ensure_bridge_ready,
                 vm_id,
                 vm_info.network,
@@ -4899,25 +5437,12 @@ class CelestoManager:
         adapter = self._runtime_adapter_for_backend(backend)
         try:
             vm_info = self._prepare_public_egress(vm_info)
-            cancelled = False
-            if vm_id in self._public_egress:
-                # QEMU startup runs in a worker thread. Cancellation must not
-                # abandon that thread and release its still-running guest's proxy.
-                launch_task = asyncio.create_task(
-                    adapter.async_start(vm_info, log_path=log_path, boot_timeout=boot_timeout)
-                )
-                while True:
-                    try:
-                        launch = await asyncio.shield(launch_task)
-                        break
-                    except asyncio.CancelledError:
-                        if launch_task.cancelled():
-                            raise
-                        cancelled = True
-            else:
-                launch = await adapter.async_start(
-                    vm_info, log_path=log_path, boot_timeout=boot_timeout
-                )
+            # Cancellation cannot stop the launch's worker thread. Wait for the
+            # guest, record it, then stop it before re-raising, so a cancelled
+            # start never leaves a guest running untracked.
+            launch, cancelled = await _wait_despite_cancel(
+                adapter.async_start(vm_info, log_path=log_path, boot_timeout=boot_timeout)
+            )
             if vm_id in self._public_egress:
                 self._unrecorded_public_launches[vm_id] = vm_info.model_copy(
                     update={
@@ -4949,7 +5474,8 @@ class CelestoManager:
             logger.error("Failed to start VM %s: %s", vm_id, e)
             pending = self._unrecorded_public_launches.get(vm_id)
             if pending is not None:
-                await adapter.async_stop(pending, timeout=10.0)
+                # Finish the rollback even if cancelled; the start error is raised below.
+                await _wait_despite_cancel(adapter.async_stop(pending, timeout=10.0))
                 del self._unrecorded_public_launches[vm_id]
             self._stop_public_egress(vm_id)
             self.state.update_vm(
@@ -4968,9 +5494,11 @@ class CelestoManager:
             raise ValueError("vm_id cannot be empty")
 
         with self._vm_operation_guard(vm_id, "stop"):
-            return await self._async_stop_claimed(vm_id, timeout)
+            async with self._async_lifecycle_lock(vm_id):
+                return await self._async_stop_claimed(vm_id, timeout)
 
     async def _async_stop_claimed(self, vm_id: str, timeout: float) -> VMInfo:
+        """Async stop after claiming the VM and taking its lifecycle lock."""
         logger.info("Stopping VM (async): %s", vm_id)
 
         vm_info = self._unrecorded_public_launches.get(vm_id) or self.state.get_vm(vm_id)
@@ -4980,7 +5508,12 @@ class CelestoManager:
             return vm_info
 
         backend = self._backend_for_vm(vm_info)
-        await self._runtime_adapter_for_backend(backend).async_stop(vm_info, timeout=timeout)
+        # Cancellation cannot stop the stop's worker thread. Finish it and
+        # record the stopped guest before re-raising, so the row never keeps
+        # a process that is gone.
+        _, cancelled = await _wait_despite_cancel(
+            self._runtime_adapter_for_backend(backend).async_stop(vm_info, timeout=timeout)
+        )
         self._unrecorded_public_launches.pop(vm_id, None)
         self._stop_public_egress(vm_id)
         self._close_runtime_log(vm_id, backend, vm_info.control_socket_path)
@@ -4992,6 +5525,8 @@ class CelestoManager:
             clear_display=True,
         )
         logger.info("VM stopped (async): %s (backend=%s)", vm_id, backend)
+        if cancelled:
+            raise asyncio.CancelledError
         return vm_info
 
     async def async_delete(self, vm_id: str) -> None:
@@ -4999,9 +5534,16 @@ class CelestoManager:
         _validate_cleanup_id(vm_id)
 
         with self._vm_operation_guard(vm_id, "delete"):
-            await self._async_delete_claimed(vm_id)
+            async with self._async_lifecycle_lock(vm_id):
+                # A deletion cannot be undone halfway, so finish it before a
+                # cancellation releases the lock.
+                await _finish_despite_cancel(self._async_delete_claimed(vm_id))
 
     async def _async_delete_claimed(self, vm_id: str) -> None:
+        """Async delete after claiming the VM and taking its lifecycle lock.
+
+        The claim is not reentrant, so nested stops call :meth:`_async_stop_claimed`.
+        """
         logger.info("Deleting VM (async): %s", vm_id)
 
         if vm_id in self._unrecorded_public_launches:

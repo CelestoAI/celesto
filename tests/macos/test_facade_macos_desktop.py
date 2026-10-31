@@ -23,6 +23,7 @@ from celesto.types import (
     VMState,
     WorkspaceMount,
 )
+from tests.lifecycle_decision import use_real_start_decision
 
 
 def _info(tmp_path: Path, *, status: VMState = VMState.RUNNING) -> VMInfo:
@@ -136,6 +137,7 @@ async def test_async_start_skips_ssh_workspace_flow_for_macos(tmp_path: Path) ->
         update={"status": VMState.RUNNING, "display": DesktopEndpoint(port=5901)}
     )
     vm = _facade(created)
+    use_real_start_decision(vm._sdk)
     vm._sdk.async_start = AsyncMock(return_value=running)
 
     with (

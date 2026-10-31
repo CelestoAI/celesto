@@ -1811,13 +1811,17 @@ class Celesto:
         """
         notify = on_progress or (lambda _msg: None)
 
-        if self._info.status == VMState.RUNNING:
+        # Cached status may be stale; the manager decides from current state under its lock.
+        info, action = self._sdk.start_from_current_state(self._vm_id, boot_timeout=boot_timeout)
+        self._info = info
+        if action == "running":
             logger.info("VM %s already running; start() is a no-op", self._vm_id)
             return self
-        if self._info.status == VMState.PAUSED:
-            return self.resume()
+        if action == "resumed":
+            self._reset_runtime_state(close_ssh=False)
+            logger.info("VM %s resumed", self._vm_id)
+            return self
 
-        self._info = self._sdk.start(self._vm_id, boot_timeout=boot_timeout)
         self._reset_runtime_state(close_ssh=False)
         logger.info("VM %s started", self._vm_id)
 
@@ -3098,33 +3102,26 @@ class Celesto:
         """Async version of :meth:`start`."""
         import asyncio
 
-        if self._info.status == VMState.RUNNING:
+        # Cached status may be stale; the manager decides from current state under its lock.
+        try:
+            info, action = await self._sdk.async_start_from_current_state(
+                self._vm_id, boot_timeout=boot_timeout
+            )
+        except asyncio.CancelledError:
+            # The manager finished any in-flight resume; sync the cached state.
+            with suppress(Exception):
+                self._refresh_info()
+                if self._info.status == VMState.RUNNING:
+                    self._reset_runtime_state(close_ssh=False)
+            raise
+        self._info = info
+        if action == "running":
             return self
-        if self._info.status == VMState.PAUSED:
-            # Starting a paused VM means resuming it. The SDK resume call is
-            # blocking, so run it on a worker thread and apply the resulting
-            # state change back here, on the caller's event loop.
-            resume_task = asyncio.create_task(asyncio.to_thread(self._sdk.resume, self._vm_id))
-            cancelled = False
-            while True:
-                try:
-                    # Cancelling this coroutine cannot stop a worker thread.
-                    # Keep ownership of the result so the facade cannot remain
-                    # cached as PAUSED after the manager has resumed the VM.
-                    info = await asyncio.shield(resume_task)
-                    break
-                except asyncio.CancelledError:
-                    cancelled = True
-                    if resume_task.cancelled():
-                        raise
-            self._info = info
+        if action == "resumed":
             self._reset_runtime_state(close_ssh=False)
             logger.info("VM %s resumed", self._vm_id)
-            if cancelled:
-                raise asyncio.CancelledError
             return self
 
-        self._info = await self._sdk.async_start(self._vm_id, boot_timeout=boot_timeout)
         self._reset_runtime_state(close_ssh=False)
 
         env_vars = self._info.config.env_vars

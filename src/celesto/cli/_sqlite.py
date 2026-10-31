@@ -446,6 +446,43 @@ class SQLiteStateManager:
         logger.info("Updated VM %s: status=%s, pid=%s", vm_id, status, pid)
         return self.get_vm(vm_id)
 
+    def set_vm_status_if_pid(
+        self,
+        vm_id: str,
+        pid: int | None,
+        status: VMState,
+        *,
+        clear_pid: bool = False,
+    ) -> tuple[VMInfo, bool]:
+        """Set a running or paused computer's status only if its row still records *pid*.
+
+        A caller acting on an older read must not overwrite a stop, restart
+        or newer runtime that happened since. Returns the current row and
+        whether it was changed.
+        """
+        if not vm_id:
+            raise ValueError("vm_id cannot be empty")
+
+        pid_update = "pid = NULL, " if clear_pid else ""
+        with self._get_connection(exclusive=True) as conn:
+            result = conn.execute(
+                f"UPDATE vms SET status = ?, {pid_update}updated_at = ? "
+                "WHERE id = ? AND pid IS ? AND status IN (?, ?)",
+                (
+                    status.value,
+                    now_iso(),
+                    vm_id,
+                    pid,
+                    VMState.RUNNING.value,
+                    VMState.PAUSED.value,
+                ),
+            )
+            changed = result.rowcount > 0
+
+        if changed:
+            logger.info("Updated VM %s: status=%s while pid %s still matched", vm_id, status, pid)
+        return self.get_vm(vm_id), changed
+
     def delete_vm(self, vm_id: str) -> None:
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
