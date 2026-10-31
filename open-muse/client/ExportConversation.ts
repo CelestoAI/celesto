@@ -6,14 +6,14 @@ function formatTimestamp(iso: string): string {
 }
 
 function escapeMarkdown(text: string): string {
-  return text.replace(/^(#{1,6} |---|\*\*\*|___)/gm, "\\$1");
+  return text.replace(/^(#{1,6} |---|\*\*\*|___|```)/gm, "\\$1");
 }
 
 function turnStepsSummary(turn: TraceTurn): string {
   if (!turn.steps.length) return "";
   return turn.steps.map((step) => {
     const mark = step.state === "completed" ? "done" : step.state === "failed" ? "fail" : step.state === "running" ? "run" : "skip";
-    return "  " + mark + " " + (step.label || step.tool);
+    return "  " + mark + " " + (step.label || step.kind);
   }).join("\n");
 }
 
@@ -57,7 +57,7 @@ function conversationToJson(conversation: Conversation, turns: TraceTurn[]): str
       .filter((t) => t.conversationId === conversation.id)
       .map((t) => ({
         turnId: t.turnId, state: t.state,
-        steps: t.steps.map((s) => ({ id: s.id, tool: s.tool, label: s.label, state: s.state, error: s.error })),
+        steps: t.steps.map((s) => ({ id: s.id, kind: s.kind, label: s.label, state: s.state, error: s.error })),
       })),
   }, null, 2);
 }
