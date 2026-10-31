@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as api from "./api";
+import { exportAsMarkdown, exportAsJson } from "./ExportConversation";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { TurnTrace } from "./TurnTrace";
 import type { TraceSnapshot } from "./trace";
@@ -222,6 +223,8 @@ export function App() {
   }
 };
 
+  const handleExportMarkdown = () => { if (conversation) { exportAsMarkdown(conversation, traces?.turns ?? []); } };
+  const handleExportJson = () => { if (conversation) { exportAsJson(conversation, traces?.turns ?? []); } };
   const submit = async (value = text) => {
     if (!conversation || !value.trim()) return;
     if (!canSubmit || stopRequestRef.current) {
@@ -520,7 +523,7 @@ const canSubmit =
     <header className="topbar">
       <div className="brand"><span className="brandmark">M</span><span>OpenMuse</span><span className="preview">PREVIEW</span></div>
       <div className="top-actions">
-        <details className="chat-menu" ref={chatMenuRef}><summary>Chats</summary><div className="chat-menu-popover"><button className="new-chat" disabled={!canChangeConversation || conversationPending} onClick={() => void newConversation()}>+ New chat</button><div className="chat-list">{conversationList.conversations.map((item) => <button className={item.id === conversation?.id ? "active" : ""} disabled={!canChangeConversation || conversationPending} key={item.id} onClick={() => void activateConversation(item.id)}><span>{item.title}</span><small>{item.modelId}</small></button>)}</div><button className="reset-chat" disabled={!canChangeConversation || conversationPending} onClick={() => void resetConversation()}>Reset conversation</button></div></details>
+        <details className="chat-menu" ref={chatMenuRef}><summary>Chats</summary><div className="chat-menu-popover"><button className="new-chat" disabled={!canChangeConversation || conversationPending} onClick={() => void newConversation()}>+ New chat</button><div className="chat-list">{conversationList.conversations.map((item) => <button className={item.id === conversation?.id ? "active" : ""} disabled={!canChangeConversation || conversationPending} key={item.id} onClick={() => void activateConversation(item.id)}><span>{item.title}</span><small>{item.modelId}</small></button>)}</div>{conversation?.messages.length ? <div className="chat-menu-exports"><button onClick={handleExportMarkdown}>Export as Markdown</button><button onClick={handleExportJson}>Export as JSON</button></div> : null}<button className="reset-chat" disabled={!canChangeConversation || conversationPending} onClick={() => void resetConversation()}>Reset conversation</button></div></details>
         {modelAccess && conversation && <button className="quiet" disabled={conversationPending || !commandAvailable("change_model")} onClick={() => setShowModelSetup(true)}>Model: {conversation.modelId}</button>}<span className={`status-dot ${busy ? "working" : ""}`}></span><span>{status}</span>{conversation && commandAvailable("pause_task") && <button className="quiet danger" disabled={conversationPending || stopPending} onClick={() => void stopSession()}>Stop task</button>}{conversation && commandAvailable("stop") && <button className="quiet danger" disabled={conversationPending || stopPending || activity === "stopping"} onClick={() => void api.stopConversation(conversation.id)}>Stop</button>}
       </div>
     </header>

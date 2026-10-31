@@ -24,4 +24,4 @@
 
 .composer .composer-action:disabled {
   cursor: not-allowed;
-}
+}.chat-menu-exports{border-top:1px solid #d6d4cd;border-bottom:1px solid #d6d4cd;padding:6px 0;display:flex;flex-direction:column}.chat-menu-exports button{border:0;background:transparent;text-align:left;color:#252a24;cursor:pointer;padding:9px 11px;font-size:14px}.chat-menu-exports button:hover{background:#eeece5}
