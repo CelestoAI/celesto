@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import * as api from "./api";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { TurnTrace } from "./TurnTrace";
+import { EvidenceReport } from "./EvidenceReport";
 import type { TraceSnapshot } from "./trace";
 import { viewerReconnectDelay } from "./viewer-reconnect";
 import "./trace.css";
 import "./trace-state.css";
+import { exportAsMarkdown, exportAsJson } from "./ExportConversation";
 
 const SUGGESTION = "Open https://example.com and tell me what the page says";
 const VIEWER_STABILITY_MS = 3_000;
@@ -27,6 +29,7 @@ export function App() {
   const [selectedProviderId, setSelectedProviderId] = useState("");
   const [selectedModelId, setSelectedModelId] = useState("");
   const [showModelSetup, setShowModelSetup] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [viewerPath, setViewerPath] = useState("");
@@ -231,6 +234,16 @@ export function App() {
     setError(""); setText("");
     try { await api.sendMessage(conversation.id, value.trim()); await refresh(); }
     catch (caught) { setError(caught instanceof Error ? caught.message : "Could not send message."); }
+  };
+  const handleExportMarkdown = () => {
+  if (!conversation) return;
+  exportAsMarkdown(conversation, traces?.turns ?? []);
+  setShowExportMenu(false);
+  };
+  const handleExportJson = () => {
+    if (!conversation) return;
+    exportAsJson(conversation, traces?.turns ?? []);
+    setShowExportMenu(false);
   };
   const takeControl = async () => {
     if (!conversation) return;
@@ -520,7 +533,7 @@ const canSubmit =
     <header className="topbar">
       <div className="brand"><span className="brandmark">M</span><span>OpenMuse</span><span className="preview">PREVIEW</span></div>
       <div className="top-actions">
-        <details className="chat-menu" ref={chatMenuRef}><summary>Chats</summary><div className="chat-menu-popover"><button className="new-chat" disabled={!canChangeConversation || conversationPending} onClick={() => void newConversation()}>+ New chat</button><div className="chat-list">{conversationList.conversations.map((item) => <button className={item.id === conversation?.id ? "active" : ""} disabled={!canChangeConversation || conversationPending} key={item.id} onClick={() => void activateConversation(item.id)}><span>{item.title}</span><small>{item.modelId}</small></button>)}</div><button className="reset-chat" disabled={!canChangeConversation || conversationPending} onClick={() => void resetConversation()}>Reset conversation</button></div></details>
+        <details className="chat-menu" ref={chatMenuRef}><summary>Chats</summary><div className="chat-menu-popover"><button className="new-chat" disabled={!canChangeConversation || conversationPending} onClick={() => void newConversation()}>+ New chat</button><div className="chat-list">{conversationList.conversations.map((item) => <button className={item.id === conversation?.id ? "active" : ""} disabled={!canChangeConversation || conversationPending} key={item.id} onClick={() => void activateConversation(item.id)}><span>{item.title}</span><small>{item.modelId}</small></button>)}</div>{conversation?.messages.length ? <div className="chat-menu-exports"><button onClick={handleExportMarkdown}>Export as Markdown</button><button onClick={handleExportJson}>Export as JSON</button></div> : null}<button className="reset-chat" disabled={!canChangeConversation || conversationPending} onClick={() => void resetConversation()}>Reset conversation</button></div></details>
         {modelAccess && conversation && <button className="quiet" disabled={conversationPending || !commandAvailable("change_model")} onClick={() => setShowModelSetup(true)}>Model: {conversation.modelId}</button>}<span className={`status-dot ${busy ? "working" : ""}`}></span><span>{status}</span>{conversation && commandAvailable("pause_task") && <button className="quiet danger" disabled={conversationPending || stopPending} onClick={() => void stopSession()}>Stop task</button>}{conversation && commandAvailable("stop") && <button className="quiet danger" disabled={conversationPending || stopPending || activity === "stopping"} onClick={() => void api.stopConversation(conversation.id)}>Stop</button>}
       </div>
     </header>
@@ -528,7 +541,7 @@ const canSubmit =
       <section className="chat-pane">
         <div className="chat-scroll">
           {!conversation?.messages.length && <div className="welcome"><div className="eyebrow">A computer coworker in a disposable VM</div><h1>What should we<br/>get done?</h1><p>Ask naturally. It can operate public websites in its own browser, while you watch, approve interactions, or take control.</p><button className="suggestion" onClick={() => void submit(SUGGESTION)}><span>Try a public web task</span><strong>{SUGGESTION}</strong><b>→</b></button></div>}
-          <div className="messages">{conversation?.messages.map((message) => <div className="message-block" key={message.id}><article className={`message ${message.role}`}><div className="avatar">{message.role === "user" ? "Y" : "M"}</div><div className="message-content"><div className="message-role">{message.role === "user" ? "You" : "OpenMuse"}</div>{message.role === "assistant" ? <MarkdownMessage>{message.text}</MarkdownMessage> : <p>{message.text}</p>}</div></article>{message.role === "user" && message.turnId && traceByTurn.get(message.turnId) && <TurnTrace turn={traceByTurn.get(message.turnId)!}/>} {message.role === "user" && message.turnId && !traceByTurn.get(message.turnId) && traceStatus !== "ready" && <div className="trace-unavailable">{traceStatus === "reconnecting" ? "Run details reconnecting…" : "Run details unavailable"}</div>}</div>)}</div>
+           <div className="messages">{conversation?.messages.map((message) => <div className="message-block" key={message.id}><article className={`message ${message.role}`}><div className="avatar">{message.role === "user" ? "Y" : "M"}</div><div className="message-content"><div className="message-role">{message.role === "user" ? "You" : "OpenMuse"}</div>{message.role === "assistant" ? <MarkdownMessage>{message.text}</MarkdownMessage> : <p>{message.text}</p>}</div></article>{message.role === "assistant" && message.turnId && traceByTurn.get(message.turnId) && <EvidenceReport turn={traceByTurn.get(message.turnId)!} answer={message.text}/>} {message.role === "user" && message.turnId && traceByTurn.get(message.turnId) && <TurnTrace turn={traceByTurn.get(message.turnId)!}/>} {message.role === "user" && message.turnId && !traceByTurn.get(message.turnId) && traceStatus !== "ready" && <div className="trace-unavailable">{traceStatus === "reconnecting" ? "Run details reconnecting…" : "Run details unavailable"}</div>}</div>)}</div>
           {interrupted && <aside className="approval recovery"><div className="eyebrow">{recoveryCopy.eyebrow}</div><h3>{recoveryCopy.title}</h3><p>{recoveryCopy.detail}</p><div><button disabled={conversationPending || !commandAvailable("continue")} onClick={() => void continueConversation()}>Continue</button><button className="secondary" disabled={conversationPending || !commandAvailable("start_over")} onClick={() => void startOver()}>Start over</button></div></aside>}
           {quarantinedPopups.map((tab) => <aside className="approval" key={tab.id}><div className="eyebrow">Popup quarantined</div><h3>Use this new tab?</h3><p>{tab.url}</p><div><button disabled={interrupted} onClick={() => void api.adoptPopup(conversation!.id, tab.id).then(showConversation).catch((caught) => setError(caught instanceof Error ? caught.message : "Could not adopt the popup."))}>Adopt tab</button></div></aside>)}
           {conversation?.pendingApproval && <aside className="approval"><div className="eyebrow">Approval required</div><h3>Allow this website interaction?</h3><p>{conversation.pendingApproval.reason}</p>{conversation.pendingApproval.pageUrl && <p>Current page: {conversation.pendingApproval.pageUrl}</p>}{operationDetails(conversation.pendingApproval.operation) && <p>{operationDetails(conversation.pendingApproval.operation)}</p>}<div><button disabled={approvalPending || !commandAvailable("approve")} onClick={() => void resolve(true)}>{approvalPending ? "Running…" : "Approve once"}</button><button className="secondary" disabled={approvalPending || !commandAvailable("reject")} onClick={() => void resolve(false)}>Not now</button></div></aside>}
