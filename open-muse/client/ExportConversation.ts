@@ -5,17 +5,23 @@ function formatTimestamp(iso: string): string {
   return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
+function escapeMarkdown(text: string): string {
+  return text.replace(/^(#{1,6} |---|\*\*\*|___)/gm, "\\$1");
+}
+
 function turnStepsSummary(turn: TraceTurn): string {
   if (!turn.steps.length) return "";
   return turn.steps.map((step) => {
-    const mark = step.state === "completed" ? "done" : step.state === "failed" ? "fail" : "skip";
-    return "  " + mark + " " + (step.label || step.kind);
+    const mark = step.state === "completed" ? "done" : step.state === "failed" ? "fail" : step.state === "running" ? "run" : "skip";
+    return "  " + mark + " " + (step.label || step.tool);
   }).join("\n");
 }
 
 function conversationToMarkdown(conversation: Conversation, turns: TraceTurn[]): string {
   const lines: string[] = [];
-  const byTurn = new Map(turns.map((t) => [t.turnId, t]));
+  const byTurn = new Map(
+    turns.filter((t) => t.conversationId === conversation.id).map((t) => [t.turnId, t])
+  );
   lines.push("# Conversation export");
   lines.push("**Model:** " + conversation.modelId + "  ");
   lines.push("**Exported:** " + new Date().toLocaleString() + "  ");
@@ -24,7 +30,7 @@ function conversationToMarkdown(conversation: Conversation, turns: TraceTurn[]):
   for (const msg of conversation.messages) {
     const role = msg.role === "user" ? "**You**" : "**OpenMuse**";
     lines.push("### " + role + " \u00b7 " + formatTimestamp(msg.createdAt));
-    lines.push("", msg.text.trim(), "");
+    lines.push("", escapeMarkdown(msg.text.trim()), "");
     if (msg.role === "user" && msg.turnId) {
       const turn = byTurn.get(msg.turnId);
       if (turn && turn.steps.length) {
@@ -47,10 +53,12 @@ function conversationToJson(conversation: Conversation, turns: TraceTurn[]): str
     messages: conversation.messages.map((m: Message) => ({
       id: m.id, role: m.role, text: m.text, createdAt: m.createdAt, turnId: m.turnId,
     })),
-    turns: turns.map((t) => ({
-      turnId: t.turnId, state: t.state,
-      steps: t.steps.map((s) => ({ id: s.id, kind: s.kind, label: s.label, state: s.state, error: s.error })),
-    })),
+    turns: turns
+      .filter((t) => t.conversationId === conversation.id)
+      .map((t) => ({
+        turnId: t.turnId, state: t.state,
+        steps: t.steps.map((s) => ({ id: s.id, tool: s.tool, label: s.label, state: s.state, error: s.error })),
+      })),
   }, null, 2);
 }
 
