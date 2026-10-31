@@ -38,6 +38,7 @@ from uuid import uuid4
 
 import paramiko
 
+from celesto.comm.base import MAX_RUN_OUTPUT_BYTES, run_output_too_large_error
 from celesto.exceptions import CelestoError, OperationTimeoutError
 from celesto.types import (
     CommandEvent,
@@ -48,6 +49,9 @@ from celesto.types import (
 )
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_MAX_COMMAND_OUTPUT_BYTES = MAX_RUN_OUTPUT_BYTES
+"""Host-owned cap on the output ``run`` buffers; larger output must use ``run_stream``."""
 
 
 class _LimitedWriter:
@@ -506,7 +510,9 @@ class SSHClient:
         Raises:
             ValueError: If *command* is empty.
             OperationTimeoutError: If the command exceeds *timeout*.
-            CelestoError: If the SSH connection cannot be established.
+            CelestoError: If the SSH connection cannot be established, or if
+                the command's stdout and stderr together exceed 8 MiB (use
+                :meth:`run_stream` for large output).
         """
         if not command or not command.strip():
             raise ValueError("command cannot be empty")
@@ -531,11 +537,8 @@ class SSHClient:
             for event in events:
                 if event.type in {"stdout", "stderr"}:
                     captured += len(event.data.encode("utf-8"))
-                    if captured > 8 * 1024 * 1024:
-                        raise CelestoError(
-                            "SSH command exceeded the output limit; "
-                            "write large output to a file and download it."
-                        )
+                    if captured > _DEFAULT_MAX_COMMAND_OUTPUT_BYTES:
+                        raise run_output_too_large_error(_DEFAULT_MAX_COMMAND_OUTPUT_BYTES)
                     (stdout if event.type == "stdout" else stderr).append(event.data)
                 elif event.type == "exit":
                     return CommandResult(
