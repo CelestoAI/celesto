@@ -731,14 +731,25 @@ class RustHttpVsockChannel:
             raise _feature_required_error(feature, sandbox_name=self.sandbox_name)
 
     def _limit_bytes(self, name: str, default: int) -> int:
+        """Return the byte cap for *name*.
+
+        ``default`` is the host-owned upper bound. A limit the guest advertises
+        can only lower it, never raise it, because the guest is untrusted and
+        these caps bound host memory and disk.
+        """
         value = self.capabilities.limits.get(name)
-        if value is None:
+        if value is None or isinstance(value, bool):
+            # Absent limits use the default; JSON true would otherwise become a 1-byte cap.
+            return default
+        if isinstance(value, float) and not value.is_integer():
+            # A fractional byte count is malformed; truncating 1.5 would mean a 1-byte cap.
             return default
         try:
             limit = int(value)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
+            # Non-numeric, NaN or infinite values (JSON "1e999") fall back to the host default.
             return default
-        return limit if limit > 0 else default
+        return min(limit, default) if limit > 0 else default
 
     def run(
         self,
