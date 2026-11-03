@@ -16,11 +16,13 @@
 
 from __future__ import annotations
 
+import gzip
 import io
 import json
 import os
 import queue
 import socket
+import stat
 import tarfile
 import tempfile
 import threading
@@ -33,12 +35,15 @@ import pytest
 import celesto.comm.rust_http_vsock_channel as vsock_channel
 from celesto.comm.base import CommChannel
 from celesto.comm.rust_http_vsock_channel import (
+    _DEFAULT_MAX_TAR_SIZE_BYTES,
+    _TAR_EXTRACT_CHUNK_BYTES,
     CELESTO_TERMINAL_PORT,
     ControlCapabilities,
     RustHttpVsockChannel,
     _directory_to_tar,
     _pack_terminal_frame,
     _read_terminal_frame,
+    _safe_extract_tar,
     _SocketHTTPConnection,
     _vsock_family,
     _vsock_unavailable_message,
@@ -841,6 +846,283 @@ def test_wait_for_ports_preserves_guest_timeout_validation_errors() -> None:
 
     with pytest.raises(CelestoError, match="timeout_ms must be at most"):
         channel.wait_for_ports([3000])
+
+
+def _plain_tar(members: dict[str, bytes]) -> bytes:
+    archive = io.BytesIO()
+    with tarfile.open(fileobj=archive, mode="w", format=tarfile.USTAR_FORMAT) as tar:
+        for name, payload in members.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(payload)
+            tar.addfile(info, io.BytesIO(payload))
+    return archive.getvalue()
+
+
+def test_extract_tar_rejects_compressed_archives(tmp_path: Path) -> None:
+    compressed = gzip.compress(_plain_tar({"z.bin": b"\x00" * 65536}), 9)
+
+    with pytest.raises(CelestoError, match="not a plain tar archive"):
+        _safe_extract_tar(compressed, tmp_path / "out")
+    assert not (tmp_path / "out" / "z.bin").exists()
+
+
+def test_extract_tar_rejects_sparse_members(tmp_path: Path) -> None:
+    archive = io.BytesIO()
+    with tarfile.open(fileobj=archive, mode="w", format=tarfile.GNU_FORMAT) as tar:
+        info = tarfile.TarInfo("sparse.bin")
+        info.type = tarfile.GNUTYPE_SPARSE
+        tar.addfile(info)
+
+    with pytest.raises(CelestoError, match="sparse"):
+        _safe_extract_tar(archive.getvalue(), tmp_path / "out")
+    assert not (tmp_path / "out" / "sparse.bin").exists()
+
+
+def test_extract_tar_rejects_member_over_cap(tmp_path: Path) -> None:
+    data = _plain_tar({"big.bin": b"x" * 2048})
+
+    with pytest.raises(CelestoError, match="big.bin"):
+        _safe_extract_tar(data, tmp_path / "out", max_member_bytes=1024, max_total_bytes=4096)
+    assert not (tmp_path / "out" / "big.bin").exists()
+
+
+def test_extract_tar_rejects_total_over_cap(tmp_path: Path) -> None:
+    data = _plain_tar({"a.bin": b"x" * 1024, "b.bin": b"y" * 1024, "c.bin": b"z" * 1024})
+
+    with pytest.raises(CelestoError, match="more than 2048 bytes"):
+        _safe_extract_tar(data, tmp_path / "out", max_member_bytes=1024, max_total_bytes=2048)
+    assert not (tmp_path / "out" / "c.bin").exists()
+
+
+def test_extract_tar_allows_members_exactly_at_caps(tmp_path: Path) -> None:
+    data = _plain_tar({"edge.bin": b"x" * 1024, "edge2.bin": b"y" * 1024})
+
+    _safe_extract_tar(data, tmp_path / "out", max_member_bytes=1024, max_total_bytes=2048)
+
+    assert (tmp_path / "out" / "edge.bin").read_bytes() == b"x" * 1024
+    assert (tmp_path / "out" / "edge2.bin").read_bytes() == b"y" * 1024
+
+
+def test_extract_tar_reports_duplicate_or_clashing_entries_plainly(tmp_path: Path) -> None:
+    archive = io.BytesIO()
+    with tarfile.open(fileobj=archive, mode="w", format=tarfile.USTAR_FORMAT) as tar:
+        info = tarfile.TarInfo("x")
+        info.size = 4
+        tar.addfile(info, io.BytesIO(b"data"))
+        clash = tarfile.TarInfo("x")
+        clash.type = tarfile.DIRTYPE
+        tar.addfile(clash)
+
+    with pytest.raises(CelestoError, match="'x'"):
+        _safe_extract_tar(archive.getvalue(), tmp_path / "out")
+
+    archive = io.BytesIO()
+    with tarfile.open(fileobj=archive, mode="w", format=tarfile.USTAR_FORMAT) as tar:
+        folder = tarfile.TarInfo("d")
+        folder.type = tarfile.DIRTYPE
+        tar.addfile(folder)
+        info = tarfile.TarInfo("d")
+        info.size = 4
+        tar.addfile(info, io.BytesIO(b"data"))
+
+    with pytest.raises(CelestoError, match="'d'"):
+        _safe_extract_tar(archive.getvalue(), tmp_path / "out2")
+
+
+def test_extract_tar_reports_truncated_archive_plainly(tmp_path: Path) -> None:
+    data = bytearray(_plain_tar({"ok.txt": b"hello"}))
+    # Rewrite the header so it declares 1 MiB of data that is not in the archive.
+    header = data[:512]
+    header[124:136] = b"%011o\0" % (1024 * 1024)
+    header[148:156] = b" " * 8
+    header[148:156] = b"%06o\0 " % sum(header)
+    data[:512] = header
+
+    with pytest.raises(CelestoError, match="ended before all of its data arrived"):
+        _safe_extract_tar(bytes(data), tmp_path / "out")
+    assert not (tmp_path / "out" / "ok.txt").exists()
+
+
+def test_get_directory_passes_the_tar_cap_to_extraction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data = _plain_tar({"big.bin": b"x" * 4096})
+    channel = FakeRustChannel(
+        [_capabilities({"dir_tar": True}, limits={"max_tar_size_bytes": 1024})]
+    )
+    # Bypass the transfer cap so only the extraction ceilings can refuse this archive.
+    monkeypatch.setattr(channel, "_request_bytes", lambda *args, **kwargs: (None, data))
+
+    with pytest.raises(CelestoError, match="big.bin"):
+        channel.get_directory("/remote", tmp_path / "out")
+    assert not (tmp_path / "out" / "big.bin").exists()
+
+
+def _pax_tar(
+    members: list[tuple[str, bytes, dict[str, str]]], *, global_headers: dict | None = None
+) -> bytes:
+    archive = io.BytesIO()
+    with tarfile.open(
+        fileobj=archive, mode="w", format=tarfile.PAX_FORMAT, pax_headers=global_headers or {}
+    ) as tar:
+        for name, payload, headers in members:
+            info = tarfile.TarInfo(name)
+            info.size = len(payload)
+            info.pax_headers = headers
+            tar.addfile(info, io.BytesIO(payload))
+    return archive.getvalue()
+
+
+def test_extract_tar_rejects_negative_member_size(tmp_path: Path) -> None:
+    # A PAX "GNU.sparse.realsize" with no sparse map sets member.size negative
+    # without marking the member sparse; it must not lower the running total.
+    data = _pax_tar(
+        [("neg.bin", b"", {"GNU.sparse.realsize": "-999999"}), ("big.bin", b"x" * 2048, {})]
+    )
+
+    with pytest.raises(CelestoError, match="neg.bin"):
+        _safe_extract_tar(data, tmp_path / "out", max_member_bytes=4096, max_total_bytes=1024)
+    assert not (tmp_path / "out" / "big.bin").exists()
+
+
+def test_extract_tar_reports_unparseable_pax_size_plainly(tmp_path: Path) -> None:
+    data = _pax_tar([("odd.bin", b"x", {"GNU.sparse.size": "abc"})])
+
+    with pytest.raises(CelestoError, match="not a plain tar archive|damaged"):
+        _safe_extract_tar(data, tmp_path / "out")
+
+
+def test_extract_tar_rejects_global_pax_headers(tmp_path: Path) -> None:
+    # A global header rewrites every later member's size after the data layout
+    # was fixed, so the size checks would run against an attacker-set number.
+    data = _pax_tar([("a.bin", b"abc", {}), ("b.bin", b"def", {})], global_headers={"size": "100"})
+
+    with pytest.raises(CelestoError, match="extended headers"):
+        _safe_extract_tar(data, tmp_path / "out")
+    assert not (tmp_path / "out" / "a.bin").exists()
+
+
+def test_extract_tar_rejects_damaged_archive_instead_of_partial_result(tmp_path: Path) -> None:
+    good = _plain_tar({"first.txt": b"hello"})
+    body = good[:-1024]  # strip the end-of-archive blocks
+    damaged = body + b"\xffnot a header" + b"\0" * 500 + _plain_tar({"second.txt": b"world"})
+
+    with pytest.raises(CelestoError, match="damaged"):
+        _safe_extract_tar(damaged, tmp_path / "out")
+    assert not (tmp_path / "out" / "first.txt").exists()
+
+
+def test_extract_tar_applies_directory_modes_after_children(tmp_path: Path) -> None:
+    archive = io.BytesIO()
+    with tarfile.open(fileobj=archive, mode="w", format=tarfile.USTAR_FORMAT) as tar:
+        folder = tarfile.TarInfo("locked")
+        folder.type = tarfile.DIRTYPE
+        folder.mode = 0o500
+        tar.addfile(folder)
+        info = tarfile.TarInfo("locked/child.txt")
+        info.size = 2
+        info.mode = 0o600
+        tar.addfile(info, io.BytesIO(b"ok"))
+
+    try:
+        _safe_extract_tar(archive.getvalue(), tmp_path / "out")
+        child = tmp_path / "out" / "locked" / "child.txt"
+        assert child.read_bytes() == b"ok"
+        assert stat.S_IMODE(child.stat().st_mode) == 0o600
+        assert stat.S_IMODE((tmp_path / "out" / "locked").stat().st_mode) == 0o500
+    finally:
+        os.chmod(tmp_path / "out" / "locked", 0o700)
+
+
+def test_extract_tar_rejects_names_with_nul_bytes(tmp_path: Path) -> None:
+    data = _pax_tar([("x", b"abc", {"path": "x\x00y"})])
+
+    with pytest.raises(CelestoError, match="Refusing tar entry"):
+        _safe_extract_tar(data, tmp_path / "out")
+
+
+def test_extract_tar_creates_files_private_before_applying_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen_modes: list[int] = []
+    real_open = os.open
+
+    def _recording_open(path: Any, flags: int, mode: int = 0o777, *args: Any, **kw: Any) -> int:
+        if flags & os.O_CREAT:
+            seen_modes.append(mode)
+        return real_open(path, flags, mode, *args, **kw)
+
+    monkeypatch.setattr(os, "open", _recording_open)
+
+    _safe_extract_tar(_plain_tar({"f.txt": b"x"}), tmp_path / "out")
+
+    assert seen_modes == [0o600]
+
+
+def test_extract_tar_rejects_too_many_members(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(vsock_channel, "_MAX_TAR_MEMBERS", 3)
+    next_calls = 0
+    original_next = tarfile.TarFile.next
+
+    def _counting_next(archive: tarfile.TarFile) -> tarfile.TarInfo | None:
+        nonlocal next_calls
+        next_calls += 1
+        return original_next(archive)
+
+    monkeypatch.setattr(tarfile.TarFile, "next", _counting_next)
+    data = _plain_tar({f"f{i}.txt": b"x" for i in range(4)})
+
+    with pytest.raises(CelestoError, match="more than 3 entries"):
+        _safe_extract_tar(data, tmp_path / "out")
+    # tarfile.open reads the first header itself and the loop re-reads it from
+    # the cache, so four members cost five calls; a full parse would make six
+    # (the extra one finds the end-of-archive marker).
+    assert next_calls == 5
+    assert not (tmp_path / "out" / "f0.txt").exists()
+
+
+def test_get_directory_caps_the_tar_limit_at_the_host_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: dict[str, int] = {}
+
+    def _record(*args: Any, **kwargs: Any) -> tuple[None, bytes]:
+        seen["max_bytes"] = kwargs["max_bytes"]
+        return (None, _plain_tar({"ok.txt": b"ok"}))
+
+    channel = FakeRustChannel(
+        [_capabilities({"dir_tar": True}, limits={"max_tar_size_bytes": 10**15})]
+    )
+    monkeypatch.setattr(channel, "_request_bytes", _record)
+
+    channel.get_directory("/remote", tmp_path / "out")
+
+    assert seen["max_bytes"] == _DEFAULT_MAX_TAR_SIZE_BYTES
+    assert (tmp_path / "out" / "ok.txt").read_bytes() == b"ok"
+
+
+def test_extract_tar_streams_members_in_bounded_chunks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = bytes(range(256)) * 64
+    data = _plain_tar({"dir/file.bin": payload})
+    reads: list[int | None] = []
+    original = tarfile.ExFileObject.read
+
+    def _recording_read(self: tarfile.ExFileObject, size: int = -1) -> bytes:
+        reads.append(size)
+        return original(self, size)
+
+    monkeypatch.setattr(tarfile.ExFileObject, "read", _recording_read)
+
+    _safe_extract_tar(data, tmp_path / "out")
+
+    assert (tmp_path / "out" / "dir" / "file.bin").read_bytes() == payload
+    assert reads
+    assert all(0 < size <= _TAR_EXTRACT_CHUNK_BYTES for size in reads if size is not None)
+    assert None not in reads and -1 not in reads
 
 
 def _capabilities(features: dict[str, bool], *, limits: dict[str, Any] | None = None) -> Handler:
