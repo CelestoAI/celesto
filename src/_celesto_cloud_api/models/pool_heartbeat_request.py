@@ -12,6 +12,7 @@ from ..types import UNSET, Unset
 from typing import cast
 
 if TYPE_CHECKING:
+    from ..models.host_update_status import HostUpdateStatus
     from ..models.pool_heartbeat_request_running_computers_type_0_item import (
         PoolHeartbeatRequestRunningComputersType0Item,
     )
@@ -31,6 +32,7 @@ class PoolHeartbeatRequest:
         stream_protocol_version (int | Unset):  Default: 1.
         running_computers (list[PoolHeartbeatRequestRunningComputersType0Item] | None | Unset):
         usage_billing_fence (bool | Unset):  Default: False.
+        update_status (HostUpdateStatus | None | Unset):
     """
 
     epoch: int
@@ -42,9 +44,11 @@ class PoolHeartbeatRequest:
         list[PoolHeartbeatRequestRunningComputersType0Item] | None | Unset
     ) = UNSET
     usage_billing_fence: bool | Unset = False
+    update_status: HostUpdateStatus | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.host_update_status import HostUpdateStatus  # noqa: PLC0415
         from ..models.pool_heartbeat_request_running_computers_type_0_item import (
             PoolHeartbeatRequestRunningComputersType0Item,
         )  # noqa: PLC0415
@@ -79,6 +83,14 @@ class PoolHeartbeatRequest:
 
         usage_billing_fence = self.usage_billing_fence
 
+        update_status: dict[str, Any] | None | Unset
+        if isinstance(self.update_status, Unset):
+            update_status = UNSET
+        elif isinstance(self.update_status, HostUpdateStatus):
+            update_status = self.update_status.to_dict()
+        else:
+            update_status = self.update_status
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -96,11 +108,14 @@ class PoolHeartbeatRequest:
             field_dict["running_computers"] = running_computers
         if usage_billing_fence is not UNSET:
             field_dict["usage_billing_fence"] = usage_billing_fence
+        if update_status is not UNSET:
+            field_dict["update_status"] = update_status
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.host_update_status import HostUpdateStatus  # noqa: PLC0415
         from ..models.pool_heartbeat_request_running_computers_type_0_item import (
             PoolHeartbeatRequestRunningComputersType0Item,
         )  # noqa: PLC0415
@@ -155,6 +170,23 @@ class PoolHeartbeatRequest:
 
         usage_billing_fence = d.pop("usage_billing_fence", UNSET)
 
+        def _parse_update_status(data: object) -> HostUpdateStatus | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                update_status_type_0 = HostUpdateStatus.from_dict(data)
+
+                return update_status_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(HostUpdateStatus | None | Unset, data)
+
+        update_status = _parse_update_status(d.pop("update_status", UNSET))
+
         pool_heartbeat_request = cls(
             epoch=epoch,
             state_id=state_id,
@@ -163,6 +195,7 @@ class PoolHeartbeatRequest:
             stream_protocol_version=stream_protocol_version,
             running_computers=running_computers,
             usage_billing_fence=usage_billing_fence,
+            update_status=update_status,
         )
 
         pool_heartbeat_request.additional_properties = d

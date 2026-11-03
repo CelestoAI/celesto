@@ -20,6 +20,16 @@ from .authorize_installation import AuthorizeInstallation
 from .authorize_url_v1_integrations_github_actions_authorize_url_post_response_authorize_url_v1_integrations_github_actions_authorize_url_post import (
     AuthorizeUrlV1IntegrationsGithubActionsAuthorizeUrlPostResponseAuthorizeUrlV1IntegrationsGithubActionsAuthorizeUrlPost,
 )
+from .auto_topup_card_confirm_request import AutoTopupCardConfirmRequest
+from .auto_topup_card_response import AutoTopupCardResponse
+from .auto_topup_charge_response import AutoTopupChargeResponse
+from .auto_topup_charge_response_status import AutoTopupChargeResponseStatus
+from .auto_topup_request import AutoTopupRequest
+from .auto_topup_response import AutoTopupResponse
+from .auto_topup_response_paused_reason_type_0 import AutoTopupResponsePausedReasonType0
+from .billing_payment import BillingPayment
+from .billing_runtime import BillingRuntime
+from .billing_wallet import BillingWallet
 from .blob_url_v1_integrations_github_actions_cache_celesto_blob_url_post_response_blob_url_v1_integrations_github_actions_cache_celesto_blob_url_post import (
     BlobUrlV1IntegrationsGithubActionsCacheCelestoBlobUrlPostResponseBlobUrlV1IntegrationsGithubActionsCacheCelestoBlobUrlPost,
 )
@@ -27,19 +37,25 @@ from .block_request import BlockRequest
 from .block_url_v1_integrations_github_actions_cache_celesto_block_url_post_response_block_url_v1_integrations_github_actions_cache_celesto_block_url_post import (
     BlockUrlV1IntegrationsGithubActionsCacheCelestoBlockUrlPostResponseBlockUrlV1IntegrationsGithubActionsCacheCelestoBlockUrlPost,
 )
-from .body_upload_document_v1_documents_post import BodyUploadDocumentV1DocumentsPost
-from .body_upload_file_v1_files_upload_post import BodyUploadFileV1FilesUploadPost
 from .bulk_cold_dm_request import BulkColdDMRequest
 from .bulk_cold_dm_request_channel_type_0 import BulkColdDMRequestChannelType0
+from .cancel_retained_command_v1_computers_computer_id_commands_command_id_cancel_post_response_cancel_retained_command_v1_computers_computer_id_commands_command_id_cancel_post import (
+    CancelRetainedCommandV1ComputersComputerIdCommandsCommandIdCancelPostResponseCancelRetainedCommandV1ComputersComputerIdCommandsCommandIdCancelPost,
+)
 from .check_gmail_integration_v1_user_emails_integration_status_get_response_check_gmail_integration_v1_user_emails_integration_status_get import (
     CheckGmailIntegrationV1UserEmailsIntegrationStatusGetResponseCheckGmailIntegrationV1UserEmailsIntegrationStatusGet,
 )
-from .check_service_status_v1_system_emails_service_status_get_response_check_service_status_v1_system_emails_service_status_get import (
-    CheckServiceStatusV1SystemEmailsServiceStatusGetResponseCheckServiceStatusV1SystemEmailsServiceStatusGet,
-)
+from .ci_job_durations import CiJobDurations
+from .ci_job_stats import CiJobStats
+from .ci_machine_job_stats import CiMachineJobStats
+from .ci_minutes_bucket import CiMinutesBucket
+from .ci_minutes_series import CiMinutesSeries
+from .ci_minutes_series_days import CiMinutesSeriesDays
+from .ci_minutes_series_interval import CiMinutesSeriesInterval
 from .command_result_v1_internal_pool_hosts_host_id_commands_command_id_result_post_response_command_result_v1_internal_pool_hosts_host_id_commands_command_id_result_post import (
     CommandResultV1InternalPoolHostsHostIdCommandsCommandIdResultPostResponseCommandResultV1InternalPoolHostsHostIdCommandsCommandIdResultPost,
 )
+from .command_start import CommandStart
 from .commit_blocks_request import CommitBlocksRequest
 from .commit_blocks_v1_integrations_github_actions_cache_celesto_commit_blocks_post_response_commit_blocks_v1_integrations_github_actions_cache_celesto_commit_blocks_post import (
     CommitBlocksV1IntegrationsGithubActionsCacheCelestoCommitBlocksPostResponseCommitBlocksV1IntegrationsGithubActionsCacheCelestoCommitBlocksPost,
@@ -82,7 +98,6 @@ from .computer_validation_error_response_errors_item import (
     ComputerValidationErrorResponseErrorsItem,
 )
 from .consent_approval import ConsentApproval
-from .contact_email_request import ContactEmailRequest
 from .create_request import CreateRequest
 from .custom_template_create import CustomTemplateCreate
 from .custom_template_lint_request import CustomTemplateLintRequest
@@ -120,17 +135,6 @@ from .delegated_drive_file import DelegatedDriveFile
 from .disconnect_github_v1_integrations_github_disconnect_delete_response_disconnect_github_v1_integrations_github_disconnect_delete import (
     DisconnectGithubV1IntegrationsGithubDisconnectDeleteResponseDisconnectGithubV1IntegrationsGithubDisconnectDelete,
 )
-from .document_list_response import DocumentListResponse
-from .document_response import DocumentResponse
-from .document_response_document_metadata import DocumentResponseDocumentMetadata
-from .document_scope import DocumentScope
-from .document_status import DocumentStatus
-from .document_tags_update import DocumentTagsUpdate
-from .document_type import DocumentType
-from .document_update import DocumentUpdate
-from .document_update_document_metadata_type_0 import (
-    DocumentUpdateDocumentMetadataType0,
-)
 from .download_url_request import DownloadUrlRequest
 from .download_url_v1_integrations_github_actions_cache_celesto_download_url_post_response_download_url_v1_integrations_github_actions_cache_celesto_download_url_post import (
     DownloadUrlV1IntegrationsGithubActionsCacheCelestoDownloadUrlPostResponseDownloadUrlV1IntegrationsGithubActionsCacheCelestoDownloadUrlPost,
@@ -138,14 +142,10 @@ from .download_url_v1_integrations_github_actions_cache_celesto_download_url_pos
 from .drain_acknowledgement import DrainAcknowledgement
 from .drive_access_rules_response import DriveAccessRulesResponse
 from .drive_access_rules_update import DriveAccessRulesUpdate
-from .email_response import EmailResponse
 from .email_webhook_v1_webhooks_email_provider_post_body import (
     EmailWebhookV1WebhooksEmailProviderPostBody,
 )
-from .entry_request import EntryRequest
 from .failed_exit_code import FailedExitCode
-from .file_list_response import FileListResponse
-from .file_response import FileResponse
 from .finalize_request import FinalizeRequest
 from .fleet_capacity import FleetCapacity
 from .fleet_host import FleetHost
@@ -160,6 +160,9 @@ from .get_audit_event_v1_internal_audit_events_event_id_get_response_get_audit_e
 )
 from .get_audit_events_v1_internal_audit_events_get_response_200_item import (
     GetAuditEventsV1InternalAuditEventsGetResponse200Item,
+)
+from .get_ci_minutes_v1_internal_fleet_ci_minutes_get_interval import (
+    GetCiMinutesV1InternalFleetCiMinutesGetInterval,
 )
 from .get_pilot_status_v1_computers_pilot_status_get_response_get_pilot_status_v1_computers_pilot_status_get import (
     GetPilotStatusV1ComputersPilotStatusGetResponseGetPilotStatusV1ComputersPilotStatusGet,
@@ -179,30 +182,38 @@ from .git_hub_connection_status_response import GitHubConnectionStatusResponse
 from .git_hub_repository_list_response import GitHubRepositoryListResponse
 from .git_hub_repository_permissions import GitHubRepositoryPermissions
 from .git_hub_repository_response import GitHubRepositoryResponse
-from .github_actions_cache_create_entry_response import (
-    GithubActionsCacheCreateEntryResponse,
-)
-from .github_actions_cache_finalize_upload_response import (
-    GithubActionsCacheFinalizeUploadResponse,
-)
 from .github_actions_cache_get_download_url_response import (
     GithubActionsCacheGetDownloadUrlResponse,
 )
 from .github_actions_webhook_v1_integrations_github_actions_webhook_post_response_github_actions_webhook_v1_integrations_github_actions_webhook_post import (
     GithubActionsWebhookV1IntegrationsGithubActionsWebhookPostResponseGithubActionsWebhookV1IntegrationsGithubActionsWebhookPost,
 )
+from .github_marketplace_webhook_v1_integrations_github_marketplace_webhook_post_response_github_marketplace_webhook_v1_integrations_github_marketplace_webhook_post import (
+    GithubMarketplaceWebhookV1IntegrationsGithubMarketplaceWebhookPostResponseGithubMarketplaceWebhookV1IntegrationsGithubMarketplaceWebhookPost,
+)
 from .heartbeat_v1_internal_pool_hosts_host_id_heartbeat_post_response_heartbeat_v1_internal_pool_hosts_host_id_heartbeat_post import (
     HeartbeatV1InternalPoolHostsHostIdHeartbeatPostResponseHeartbeatV1InternalPoolHostsHostIdHeartbeatPost,
 )
 from .host_placement import HostPlacement
+from .host_update_status import HostUpdateStatus
+from .host_update_status_state import HostUpdateStatusState
 from .http_validation_error import HTTPValidationError
-from .install_url_v1_integrations_github_actions_install_url_post_response_install_url_v1_integrations_github_actions_install_url_post import (
-    InstallUrlV1IntegrationsGithubActionsInstallUrlPostResponseInstallUrlV1IntegrationsGithubActionsInstallUrlPost,
+from .inspect_retained_command_v1_computers_computer_id_commands_command_id_get_response_inspect_retained_command_v1_computers_computer_id_commands_command_id_get import (
+    InspectRetainedCommandV1ComputersComputerIdCommandsCommandIdGetResponseInspectRetainedCommandV1ComputersComputerIdCommandsCommandIdGet,
 )
 from .inventory import Inventory
 from .inventory_computers_item import InventoryComputersItem
 from .job_details_v1_integrations_github_actions_jobs_job_id_get_response_job_details_v1_integrations_github_actions_jobs_job_id_get import (
     JobDetailsV1IntegrationsGithubActionsJobsJobIdGetResponseJobDetailsV1IntegrationsGithubActionsJobsJobIdGet,
+)
+from .job_step_log_v1_integrations_github_actions_jobs_job_id_steps_number_log_get_response_job_step_log_v1_integrations_github_actions_jobs_job_id_steps_number_log_get import (
+    JobStepLogV1IntegrationsGithubActionsJobsJobIdStepsNumberLogGetResponseJobStepLogV1IntegrationsGithubActionsJobsJobIdStepsNumberLogGet,
+)
+from .job_steps_v1_integrations_github_actions_jobs_job_id_steps_get_response_job_steps_v1_integrations_github_actions_jobs_job_id_steps_get import (
+    JobStepsV1IntegrationsGithubActionsJobsJobIdStepsGetResponseJobStepsV1IntegrationsGithubActionsJobsJobIdStepsGet,
+)
+from .jobs_summary_v1_integrations_github_actions_jobs_summary_get_response_jobs_summary_v1_integrations_github_actions_jobs_summary_get import (
+    JobsSummaryV1IntegrationsGithubActionsJobsSummaryGetResponseJobsSummaryV1IntegrationsGithubActionsJobsSummaryGet,
 )
 from .join_waitlist_v1_features_waitlist_post_response_join_waitlist_v1_features_waitlist_post import (
     JoinWaitlistV1FeaturesWaitlistPostResponseJoinWaitlistV1FeaturesWaitlistPost,
@@ -214,6 +225,9 @@ from .list_installations_v1_integrations_github_actions_installations_get_respon
 )
 from .list_jobs_v1_integrations_github_actions_jobs_get_response_200_item import (
     ListJobsV1IntegrationsGithubActionsJobsGetResponse200Item,
+)
+from .list_runners_v1_integrations_github_actions_runners_get_response_list_runners_v1_integrations_github_actions_runners_get import (
+    ListRunnersV1IntegrationsGithubActionsRunnersGetResponseListRunnersV1IntegrationsGithubActionsRunnersGet,
 )
 from .list_suspended_users_v1_internal_users_suspended_get_response_200_item import (
     ListSuspendedUsersV1InternalUsersSuspendedGetResponse200Item,
@@ -227,7 +241,11 @@ from .network_policy_mode import NetworkPolicyMode
 from .open_session_v1_internal_pool_hosts_host_id_session_post_response_open_session_v1_internal_pool_hosts_host_id_session_post import (
     OpenSessionV1InternalPoolHostsHostIdSessionPostResponseOpenSessionV1InternalPoolHostsHostIdSessionPost,
 )
+from .operator_billing_report import OperatorBillingReport
+from .operator_billing_report_payments_status import OperatorBillingReportPaymentsStatus
 from .organization import Organization
+from .organization_billing import OrganizationBilling
+from .organization_billing_balance_status import OrganizationBillingBalanceStatus
 from .organization_member_read import OrganizationMemberRead
 from .organization_role import OrganizationRole
 from .organization_update import OrganizationUpdate
@@ -235,6 +253,15 @@ from .outbound_generation_request import OutboundGenerationRequest
 from .outbound_generation_request_channel import OutboundGenerationRequestChannel
 from .outbound_generation_response import OutboundGenerationResponse
 from .outbound_generation_response_channel import OutboundGenerationResponseChannel
+from .page_job_groups_v1_integrations_github_actions_jobs_groups_get_response_page_job_groups_v1_integrations_github_actions_jobs_groups_get import (
+    PageJobGroupsV1IntegrationsGithubActionsJobsGroupsGetResponsePageJobGroupsV1IntegrationsGithubActionsJobsGroupsGet,
+)
+from .page_jobs_v1_integrations_github_actions_jobs_page_get_response_page_jobs_v1_integrations_github_actions_jobs_page_get import (
+    PageJobsV1IntegrationsGithubActionsJobsPageGetResponsePageJobsV1IntegrationsGithubActionsJobsPageGet,
+)
+from .page_jobs_v1_integrations_github_actions_jobs_page_get_tab import (
+    PageJobsV1IntegrationsGithubActionsJobsPageGetTab,
+)
 from .pending_drains_v1_internal_ingress_pending_drains_get_response_pending_drains_v1_internal_ingress_pending_drains_get import (
     PendingDrainsV1InternalIngressPendingDrainsGetResponsePendingDrainsV1InternalIngressPendingDrainsGet,
 )
@@ -260,6 +287,8 @@ from .poll_request import PollRequest
 from .poll_v1_internal_pool_hosts_host_id_poll_post_response_poll_v1_internal_pool_hosts_host_id_poll_post import (
     PollV1InternalPoolHostsHostIdPollPostResponsePollV1InternalPoolHostsHostIdPollPost,
 )
+from .pool_bootstrap_request import PoolBootstrapRequest
+from .pool_bootstrap_request_kind import PoolBootstrapRequestKind
 from .pool_git_credential_request import PoolGitCredentialRequest
 from .pool_heartbeat_request import PoolHeartbeatRequest
 from .pool_heartbeat_request_running_computers_type_0_item import (
@@ -273,6 +302,12 @@ from .project_response import ProjectResponse
 from .project_response_settings_type_0 import ProjectResponseSettingsType0
 from .project_update import ProjectUpdate
 from .project_update_settings_type_0 import ProjectUpdateSettingsType0
+from .read_retained_command_v1_computers_computer_id_commands_command_id_output_get_response_read_retained_command_v1_computers_computer_id_commands_command_id_output_get import (
+    ReadRetainedCommandV1ComputersComputerIdCommandsCommandIdOutputGetResponseReadRetainedCommandV1ComputersComputerIdCommandsCommandIdOutputGet,
+)
+from .read_retained_command_v1_computers_computer_id_commands_command_id_output_get_stream import (
+    ReadRetainedCommandV1ComputersComputerIdCommandsCommandIdOutputGetStream,
+)
 from .recent_sandbox_user import RecentSandboxUser
 from .recent_sandbox_user_providers import RecentSandboxUserProviders
 from .recent_sandbox_users import RecentSandboxUsers
@@ -281,6 +316,8 @@ from .resolve_route_v1_internal_ingress_routes_hostname_get_response_resolve_rou
 )
 from .result_request import ResultRequest
 from .result_request_result_type_0 import ResultRequestResultType0
+from .running_sandbox_spend_response import RunningSandboxSpendResponse
+from .running_sandbox_spend_response_surface import RunningSandboxSpendResponseSurface
 from .sandbox_activity import SandboxActivity
 from .sandbox_activity_window import SandboxActivityWindow
 from .sandbox_activity_window_days import SandboxActivityWindowDays
@@ -326,6 +363,16 @@ from .setup_resume_email import SetupResumeEmail
 from .setup_resume_email_v1_integrations_github_actions_setup_resume_email_post_response_setup_resume_email_v1_integrations_github_actions_setup_resume_email_post import (
     SetupResumeEmailV1IntegrationsGithubActionsSetupResumeEmailPostResponseSetupResumeEmailV1IntegrationsGithubActionsSetupResumeEmailPost,
 )
+from .spend_by_project_response import SpendByProjectResponse
+from .spend_by_sandbox_response import SpendBySandboxResponse
+from .spend_by_sandbox_response_surface import SpendBySandboxResponseSurface
+from .spend_by_size_response import SpendBySizeResponse
+from .spend_by_surface_response import SpendBySurfaceResponse
+from .spend_by_surface_response_surface import SpendBySurfaceResponseSurface
+from .spend_day_response import SpendDayResponse
+from .start_retained_command_v1_computers_computer_id_commands_post_response_start_retained_command_v1_computers_computer_id_commands_post import (
+    StartRetainedCommandV1ComputersComputerIdCommandsPostResponseStartRetainedCommandV1ComputersComputerIdCommandsPost,
+)
 from .status import Status
 from .subscribe_request import SubscribeRequest
 from .subscribe_response import SubscribeResponse
@@ -347,11 +394,13 @@ from .tunnel_token_request import TunnelTokenRequest
 from .tunnel_token_v1_internal_pool_hosts_host_id_tunnel_token_post_response_tunnel_token_v1_internal_pool_hosts_host_id_tunnel_token_post import (
     TunnelTokenV1InternalPoolHostsHostIdTunnelTokenPostResponseTunnelTokenV1InternalPoolHostsHostIdTunnelTokenPost,
 )
+from .twirp_error import TwirpError
 from .unsuspend_user_v1_internal_users_user_id_unsuspend_post_response_unsuspend_user_v1_internal_users_user_id_unsuspend_post import (
     UnsuspendUserV1InternalUsersUserIdUnsuspendPostResponseUnsuspendUserV1InternalUsersUserIdUnsuspendPost,
 )
 from .upgrade_request import UpgradeRequest
 from .upgrade_response import UpgradeResponse
+from .upload_request import UploadRequest
 from .usage_access_response import UsageAccessResponse
 from .usage_access_response_state import UsageAccessResponseState
 from .usage_by_size_response import UsageBySizeResponse
@@ -360,6 +409,7 @@ from .usage_overview_response_state import UsageOverviewResponseState
 from .usage_portal_response import UsagePortalResponse
 from .usage_reward_request import UsageRewardRequest
 from .usage_reward_response import UsageRewardResponse
+from .usage_spend_response import UsageSpendResponse
 from .usage_topup_request import UsageTopupRequest
 from .usage_topup_response import UsageTopupResponse
 from .usage_trial_response import UsageTrialResponse
@@ -370,7 +420,6 @@ from .user_public_extra_info_type_0 import UserPublicExtraInfoType0
 from .validation_error import ValidationError
 from .validation_error_context import ValidationErrorContext
 from .waitlist_request import WaitlistRequest
-from .welcome_email_request import WelcomeEmailRequest
 
 __all__ = (
     "AccessTokenResponse",
@@ -387,16 +436,32 @@ __all__ = (
     "AuthorizeInstallation",
     "AuthorizeUrlV1IntegrationsGithubActionsAuthorizeUrlPostResponseAuthorizeUrlV1IntegrationsGithubActionsAuthorizeUrlPost",
     "AuthStatus",
+    "AutoTopupCardConfirmRequest",
+    "AutoTopupCardResponse",
+    "AutoTopupChargeResponse",
+    "AutoTopupChargeResponseStatus",
+    "AutoTopupRequest",
+    "AutoTopupResponse",
+    "AutoTopupResponsePausedReasonType0",
+    "BillingPayment",
+    "BillingRuntime",
+    "BillingWallet",
     "BlobUrlV1IntegrationsGithubActionsCacheCelestoBlobUrlPostResponseBlobUrlV1IntegrationsGithubActionsCacheCelestoBlobUrlPost",
     "BlockRequest",
     "BlockUrlV1IntegrationsGithubActionsCacheCelestoBlockUrlPostResponseBlockUrlV1IntegrationsGithubActionsCacheCelestoBlockUrlPost",
-    "BodyUploadDocumentV1DocumentsPost",
-    "BodyUploadFileV1FilesUploadPost",
     "BulkColdDMRequest",
     "BulkColdDMRequestChannelType0",
+    "CancelRetainedCommandV1ComputersComputerIdCommandsCommandIdCancelPostResponseCancelRetainedCommandV1ComputersComputerIdCommandsCommandIdCancelPost",
     "CheckGmailIntegrationV1UserEmailsIntegrationStatusGetResponseCheckGmailIntegrationV1UserEmailsIntegrationStatusGet",
-    "CheckServiceStatusV1SystemEmailsServiceStatusGetResponseCheckServiceStatusV1SystemEmailsServiceStatusGet",
+    "CiJobDurations",
+    "CiJobStats",
+    "CiMachineJobStats",
+    "CiMinutesBucket",
+    "CiMinutesSeries",
+    "CiMinutesSeriesDays",
+    "CiMinutesSeriesInterval",
     "CommandResultV1InternalPoolHostsHostIdCommandsCommandIdResultPostResponseCommandResultV1InternalPoolHostsHostIdCommandsCommandIdResultPost",
+    "CommandStart",
     "CommitBlocksRequest",
     "CommitBlocksV1IntegrationsGithubActionsCacheCelestoCommitBlocksPostResponseCommitBlocksV1IntegrationsGithubActionsCacheCelestoCommitBlocksPost",
     "CompleteAuthorization",
@@ -429,7 +494,6 @@ __all__ = (
     "ComputerValidationErrorResponse",
     "ComputerValidationErrorResponseErrorsItem",
     "ConsentApproval",
-    "ContactEmailRequest",
     "CreateRequest",
     "CustomerAnalytics",
     "CustomerAttribution",
@@ -459,26 +523,13 @@ __all__ = (
     "DelegatedAccessRevokeResponse",
     "DelegatedDriveFile",
     "DisconnectGithubV1IntegrationsGithubDisconnectDeleteResponseDisconnectGithubV1IntegrationsGithubDisconnectDelete",
-    "DocumentListResponse",
-    "DocumentResponse",
-    "DocumentResponseDocumentMetadata",
-    "DocumentScope",
-    "DocumentStatus",
-    "DocumentTagsUpdate",
-    "DocumentType",
-    "DocumentUpdate",
-    "DocumentUpdateDocumentMetadataType0",
     "DownloadUrlRequest",
     "DownloadUrlV1IntegrationsGithubActionsCacheCelestoDownloadUrlPostResponseDownloadUrlV1IntegrationsGithubActionsCacheCelestoDownloadUrlPost",
     "DrainAcknowledgement",
     "DriveAccessRulesResponse",
     "DriveAccessRulesUpdate",
-    "EmailResponse",
     "EmailWebhookV1WebhooksEmailProviderPostBody",
-    "EntryRequest",
     "FailedExitCode",
-    "FileListResponse",
-    "FileResponse",
     "FinalizeRequest",
     "FleetCapacity",
     "FleetHost",
@@ -490,32 +541,38 @@ __all__ = (
     "FleetSnapshot",
     "GetAuditEventsV1InternalAuditEventsGetResponse200Item",
     "GetAuditEventV1InternalAuditEventsEventIdGetResponseGetAuditEventV1InternalAuditEventsEventIdGet",
+    "GetCiMinutesV1InternalFleetCiMinutesGetInterval",
     "GetPilotStatusV1ComputersPilotStatusGetResponseGetPilotStatusV1ComputersPilotStatusGet",
     "GetSandboxSizesV1BillingSizesGetPriceVersion",
     "GetUserFeaturesV1FeaturesGetResponseGetUserFeaturesV1FeaturesGet",
     "GitCredentialsV1InternalPoolHostsHostIdGithubGitCredentialsPostResponseGitCredentialsV1InternalPoolHostsHostIdGithubGitCredentialsPost",
-    "GithubActionsCacheCreateEntryResponse",
-    "GithubActionsCacheFinalizeUploadResponse",
     "GithubActionsCacheGetDownloadUrlResponse",
     "GithubActionsWebhookV1IntegrationsGithubActionsWebhookPostResponseGithubActionsWebhookV1IntegrationsGithubActionsWebhookPost",
     "GitHubConnectionResponse",
     "GitHubConnectionStatusResponse",
     "GitHubConnectUrlResponse",
+    "GithubMarketplaceWebhookV1IntegrationsGithubMarketplaceWebhookPostResponseGithubMarketplaceWebhookV1IntegrationsGithubMarketplaceWebhookPost",
     "GitHubRepositoryListResponse",
     "GitHubRepositoryPermissions",
     "GitHubRepositoryResponse",
     "HeartbeatV1InternalPoolHostsHostIdHeartbeatPostResponseHeartbeatV1InternalPoolHostsHostIdHeartbeatPost",
     "HostPlacement",
+    "HostUpdateStatus",
+    "HostUpdateStatusState",
     "HTTPValidationError",
-    "InstallUrlV1IntegrationsGithubActionsInstallUrlPostResponseInstallUrlV1IntegrationsGithubActionsInstallUrlPost",
+    "InspectRetainedCommandV1ComputersComputerIdCommandsCommandIdGetResponseInspectRetainedCommandV1ComputersComputerIdCommandsCommandIdGet",
     "Inventory",
     "InventoryComputersItem",
     "JobDetailsV1IntegrationsGithubActionsJobsJobIdGetResponseJobDetailsV1IntegrationsGithubActionsJobsJobIdGet",
+    "JobsSummaryV1IntegrationsGithubActionsJobsSummaryGetResponseJobsSummaryV1IntegrationsGithubActionsJobsSummaryGet",
+    "JobStepLogV1IntegrationsGithubActionsJobsJobIdStepsNumberLogGetResponseJobStepLogV1IntegrationsGithubActionsJobsJobIdStepsNumberLogGet",
+    "JobStepsV1IntegrationsGithubActionsJobsJobIdStepsGetResponseJobStepsV1IntegrationsGithubActionsJobsJobIdStepsGet",
     "JoinWaitlistV1FeaturesWaitlistPostResponseJoinWaitlistV1FeaturesWaitlistPost",
     "LintWarning",
     "LintWarningCode",
     "ListInstallationsV1IntegrationsGithubActionsInstallationsGetResponse200Item",
     "ListJobsV1IntegrationsGithubActionsJobsGetResponse200Item",
+    "ListRunnersV1IntegrationsGithubActionsRunnersGetResponseListRunnersV1IntegrationsGithubActionsRunnersGet",
     "ListSuspendedUsersV1InternalUsersSuspendedGetResponse200Item",
     "LookupRequest",
     "MachineType",
@@ -524,7 +581,11 @@ __all__ = (
     "NetworkPolicy",
     "NetworkPolicyMode",
     "OpenSessionV1InternalPoolHostsHostIdSessionPostResponseOpenSessionV1InternalPoolHostsHostIdSessionPost",
+    "OperatorBillingReport",
+    "OperatorBillingReportPaymentsStatus",
     "Organization",
+    "OrganizationBilling",
+    "OrganizationBillingBalanceStatus",
     "OrganizationMemberRead",
     "OrganizationRole",
     "OrganizationUpdate",
@@ -532,6 +593,9 @@ __all__ = (
     "OutboundGenerationRequestChannel",
     "OutboundGenerationResponse",
     "OutboundGenerationResponseChannel",
+    "PageJobGroupsV1IntegrationsGithubActionsJobsGroupsGetResponsePageJobGroupsV1IntegrationsGithubActionsJobsGroupsGet",
+    "PageJobsV1IntegrationsGithubActionsJobsPageGetResponsePageJobsV1IntegrationsGithubActionsJobsPageGet",
+    "PageJobsV1IntegrationsGithubActionsJobsPageGetTab",
     "PendingDrainsV1InternalIngressPendingDrainsGetResponsePendingDrainsV1InternalIngressPendingDrainsGet",
     "PerformedByUser",
     "PersonaData",
@@ -547,6 +611,8 @@ __all__ = (
     "PlatformAnalytics",
     "PollRequest",
     "PollV1InternalPoolHostsHostIdPollPostResponsePollV1InternalPoolHostsHostIdPollPost",
+    "PoolBootstrapRequest",
+    "PoolBootstrapRequestKind",
     "PoolGitCredentialRequest",
     "PoolHeartbeatRequest",
     "PoolHeartbeatRequestRunningComputersType0Item",
@@ -558,12 +624,16 @@ __all__ = (
     "ProjectResponseSettingsType0",
     "ProjectUpdate",
     "ProjectUpdateSettingsType0",
+    "ReadRetainedCommandV1ComputersComputerIdCommandsCommandIdOutputGetResponseReadRetainedCommandV1ComputersComputerIdCommandsCommandIdOutputGet",
+    "ReadRetainedCommandV1ComputersComputerIdCommandsCommandIdOutputGetStream",
     "RecentSandboxUser",
     "RecentSandboxUserProviders",
     "RecentSandboxUsers",
     "ResolveRouteV1InternalIngressRoutesHostnameGetResponseResolveRouteV1InternalIngressRoutesHostnameGet",
     "ResultRequest",
     "ResultRequestResultType0",
+    "RunningSandboxSpendResponse",
+    "RunningSandboxSpendResponseSurface",
     "SandboxActivity",
     "SandboxActivityWindow",
     "SandboxActivityWindowDays",
@@ -597,6 +667,14 @@ __all__ = (
     "SetupRepositoriesV1IntegrationsGithubActionsSetupRepositoriesGetResponseSetupRepositoriesV1IntegrationsGithubActionsSetupRepositoriesGet",
     "SetupResumeEmail",
     "SetupResumeEmailV1IntegrationsGithubActionsSetupResumeEmailPostResponseSetupResumeEmailV1IntegrationsGithubActionsSetupResumeEmailPost",
+    "SpendByProjectResponse",
+    "SpendBySandboxResponse",
+    "SpendBySandboxResponseSurface",
+    "SpendBySizeResponse",
+    "SpendBySurfaceResponse",
+    "SpendBySurfaceResponseSurface",
+    "SpendDayResponse",
+    "StartRetainedCommandV1ComputersComputerIdCommandsPostResponseStartRetainedCommandV1ComputersComputerIdCommandsPost",
     "Status",
     "SubscribeRequest",
     "SubscribeResponse",
@@ -612,9 +690,11 @@ __all__ = (
     "TemplateBuildFailure",
     "TunnelTokenRequest",
     "TunnelTokenV1InternalPoolHostsHostIdTunnelTokenPostResponseTunnelTokenV1InternalPoolHostsHostIdTunnelTokenPost",
+    "TwirpError",
     "UnsuspendUserV1InternalUsersUserIdUnsuspendPostResponseUnsuspendUserV1InternalUsersUserIdUnsuspendPost",
     "UpgradeRequest",
     "UpgradeResponse",
+    "UploadRequest",
     "UsageAccessResponse",
     "UsageAccessResponseState",
     "UsageBySizeResponse",
@@ -623,6 +703,7 @@ __all__ = (
     "UsagePortalResponse",
     "UsageRewardRequest",
     "UsageRewardResponse",
+    "UsageSpendResponse",
     "UsageTopupRequest",
     "UsageTopupResponse",
     "UsageTrialResponse",
@@ -633,5 +714,4 @@ __all__ = (
     "ValidationError",
     "ValidationErrorContext",
     "WaitlistRequest",
-    "WelcomeEmailRequest",
 )
