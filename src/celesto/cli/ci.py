@@ -35,8 +35,14 @@ class _Connection:
         self._transport.close()
 
     def get(
-        self, endpoint: ModuleType, *, job_id: int | None = None, **kwargs: Any
+        self,
+        endpoint: ModuleType,
+        *,
+        job_id: int | None = None,
+        missing: CIError | None = None,
+        **kwargs: Any,
     ) -> dict[str, Any]:
+        """GET one CI route; ``missing`` replaces the job-not-found error for a 404."""
         if job_id is not None:
             kwargs["job_id"] = job_id
         request = endpoint._get_kwargs(
@@ -49,6 +55,8 @@ class _Connection:
                 "cloud_transport_error",
                 f"Could not reach Celesto ({type(exc).__name__}). Check your connection and retry.",
             ) from None
+        if response.status_code == 404 and missing is not None:
+            raise missing
         if response.status_code >= 400:
             raise _api_error(response.status_code, response.content, job_id=job_id)
         try:
@@ -84,6 +92,8 @@ def _api_error(status_code: int, content: bytes, *, job_id: int | None = None) -
             "This API key can't read CI jobs. "
             "Run 'celesto auth login' with your dashboard's default API key.",
         )
+    if status_code == 502:
+        return CIError("github_unavailable", "GitHub is unavailable right now. Retry in a minute.")
     if status_code == 401:
         return CIError(
             "unauthorized", "Your Celesto API key was refused. Run 'celesto auth login'."
@@ -106,8 +116,12 @@ def _run(command: str, json_output: bool, read: Any) -> tuple[int, dict[str, Any
     """Open a connection, run ``read(connection)``, and report any failure."""
     try:
         connection = _Connection()
-    except ValueError as exc:
-        return _fail(command, exc, json_output=json_output), None
+    except (ValueError, TypeError, AttributeError):
+        # No API key, or a stored login whose fields are unusable.
+        missing = CIError(
+            "not_logged_in", "Your Celesto login is missing or invalid. Run 'celesto auth login'."
+        )
+        return _fail(command, missing, json_output=json_output), None
     try:
         return 0, read(connection)
     except CIError as exc:
@@ -209,10 +223,12 @@ def run_jobs_list(
             "  ".join(cell.ljust(width) for cell, width in zip(row, widths, strict=True)).rstrip()
         )
     if total > len(jobs):
-        print(
-            f"Showing {len(jobs)} of {total} jobs. "
-            "Run 'celesto ci jobs list --limit 100' to see more."
+        more = (
+            "Narrow the list with --status, --repo or --search."
+            if limit >= 100
+            else "Run 'celesto ci jobs list --limit 100' to see more."
         )
+        print(f"Showing {len(jobs)} of {total} jobs. {more}")
     return 0
 
 
@@ -273,7 +289,12 @@ def run_logs(*, job_id: int, step: int | None, json_output: bool) -> int:
 
     def read(connection: _Connection) -> dict[str, Any]:
         job = connection.get(details_endpoint, job_id=job_id)
-        steps = connection.get(steps_endpoint, job_id=job_id).get("steps", [])
+        gone = CIError(
+            "ci_log_unavailable",
+            f"GitHub no longer has the log for job {job_id}. "
+            f"Open {job.get('github_job_url') or 'the job on GitHub'} to check it.",
+        )
+        steps = connection.get(steps_endpoint, job_id=job_id, missing=gone).get("steps", [])
         if step is not None:
             steps = [item for item in steps if item.get("number") == step]
             if not steps:
@@ -284,7 +305,7 @@ def run_logs(*, job_id: int, step: int | None, json_output: bool) -> int:
                 )
         result = []
         for item in steps:
-            log = connection.get(log_endpoint, job_id=job_id, number=item["number"])
+            log = connection.get(log_endpoint, job_id=job_id, missing=gone, number=item["number"])
             result.append(
                 {
                     "number": item["number"],

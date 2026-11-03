@@ -13,6 +13,7 @@ Ways it can go wrong, each covered below:
 from __future__ import annotations
 
 import json
+import socket
 import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -475,3 +476,108 @@ def test_named_key_gets_the_recovery_message_for_people(
     code = main(["ci", "runners", "list"])
     assert code == 1
     assert NAMED_KEY_MESSAGE in " ".join(capsys.readouterr().err.replace("│", " ").split())
+
+
+def _error(result: Ran) -> dict[str, Any]:
+    assert result.exit_code == 1, result.output
+    error: dict[str, Any] = json.loads(result.output)["error"]
+    return error
+
+
+def test_missing_login_says_to_log_in(backend: Backend, run: Runner) -> None:
+    _credentials.CREDENTIALS_PATH.unlink()
+    assert _error(run("runners", "list", "--json")) == {
+        "code": "not_logged_in",
+        "message": "Your Celesto login is missing or invalid. Run 'celesto auth login'.",
+    }
+    assert backend.requests == []
+
+
+def test_unreadable_login_says_to_log_in(backend: Backend, run: Runner) -> None:
+    _credentials.CREDENTIALS_PATH.write_text(
+        json.dumps({"api_key": "cel_test_key", "email": "ci@example.invalid", "base_url": 7})
+    )
+    assert _error(run("runners", "list", "--json"))["code"] == "not_logged_in"
+
+
+def test_refused_key_says_to_log_in_again(backend: Backend, run: Runner) -> None:
+    backend.serve("/v1/integrations/github/actions/runners", {"detail": "Unauthorized."}, 401)
+    assert _error(run("runners", "list", "--json")) == {
+        "code": "unauthorized",
+        "message": "Your Celesto API key was refused. Run 'celesto auth login'.",
+    }
+
+
+@pytest.mark.parametrize("route", [f"{JOB_812}/steps", f"{JOB_812}/steps/4/log"])
+def test_log_github_no_longer_has_points_at_github(
+    finished_job: Backend, run: Runner, route: str
+) -> None:
+    finished_job.serve(
+        JOB_812,
+        _job(812, "failure", native_status="completed", github_job_url="https://github.com/j/812"),
+    )
+    finished_job.serve(route, {"detail": "GitHub no longer has this job"}, 404)
+    assert _error(run("logs", "812", "--step", "4", "--json")) == {
+        "code": "ci_log_unavailable",
+        "message": "GitHub no longer has the log for job 812. "
+        "Open https://github.com/j/812 to check it.",
+    }
+
+
+def test_github_outage_says_to_retry(finished_job: Backend, run: Runner) -> None:
+    finished_job.serve(f"{JOB_812}/steps", {"detail": "GitHub is unavailable. Try again."}, 502)
+    assert _error(run("logs", "812", "--json")) == {
+        "code": "github_unavailable",
+        "message": "GitHub is unavailable right now. Retry in a minute.",
+    }
+
+
+def test_unreachable_backend_says_to_check_the_connection(backend: Backend, run: Runner) -> None:
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        closed = probe.getsockname()[1]
+    _credentials.write_credentials(
+        api_key="cel_test_key", email="ci@example.invalid", base_url=f"http://127.0.0.1:{closed}"
+    )
+    assert _error(run("runners", "list", "--json")) == {
+        "code": "cloud_transport_error",
+        "message": "Could not reach Celesto (ConnectError). Check your connection and retry.",
+    }
+
+
+def test_unreadable_answer_says_to_retry_or_update(backend: Backend, run: Runner) -> None:
+    backend.serve("/v1/integrations/github/actions/runners", ["not", "an", "object"])
+    assert _error(run("runners", "list", "--json")) == {
+        "code": "cloud_invalid_response",
+        "message": "Celesto returned an invalid response. "
+        "Retry, or run 'celesto update' if it keeps happening.",
+    }
+
+
+def test_other_statuses_name_the_status(backend: Backend, run: Runner) -> None:
+    backend.serve(JOBS_PAGE, {"detail": "boom"}, 500)
+    assert _error(run("jobs", "list", "--json")) == {
+        "code": "http_500",
+        "message": "Celesto CI returned HTTP 500. Retry, then check 'celesto auth status'.",
+    }
+
+
+@pytest.mark.parametrize(
+    ("flag", "length", "limit"),
+    [("--search", 201, 200), ("--repo", 256, 255), ("--workflow", 256, 255)],
+)
+def test_filters_longer_than_the_backend_allows_are_refused(
+    backend: Backend, flag: str, length: int, limit: int
+) -> None:
+    result = CliRunner().invoke(build_cli(), ["ci", "jobs", "list", flag, "x" * length])
+    assert result.exit_code == 2
+    assert f"{flag} can be at most {limit} characters." in result.output
+    assert backend.requests == []
+
+
+def test_jobs_list_at_100_suggests_narrowing(backend: Backend, run: Runner) -> None:
+    backend.serve(JOBS_PAGE, _page([_job(n, "success") for n in range(100)], total=340))
+    result = run("jobs", "list", "--limit", "100")
+    assert result.output.splitlines()[-1] == (
+        "Showing 100 of 340 jobs. Narrow the list with --status, --repo or --search."
+    )

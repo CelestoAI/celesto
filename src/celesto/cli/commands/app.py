@@ -289,6 +289,19 @@ def ci() -> None:
     """See your Celesto CI jobs, their logs, and the machine sizes they run on."""
 
 
+def _at_most(limit: int) -> Any:
+    """A click callback refusing values longer than the backend accepts."""
+
+    def check(_ctx: click.Context, param: click.Parameter, value: str | None) -> str | None:
+        if value is not None and len(value) > limit:
+            raise click.BadParameter(
+                f"{param.opts[0]} can be at most {limit} characters.", param=param
+            )
+        return value
+
+    return check
+
+
 @ci.group("jobs", context_settings=CONTEXT_SETTINGS)
 def ci_jobs() -> None:
     """GitHub Actions jobs that ran on Celesto."""
@@ -301,9 +314,20 @@ def ci_jobs() -> None:
     default=None,
     help="Show only jobs in this state.",
 )
-@click.option("--repo", "repository", default=None, help="Show only this repository (OWNER/REPO).")
-@click.option("--workflow", default=None, help="Show only this workflow name.")
-@click.option("--search", default="", help="Show jobs whose fields contain every word.")
+@click.option(
+    "--repo",
+    "repository",
+    default=None,
+    callback=_at_most(255),
+    help="Show only this repository (OWNER/REPO).",
+)
+@click.option("--workflow", default=None, callback=_at_most(255), help="Show only this workflow.")
+@click.option(
+    "--search",
+    default="",
+    callback=_at_most(200),
+    help="Show jobs whose fields contain every word.",
+)
 @click.option(
     "--limit",
     type=click.IntRange(1, 100),
