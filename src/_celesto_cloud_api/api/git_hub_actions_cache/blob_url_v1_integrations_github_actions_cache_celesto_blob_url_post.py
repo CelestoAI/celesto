@@ -11,15 +11,15 @@ from ... import errors
 from ...models.blob_url_v1_integrations_github_actions_cache_celesto_blob_url_post_response_blob_url_v1_integrations_github_actions_cache_celesto_blob_url_post import (
     BlobUrlV1IntegrationsGithubActionsCacheCelestoBlobUrlPostResponseBlobUrlV1IntegrationsGithubActionsCacheCelestoBlobUrlPost,
 )
-from ...models.entry_request import EntryRequest
 from ...models.http_validation_error import HTTPValidationError
+from ...models.upload_request import UploadRequest
 from ...types import UNSET, Unset
 from typing import cast
 
 
 def _get_kwargs(
     *,
-    body: EntryRequest,
+    body: UploadRequest,
     authorization: None | str | Unset = UNSET,
     x_celesto_host_provider: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
@@ -85,7 +85,7 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
-    body: EntryRequest,
+    body: UploadRequest,
     authorization: None | str | Unset = UNSET,
     x_celesto_host_provider: None | str | Unset = UNSET,
 ) -> Response[
@@ -99,7 +99,7 @@ def sync_detailed(
     Args:
         authorization (None | str | Unset):
         x_celesto_host_provider (None | str | Unset):
-        body (EntryRequest):
+        body (UploadRequest):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -125,7 +125,7 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
-    body: EntryRequest,
+    body: UploadRequest,
     authorization: None | str | Unset = UNSET,
     x_celesto_host_provider: None | str | Unset = UNSET,
 ) -> (
@@ -140,7 +140,7 @@ def sync(
     Args:
         authorization (None | str | Unset):
         x_celesto_host_provider (None | str | Unset):
-        body (EntryRequest):
+        body (UploadRequest):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -161,7 +161,7 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
-    body: EntryRequest,
+    body: UploadRequest,
     authorization: None | str | Unset = UNSET,
     x_celesto_host_provider: None | str | Unset = UNSET,
 ) -> Response[
@@ -175,7 +175,7 @@ async def asyncio_detailed(
     Args:
         authorization (None | str | Unset):
         x_celesto_host_provider (None | str | Unset):
-        body (EntryRequest):
+        body (UploadRequest):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -199,7 +199,7 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
-    body: EntryRequest,
+    body: UploadRequest,
     authorization: None | str | Unset = UNSET,
     x_celesto_host_provider: None | str | Unset = UNSET,
 ) -> (
@@ -214,7 +214,7 @@ async def asyncio(
     Args:
         authorization (None | str | Unset):
         x_celesto_host_provider (None | str | Unset):
-        body (EntryRequest):
+        body (UploadRequest):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

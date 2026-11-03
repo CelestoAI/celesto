@@ -93,15 +93,6 @@ def sync_detailed(
 ]:
     """Poll
 
-     Deliver the next command, holding an empty poll open for a wake-up when the host supports it.
-
-    Hosts that advertised `long_poll` wait here for up to POOL_LONG_POLL_SECONDS
-    (+/- jitter), then poll once more. The hold ends early on a `pool:host:<id>`
-    publish or when its fallback check finds a pending command, which it runs
-    every POOL_WAKEUP_TICK_SECONDS. The hold runs on the event loop and holds
-    no database connection between checks. Older hosts get today's immediate
-    answer.
-
     Args:
         host_id (str):
         authorization (None | str | Unset):
@@ -141,15 +132,6 @@ def sync(
 ):
     """Poll
 
-     Deliver the next command, holding an empty poll open for a wake-up when the host supports it.
-
-    Hosts that advertised `long_poll` wait here for up to POOL_LONG_POLL_SECONDS
-    (+/- jitter), then poll once more. The hold ends early on a `pool:host:<id>`
-    publish or when its fallback check finds a pending command, which it runs
-    every POOL_WAKEUP_TICK_SECONDS. The hold runs on the event loop and holds
-    no database connection between checks. Older hosts get today's immediate
-    answer.
-
     Args:
         host_id (str):
         authorization (None | str | Unset):
@@ -182,15 +164,6 @@ async def asyncio_detailed(
     | PollV1InternalPoolHostsHostIdPollPostResponsePollV1InternalPoolHostsHostIdPollPost
 ]:
     """Poll
-
-     Deliver the next command, holding an empty poll open for a wake-up when the host supports it.
-
-    Hosts that advertised `long_poll` wait here for up to POOL_LONG_POLL_SECONDS
-    (+/- jitter), then poll once more. The hold ends early on a `pool:host:<id>`
-    publish or when its fallback check finds a pending command, which it runs
-    every POOL_WAKEUP_TICK_SECONDS. The hold runs on the event loop and holds
-    no database connection between checks. Older hosts get today's immediate
-    answer.
 
     Args:
         host_id (str):
@@ -228,15 +201,6 @@ async def asyncio(
     | None
 ):
     """Poll
-
-     Deliver the next command, holding an empty poll open for a wake-up when the host supports it.
-
-    Hosts that advertised `long_poll` wait here for up to POOL_LONG_POLL_SECONDS
-    (+/- jitter), then poll once more. The hold ends early on a `pool:host:<id>`
-    publish or when its fallback check finds a pending command, which it runs
-    every POOL_WAKEUP_TICK_SECONDS. The hold runs on the event loop and holds
-    no database connection between checks. Older hosts get today's immediate
-    answer.
 
     Args:
         host_id (str):

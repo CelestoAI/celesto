@@ -2,6 +2,7 @@ from enum import StrEnum
 
 
 class ComputerOrigin(StrEnum):
+    CLI = "cli"
     GITHUB_CI = "github_ci"
     MCP = "mcp"
     SDK = "sdk"

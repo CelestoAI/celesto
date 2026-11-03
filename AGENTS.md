@@ -59,6 +59,9 @@ For guest-agent or published-image changes:
     `docker images` for familiarity.
 - `celesto completion <shell>` is an intentional top-level meta-command. It
   acts on the CLI itself, so the noun-verb rule does not apply.
+- `celesto ci` is the approved top-level group for Celesto CI. Its nouns sit
+  beneath it (`celesto ci jobs list`, `celesto ci runners list`);
+  `celesto ci logs <job-id>` mirrors `celesto sandbox logs`.
 
 ## Writing
 

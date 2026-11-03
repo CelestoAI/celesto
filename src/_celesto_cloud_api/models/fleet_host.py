@@ -8,12 +8,14 @@ from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
 
+from ..types import UNSET, Unset
 from typing import cast
 import datetime
 
 if TYPE_CHECKING:
     from ..models.computer_counts import ComputerCounts
     from ..models.fleet_capacity import FleetCapacity
+    from ..models.host_update_status import HostUpdateStatus
 
 
 T = TypeVar("T", bound="FleetHost")
@@ -40,6 +42,8 @@ class FleetHost:
         ineligibility_reason (None | str):
         computers (ComputerCounts):
         capacity (FleetCapacity):
+        agent_version (None | str | Unset):
+        update_status (HostUpdateStatus | None | Unset):
     """
 
     host_id: str
@@ -59,11 +63,14 @@ class FleetHost:
     ineligibility_reason: None | str
     computers: ComputerCounts
     capacity: FleetCapacity
+    agent_version: None | str | Unset = UNSET
+    update_status: HostUpdateStatus | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.computer_counts import ComputerCounts  # noqa: PLC0415
         from ..models.fleet_capacity import FleetCapacity  # noqa: PLC0415
+        from ..models.host_update_status import HostUpdateStatus  # noqa: PLC0415
 
         host_id = self.host_id
 
@@ -104,6 +111,20 @@ class FleetHost:
 
         capacity = self.capacity.to_dict()
 
+        agent_version: None | str | Unset
+        if isinstance(self.agent_version, Unset):
+            agent_version = UNSET
+        else:
+            agent_version = self.agent_version
+
+        update_status: dict[str, Any] | None | Unset
+        if isinstance(self.update_status, Unset):
+            update_status = UNSET
+        elif isinstance(self.update_status, HostUpdateStatus):
+            update_status = self.update_status.to_dict()
+        else:
+            update_status = self.update_status
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -127,6 +148,10 @@ class FleetHost:
                 "capacity": capacity,
             }
         )
+        if agent_version is not UNSET:
+            field_dict["agent_version"] = agent_version
+        if update_status is not UNSET:
+            field_dict["update_status"] = update_status
 
         return field_dict
 
@@ -134,6 +159,7 @@ class FleetHost:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.computer_counts import ComputerCounts  # noqa: PLC0415
         from ..models.fleet_capacity import FleetCapacity  # noqa: PLC0415
+        from ..models.host_update_status import HostUpdateStatus  # noqa: PLC0415
 
         d = dict(src_dict)
         host_id = d.pop("host_id")
@@ -190,6 +216,32 @@ class FleetHost:
 
         capacity = FleetCapacity.from_dict(d.pop("capacity"))
 
+        def _parse_agent_version(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        agent_version = _parse_agent_version(d.pop("agent_version", UNSET))
+
+        def _parse_update_status(data: object) -> HostUpdateStatus | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                update_status_type_0 = HostUpdateStatus.from_dict(data)
+
+                return update_status_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(HostUpdateStatus | None | Unset, data)
+
+        update_status = _parse_update_status(d.pop("update_status", UNSET))
+
         fleet_host = cls(
             host_id=host_id,
             provider=provider,
@@ -208,6 +260,8 @@ class FleetHost:
             ineligibility_reason=ineligibility_reason,
             computers=computers,
             capacity=capacity,
+            agent_version=agent_version,
+            update_status=update_status,
         )
 
         fleet_host.additional_properties = d

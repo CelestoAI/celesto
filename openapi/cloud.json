@@ -634,206 +634,6 @@
                 }
             }
         },
-        "/v1/files/upload": {
-            "post": {
-                "tags": [
-                    "Files"
-                ],
-                "summary": "Upload a file",
-                "description": "Upload a file to the server.\n\nThe file will be stored in S3 and its metadata in the database.\nReturns the file metadata with a download URL.",
-                "operationId": "upload_file_v1_files_upload_post",
-                "requestBody": {
-                    "content": {
-                        "multipart/form-data": {
-                            "schema": {
-                                "$ref": "#/components/schemas/Body_upload_file_v1_files_upload_post"
-                            }
-                        }
-                    },
-                    "required": true
-                },
-                "responses": {
-                    "201": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/FileResponse"
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/files": {
-            "get": {
-                "tags": [
-                    "Files"
-                ],
-                "summary": "List files",
-                "description": "List files uploaded by the user.\n\nReturns a list of files with their metadata and download URLs.",
-                "operationId": "list_files_v1_files_get",
-                "parameters": [
-                    {
-                        "name": "skip",
-                        "in": "query",
-                        "required": false,
-                        "schema": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "description": "Skip the first N items",
-                            "default": 0,
-                            "title": "Skip"
-                        },
-                        "description": "Skip the first N items"
-                    },
-                    {
-                        "name": "limit",
-                        "in": "query",
-                        "required": false,
-                        "schema": {
-                            "type": "integer",
-                            "maximum": 100,
-                            "minimum": 1,
-                            "description": "Limit the number of items returned",
-                            "default": 10,
-                            "title": "Limit"
-                        },
-                        "description": "Limit the number of items returned"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/FileListResponse"
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/files/{filename}": {
-            "get": {
-                "tags": [
-                    "Files"
-                ],
-                "summary": "Get file details",
-                "description": "Get details for a specific file.\n\nReturns the file metadata with a download URL.",
-                "operationId": "get_file_v1_files__filename__get",
-                "parameters": [
-                    {
-                        "name": "filename",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "title": "Filename"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/FileResponse"
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "tags": [
-                    "Files"
-                ],
-                "summary": "Delete a file",
-                "description": "Delete a file from the system.\n\nRemoves the file from both S3 and the database.",
-                "operationId": "delete_file_v1_files__filename__delete",
-                "parameters": [
-                    {
-                        "name": "filename",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "title": "Filename"
-                        }
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "Successful Response"
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/files/diagnostics/storage": {
-            "get": {
-                "tags": [
-                    "Files"
-                ],
-                "summary": "Check S3 storage configuration",
-                "description": "Test S3 storage connectivity and credentials.\n\nThis is a diagnostic endpoint that attempts to list buckets and check bucket access.",
-                "operationId": "check_storage_status_v1_files_diagnostics_storage_get",
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {}
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/v1/ai/outbound/generate": {
             "post": {
                 "tags": [
@@ -1807,6 +1607,88 @@
                 }
             }
         },
+        "/v1/billing/usage/spend": {
+            "get": {
+                "tags": [
+                    "Billing"
+                ],
+                "summary": "Get where sandbox credit was spent",
+                "operationId": "get_usage_spend_v1_billing_usage_spend_get",
+                "parameters": [
+                    {
+                        "name": "from",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "format": "date"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "First UTC day; defaults to the first of the `to` month",
+                            "title": "From"
+                        },
+                        "description": "First UTC day; defaults to the first of the `to` month"
+                    },
+                    {
+                        "name": "to",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "format": "date"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Last UTC day, inclusive; defaults to today, capped at the range limit",
+                            "title": "To"
+                        },
+                        "description": "Last UTC day, inclusive; defaults to today, capped at the range limit"
+                    },
+                    {
+                        "name": "x-current-organization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "description": "Current organization ID",
+                            "title": "X-Current-Organization"
+                        },
+                        "description": "Current organization ID"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UsageSpendResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/billing/usage-checkout": {
             "post": {
                 "tags": [
@@ -1863,6 +1745,244 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/UsageTopupResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/billing/usage-auto-topup": {
+            "get": {
+                "tags": [
+                    "Billing"
+                ],
+                "summary": "Get auto top-up settings",
+                "description": "Any active member may read; the card's brand and last digits are for admins and owners.",
+                "operationId": "get_auto_topup_v1_billing_usage_auto_topup_get",
+                "parameters": [
+                    {
+                        "name": "x-current-organization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "description": "Current organization ID",
+                            "title": "X-Current-Organization"
+                        },
+                        "description": "Current organization ID"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AutoTopupResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "Billing"
+                ],
+                "summary": "Save auto top-up settings",
+                "operationId": "save_auto_topup_v1_billing_usage_auto_topup_put",
+                "parameters": [
+                    {
+                        "name": "x-current-organization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "description": "Current organization ID",
+                            "title": "X-Current-Organization"
+                        },
+                        "description": "Current organization ID"
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AutoTopupRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AutoTopupResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/billing/usage-auto-topup/card": {
+            "post": {
+                "tags": [
+                    "Billing"
+                ],
+                "summary": "Save a card for auto top-up",
+                "operationId": "create_auto_topup_card_setup_v1_billing_usage_auto_topup_card_post",
+                "parameters": [
+                    {
+                        "name": "x-current-organization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "description": "Current organization ID",
+                            "title": "X-Current-Organization"
+                        },
+                        "description": "Current organization ID"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AutoTopupCardResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "Billing"
+                ],
+                "summary": "Remove the auto top-up card",
+                "description": "Turn auto top-up off and detach the saved card in Stripe.",
+                "operationId": "remove_auto_topup_card_v1_billing_usage_auto_topup_card_delete",
+                "parameters": [
+                    {
+                        "name": "x-current-organization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "description": "Current organization ID",
+                            "title": "X-Current-Organization"
+                        },
+                        "description": "Current organization ID"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AutoTopupResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/billing/usage-auto-topup/card/confirm": {
+            "post": {
+                "tags": [
+                    "Billing"
+                ],
+                "summary": "Confirm the card saved for auto top-up",
+                "operationId": "confirm_auto_topup_card_v1_billing_usage_auto_topup_card_confirm_post",
+                "parameters": [
+                    {
+                        "name": "x-current-organization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "description": "Current organization ID",
+                            "title": "X-Current-Organization"
+                        },
+                        "description": "Current organization ID"
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AutoTopupCardConfirmRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AutoTopupResponse"
                                 }
                             }
                         }
@@ -2810,114 +2930,6 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/system-emails/welcome": {
-            "post": {
-                "tags": [
-                    "System Emails"
-                ],
-                "summary": "Send system welcome email",
-                "description": "Send a welcome email to a new user using the system's Resend service.\n\n    **System Email Service**: Sends platform-generated emails via Resend.\n    This is NOT for user-initiated emails - those use the user-emails endpoints with Gmail API.\n\n    Used for onboarding new users to the platform. Requires authentication.",
-                "operationId": "send_welcome_email_v1_system_emails_welcome_post",
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/WelcomeEmailRequest"
-                            }
-                        }
-                    },
-                    "required": true
-                },
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/EmailResponse"
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/system-emails/contact": {
-            "post": {
-                "tags": [
-                    "System Emails"
-                ],
-                "summary": "Send contact form email",
-                "description": "Send a contact form message email using the system's Resend service.\n\n    **System Email Service**: Handles contact form submissions via Resend.\n    This is NOT for user-initiated emails - those use the user-emails endpoints with Gmail API.\n\n    Used for processing contact form submissions from the website.",
-                "operationId": "send_contact_email_v1_system_emails_contact_post",
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/ContactEmailRequest"
-                            }
-                        }
-                    },
-                    "required": true
-                },
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/EmailResponse"
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/system-emails/service-status": {
-            "get": {
-                "tags": [
-                    "System Emails"
-                ],
-                "summary": "Check system email service status",
-                "description": "Check if the system email service (Resend) is properly configured and operational.\n\n    **System Email Service**: Validates Resend configuration and connectivity.\n    This endpoint helps determine if system emails can be sent.",
-                "operationId": "check_service_status_v1_system_emails_service_status_get",
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "additionalProperties": true,
-                                    "type": "object",
-                                    "title": "Response Check Service Status V1 System Emails Service Status Get"
                                 }
                             }
                         }
@@ -3919,54 +3931,6 @@
                 }
             }
         },
-        "/v1/integrations/github/actions/install-url": {
-            "post": {
-                "tags": [
-                    "GitHub Actions on Celesto"
-                ],
-                "summary": "Install Url",
-                "operationId": "install_url_v1_integrations_github_actions_install_url_post",
-                "parameters": [
-                    {
-                        "name": "x-current-organization",
-                        "in": "header",
-                        "required": false,
-                        "schema": {
-                            "type": "string",
-                            "description": "Current organization ID",
-                            "title": "X-Current-Organization"
-                        },
-                        "description": "Current organization ID"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                        "type": "string"
-                                    },
-                                    "title": "Response Install Url V1 Integrations Github Actions Install Url Post"
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/v1/integrations/github/actions/setup": {
             "get": {
                 "tags": [
@@ -3983,24 +3947,6 @@
                             "type": "integer",
                             "exclusiveMinimum": 0,
                             "title": "Installation Id"
-                        }
-                    },
-                    {
-                        "name": "state",
-                        "in": "query",
-                        "required": false,
-                        "schema": {
-                            "anyOf": [
-                                {
-                                    "type": "string",
-                                    "minLength": 16,
-                                    "maxLength": 128
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "title": "State"
                         }
                     },
                     {
@@ -4546,6 +4492,53 @@
                 }
             }
         },
+        "/v1/integrations/github/actions/runners": {
+            "get": {
+                "tags": [
+                    "GitHub Actions on Celesto"
+                ],
+                "summary": "List Runners",
+                "description": "The machine sizes a workflow can ask for with `runs-on`, in documented order.",
+                "operationId": "list_runners_v1_integrations_github_actions_runners_get",
+                "parameters": [
+                    {
+                        "name": "x-current-organization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "description": "Current organization ID",
+                            "title": "X-Current-Organization"
+                        },
+                        "description": "Current organization ID"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response List Runners V1 Integrations Github Actions Runners Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/integrations/github/actions/jobs": {
             "get": {
                 "tags": [
@@ -4578,6 +4571,322 @@
                                         "additionalProperties": true
                                     },
                                     "title": "Response List Jobs V1 Integrations Github Actions Jobs Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/integrations/github/actions/jobs/page": {
+            "get": {
+                "tags": [
+                    "GitHub Actions on Celesto"
+                ],
+                "summary": "Page Jobs",
+                "description": "The CI jobs page: one page of jobs plus counts, filter choices and warnings over all matching jobs.\n\n`/jobs` stays for clients that read the capped full list.",
+                "operationId": "page_jobs_v1_integrations_github_actions_jobs_page_get",
+                "parameters": [
+                    {
+                        "name": "tab",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "enum": [
+                                "all",
+                                "needs_action",
+                                "in_progress",
+                                "completed",
+                                "failed",
+                                "passed"
+                            ],
+                            "type": "string",
+                            "default": "all",
+                            "title": "Tab"
+                        }
+                    },
+                    {
+                        "name": "q",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 200,
+                            "default": "",
+                            "title": "Q"
+                        }
+                    },
+                    {
+                        "name": "repository",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "maxLength": 255
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Repository"
+                        }
+                    },
+                    {
+                        "name": "workflow",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "maxLength": 255
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Workflow"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 0,
+                            "title": "Page"
+                        }
+                    },
+                    {
+                        "name": "page_size",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100,
+                            "minimum": 1,
+                            "default": 20,
+                            "title": "Page Size"
+                        }
+                    },
+                    {
+                        "name": "x-current-organization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "description": "Current organization ID",
+                            "title": "X-Current-Organization"
+                        },
+                        "description": "Current organization ID"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Page Jobs V1 Integrations Github Actions Jobs Page Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/integrations/github/actions/jobs/summary": {
+            "get": {
+                "tags": [
+                    "GitHub Actions on Celesto"
+                ],
+                "summary": "Jobs Summary",
+                "description": "The Home dashboard: job activity, queue and run times, and repository health.\n\n`days=1` is the rolling last 24 hours in hourly buckets; 7, 14 and 30 are whole UTC days.\n\nRead-only and cached for a minute per organization and window, so\ndashboard traffic reaches the database at most once a minute per tenant.",
+                "operationId": "jobs_summary_v1_integrations_github_actions_jobs_summary_get",
+                "parameters": [
+                    {
+                        "name": "days",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "default": 7,
+                            "title": "Days"
+                        }
+                    },
+                    {
+                        "name": "x-current-organization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "description": "Current organization ID",
+                            "title": "X-Current-Organization"
+                        },
+                        "description": "Current organization ID"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Jobs Summary V1 Integrations Github Actions Jobs Summary Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/integrations/github/actions/jobs/groups": {
+            "get": {
+                "tags": [
+                    "GitHub Actions on Celesto"
+                ],
+                "summary": "Page Job Groups",
+                "description": "The CI jobs page grouped by pull request (docs/operations/github-actions-ci.md).\n\n`status` is a comma-separated list of rolled-up statuses (\"failure,running\"); empty shows all.",
+                "operationId": "page_job_groups_v1_integrations_github_actions_jobs_groups_get",
+                "parameters": [
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 100,
+                            "default": "",
+                            "title": "Status"
+                        }
+                    },
+                    {
+                        "name": "q",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 200,
+                            "default": "",
+                            "title": "Q"
+                        }
+                    },
+                    {
+                        "name": "repository",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "maxLength": 255
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Repository"
+                        }
+                    },
+                    {
+                        "name": "workflow",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "maxLength": 255
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Workflow"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 0,
+                            "title": "Page"
+                        }
+                    },
+                    {
+                        "name": "page_size",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 50,
+                            "minimum": 1,
+                            "default": 10,
+                            "title": "Page Size"
+                        }
+                    },
+                    {
+                        "name": "x-current-organization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "description": "Current organization ID",
+                            "title": "X-Current-Organization"
+                        },
+                        "description": "Current organization ID"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Page Job Groups V1 Integrations Github Actions Jobs Groups Get"
                                 }
                             }
                         }
@@ -4633,6 +4942,127 @@
                                     "type": "object",
                                     "additionalProperties": true,
                                     "title": "Response Job Details V1 Integrations Github Actions Jobs  Job Id  Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/integrations/github/actions/jobs/{job_id}/steps": {
+            "get": {
+                "tags": [
+                    "GitHub Actions on Celesto"
+                ],
+                "summary": "Job Steps",
+                "description": "GitHub's steps for this job, read from GitHub (cached for a few seconds).",
+                "operationId": "job_steps_v1_integrations_github_actions_jobs__job_id__steps_get",
+                "parameters": [
+                    {
+                        "name": "job_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "title": "Job Id"
+                        }
+                    },
+                    {
+                        "name": "x-current-organization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "description": "Current organization ID",
+                            "title": "X-Current-Organization"
+                        },
+                        "description": "Current organization ID"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Job Steps V1 Integrations Github Actions Jobs  Job Id  Steps Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/integrations/github/actions/jobs/{job_id}/steps/{number}/log": {
+            "get": {
+                "tags": [
+                    "GitHub Actions on Celesto"
+                ],
+                "summary": "Job Step Log",
+                "description": "The log lines GitHub wrote while this step ran: the last 5,000, with `truncated` when more exist.",
+                "operationId": "job_step_log_v1_integrations_github_actions_jobs__job_id__steps__number__log_get",
+                "parameters": [
+                    {
+                        "name": "job_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "title": "Job Id"
+                        }
+                    },
+                    {
+                        "name": "number",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "title": "Number"
+                        }
+                    },
+                    {
+                        "name": "x-current-organization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "description": "Current organization ID",
+                            "title": "X-Current-Organization"
+                        },
+                        "description": "Current organization ID"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Job Step Log V1 Integrations Github Actions Jobs  Job Id  Steps  Number  Log Get"
                                 }
                             }
                         }
@@ -4868,10 +5298,16 @@
                         "description": "Successful Response",
                         "content": {
                             "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Save refused: Twirp `already_exists` with the reason in `msg`.",
+                        "content": {
+                            "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": true,
-                                    "title": "Response Create Cache Entry V1 Integrations Github Actions Cache Twirp Github Actions Results Api V1 Cacheservice Createcacheentry Post"
+                                    "$ref": "#/components/schemas/TwirpError"
                                 }
                             }
                         }
@@ -4945,10 +5381,16 @@
                         "description": "Successful Response",
                         "content": {
                             "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Save refused: Twirp `already_exists` with the reason in `msg`.",
+                        "content": {
+                            "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": true,
-                                    "title": "Response Finalize Cache Entry Upload V1 Integrations Github Actions Cache Twirp Github Actions Results Api V1 Cacheservice Finalizecacheentryupload Post"
+                                    "$ref": "#/components/schemas/TwirpError"
                                 }
                             }
                         }
@@ -5013,7 +5455,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/EntryRequest"
+                                "$ref": "#/components/schemas/UploadRequest"
                             }
                         }
                     }
@@ -5280,85 +5722,17 @@
                 }
             }
         },
-        "/v1/documents": {
+        "/v1/integrations/github/marketplace/webhook": {
             "post": {
                 "tags": [
-                    "Documents"
+                    "GitHub Marketplace"
                 ],
-                "summary": "Upload a document",
-                "description": "Upload a document with flexible scope support.\n\nSupports three access patterns:\n1. Organization-level: scope=organization, organization_id=<id>\n2. Project-level: scope=project, project_id=<id>\n3. User-level: scope=user (uses personal organization)",
-                "operationId": "upload_document_v1_documents_post",
-                "requestBody": {
-                    "required": true,
-                    "content": {
-                        "multipart/form-data": {
-                            "schema": {
-                                "$ref": "#/components/schemas/Body_upload_document_v1_documents_post"
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "201": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/DocumentResponse"
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            "get": {
-                "tags": [
-                    "Documents"
-                ],
-                "summary": "List documents",
-                "description": "List documents with flexible scope support.\n\nSupports three access patterns:\n1. Organization-level: scope=organization, organization_id=<id>\n2. Project-level: scope=project, project_id=<id>\n3. User-level: scope=user (uses personal organization)",
-                "operationId": "list_documents_v1_documents_get",
+                "summary": "Github Marketplace Webhook",
+                "operationId": "github_marketplace_webhook_v1_integrations_github_marketplace_webhook_post",
                 "parameters": [
                     {
-                        "name": "skip",
-                        "in": "query",
-                        "required": false,
-                        "schema": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "description": "Skip the first N items",
-                            "default": 0,
-                            "title": "Skip"
-                        },
-                        "description": "Skip the first N items"
-                    },
-                    {
-                        "name": "limit",
-                        "in": "query",
-                        "required": false,
-                        "schema": {
-                            "type": "integer",
-                            "maximum": 100,
-                            "minimum": 1,
-                            "description": "Limit the number of items returned",
-                            "default": 10,
-                            "title": "Limit"
-                        },
-                        "description": "Limit the number of items returned"
-                    },
-                    {
-                        "name": "search",
-                        "in": "query",
+                        "name": "x-hub-signature-256",
+                        "in": "header",
                         "required": false,
                         "schema": {
                             "anyOf": [
@@ -5369,135 +5743,39 @@
                                     "type": "null"
                                 }
                             ],
-                            "description": "Search term for title and description",
-                            "title": "Search"
-                        },
-                        "description": "Search term for title and description"
-                    },
-                    {
-                        "name": "document_type",
-                        "in": "query",
-                        "required": false,
-                        "schema": {
-                            "anyOf": [
-                                {
-                                    "type": "string"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Filter by document type",
-                            "title": "Document Type"
-                        },
-                        "description": "Filter by document type"
-                    },
-                    {
-                        "name": "tags",
-                        "in": "query",
-                        "required": false,
-                        "schema": {
-                            "anyOf": [
-                                {
-                                    "type": "string"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Filter by tags (comma-separated)",
-                            "title": "Tags"
-                        },
-                        "description": "Filter by tags (comma-separated)"
-                    },
-                    {
-                        "name": "scope",
-                        "in": "query",
-                        "required": false,
-                        "schema": {
-                            "$ref": "#/components/schemas/DocumentScope",
-                            "description": "Document access scope",
-                            "default": "organization"
-                        },
-                        "description": "Document access scope"
-                    },
-                    {
-                        "name": "organization_id",
-                        "in": "query",
-                        "required": false,
-                        "schema": {
-                            "anyOf": [
-                                {
-                                    "type": "string"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Organization ID (required for organization scope)",
-                            "title": "Organization Id"
-                        },
-                        "description": "Organization ID (required for organization scope)"
-                    },
-                    {
-                        "name": "project_id",
-                        "in": "query",
-                        "required": false,
-                        "schema": {
-                            "anyOf": [
-                                {
-                                    "type": "string"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Project ID (required for project scope)",
-                            "title": "Project Id"
-                        },
-                        "description": "Project ID (required for project scope)"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/DocumentListResponse"
-                                }
-                            }
+                            "title": "X-Hub-Signature-256"
                         }
                     },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/documents/{document_id}": {
-            "get": {
-                "tags": [
-                    "Documents"
-                ],
-                "summary": "Get document details",
-                "description": "Get details for a specific document.\nAccess control is handled at the service layer.",
-                "operationId": "get_document_v1_documents__document_id__get",
-                "parameters": [
                     {
-                        "name": "document_id",
-                        "in": "path",
-                        "required": true,
+                        "name": "x-github-event",
+                        "in": "header",
+                        "required": false,
                         "schema": {
-                            "type": "string",
-                            "title": "Document Id"
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "X-Github-Event"
+                        }
+                    },
+                    {
+                        "name": "x-github-delivery",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "X-Github-Delivery"
                         }
                     }
                 ],
@@ -5507,145 +5785,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/DocumentResponse"
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            "patch": {
-                "tags": [
-                    "Documents"
-                ],
-                "summary": "Update document metadata",
-                "description": "Update metadata for a specific document.\nAccess control is handled at the service layer.",
-                "operationId": "update_document_v1_documents__document_id__patch",
-                "parameters": [
-                    {
-                        "name": "document_id",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "title": "Document Id"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "required": true,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/DocumentUpdate"
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/DocumentResponse"
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "tags": [
-                    "Documents"
-                ],
-                "summary": "Delete a document",
-                "description": "Delete a document from the system.\nAccess control is handled at the service layer.",
-                "operationId": "delete_document_v1_documents__document_id__delete",
-                "parameters": [
-                    {
-                        "name": "document_id",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "title": "Document Id"
-                        }
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "Successful Response"
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/documents/{document_id}/tags": {
-            "patch": {
-                "tags": [
-                    "Documents"
-                ],
-                "summary": "Update document tags",
-                "description": "Update tags for a specific document.\nAccess control is handled at the service layer.",
-                "operationId": "update_document_tags_v1_documents__document_id__tags_patch",
-                "parameters": [
-                    {
-                        "name": "document_id",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "title": "Document Id"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "required": true,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/DocumentTagsUpdate"
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/DocumentResponse"
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    },
+                                    "title": "Response Github Marketplace Webhook V1 Integrations Github Marketplace Webhook Post"
                                 }
                             }
                         }
@@ -5669,7 +5813,7 @@
                     "Computers"
                 ],
                 "summary": "Create a new compute VM",
-                "description": "Prepare, wait for the organization's turn, then admit under the row lock.\n\n`X-Celesto-Client` (ui, sdk or mcp) records which surface made the\nsandbox; without it the credential type decides (see resolve_rest_origin).\n\nThe wait for the turn holds no pooled connection, so a burst from one\norganization cannot empty the pool for everyone else. The sandbox-created\nalert goes to the broker after the response is sent, so neither the\norganization's turn nor the client waits on it.",
+                "description": "Prepare, wait for the organization's turn, then admit under the row lock.\n\n`X-Celesto-Client` (ui, sdk, cli or mcp) records which surface made the\nsandbox; without it the credential type decides (see resolve_rest_origin).\n\nThe wait for the turn holds no pooled connection, so a burst from one\norganization cannot empty the pool for everyone else. The sandbox-created\nalert goes to the broker after the response is sent, so neither the\norganization's turn nor the client waits on it.",
                 "operationId": "create_computer_v1_computers_post",
                 "parameters": [
                     {
@@ -6256,6 +6400,69 @@
                         "description": "Unprocessable Content"
                     }
                 }
+            },
+            "post": {
+                "tags": [
+                    "Computers"
+                ],
+                "summary": "Start Retained Command",
+                "operationId": "start_retained_command_v1_computers__computer_id__commands_post",
+                "parameters": [
+                    {
+                        "name": "computer_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Computer Id"
+                        }
+                    },
+                    {
+                        "name": "x-current-organization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "description": "Current organization ID",
+                            "title": "X-Current-Organization"
+                        },
+                        "description": "Current organization ID"
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CommandStart"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Start Retained Command V1 Computers  Computer Id  Commands Post"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ComputerValidationErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Unprocessable Content"
+                    }
+                }
             }
         },
         "/v1/computers/{computer_id}/published-ports": {
@@ -6642,7 +6849,7 @@
                     "Computers"
                 ],
                 "summary": "Execute a command inside the VM",
-                "description": "Queue the command, then wait for its result on the event loop.\n\nThe wait is woken by the host's result (Redis `pool:op:<id>`) or by the\nfallback tick; each check ends its read transaction, so a slow command\nholds no pooled connection. A cancelled wait still expires the command\n(D-25, see `ComputePoolService.exec`).",
+                "description": "Authorize the caller, request host execution over NATS, and return its reply.",
                 "operationId": "exec_on_computer_v1_computers__computer_id__exec_post",
                 "parameters": [
                     {
@@ -6683,6 +6890,256 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ComputerExecResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ComputerValidationErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Unprocessable Content"
+                    }
+                }
+            }
+        },
+        "/v1/computers/{computer_id}/commands/{command_id}": {
+            "get": {
+                "tags": [
+                    "Computers"
+                ],
+                "summary": "Inspect Retained Command",
+                "operationId": "inspect_retained_command_v1_computers__computer_id__commands__command_id__get",
+                "parameters": [
+                    {
+                        "name": "computer_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Computer Id"
+                        }
+                    },
+                    {
+                        "name": "command_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid",
+                            "title": "Command Id"
+                        }
+                    },
+                    {
+                        "name": "x-current-organization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "description": "Current organization ID",
+                            "title": "X-Current-Organization"
+                        },
+                        "description": "Current organization ID"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Inspect Retained Command V1 Computers  Computer Id  Commands  Command Id  Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ComputerValidationErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Unprocessable Content"
+                    }
+                }
+            }
+        },
+        "/v1/computers/{computer_id}/commands/{command_id}/output": {
+            "get": {
+                "tags": [
+                    "Computers"
+                ],
+                "summary": "Read Retained Command",
+                "operationId": "read_retained_command_v1_computers__computer_id__commands__command_id__output_get",
+                "parameters": [
+                    {
+                        "name": "computer_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Computer Id"
+                        }
+                    },
+                    {
+                        "name": "command_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid",
+                            "title": "Command Id"
+                        }
+                    },
+                    {
+                        "name": "stream",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "enum": [
+                                "stdout",
+                                "stderr"
+                            ],
+                            "type": "string",
+                            "default": "stdout",
+                            "title": "Stream"
+                        }
+                    },
+                    {
+                        "name": "offset",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 0,
+                            "title": "Offset"
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 65536,
+                            "minimum": 1,
+                            "default": 16384,
+                            "title": "Limit"
+                        }
+                    },
+                    {
+                        "name": "query",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 256
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Query"
+                        }
+                    },
+                    {
+                        "name": "x-current-organization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "description": "Current organization ID",
+                            "title": "X-Current-Organization"
+                        },
+                        "description": "Current organization ID"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Read Retained Command V1 Computers  Computer Id  Commands  Command Id  Output Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ComputerValidationErrorResponse"
+                                }
+                            }
+                        },
+                        "description": "Unprocessable Content"
+                    }
+                }
+            }
+        },
+        "/v1/computers/{computer_id}/commands/{command_id}/cancel": {
+            "post": {
+                "tags": [
+                    "Computers"
+                ],
+                "summary": "Cancel Retained Command",
+                "operationId": "cancel_retained_command_v1_computers__computer_id__commands__command_id__cancel_post",
+                "parameters": [
+                    {
+                        "name": "computer_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Computer Id"
+                        }
+                    },
+                    {
+                        "name": "command_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid",
+                            "title": "Command Id"
+                        }
+                    },
+                    {
+                        "name": "x-current-organization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "description": "Current organization ID",
+                            "title": "X-Current-Organization"
+                        },
+                        "description": "Current organization ID"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "title": "Response Cancel Retained Command V1 Computers  Computer Id  Commands  Command Id  Cancel Post"
                                 }
                             }
                         }
@@ -7440,7 +7897,6 @@
                     "Internal pool hosts"
                 ],
                 "summary": "Poll",
-                "description": "Deliver the next command, holding an empty poll open for a wake-up when the host supports it.\n\nHosts that advertised `long_poll` wait here for up to POOL_LONG_POLL_SECONDS\n(+/- jitter), then poll once more. The hold ends early on a `pool:host:<id>`\npublish or when its fallback check finds a pending command, which it runs\nevery POOL_WAKEUP_TICK_SECONDS. The hold runs on the event loop and holds\nno database connection between checks. Older hosts get today's immediate\nanswer.",
                 "operationId": "poll_v1_internal_pool_hosts__host_id__poll_post",
                 "parameters": [
                     {
@@ -7629,6 +8085,81 @@
                                     "additionalProperties": true,
                                     "title": "Response Git Credentials V1 Internal Pool Hosts  Host Id  Github Git Credentials Post"
                                 }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/internal/pool/hosts/{host_id}/computers/{computer_id}/bootstrap": {
+            "post": {
+                "tags": [
+                    "Internal pool hosts"
+                ],
+                "summary": "Bootstrap",
+                "operationId": "bootstrap_v1_internal_pool_hosts__host_id__computers__computer_id__bootstrap_post",
+                "parameters": [
+                    {
+                        "name": "host_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Host Id"
+                        }
+                    },
+                    {
+                        "name": "computer_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Computer Id"
+                        }
+                    },
+                    {
+                        "name": "authorization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Authorization"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PoolBootstrapRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
                             }
                         }
                     },
@@ -7864,6 +8395,55 @@
                 }
             }
         },
+        "/v1/internal/fleet/ci-job-stats": {
+            "get": {
+                "tags": [
+                    "Internal fleet"
+                ],
+                "summary": "Get Ci Job Stats",
+                "operationId": "get_ci_job_stats_v1_internal_fleet_ci_job_stats_get",
+                "parameters": [
+                    {
+                        "name": "authorization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Authorization"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CiJobStats"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/internal/fleet": {
             "get": {
                 "tags": [
@@ -7896,6 +8476,55 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/FleetSnapshot"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/internal/fleet/billing": {
+            "get": {
+                "tags": [
+                    "Internal fleet"
+                ],
+                "summary": "Get Billing Report",
+                "operationId": "get_billing_report_v1_internal_fleet_billing_get",
+                "parameters": [
+                    {
+                        "name": "authorization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Authorization"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/OperatorBillingReport"
                                 }
                             }
                         }
@@ -8250,6 +8879,92 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/PlatformAnalytics"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/internal/fleet/ci-minutes": {
+            "get": {
+                "tags": [
+                    "Internal fleet"
+                ],
+                "summary": "Get Ci Minutes",
+                "operationId": "get_ci_minutes_v1_internal_fleet_ci_minutes_get",
+                "parameters": [
+                    {
+                        "name": "interval",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "enum": [
+                                "hour",
+                                "day",
+                                "week"
+                            ],
+                            "type": "string",
+                            "default": "day",
+                            "title": "Interval"
+                        }
+                    },
+                    {
+                        "name": "days",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 90,
+                            "minimum": 1,
+                            "default": 30,
+                            "title": "Days"
+                        }
+                    },
+                    {
+                        "name": "exclude_internal",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "boolean",
+                            "default": true,
+                            "title": "Exclude Internal"
+                        }
+                    },
+                    {
+                        "name": "authorization",
+                        "in": "header",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Authorization"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CiMinutesSeries"
                                 }
                             }
                         }
@@ -9632,11 +10347,318 @@
                 ],
                 "title": "AuthorizeInstallation"
             },
+            "AutoTopupCardConfirmRequest": {
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "minLength": 8,
+                        "pattern": "^cs_[A-Za-z0-9_]+$",
+                        "title": "Session Id"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "session_id"
+                ],
+                "title": "AutoTopupCardConfirmRequest",
+                "description": "The completed setup Checkout session that returned to the billing page."
+            },
+            "AutoTopupCardResponse": {
+                "properties": {
+                    "checkout_url": {
+                        "type": "string",
+                        "title": "Checkout Url"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "checkout_url"
+                ],
+                "title": "AutoTopupCardResponse",
+                "description": "Stripe Checkout (setup mode) that saves a card for auto top-up."
+            },
+            "AutoTopupChargeResponse": {
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "pending",
+                            "paid",
+                            "granted",
+                            "failed",
+                            "reversed"
+                        ],
+                        "title": "Status"
+                    },
+                    "amount_usd": {
+                        "type": "string",
+                        "title": "Amount Usd"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "title": "Created At"
+                    },
+                    "failure_message": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Failure Message"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "status",
+                    "amount_usd",
+                    "created_at"
+                ],
+                "title": "AutoTopupChargeResponse",
+                "description": "The latest auto top-up attempt."
+            },
+            "AutoTopupRequest": {
+                "properties": {
+                    "enabled": {
+                        "type": "boolean",
+                        "title": "Enabled"
+                    },
+                    "threshold_usd": {
+                        "anyOf": [
+                            {
+                                "type": "number",
+                                "maximum": 10000.0,
+                                "minimum": 5.0
+                            },
+                            {
+                                "type": "string"
+                            }
+                        ],
+                        "title": "Threshold Usd"
+                    },
+                    "amount_usd": {
+                        "anyOf": [
+                            {
+                                "type": "number",
+                                "maximum": 10000.0,
+                                "minimum": 10.0
+                            },
+                            {
+                                "type": "string"
+                            }
+                        ],
+                        "title": "Amount Usd"
+                    },
+                    "monthly_limit_usd": {
+                        "anyOf": [
+                            {
+                                "type": "number",
+                                "maximum": 100000.0,
+                                "minimum": 10.0
+                            },
+                            {
+                                "type": "string"
+                            }
+                        ],
+                        "title": "Monthly Limit Usd"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "enabled",
+                    "threshold_usd",
+                    "amount_usd",
+                    "monthly_limit_usd"
+                ],
+                "title": "AutoTopupRequest",
+                "description": "An owner's auto top-up settings: below the threshold, charge the saved card the amount, within the monthly limit."
+            },
+            "AutoTopupResponse": {
+                "properties": {
+                    "enabled": {
+                        "type": "boolean",
+                        "title": "Enabled"
+                    },
+                    "threshold_usd": {
+                        "type": "string",
+                        "title": "Threshold Usd"
+                    },
+                    "amount_usd": {
+                        "type": "string",
+                        "title": "Amount Usd"
+                    },
+                    "monthly_limit_usd": {
+                        "type": "string",
+                        "title": "Monthly Limit Usd"
+                    },
+                    "payment_method_label": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Payment Method Label"
+                    },
+                    "paused_reason": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "enum": [
+                                    "authentication_required",
+                                    "card_declined",
+                                    "payment_method_unavailable",
+                                    "invoice_mismatch",
+                                    "credit_delayed",
+                                    "payment_reversed"
+                                ]
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Paused Reason"
+                    },
+                    "paused_message": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Paused Message"
+                    },
+                    "month_charged_usd": {
+                        "type": "string",
+                        "title": "Month Charged Usd"
+                    },
+                    "monthly_limit_reached": {
+                        "type": "boolean",
+                        "title": "Monthly Limit Reached"
+                    },
+                    "last_charge": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/AutoTopupChargeResponse"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "enabled",
+                    "threshold_usd",
+                    "amount_usd",
+                    "monthly_limit_usd",
+                    "month_charged_usd",
+                    "monthly_limit_reached"
+                ],
+                "title": "AutoTopupResponse",
+                "description": "Auto top-up settings and state; defaults when it was never set up."
+            },
+            "BillingPayment": {
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "title": "Id"
+                    },
+                    "paid_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "title": "Paid At"
+                    },
+                    "collected_usd": {
+                        "type": "string",
+                        "title": "Collected Usd"
+                    },
+                    "refunded_usd": {
+                        "type": "string",
+                        "title": "Refunded Usd"
+                    },
+                    "disputed": {
+                        "type": "boolean",
+                        "title": "Disputed"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "id",
+                    "paid_at",
+                    "collected_usd",
+                    "refunded_usd",
+                    "disputed"
+                ],
+                "title": "BillingPayment"
+            },
+            "BillingRuntime": {
+                "properties": {
+                    "size_id": {
+                        "type": "string",
+                        "title": "Size Id"
+                    },
+                    "checkpointed_seconds": {
+                        "type": "integer",
+                        "title": "Checkpointed Seconds"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "size_id",
+                    "checkpointed_seconds"
+                ],
+                "title": "BillingRuntime"
+            },
+            "BillingWallet": {
+                "properties": {
+                    "feature_id": {
+                        "type": "string",
+                        "title": "Feature Id"
+                    },
+                    "remaining_usd": {
+                        "type": "string",
+                        "title": "Remaining Usd"
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "title": "Expires At"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "feature_id",
+                    "remaining_usd",
+                    "expires_at"
+                ],
+                "title": "BillingWallet"
+            },
             "BlockRequest": {
                 "properties": {
                     "entryId": {
                         "type": "integer",
                         "title": "Entryid"
+                    },
+                    "sizeBytes": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Sizebytes"
                     },
                     "blockId": {
                         "type": "string",
@@ -9649,81 +10671,6 @@
                     "blockId"
                 ],
                 "title": "BlockRequest"
-            },
-            "Body_upload_document_v1_documents_post": {
-                "properties": {
-                    "file": {
-                        "type": "string",
-                        "contentMediaType": "application/octet-stream",
-                        "title": "File"
-                    },
-                    "title": {
-                        "type": "string",
-                        "title": "Title",
-                        "description": "Document title"
-                    },
-                    "description": {
-                        "type": "string",
-                        "title": "Description",
-                        "description": "Document description"
-                    },
-                    "document_type": {
-                        "type": "string",
-                        "title": "Document Type",
-                        "description": "Type of document (pdf, word, excel, etc.)"
-                    },
-                    "tags": {
-                        "type": "string",
-                        "title": "Tags",
-                        "description": "Comma-separated list of tags",
-                        "default": ""
-                    },
-                    "scope": {
-                        "$ref": "#/components/schemas/DocumentScope",
-                        "default": "organization"
-                    },
-                    "organization_id": {
-                        "type": "string",
-                        "title": "Organization Id",
-                        "description": "Organization ID (required for organization scope)"
-                    },
-                    "project_id": {
-                        "type": "string",
-                        "title": "Project Id",
-                        "description": "Project ID (required for project scope)"
-                    }
-                },
-                "type": "object",
-                "required": [
-                    "file",
-                    "title",
-                    "document_type"
-                ],
-                "title": "Body_upload_document_v1_documents_post"
-            },
-            "Body_upload_file_v1_files_upload_post": {
-                "properties": {
-                    "file": {
-                        "type": "string",
-                        "contentMediaType": "application/octet-stream",
-                        "title": "File"
-                    },
-                    "file_type": {
-                        "$ref": "#/components/schemas/DocumentType",
-                        "description": "The type of the file. Resume, Cover Letter, etc.",
-                        "default": "other"
-                    },
-                    "application_id": {
-                        "type": "string",
-                        "title": "Application Id",
-                        "description": "The ID of the application to associate the file with"
-                    }
-                },
-                "type": "object",
-                "required": [
-                    "file"
-                ],
-                "title": "Body_upload_file_v1_files_upload_post"
             },
             "BulkColdDMRequest": {
                 "properties": {
@@ -9827,6 +10774,311 @@
                     "cta"
                 ],
                 "title": "BulkColdDMRequest"
+            },
+            "CiJobDurations": {
+                "properties": {
+                    "jobs": {
+                        "type": "integer",
+                        "title": "Jobs"
+                    },
+                    "timed_jobs": {
+                        "type": "integer",
+                        "title": "Timed Jobs"
+                    },
+                    "average_minutes": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Average Minutes"
+                    },
+                    "median_minutes": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Median Minutes"
+                    },
+                    "p95_minutes": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "P95 Minutes"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "jobs",
+                    "timed_jobs",
+                    "average_minutes",
+                    "median_minutes",
+                    "p95_minutes"
+                ],
+                "title": "CiJobDurations"
+            },
+            "CiJobStats": {
+                "properties": {
+                    "observed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "title": "Observed At"
+                    },
+                    "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "title": "Started At"
+                    },
+                    "ended_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "title": "Ended At"
+                    },
+                    "machines": {
+                        "items": {
+                            "$ref": "#/components/schemas/CiMachineJobStats"
+                        },
+                        "type": "array",
+                        "title": "Machines"
+                    },
+                    "total": {
+                        "$ref": "#/components/schemas/CiJobDurations"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "observed_at",
+                    "started_at",
+                    "ended_at",
+                    "machines",
+                    "total"
+                ],
+                "title": "CiJobStats"
+            },
+            "CiMachineJobStats": {
+                "properties": {
+                    "jobs": {
+                        "type": "integer",
+                        "title": "Jobs"
+                    },
+                    "timed_jobs": {
+                        "type": "integer",
+                        "title": "Timed Jobs"
+                    },
+                    "average_minutes": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Average Minutes"
+                    },
+                    "median_minutes": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Median Minutes"
+                    },
+                    "p95_minutes": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "P95 Minutes"
+                    },
+                    "machine_type": {
+                        "type": "string",
+                        "title": "Machine Type"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "jobs",
+                    "timed_jobs",
+                    "average_minutes",
+                    "median_minutes",
+                    "p95_minutes",
+                    "machine_type"
+                ],
+                "title": "CiMachineJobStats"
+            },
+            "CiMinutesBucket": {
+                "properties": {
+                    "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "title": "Started At"
+                    },
+                    "ended_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "title": "Ended At"
+                    },
+                    "ci_runtime_minutes": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Ci Runtime Minutes"
+                    },
+                    "history_complete": {
+                        "type": "boolean",
+                        "title": "History Complete"
+                    },
+                    "in_progress": {
+                        "type": "boolean",
+                        "title": "In Progress"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "started_at",
+                    "ended_at",
+                    "ci_runtime_minutes",
+                    "history_complete",
+                    "in_progress"
+                ],
+                "title": "CiMinutesBucket",
+                "description": "CI running minutes in one calendar-aligned UTC hour, day, or Monday-start week."
+            },
+            "CiMinutesSeries": {
+                "properties": {
+                    "observed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "title": "Observed At"
+                    },
+                    "interval": {
+                        "type": "string",
+                        "enum": [
+                            "hour",
+                            "day",
+                            "week"
+                        ],
+                        "title": "Interval"
+                    },
+                    "days": {
+                        "type": "integer",
+                        "enum": [
+                            1,
+                            7,
+                            30,
+                            90
+                        ],
+                        "title": "Days"
+                    },
+                    "runtime_coverage_started_at": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Runtime Coverage Started At"
+                    },
+                    "total_minutes": {
+                        "type": "number",
+                        "title": "Total Minutes"
+                    },
+                    "previous_total_minutes": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Previous Total Minutes"
+                    },
+                    "buckets": {
+                        "items": {
+                            "$ref": "#/components/schemas/CiMinutesBucket"
+                        },
+                        "type": "array",
+                        "title": "Buckets"
+                    },
+                    "previous_buckets": {
+                        "items": {
+                            "$ref": "#/components/schemas/CiMinutesBucket"
+                        },
+                        "type": "array",
+                        "title": "Previous Buckets"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "observed_at",
+                    "interval",
+                    "days",
+                    "runtime_coverage_started_at",
+                    "total_minutes",
+                    "previous_total_minutes",
+                    "buckets",
+                    "previous_buckets"
+                ],
+                "title": "CiMinutesSeries",
+                "description": "Platform-wide CI minutes over time, plus the same-length period before it."
+            },
+            "CommandStart": {
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "maxLength": 10000,
+                        "minLength": 1,
+                        "title": "Command"
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "maximum": 300.0,
+                        "minimum": 1.0,
+                        "title": "Timeout",
+                        "default": 30
+                    },
+                    "idempotency_key": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "title": "Idempotency Key"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "command",
+                    "idempotency_key"
+                ],
+                "title": "CommandStart"
             },
             "CommitBlocksRequest": {
                 "properties": {
@@ -10563,6 +11815,7 @@
                 "enum": [
                     "ui",
                     "sdk",
+                    "cli",
                     "mcp",
                     "github_ci",
                     "template_build"
@@ -10947,53 +12200,6 @@
                     "scopes"
                 ],
                 "title": "ConsentApproval"
-            },
-            "ContactEmailRequest": {
-                "properties": {
-                    "to": {
-                        "type": "string",
-                        "format": "email",
-                        "title": "To"
-                    },
-                    "reply_to": {
-                        "type": "string",
-                        "format": "email",
-                        "title": "Reply To"
-                    },
-                    "subject": {
-                        "type": "string",
-                        "title": "Subject"
-                    },
-                    "text": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Text"
-                    },
-                    "html": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Html"
-                    }
-                },
-                "type": "object",
-                "required": [
-                    "to",
-                    "reply_to",
-                    "subject"
-                ],
-                "title": "ContactEmailRequest"
             },
             "CreateRequest": {
                 "properties": {
@@ -12209,292 +13415,6 @@
                 "title": "DelegatedDriveFile",
                 "description": "Represents a Google Drive file metadata snapshot."
             },
-            "DocumentListResponse": {
-                "properties": {
-                    "total": {
-                        "type": "integer",
-                        "title": "Total"
-                    },
-                    "documents": {
-                        "items": {
-                            "$ref": "#/components/schemas/DocumentResponse"
-                        },
-                        "type": "array",
-                        "title": "Documents"
-                    }
-                },
-                "type": "object",
-                "required": [
-                    "total",
-                    "documents"
-                ],
-                "title": "DocumentListResponse",
-                "description": "Response schema for listing documents"
-            },
-            "DocumentResponse": {
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "title": "Title"
-                    },
-                    "description": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Description"
-                    },
-                    "document_type": {
-                        "type": "string",
-                        "title": "Document Type"
-                    },
-                    "tags": {
-                        "items": {
-                            "type": "string"
-                        },
-                        "type": "array",
-                        "title": "Tags"
-                    },
-                    "document_metadata": {
-                        "additionalProperties": true,
-                        "type": "object",
-                        "title": "Document Metadata"
-                    },
-                    "project_id": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Project Id"
-                    },
-                    "status": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/components/schemas/DocumentStatus"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ]
-                    },
-                    "id": {
-                        "type": "string",
-                        "title": "Id"
-                    },
-                    "organization_id": {
-                        "type": "string",
-                        "title": "Organization Id"
-                    },
-                    "filename": {
-                        "type": "string",
-                        "title": "Filename"
-                    },
-                    "original_filename": {
-                        "type": "string",
-                        "title": "Original Filename"
-                    },
-                    "file_size": {
-                        "type": "integer",
-                        "title": "File Size"
-                    },
-                    "content_type": {
-                        "type": "string",
-                        "title": "Content Type"
-                    },
-                    "created_by": {
-                        "type": "string",
-                        "title": "Created By"
-                    },
-                    "updated_by": {
-                        "type": "string",
-                        "title": "Updated By"
-                    },
-                    "created_at": {
-                        "type": "string",
-                        "format": "date-time",
-                        "title": "Created At"
-                    },
-                    "updated_at": {
-                        "type": "string",
-                        "format": "date-time",
-                        "title": "Updated At"
-                    },
-                    "download_url": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Download Url"
-                    }
-                },
-                "type": "object",
-                "required": [
-                    "title",
-                    "document_type",
-                    "id",
-                    "organization_id",
-                    "filename",
-                    "original_filename",
-                    "file_size",
-                    "content_type",
-                    "created_by",
-                    "updated_by",
-                    "created_at",
-                    "updated_at"
-                ],
-                "title": "DocumentResponse",
-                "description": "Response schema for document operations"
-            },
-            "DocumentScope": {
-                "type": "string",
-                "enum": [
-                    "organization",
-                    "project"
-                ],
-                "title": "DocumentScope",
-                "description": "Document access scope"
-            },
-            "DocumentStatus": {
-                "type": "string",
-                "enum": [
-                    "PENDING",
-                    "PROCESSING",
-                    "PROCESSED",
-                    "FAILED"
-                ],
-                "title": "DocumentStatus",
-                "description": "Document processing status"
-            },
-            "DocumentTagsUpdate": {
-                "properties": {
-                    "tags": {
-                        "items": {
-                            "type": "string"
-                        },
-                        "type": "array",
-                        "title": "Tags"
-                    }
-                },
-                "type": "object",
-                "required": [
-                    "tags"
-                ],
-                "title": "DocumentTagsUpdate",
-                "description": "Schema for updating document tags"
-            },
-            "DocumentType": {
-                "type": "string",
-                "enum": [
-                    "passport",
-                    "id-proof",
-                    "resume",
-                    "cover-letter",
-                    "proof-of-address",
-                    "evidence",
-                    "letter-of-recommendation",
-                    "other"
-                ],
-                "title": "DocumentType"
-            },
-            "DocumentUpdate": {
-                "properties": {
-                    "title": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Title"
-                    },
-                    "description": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Description"
-                    },
-                    "document_type": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Document Type"
-                    },
-                    "tags": {
-                        "anyOf": [
-                            {
-                                "items": {
-                                    "type": "string"
-                                },
-                                "type": "array"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Tags"
-                    },
-                    "document_metadata": {
-                        "anyOf": [
-                            {
-                                "additionalProperties": true,
-                                "type": "object"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Document Metadata"
-                    },
-                    "project_id": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Project Id"
-                    },
-                    "status": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/components/schemas/DocumentStatus"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ]
-                    }
-                },
-                "type": "object",
-                "title": "DocumentUpdate",
-                "description": "Schema for updating an existing document"
-            },
             "DownloadUrlRequest": {
                 "properties": {
                     "entryId": {
@@ -12586,48 +13506,6 @@
                 "title": "DriveAccessRulesUpdate",
                 "description": "Request to update access rules for a connection."
             },
-            "EmailResponse": {
-                "properties": {
-                    "success": {
-                        "type": "boolean",
-                        "title": "Success"
-                    },
-                    "message": {
-                        "type": "string",
-                        "title": "Message"
-                    },
-                    "email_id": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Email Id"
-                    }
-                },
-                "type": "object",
-                "required": [
-                    "success",
-                    "message"
-                ],
-                "title": "EmailResponse"
-            },
-            "EntryRequest": {
-                "properties": {
-                    "entryId": {
-                        "type": "integer",
-                        "title": "Entryid"
-                    }
-                },
-                "type": "object",
-                "required": [
-                    "entryId"
-                ],
-                "title": "EntryRequest"
-            },
             "FailedExitCode": {
                 "properties": {
                     "exit_code": {
@@ -12652,90 +13530,6 @@
                     "count"
                 ],
                 "title": "FailedExitCode"
-            },
-            "FileListResponse": {
-                "properties": {
-                    "total": {
-                        "type": "integer",
-                        "title": "Total"
-                    },
-                    "files": {
-                        "items": {
-                            "$ref": "#/components/schemas/FileResponse"
-                        },
-                        "type": "array",
-                        "title": "Files"
-                    }
-                },
-                "type": "object",
-                "required": [
-                    "total",
-                    "files"
-                ],
-                "title": "FileListResponse",
-                "description": "Response model for listing files"
-            },
-            "FileResponse": {
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "title": "Id"
-                    },
-                    "filename": {
-                        "type": "string",
-                        "title": "Filename"
-                    },
-                    "original_filename": {
-                        "type": "string",
-                        "title": "Original Filename"
-                    },
-                    "file_size": {
-                        "type": "integer",
-                        "title": "File Size"
-                    },
-                    "content_type": {
-                        "type": "string",
-                        "title": "Content Type"
-                    },
-                    "created_at": {
-                        "type": "string",
-                        "format": "date-time",
-                        "title": "Created At"
-                    },
-                    "download_url": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "Download Url"
-                    },
-                    "file_metadata": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "title": "File Metadata"
-                    }
-                },
-                "type": "object",
-                "required": [
-                    "id",
-                    "filename",
-                    "original_filename",
-                    "file_size",
-                    "content_type",
-                    "created_at"
-                ],
-                "title": "FileResponse",
-                "description": "Response model for file operations"
             },
             "FinalizeRequest": {
                 "properties": {
@@ -12849,6 +13643,27 @@
             },
             "FleetHost": {
                 "properties": {
+                    "agent_version": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Agent Version"
+                    },
+                    "update_status": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/HostUpdateStatus"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
                     "host_id": {
                         "type": "string",
                         "title": "Host Id"
@@ -13482,6 +14297,74 @@
                 ],
                 "title": "HostPlacement"
             },
+            "HostUpdateStatus": {
+                "properties": {
+                    "state": {
+                        "type": "string",
+                        "enum": [
+                            "up_to_date",
+                            "staged",
+                            "paused",
+                            "switched",
+                            "watching",
+                            "deferred",
+                            "stuck_deferred",
+                            "rolled_back",
+                            "failed"
+                        ],
+                        "title": "State"
+                    },
+                    "target": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{40}$"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Target"
+                    },
+                    "since": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Since"
+                    },
+                    "tries": {
+                        "type": "integer",
+                        "maximum": 1000.0,
+                        "minimum": 0.0,
+                        "title": "Tries",
+                        "default": 0
+                    },
+                    "reason": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "maxLength": 500
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Reason"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "state"
+                ],
+                "title": "HostUpdateStatus",
+                "description": "What the host's update job is doing, as the agent reads it from `update.json`.\n\nThe control plane only stores it and shows it on the fleet dashboard\n(docs/designs/host-pull-release.md D-09); it never acts on it."
+            },
             "Inventory": {
                 "properties": {
                     "kvm_ready": {
@@ -13686,6 +14569,51 @@
                 "title": "NetworkPolicy",
                 "description": "Outbound internet access, fixed for the lifetime of a computer."
             },
+            "OperatorBillingReport": {
+                "properties": {
+                    "observed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "title": "Observed At"
+                    },
+                    "completed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "title": "Completed At"
+                    },
+                    "payments_status": {
+                        "type": "string",
+                        "enum": [
+                            "available",
+                            "unavailable"
+                        ],
+                        "title": "Payments Status"
+                    },
+                    "organizations": {
+                        "items": {
+                            "$ref": "#/components/schemas/OrganizationBilling"
+                        },
+                        "type": "array",
+                        "title": "Organizations"
+                    },
+                    "warnings": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "title": "Warnings",
+                        "default": []
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "observed_at",
+                    "completed_at",
+                    "payments_status",
+                    "organizations"
+                ],
+                "title": "OperatorBillingReport"
+            },
             "Organization": {
                 "properties": {
                     "name": {
@@ -13792,6 +14720,169 @@
                 ],
                 "title": "Organization",
                 "description": "Schema for Organization response"
+            },
+            "OrganizationBilling": {
+                "properties": {
+                    "organization_id": {
+                        "type": "string",
+                        "title": "Organization Id"
+                    },
+                    "name": {
+                        "type": "string",
+                        "title": "Name"
+                    },
+                    "email": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Email"
+                    },
+                    "owner_emails": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "title": "Owner Emails"
+                    },
+                    "internal": {
+                        "type": "boolean",
+                        "title": "Internal"
+                    },
+                    "collected_usd": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Collected Usd"
+                    },
+                    "refunded_usd": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Refunded Usd"
+                    },
+                    "net_collected_usd": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Net Collected Usd"
+                    },
+                    "disputed_usd": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Disputed Usd",
+                        "description": "Net value of payments with a dispute flag, not the actual disputed amount; disputes may be partial."
+                    },
+                    "payments": {
+                        "items": {
+                            "$ref": "#/components/schemas/BillingPayment"
+                        },
+                        "type": "array",
+                        "title": "Payments",
+                        "default": []
+                    },
+                    "balance_status": {
+                        "type": "string",
+                        "enum": [
+                            "available",
+                            "no_account",
+                            "unavailable"
+                        ],
+                        "title": "Balance Status",
+                        "default": "unavailable"
+                    },
+                    "paid_credit_granted_usd": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Paid Credit Granted Usd"
+                    },
+                    "paid_credit_remaining_usd": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Paid Credit Remaining Usd"
+                    },
+                    "paid_credit_used_estimate_usd": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Paid Credit Used Estimate Usd"
+                    },
+                    "promotional_wallets": {
+                        "items": {
+                            "$ref": "#/components/schemas/BillingWallet"
+                        },
+                        "type": "array",
+                        "title": "Promotional Wallets",
+                        "default": []
+                    },
+                    "runtime_by_size": {
+                        "items": {
+                            "$ref": "#/components/schemas/BillingRuntime"
+                        },
+                        "type": "array",
+                        "title": "Runtime By Size",
+                        "default": []
+                    },
+                    "warnings": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "title": "Warnings",
+                        "default": []
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "organization_id",
+                    "name",
+                    "email",
+                    "owner_emails",
+                    "internal"
+                ],
+                "title": "OrganizationBilling"
             },
             "OrganizationMemberRead": {
                 "properties": {
@@ -14490,6 +15581,47 @@
                 ],
                 "title": "PollRequest"
             },
+            "PoolBootstrapRequest": {
+                "properties": {
+                    "epoch": {
+                        "type": "integer",
+                        "title": "Epoch"
+                    },
+                    "state_id": {
+                        "type": "string",
+                        "maxLength": 36,
+                        "minLength": 36,
+                        "title": "State Id"
+                    },
+                    "kind": {
+                        "type": "string",
+                        "enum": [
+                            "command",
+                            "result"
+                        ],
+                        "title": "Kind",
+                        "default": "command"
+                    },
+                    "exit_code": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Exit Code"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "epoch",
+                    "state_id"
+                ],
+                "title": "PoolBootstrapRequest",
+                "description": "A host asks for a booted CI computer's runner start command, or reports its result (plan A)."
+            },
             "PoolGitCredentialRequest": {
                 "properties": {
                     "epoch": {
@@ -14586,6 +15718,16 @@
                         "type": "boolean",
                         "title": "Usage Billing Fence",
                         "default": false
+                    },
+                    "update_status": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/HostUpdateStatus"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
                     }
                 },
                 "type": "object",
@@ -15002,6 +16144,60 @@
                     "ok"
                 ],
                 "title": "ResultRequest"
+            },
+            "RunningSandboxSpendResponse": {
+                "properties": {
+                    "computer_id": {
+                        "type": "string",
+                        "title": "Computer Id"
+                    },
+                    "name": {
+                        "type": "string",
+                        "title": "Name"
+                    },
+                    "surface": {
+                        "type": "string",
+                        "enum": [
+                            "ui",
+                            "sdk",
+                            "cli",
+                            "mcp",
+                            "github_ci",
+                            "template_build",
+                            "unknown"
+                        ],
+                        "title": "Surface"
+                    },
+                    "size_id": {
+                        "type": "string",
+                        "title": "Size Id"
+                    },
+                    "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "title": "Started At"
+                    },
+                    "hourly_cost_usd": {
+                        "type": "string",
+                        "title": "Hourly Cost Usd"
+                    },
+                    "accrued_cost_usd": {
+                        "type": "string",
+                        "title": "Accrued Cost Usd"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "computer_id",
+                    "name",
+                    "surface",
+                    "size_id",
+                    "started_at",
+                    "hourly_cost_usd",
+                    "accrued_cost_usd"
+                ],
+                "title": "RunningSandboxSpendResponse",
+                "description": "A sandbox charging right now: its rate and its spend since it last started.\n\nInformational only: never add it to the period totals. Its checkpointed\nseconds are already in them, and the totals (cached) and this (live) are\nread at different moments, so no sum of the two is exact."
             },
             "SandboxActivity": {
                 "properties": {
@@ -15707,7 +16903,6 @@
                     },
                     "hourly_rate_usd": {
                         "type": "string",
-                        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                         "title": "Hourly Rate Usd"
                     }
                 },
@@ -16758,6 +17953,18 @@
             },
             "SessionRequest": {
                 "properties": {
+                    "agent_version": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{40}$"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Agent Version"
+                    },
                     "state_id": {
                         "type": "string",
                         "maxLength": 36,
@@ -16792,6 +17999,16 @@
                     "custom_template_artifacts": {
                         "type": "boolean",
                         "title": "Custom Template Artifacts",
+                        "default": false
+                    },
+                    "sensitive_exec": {
+                        "type": "boolean",
+                        "title": "Sensitive Exec",
+                        "default": false
+                    },
+                    "vm_bootstrap": {
+                        "type": "boolean",
+                        "title": "Vm Bootstrap",
                         "default": false
                     },
                     "long_poll": {
@@ -16849,6 +18066,16 @@
                             }
                         ],
                         "title": "Disk Write Mbps"
+                    },
+                    "update_status": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/HostUpdateStatus"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
                     }
                 },
                 "type": "object",
@@ -16871,6 +18098,184 @@
                     "installation_id"
                 ],
                 "title": "SetupResumeEmail"
+            },
+            "SpendByProjectResponse": {
+                "properties": {
+                    "project_id": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Project Id"
+                    },
+                    "project_name": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Project Name"
+                    },
+                    "seconds": {
+                        "type": "integer",
+                        "title": "Seconds"
+                    },
+                    "estimated_cost_usd": {
+                        "type": "string",
+                        "title": "Estimated Cost Usd"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "project_id",
+                    "project_name",
+                    "seconds",
+                    "estimated_cost_usd"
+                ],
+                "title": "SpendByProjectResponse"
+            },
+            "SpendBySandboxResponse": {
+                "properties": {
+                    "computer_id": {
+                        "type": "string",
+                        "title": "Computer Id"
+                    },
+                    "name": {
+                        "type": "string",
+                        "title": "Name"
+                    },
+                    "surface": {
+                        "type": "string",
+                        "enum": [
+                            "ui",
+                            "sdk",
+                            "cli",
+                            "mcp",
+                            "github_ci",
+                            "template_build",
+                            "unknown"
+                        ],
+                        "title": "Surface"
+                    },
+                    "seconds": {
+                        "type": "integer",
+                        "title": "Seconds"
+                    },
+                    "estimated_cost_usd": {
+                        "type": "string",
+                        "title": "Estimated Cost Usd"
+                    },
+                    "last_day": {
+                        "type": "string",
+                        "format": "date",
+                        "title": "Last Day",
+                        "description": "Last UTC day in the range this sandbox ran"
+                    },
+                    "deleted": {
+                        "type": "boolean",
+                        "title": "Deleted"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "computer_id",
+                    "name",
+                    "surface",
+                    "seconds",
+                    "estimated_cost_usd",
+                    "last_day",
+                    "deleted"
+                ],
+                "title": "SpendBySandboxResponse"
+            },
+            "SpendBySizeResponse": {
+                "properties": {
+                    "size_id": {
+                        "type": "string",
+                        "title": "Size Id"
+                    },
+                    "seconds": {
+                        "type": "integer",
+                        "title": "Seconds"
+                    },
+                    "estimated_cost_usd": {
+                        "type": "string",
+                        "title": "Estimated Cost Usd"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "size_id",
+                    "seconds",
+                    "estimated_cost_usd"
+                ],
+                "title": "SpendBySizeResponse"
+            },
+            "SpendBySurfaceResponse": {
+                "properties": {
+                    "surface": {
+                        "type": "string",
+                        "enum": [
+                            "ui",
+                            "sdk",
+                            "cli",
+                            "mcp",
+                            "github_ci",
+                            "template_build",
+                            "unknown"
+                        ],
+                        "title": "Surface"
+                    },
+                    "seconds": {
+                        "type": "integer",
+                        "title": "Seconds"
+                    },
+                    "estimated_cost_usd": {
+                        "type": "string",
+                        "title": "Estimated Cost Usd"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "surface",
+                    "seconds",
+                    "estimated_cost_usd"
+                ],
+                "title": "SpendBySurfaceResponse"
+            },
+            "SpendDayResponse": {
+                "properties": {
+                    "day": {
+                        "type": "string",
+                        "format": "date",
+                        "title": "Day"
+                    },
+                    "estimated_cost_usd": {
+                        "type": "string",
+                        "title": "Estimated Cost Usd"
+                    },
+                    "by_surface": {
+                        "items": {
+                            "$ref": "#/components/schemas/SpendBySurfaceResponse"
+                        },
+                        "type": "array",
+                        "title": "By Surface"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "day",
+                    "estimated_cost_usd",
+                    "by_surface"
+                ],
+                "title": "SpendDayResponse"
             },
             "Status": {
                 "type": "string",
@@ -17182,6 +18587,25 @@
                 ],
                 "title": "TunnelTokenRequest"
             },
+            "TwirpError": {
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "title": "Code"
+                    },
+                    "msg": {
+                        "type": "string",
+                        "title": "Msg"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "code",
+                    "msg"
+                ],
+                "title": "TwirpError",
+                "description": "Twirp's error body; a refused save answers ``{\"code\": \"already_exists\", \"msg\": <reason>}``."
+            },
             "UpgradeRequest": {
                 "properties": {
                     "plan_id": {
@@ -17236,6 +18660,30 @@
                 "title": "UpgradeResponse",
                 "description": "Response schema for subscription upgrade."
             },
+            "UploadRequest": {
+                "properties": {
+                    "entryId": {
+                        "type": "integer",
+                        "title": "Entryid"
+                    },
+                    "sizeBytes": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Sizebytes"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "entryId"
+                ],
+                "title": "UploadRequest"
+            },
             "UsageAccessResponse": {
                 "properties": {
                     "state": {
@@ -17272,7 +18720,6 @@
                     },
                     "estimated_cost_usd": {
                         "type": "string",
-                        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                         "title": "Estimated Cost Usd"
                     }
                 },
@@ -17308,8 +18755,7 @@
                     "trial_credit_remaining_usd": {
                         "anyOf": [
                             {
-                                "type": "string",
-                                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+                                "type": "string"
                             },
                             {
                                 "type": "null"
@@ -17320,8 +18766,7 @@
                     "prepaid_credit_remaining_usd": {
                         "anyOf": [
                             {
-                                "type": "string",
-                                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+                                "type": "string"
                             },
                             {
                                 "type": "null"
@@ -17332,8 +18777,7 @@
                     "promotional_credit_remaining_usd": {
                         "anyOf": [
                             {
-                                "type": "string",
-                                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+                                "type": "string"
                             },
                             {
                                 "type": "null"
@@ -17356,8 +18800,7 @@
                     "micro_small_promotional_credit_remaining_usd": {
                         "anyOf": [
                             {
-                                "type": "string",
-                                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+                                "type": "string"
                             },
                             {
                                 "type": "null"
@@ -17380,8 +18823,7 @@
                     "up_to_standard_promotional_credit_remaining_usd": {
                         "anyOf": [
                             {
-                                "type": "string",
-                                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+                                "type": "string"
                             },
                             {
                                 "type": "null"
@@ -17432,7 +18874,6 @@
                     },
                     "month_to_date_estimated_cost_usd": {
                         "type": "string",
-                        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                         "title": "Month To Date Estimated Cost Usd"
                     },
                     "usage_by_size": {
@@ -17497,7 +18938,6 @@
                     },
                     "credit_added_usd": {
                         "type": "string",
-                        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                         "title": "Credit Added Usd"
                     }
                 },
@@ -17509,6 +18949,85 @@
                 "title": "UsageRewardResponse",
                 "description": "Confirmed Autumn runtime credit grant."
             },
+            "UsageSpendResponse": {
+                "properties": {
+                    "from_day": {
+                        "type": "string",
+                        "format": "date",
+                        "title": "From Day"
+                    },
+                    "to_day": {
+                        "type": "string",
+                        "format": "date",
+                        "title": "To Day"
+                    },
+                    "total_seconds": {
+                        "type": "integer",
+                        "title": "Total Seconds"
+                    },
+                    "total_estimated_cost_usd": {
+                        "type": "string",
+                        "title": "Total Estimated Cost Usd"
+                    },
+                    "daily": {
+                        "items": {
+                            "$ref": "#/components/schemas/SpendDayResponse"
+                        },
+                        "type": "array",
+                        "title": "Daily"
+                    },
+                    "by_surface": {
+                        "items": {
+                            "$ref": "#/components/schemas/SpendBySurfaceResponse"
+                        },
+                        "type": "array",
+                        "title": "By Surface"
+                    },
+                    "by_size": {
+                        "items": {
+                            "$ref": "#/components/schemas/SpendBySizeResponse"
+                        },
+                        "type": "array",
+                        "title": "By Size"
+                    },
+                    "by_project": {
+                        "items": {
+                            "$ref": "#/components/schemas/SpendByProjectResponse"
+                        },
+                        "type": "array",
+                        "title": "By Project"
+                    },
+                    "top_sandboxes": {
+                        "items": {
+                            "$ref": "#/components/schemas/SpendBySandboxResponse"
+                        },
+                        "type": "array",
+                        "title": "Top Sandboxes"
+                    },
+                    "running_now": {
+                        "items": {
+                            "$ref": "#/components/schemas/RunningSandboxSpendResponse"
+                        },
+                        "type": "array",
+                        "title": "Running Now"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "from_day",
+                    "to_day",
+                    "total_seconds",
+                    "total_estimated_cost_usd",
+                    "daily",
+                    "by_surface",
+                    "by_size",
+                    "by_project",
+                    "top_sandboxes",
+                    "running_now"
+                ],
+                "title": "UsageSpendResponse",
+                "description": "Where an organization's sandbox credit went over a UTC day range.\n\nTotals are recomputed from checkpointed runtime every 15 minutes (and\ncached for up to 5 more); ``running_now`` is read live.\nEstimates until Autumn invoices them."
+            },
             "UsageTopupRequest": {
                 "properties": {
                     "amount_usd": {
@@ -17519,8 +19038,7 @@
                                 "exclusiveMinimum": 2.0
                             },
                             {
-                                "type": "string",
-                                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,2}0*$"
+                                "type": "string"
                             }
                         ],
                         "title": "Amount Usd"
@@ -17541,7 +19059,6 @@
                     },
                     "amount_usd": {
                         "type": "string",
-                        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                         "title": "Amount Usd"
                     }
                 },
@@ -17842,25 +19359,6 @@
                 ],
                 "title": "WaitlistRequest",
                 "description": "Request body for joining a feature waitlist."
-            },
-            "WelcomeEmailRequest": {
-                "properties": {
-                    "email": {
-                        "type": "string",
-                        "format": "email",
-                        "title": "Email"
-                    },
-                    "name": {
-                        "type": "string",
-                        "title": "Name"
-                    }
-                },
-                "type": "object",
-                "required": [
-                    "email",
-                    "name"
-                ],
-                "title": "WelcomeEmailRequest"
             }
         }
     }
