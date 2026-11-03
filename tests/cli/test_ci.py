@@ -175,8 +175,37 @@ def _page(items: list[dict[str, Any]], total: int) -> dict[str, Any]:
     return {"items": items, "total": total, "page": 0, "page_size": 20, "counts": {}}
 
 
-def test_jobs_list_sends_filters_and_prints_each_job(backend: Backend, run: Runner) -> None:
-    backend.serve(JOBS_PAGE, _page([_job(812, "failure"), _job(811, "failure")], total=2))
+@pytest.mark.parametrize("force_color", [False, True])
+def test_jobs_list_sends_filters_and_prints_each_job(
+    backend: Backend,
+    run: Runner,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    force_color: bool,
+) -> None:
+    # Redirected lists must keep every field even when color is forced.
+    assert not sys.stdout.isatty()
+    if force_color:
+        monkeypatch.setenv("FORCE_COLOR", "1")
+        monkeypatch.setenv("TERM", "xterm-256color")
+        monkeypatch.delenv("NO_COLOR")
+    monkeypatch.setenv("COLUMNS", "60")
+    backend.serve(
+        JOBS_PAGE,
+        _page(
+            [
+                _job(
+                    812,
+                    "failure",
+                    workflow_name="integration-tests-across-all-supported-platforms",
+                    job_name="pytest-with-production-configuration",
+                    head_branch="fix/a-very-long-branch-name",
+                ),
+                _job(811, "failure"),
+            ],
+            total=2,
+        ),
+    )
     result = run(
         "jobs",
         "list",
@@ -191,6 +220,7 @@ def test_jobs_list_sends_filters_and_prints_each_job(backend: Backend, run: Runn
         "--limit",
         "5",
     )
+    (tmp_path / "jobs-piped.txt").write_text(result.output)
     assert result.exit_code == 0, result.output
     assert backend.requests[0]["query"] == {
         "tab": "failed",
@@ -200,7 +230,7 @@ def test_jobs_list_sends_filters_and_prints_each_job(backend: Backend, run: Runn
         "page": "0",
         "page_size": "5",
     }
-    lines = result.output.splitlines()
+    lines = Text.from_ansi(result.output).plain.splitlines()
     assert lines[0].split() == [
         "ID",
         "STATUS",
@@ -214,9 +244,9 @@ def test_jobs_list_sends_filters_and_prints_each_job(backend: Backend, run: Runn
         "812",
         "failure",
         "acme/api",
-        "tests",
-        "pytest",
-        "main",
+        "integration-tests-across-all-supported-platforms",
+        "pytest-with-production-configuration",
+        "fix/a-very-long-branch-name",
         "2026-11-03T10:00:00Z",
     ]
     assert len(lines) == 3
@@ -247,6 +277,7 @@ def test_terminal_jobs_are_scannable_and_point_to_details_and_logs(
     width: int,
     no_color: bool,
 ) -> None:
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     monkeypatch.setenv("FORCE_COLOR", "1")
     monkeypatch.setenv("TERM", "xterm-256color")
     if not no_color:

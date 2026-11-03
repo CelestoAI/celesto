@@ -338,7 +338,9 @@ def run_jobs_list(
     ]
     header = ["ID", "STATUS", "REPOSITORY", "WORKFLOW", "JOB", "BRANCH", "CREATED"]
     console = console_stdout()
-    if console.is_terminal:
+    # Rich's terminal flag also honors FORCE_COLOR, including redirected stdout.
+    interactive = sys.stdout.isatty()
+    if interactive:
         # Keep IDs and statuses intact; full names and timestamps are in jobs show.
         table = Table(box=None, padding=(0, 1), pad_edge=False)
         table.add_column("ID", no_wrap=True)
@@ -376,7 +378,7 @@ def run_jobs_list(
             else f"Run '{_jobs_list_command(status, repository, workflow, search)}' to see more."
         )
         message = f"Showing {len(jobs)} of {total} jobs. {more}"
-        if console.is_terminal:
+        if interactive:
             console.print(Text(message, style="dim"))
         else:
             print(message)
