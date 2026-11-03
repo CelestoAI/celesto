@@ -79,12 +79,7 @@ def sync_detailed(
 ) -> Response[ComputerExecResponse | ComputerValidationErrorResponse]:
     """Execute a command inside the VM
 
-     Queue the command, then wait for its result on the event loop.
-
-    The wait is woken by the host's result (Redis `pool:op:<id>`) or by the
-    fallback tick; each check ends its read transaction, so a slow command
-    holds no pooled connection. A cancelled wait still expires the command
-    (D-25, see `ComputePoolService.exec`).
+     Authorize the caller, request host execution over NATS, and return its reply.
 
     Args:
         computer_id (str):
@@ -121,12 +116,7 @@ def sync(
 ) -> ComputerExecResponse | ComputerValidationErrorResponse | None:
     """Execute a command inside the VM
 
-     Queue the command, then wait for its result on the event loop.
-
-    The wait is woken by the host's result (Redis `pool:op:<id>`) or by the
-    fallback tick; each check ends its read transaction, so a slow command
-    holds no pooled connection. A cancelled wait still expires the command
-    (D-25, see `ComputePoolService.exec`).
+     Authorize the caller, request host execution over NATS, and return its reply.
 
     Args:
         computer_id (str):
@@ -158,12 +148,7 @@ async def asyncio_detailed(
 ) -> Response[ComputerExecResponse | ComputerValidationErrorResponse]:
     """Execute a command inside the VM
 
-     Queue the command, then wait for its result on the event loop.
-
-    The wait is woken by the host's result (Redis `pool:op:<id>`) or by the
-    fallback tick; each check ends its read transaction, so a slow command
-    holds no pooled connection. A cancelled wait still expires the command
-    (D-25, see `ComputePoolService.exec`).
+     Authorize the caller, request host execution over NATS, and return its reply.
 
     Args:
         computer_id (str):
@@ -198,12 +183,7 @@ async def asyncio(
 ) -> ComputerExecResponse | ComputerValidationErrorResponse | None:
     """Execute a command inside the VM
 
-     Queue the command, then wait for its result on the event loop.
-
-    The wait is woken by the host's result (Redis `pool:op:<id>`) or by the
-    fallback tick; each check ends its read transaction, so a slow command
-    holds no pooled connection. A cancelled wait still expires the command
-    (D-25, see `ComputePoolService.exec`).
+     Authorize the caller, request host execution over NATS, and return its reply.
 
     Args:
         computer_id (str):

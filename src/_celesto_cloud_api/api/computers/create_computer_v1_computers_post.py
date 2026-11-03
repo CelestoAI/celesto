@@ -94,7 +94,7 @@ def sync_detailed(
 
      Prepare, wait for the organization's turn, then admit under the row lock.
 
-    `X-Celesto-Client` (ui, sdk or mcp) records which surface made the
+    `X-Celesto-Client` (ui, sdk, cli or mcp) records which surface made the
     sandbox; without it the credential type decides (see resolve_rest_origin).
 
     The wait for the turn holds no pooled connection, so a burst from one
@@ -145,7 +145,7 @@ def sync(
 
      Prepare, wait for the organization's turn, then admit under the row lock.
 
-    `X-Celesto-Client` (ui, sdk or mcp) records which surface made the
+    `X-Celesto-Client` (ui, sdk, cli or mcp) records which surface made the
     sandbox; without it the credential type decides (see resolve_rest_origin).
 
     The wait for the turn holds no pooled connection, so a burst from one
@@ -191,7 +191,7 @@ async def asyncio_detailed(
 
      Prepare, wait for the organization's turn, then admit under the row lock.
 
-    `X-Celesto-Client` (ui, sdk or mcp) records which surface made the
+    `X-Celesto-Client` (ui, sdk, cli or mcp) records which surface made the
     sandbox; without it the credential type decides (see resolve_rest_origin).
 
     The wait for the turn holds no pooled connection, so a burst from one
@@ -240,7 +240,7 @@ async def asyncio(
 
      Prepare, wait for the organization's turn, then admit under the row lock.
 
-    `X-Celesto-Client` (ui, sdk or mcp) records which surface made the
+    `X-Celesto-Client` (ui, sdk, cli or mcp) records which surface made the
     sandbox; without it the credential type decides (see resolve_rest_origin).
 
     The wait for the turn holds no pooled connection, so a burst from one

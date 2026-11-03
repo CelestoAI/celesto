@@ -65,7 +65,7 @@ def _before_command(*, json_output: bool = False, skip_update_notice: bool = Fal
         feature = "image"
     elif noun in {"setup", "doctor", "bridge"}:
         feature = "setup"
-    elif noun in {"auth", "update", "completion", "config", "server", "ui"}:
+    elif noun in {"auth", "ci", "update", "completion", "config", "server", "ui"}:
         return
     else:
         feature = "setup"
@@ -282,6 +282,118 @@ def auth_logout(json_output: bool) -> Any:
     """Remove the locally stored API key."""
     _before_command(json_output=json_output)
     return _handlers()._run_auth_logout(_ns(json=json_output))
+
+
+@cli.group(context_settings=CONTEXT_SETTINGS)
+def ci() -> None:
+    """See your Celesto CI jobs, their logs, and the machine sizes they run on."""
+
+
+def _at_most(limit: int) -> Any:
+    """A click callback refusing values longer than the backend accepts."""
+
+    def check(_ctx: click.Context, param: click.Parameter, value: str | None) -> str | None:
+        if value is not None and len(value) > limit:
+            raise click.BadParameter(
+                f"{param.opts[0]} can be at most {limit} characters.", param=param
+            )
+        return value
+
+    return check
+
+
+@ci.group("jobs", context_settings=CONTEXT_SETTINGS)
+def ci_jobs() -> None:
+    """GitHub Actions jobs that ran on Celesto."""
+
+
+@ci_jobs.command("list")
+@click.option(
+    "--status",
+    type=click.Choice(["in-progress", "needs-action", "completed", "failed", "passed"]),
+    default=None,
+    help="Show only jobs in this state.",
+)
+@click.option(
+    "--repo",
+    "repository",
+    default=None,
+    callback=_at_most(255),
+    help="Show only this repository (OWNER/REPO).",
+)
+@click.option("--workflow", default=None, callback=_at_most(255), help="Show only this workflow.")
+@click.option(
+    "--search",
+    default="",
+    callback=_at_most(200),
+    help="Show jobs whose fields contain every word.",
+)
+@click.option(
+    "--limit",
+    type=click.IntRange(1, 100),
+    default=20,
+    show_default=True,
+    help="Most recent jobs to show.",
+)
+@json_option
+def ci_jobs_list(
+    status: str | None,
+    repository: str | None,
+    workflow: str | None,
+    search: str,
+    limit: int,
+    json_output: bool,
+) -> Any:
+    """List recent CI jobs, newest first."""
+    _before_command(json_output=json_output)
+    from celesto.cli import ci as handlers
+
+    return handlers.run_jobs_list(
+        status=status,
+        repository=repository,
+        workflow=workflow,
+        search=search,
+        limit=limit,
+        json_output=json_output,
+    )
+
+
+@ci_jobs.command("show")
+@click.argument("job_id", type=int)
+@json_option
+def ci_jobs_show(job_id: int, json_output: bool) -> Any:
+    """Show one CI job's status, repository, machine and GitHub link."""
+    _before_command(json_output=json_output)
+    from celesto.cli import ci as handlers
+
+    return handlers.run_jobs_show(job_id=job_id, json_output=json_output)
+
+
+@ci.command("logs")
+@click.argument("job_id", type=int)
+@click.option("--step", type=click.IntRange(min=1), default=None, help="Show only this step.")
+@json_option
+def ci_logs(job_id: int, step: int | None, json_output: bool) -> Any:
+    """Print a CI job's log, step by step."""
+    _before_command(json_output=json_output)
+    from celesto.cli import ci as handlers
+
+    return handlers.run_logs(job_id=job_id, step=step, json_output=json_output)
+
+
+@ci.group("runners", context_settings=CONTEXT_SETTINGS)
+def ci_runners() -> None:
+    """Machine sizes a workflow can ask for with runs-on."""
+
+
+@ci_runners.command("list")
+@json_option
+def ci_runners_list(json_output: bool) -> Any:
+    """Show each runs-on label with its vCPUs, RAM and disk."""
+    _before_command(json_output=json_output)
+    from celesto.cli import ci as handlers
+
+    return handlers.run_runners_list(json_output=json_output)
 
 
 @cli.group(context_settings=CONTEXT_SETTINGS)

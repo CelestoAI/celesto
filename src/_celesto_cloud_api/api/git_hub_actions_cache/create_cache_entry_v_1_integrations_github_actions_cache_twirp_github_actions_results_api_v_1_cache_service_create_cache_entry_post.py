@@ -9,10 +9,8 @@ from ...types import Response, UNSET
 from ... import errors
 
 from ...models.create_request import CreateRequest
-from ...models.github_actions_cache_create_entry_response import (
-    GithubActionsCacheCreateEntryResponse,
-)
 from ...models.http_validation_error import HTTPValidationError
+from ...models.twirp_error import TwirpError
 from ...types import UNSET, Unset
 from typing import cast
 
@@ -45,11 +43,15 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> GithubActionsCacheCreateEntryResponse | HTTPValidationError | None:
+) -> Any | HTTPValidationError | TwirpError | None:
     if response.status_code == 200:
-        response_200 = GithubActionsCacheCreateEntryResponse.from_dict(response.json())
-
+        response_200 = response.json()
         return response_200
+
+    if response.status_code == 409:
+        response_409 = TwirpError.from_dict(response.json())
+
+        return response_409
 
     if response.status_code == 422:
         response_422 = HTTPValidationError.from_dict(response.json())
@@ -64,7 +66,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[GithubActionsCacheCreateEntryResponse | HTTPValidationError]:
+) -> Response[Any | HTTPValidationError | TwirpError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -79,7 +81,7 @@ def sync_detailed(
     body: CreateRequest,
     authorization: None | str | Unset = UNSET,
     x_celesto_host_provider: None | str | Unset = UNSET,
-) -> Response[GithubActionsCacheCreateEntryResponse | HTTPValidationError]:
+) -> Response[Any | HTTPValidationError | TwirpError]:
     """Create Cache Entry
 
     Args:
@@ -92,7 +94,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[GithubActionsCacheCreateEntryResponse | HTTPValidationError]
+        Response[Any | HTTPValidationError | TwirpError]
     """
 
     kwargs = _get_kwargs(
@@ -114,7 +116,7 @@ def sync(
     body: CreateRequest,
     authorization: None | str | Unset = UNSET,
     x_celesto_host_provider: None | str | Unset = UNSET,
-) -> GithubActionsCacheCreateEntryResponse | HTTPValidationError | None:
+) -> Any | HTTPValidationError | TwirpError | None:
     """Create Cache Entry
 
     Args:
@@ -127,7 +129,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        GithubActionsCacheCreateEntryResponse | HTTPValidationError
+        Any | HTTPValidationError | TwirpError
     """
 
     return sync_detailed(
@@ -144,7 +146,7 @@ async def asyncio_detailed(
     body: CreateRequest,
     authorization: None | str | Unset = UNSET,
     x_celesto_host_provider: None | str | Unset = UNSET,
-) -> Response[GithubActionsCacheCreateEntryResponse | HTTPValidationError]:
+) -> Response[Any | HTTPValidationError | TwirpError]:
     """Create Cache Entry
 
     Args:
@@ -157,7 +159,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[GithubActionsCacheCreateEntryResponse | HTTPValidationError]
+        Response[Any | HTTPValidationError | TwirpError]
     """
 
     kwargs = _get_kwargs(
@@ -177,7 +179,7 @@ async def asyncio(
     body: CreateRequest,
     authorization: None | str | Unset = UNSET,
     x_celesto_host_provider: None | str | Unset = UNSET,
-) -> GithubActionsCacheCreateEntryResponse | HTTPValidationError | None:
+) -> Any | HTTPValidationError | TwirpError | None:
     """Create Cache Entry
 
     Args:
@@ -190,7 +192,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        GithubActionsCacheCreateEntryResponse | HTTPValidationError
+        Any | HTTPValidationError | TwirpError
     """
 
     return (

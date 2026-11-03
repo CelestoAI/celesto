@@ -3558,6 +3558,10 @@ def _command_name_from_argv(args: Sequence[str]) -> str:
     tokens = [arg for arg in args if not arg.startswith("-")]
     if not tokens:
         return "celesto"
+    if tokens[0] == "ci" and len(tokens) >= 2:
+        if tokens[1] in {"jobs", "runners"} and len(tokens) >= 3:
+            return f"ci.{tokens[1]}.{tokens[2]}"
+        return f"ci.{tokens[1]}"
     if len(tokens) >= 2 and tokens[0] in {"sandbox", "computer"}:
         action = tokens[1]
         if action in {"env", "file", "snapshot"} and len(tokens) >= 3:
@@ -3601,6 +3605,8 @@ def _recovery_from_argv(args: Sequence[str]) -> str:
         and tokens[0] in {"sandbox", "computer"}
         and tokens[1] in {"env", "file", "snapshot", "port"}
     ):
+        return f"Run 'celesto {' '.join(tokens[:3])} --help' for usage."
+    if len(tokens) >= 3 and tokens[0] == "ci" and tokens[1] in {"jobs", "runners"}:
         return f"Run 'celesto {' '.join(tokens[:3])} --help' for usage."
     if tokens:
         return f"Run 'celesto {' '.join(tokens[:2])} --help' for usage."

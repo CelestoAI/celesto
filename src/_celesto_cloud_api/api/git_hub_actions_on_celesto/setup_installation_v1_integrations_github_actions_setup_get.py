@@ -16,20 +16,12 @@ from typing import cast
 def _get_kwargs(
     *,
     installation_id: int,
-    state: None | str | Unset = UNSET,
     run_id: int | None | Unset = UNSET,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
 
     params["installation_id"] = installation_id
-
-    json_state: None | str | Unset
-    if isinstance(state, Unset):
-        json_state = UNSET
-    else:
-        json_state = state
-    params["state"] = json_state
 
     json_run_id: int | None | Unset
     if isinstance(run_id, Unset):
@@ -82,14 +74,12 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     installation_id: int,
-    state: None | str | Unset = UNSET,
     run_id: int | None | Unset = UNSET,
 ) -> Response[Any | HTTPValidationError]:
     """Setup Installation
 
     Args:
         installation_id (int):
-        state (None | str | Unset):
         run_id (int | None | Unset):
 
     Raises:
@@ -102,7 +92,6 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         installation_id=installation_id,
-        state=state,
         run_id=run_id,
     )
 
@@ -117,14 +106,12 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     installation_id: int,
-    state: None | str | Unset = UNSET,
     run_id: int | None | Unset = UNSET,
 ) -> Any | HTTPValidationError | None:
     """Setup Installation
 
     Args:
         installation_id (int):
-        state (None | str | Unset):
         run_id (int | None | Unset):
 
     Raises:
@@ -138,7 +125,6 @@ def sync(
     return sync_detailed(
         client=client,
         installation_id=installation_id,
-        state=state,
         run_id=run_id,
     ).parsed
 
@@ -147,14 +133,12 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     installation_id: int,
-    state: None | str | Unset = UNSET,
     run_id: int | None | Unset = UNSET,
 ) -> Response[Any | HTTPValidationError]:
     """Setup Installation
 
     Args:
         installation_id (int):
-        state (None | str | Unset):
         run_id (int | None | Unset):
 
     Raises:
@@ -167,7 +151,6 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         installation_id=installation_id,
-        state=state,
         run_id=run_id,
     )
 
@@ -180,14 +163,12 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     installation_id: int,
-    state: None | str | Unset = UNSET,
     run_id: int | None | Unset = UNSET,
 ) -> Any | HTTPValidationError | None:
     """Setup Installation
 
     Args:
         installation_id (int):
-        state (None | str | Unset):
         run_id (int | None | Unset):
 
     Raises:
@@ -202,7 +183,6 @@ async def asyncio(
         await asyncio_detailed(
             client=client,
             installation_id=installation_id,
-            state=state,
             run_id=run_id,
         )
     ).parsed
