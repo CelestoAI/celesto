@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import sys
 from collections.abc import Callable
 from functools import wraps
 from types import ModuleType
@@ -186,7 +187,11 @@ def _handler(command: str) -> Callable[[Callable[..., int]], Callable[..., int]]
         @wraps(handler)
         def run(*, json_output: bool, **kwargs: Any) -> int:
             try:
-                return handler(json_output=json_output, **kwargs)
+                code = handler(json_output=json_output, **kwargs)
+                # A pipe buffers short output, so a closed reader only shows up
+                # when it is flushed; flush here rather than at interpreter exit.
+                sys.stdout.flush()
+                return code
             except BrokenPipeError:
                 from celesto.cli.main import _suppress_broken_pipe
 

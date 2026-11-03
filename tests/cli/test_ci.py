@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import socket
+import subprocess
 import sys
 import threading
 from collections.abc import Callable, Iterator
@@ -645,6 +647,43 @@ def test_text_output_into_a_closed_pipe_ends_quietly(
     monkeypatch.setattr(sys, "stdout", ClosedPipe(io.FileIO(sink.fileno(), "w", closefd=False)))
     assert main(["ci", *args]) == 0
     sink.close()
+
+
+def test_logs_into_a_pipe_that_closed_early_exits_cleanly(
+    finished_job: Backend, tmp_path: Path
+) -> None:
+    """`celesto ci logs 812 | head -1` in a real process.
+
+    Short output sits in Python's stdout buffer, so the broken pipe surfaces
+    only at the final flush; a reader already gone makes that deterministic.
+    """
+    home = tmp_path / "home"
+    (home / ".celesto").mkdir(parents=True)
+    (home / ".celesto" / "credentials").write_text(_credentials.CREDENTIALS_PATH.read_text())
+    env = {key: value for key, value in os.environ.items() if key != "CELESTO_API_KEY"}
+    env["HOME"] = str(home)
+    read_end, write_end = os.pipe()
+    os.close(read_end)
+    try:
+        process = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import sys; from celesto.cli.main import main; sys.exit(main())",
+                "ci",
+                "logs",
+                "812",
+            ],
+            stdout=write_end,
+            stderr=subprocess.PIPE,
+            env=env,
+            timeout=60,
+        )
+    finally:
+        os.close(write_end)
+    stderr = process.stderr.decode()
+    assert process.returncode == 0, stderr
+    assert "BrokenPipeError" not in stderr and "Traceback" not in stderr
 
 
 def test_unreachable_backend_says_to_check_the_connection(backend: Backend, run: Runner) -> None:
