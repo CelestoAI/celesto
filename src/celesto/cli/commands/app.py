@@ -289,6 +289,62 @@ def ci() -> None:
     """See your Celesto CI jobs, their logs, and the machine sizes they run on."""
 
 
+@ci.group("jobs", context_settings=CONTEXT_SETTINGS)
+def ci_jobs() -> None:
+    """GitHub Actions jobs that ran on Celesto."""
+
+
+@ci_jobs.command("list")
+@click.option(
+    "--status",
+    type=click.Choice(["in-progress", "needs-action", "completed", "failed", "passed"]),
+    default=None,
+    help="Show only jobs in this state.",
+)
+@click.option("--repo", "repository", default=None, help="Show only this repository (OWNER/REPO).")
+@click.option("--workflow", default=None, help="Show only this workflow name.")
+@click.option("--search", default="", help="Show jobs whose fields contain every word.")
+@click.option(
+    "--limit",
+    type=click.IntRange(1, 100),
+    default=20,
+    show_default=True,
+    help="Most recent jobs to show.",
+)
+@json_option
+def ci_jobs_list(
+    status: str | None,
+    repository: str | None,
+    workflow: str | None,
+    search: str,
+    limit: int,
+    json_output: bool,
+) -> Any:
+    """List recent CI jobs, newest first."""
+    _before_command(json_output=json_output)
+    from celesto.cli import ci as handlers
+
+    return handlers.run_jobs_list(
+        status=status,
+        repository=repository,
+        workflow=workflow,
+        search=search,
+        limit=limit,
+        json_output=json_output,
+    )
+
+
+@ci_jobs.command("show")
+@click.argument("job_id", type=int)
+@json_option
+def ci_jobs_show(job_id: int, json_output: bool) -> Any:
+    """Show one CI job's status, repository, machine and GitHub link."""
+    _before_command(json_output=json_output)
+    from celesto.cli import ci as handlers
+
+    return handlers.run_jobs_show(job_id=job_id, json_output=json_output)
+
+
 @ci.group("runners", context_settings=CONTEXT_SETTINGS)
 def ci_runners() -> None:
     """Machine sizes a workflow can ask for with runs-on."""

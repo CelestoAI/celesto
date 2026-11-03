@@ -33,7 +33,11 @@ class _Connection:
     def close(self) -> None:
         self._transport.close()
 
-    def get(self, endpoint: ModuleType, **kwargs: Any) -> dict[str, Any]:
+    def get(
+        self, endpoint: ModuleType, *, job_id: int | None = None, **kwargs: Any
+    ) -> dict[str, Any]:
+        if job_id is not None:
+            kwargs["job_id"] = job_id
         request = endpoint._get_kwargs(
             x_current_organization=self._transport._organization, **kwargs
         )
@@ -45,7 +49,7 @@ class _Connection:
                 f"Could not reach Celesto ({type(exc).__name__}). Check your connection and retry.",
             ) from None
         if response.status_code >= 400:
-            raise _api_error(response.status_code, response.content)
+            raise _api_error(response.status_code, response.content, job_id=job_id)
         try:
             body = response.json()
         except ValueError:
@@ -59,9 +63,14 @@ class _Connection:
         return body
 
 
-def _api_error(status_code: int, content: bytes) -> CIError:
+def _api_error(status_code: int, content: bytes, *, job_id: int | None = None) -> CIError:
     # Interpret only known statuses and public error codes; never print
     # arbitrary server text, which can echo credentials.
+    if status_code == 404 and job_id is not None:
+        return CIError(
+            "ci_job_not_found",
+            f"CI job {job_id} was not found. Run 'celesto ci jobs list' to see your jobs.",
+        )
     if status_code == 401:
         return CIError(
             "unauthorized", "Your Celesto API key was refused. Run 'celesto auth login'."
@@ -80,6 +89,20 @@ def _fail(command: str, error: Exception, *, json_output: bool) -> int:
     return 1
 
 
+def _run(command: str, json_output: bool, read: Any) -> tuple[int, dict[str, Any] | None]:
+    """Open a connection, run ``read(connection)``, and report any failure."""
+    try:
+        connection = _Connection()
+    except ValueError as exc:
+        return _fail(command, exc, json_output=json_output), None
+    try:
+        return 0, read(connection)
+    except CIError as exc:
+        return _fail(command, exc, json_output=json_output), None
+    finally:
+        connection.close()
+
+
 def _gib(megabytes: int) -> str:
     return f"{megabytes / 1024:g} GiB"
 
@@ -91,16 +114,9 @@ def run_runners_list(*, json_output: bool) -> int:
     )
 
     command = "ci.runners.list"
-    try:
-        connection = _Connection()
-    except ValueError as exc:
-        return _fail(command, exc, json_output=json_output)
-    try:
-        data = connection.get(endpoint)
-    except CIError as exc:
-        return _fail(command, exc, json_output=json_output)
-    finally:
-        connection.close()
+    code, data = _run(command, json_output, lambda connection: connection.get(endpoint))
+    if data is None:
+        return code
     if json_output:
         emit_json(command, 0, data=data)
         return 0
@@ -108,4 +124,117 @@ def run_runners_list(*, json_output: bool) -> int:
     for runner in data.get("runners", []):
         ram, disk = _gib(runner["ram_mb"]), _gib(runner["disk_size_mb"])
         print(f"{runner['label']:<18}  {runner['vcpus']:>4}  {ram:>7}  {disk:>8}")
+    return 0
+
+
+# `--status` names on the command line, and the jobs page tab each one reads.
+STATUS_TABS = {
+    "in-progress": "in_progress",
+    "needs-action": "needs_action",
+    "completed": "completed",
+    "failed": "failed",
+    "passed": "passed",
+}
+
+
+def run_jobs_list(
+    *,
+    status: str | None,
+    repository: str | None,
+    workflow: str | None,
+    search: str,
+    limit: int,
+    json_output: bool,
+) -> int:
+    """Handle ``celesto ci jobs list``."""
+    from _celesto_cloud_api.api.git_hub_actions_on_celesto import (
+        page_jobs_v1_integrations_github_actions_jobs_page_get as endpoint,
+    )
+    from _celesto_cloud_api.models import PageJobsV1IntegrationsGithubActionsJobsPageGetTab as Tab
+    from _celesto_cloud_api.types import UNSET
+
+    command = "ci.jobs.list"
+    code, data = _run(
+        command,
+        json_output,
+        lambda connection: connection.get(
+            endpoint,
+            tab=Tab(STATUS_TABS[status]) if status else Tab.ALL,
+            q=search,
+            repository=repository or UNSET,
+            workflow=workflow or UNSET,
+            page=0,
+            page_size=limit,
+        ),
+    )
+    if data is None:
+        return code
+    jobs = data.get("items", [])
+    total = data.get("total", len(jobs))
+    if json_output:
+        emit_json(command, 0, data={"jobs": jobs, "total": total})
+        return 0
+    if not jobs:
+        print("No CI jobs match.")
+        return 0
+    rows = [
+        [
+            str(job.get("job_id", "")),
+            str(job.get("status") or ""),
+            str(job.get("repository") or ""),
+            str(job.get("workflow_name") or "-"),
+            str(job.get("job_name") or "-"),
+            str(job.get("head_branch") or "-"),
+            str(job.get("created_at") or ""),
+        ]
+        for job in jobs
+    ]
+    header = ["JOB", "STATUS", "REPOSITORY", "WORKFLOW", "JOB", "BRANCH", "CREATED"]
+    widths = [max(len(row[i]) for row in [header, *rows]) for i in range(len(header))]
+    for row in [header, *rows]:
+        print(
+            "  ".join(cell.ljust(width) for cell, width in zip(row, widths, strict=True)).rstrip()
+        )
+    if total > len(jobs):
+        print(
+            f"Showing {len(jobs)} of {total} jobs. "
+            "Run 'celesto ci jobs list --limit 100' to see more."
+        )
+    return 0
+
+
+def run_jobs_show(*, job_id: int, json_output: bool) -> int:
+    """Handle ``celesto ci jobs show``."""
+    from _celesto_cloud_api.api.git_hub_actions_on_celesto import (
+        job_details_v1_integrations_github_actions_jobs_job_id_get as endpoint,
+    )
+
+    command = "ci.jobs.show"
+    code, job = _run(
+        command, json_output, lambda connection: connection.get(endpoint, job_id=job_id)
+    )
+    if job is None:
+        return code
+    if json_output:
+        emit_json(command, 0, data=job)
+        return 0
+    status = str(job.get("status") or "")
+    if job.get("status_message"):
+        status += f" ({job['status_message']})"
+    for label, value in (
+        ("Job", job.get("job_id")),
+        ("Status", status),
+        ("Repository", job.get("repository")),
+        ("Workflow", job.get("workflow_name")),
+        ("Job name", job.get("job_name")),
+        ("Branch", job.get("head_branch")),
+        ("Commit", job.get("head_sha")),
+        ("Machine", job.get("size_id")),
+        ("Created", job.get("created_at")),
+        ("Started", job.get("execution_started_at")),
+        ("Finished", job.get("execution_completed_at")),
+        ("GitHub", job.get("github_job_url")),
+    ):
+        if value not in (None, ""):
+            print(f"{label + ':':<12} {value}")
     return 0
