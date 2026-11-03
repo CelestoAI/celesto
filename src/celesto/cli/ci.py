@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from types import ModuleType
 from typing import Any
 
@@ -70,6 +71,18 @@ def _api_error(status_code: int, content: bytes, *, job_id: int | None = None) -
         return CIError(
             "ci_job_not_found",
             f"CI job {job_id} was not found. Run 'celesto ci jobs list' to see your jobs.",
+        )
+    try:
+        body = json.loads(content)
+    except (ValueError, RecursionError):
+        body = None
+    detail = body.get("detail") if isinstance(body, dict) else None
+    code = detail.get("error_code") if isinstance(detail, dict) else None
+    if status_code == 403 and code == "api_key_endpoint_not_allowed":
+        return CIError(
+            code,
+            "This API key can't read CI jobs. "
+            "Run 'celesto auth login' with your dashboard's default API key.",
         )
     if status_code == 401:
         return CIError(

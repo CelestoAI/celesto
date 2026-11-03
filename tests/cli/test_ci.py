@@ -409,3 +409,35 @@ def test_logs_of_a_running_job_warn_in_json(running_job: Backend, run: Runner) -
     result = run("logs", "812", "--json")
     assert result.exit_code == 0
     assert json.loads(result.output)["data"]["warnings"] == [RUNNING_NOTE]
+
+
+NAMED_KEY_REFUSAL = {
+    "detail": {
+        "error_code": "api_key_endpoint_not_allowed",
+        "message": "This API key cannot access this endpoint; use the dashboard's default API key.",
+    }
+}
+NAMED_KEY_MESSAGE = (
+    "This API key can't read CI jobs. "
+    "Run 'celesto auth login' with your dashboard's default API key."
+)
+
+
+def test_named_key_gets_the_recovery_message_in_json(backend: Backend, run: Runner) -> None:
+    backend.serve(JOBS_PAGE, NAMED_KEY_REFUSAL, status=403)
+    result = run("jobs", "list", "--json")
+    assert result.exit_code == 1
+    assert json.loads(result.output)["error"] == {
+        "code": "api_key_endpoint_not_allowed",
+        "message": NAMED_KEY_MESSAGE,
+    }
+
+
+def test_named_key_gets_the_recovery_message_for_people(
+    backend: Backend, capsys: pytest.CaptureFixture[str]
+) -> None:
+    backend.serve("/v1/integrations/github/actions/runners", NAMED_KEY_REFUSAL, status=403)
+    capsys.readouterr()
+    code = main(["ci", "runners", "list"])
+    assert code == 1
+    assert NAMED_KEY_MESSAGE in " ".join(capsys.readouterr().err.replace("│", " ").split())
