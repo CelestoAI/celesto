@@ -36,10 +36,18 @@ def _ci(capsys: pytest.CaptureFixture[str], name: str, *args: str) -> dict[str, 
 )
 def test_ci_commands_read_real_jobs(capsys: pytest.CaptureFixture[str]) -> None:
     runners = _ci(capsys, "runners-list", "runners", "list")
-    assert [runner["label"] for runner in runners["runners"]][0] == "celesto-micro"
+    assert [runner["label"] for runner in runners["runners"]] == [
+        "celesto-micro",
+        "celesto-small",
+        "celesto-standard",
+        "celesto-memory",
+        "celesto-large",
+        "celesto-xl",
+    ]
 
     failed = _ci(capsys, "jobs-list-failed", "jobs", "list", "--status", "failed", "--limit", "5")
-    assert all(job["status"] not in {"success", "neutral"} for job in failed["jobs"])
+    unscored = {"success", "neutral", "skipped", "cancelled", "stale", None}
+    assert all(job["native_conclusion"] not in unscored for job in failed["jobs"])
     if not failed["jobs"]:
         pytest.skip("This organization has no failed CI jobs to read a log from.")
 
@@ -49,3 +57,4 @@ def test_ci_commands_read_real_jobs(capsys: pytest.CaptureFixture[str]) -> None:
 
     log = _ci(capsys, "logs", "logs", job_id)
     assert log["steps"], "A finished job should have at least one step."
+    assert any(step["lines"] for step in log["steps"]), "A finished job's log should have lines."

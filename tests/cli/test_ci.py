@@ -243,10 +243,18 @@ def test_jobs_list_with_no_jobs_says_so(backend: Backend, run: Runner) -> None:
     assert result.output.strip() == "No CI jobs match."
 
 
-def test_jobs_list_rejects_a_limit_over_100(backend: Backend) -> None:
-    result = CliRunner().invoke(build_cli(), ["ci", "jobs", "list", "--limit", "101"])
+@pytest.mark.parametrize("limit", ["0", "101"])
+def test_jobs_list_rejects_a_limit_outside_1_to_100(backend: Backend, limit: str) -> None:
+    result = CliRunner().invoke(build_cli(), ["ci", "jobs", "list", "--limit", limit])
     assert result.exit_code == 2
+    assert "--limit" in result.output and "1<=x<=100" in result.output
     assert backend.requests == []
+
+
+def test_jobs_list_has_no_more_jobs_line_when_all_are_shown(backend: Backend, run: Runner) -> None:
+    backend.serve(JOBS_PAGE, _page([_job(812, "success")], total=1))
+    result = run("jobs", "list")
+    assert "Showing" not in result.output
 
 
 def test_jobs_list_json_returns_jobs_and_total(backend: Backend, run: Runner) -> None:
@@ -275,10 +283,20 @@ def test_jobs_show_prints_the_job(backend: Backend, run: Runner) -> None:
     backend.serve("/v1/integrations/github/actions/jobs/812", DETAIL)
     result = run("jobs", "show", "812")
     assert result.exit_code == 0, result.output
-    assert "Status:      failure (The job failed.)" in result.output
-    assert "Repository:  acme/api" in result.output
-    assert "Machine:     standard" in result.output
-    assert "GitHub:      https://github.com/acme/api/actions/runs/9/job/812" in result.output
+    assert result.output.splitlines() == [
+        "Job:         812",
+        "Status:      failure (The job failed.)",
+        "Repository:  acme/api",
+        "Workflow:    tests",
+        "Job name:    pytest",
+        "Branch:      main",
+        "Commit:      abc1234",
+        "Machine:     standard",
+        "Created:     2026-11-03T10:00:00Z",
+        "Started:     2026-11-03T10:00:05Z",
+        "Finished:    2026-11-03T10:02:05Z",
+        "GitHub:      https://github.com/acme/api/actions/runs/9/job/812",
+    ]
     assert backend.requests[0]["path"] == "/v1/integrations/github/actions/jobs/812"
 
 
@@ -312,7 +330,8 @@ def _lines(*texts: str) -> list[dict[str, str]]:
 
 @pytest.fixture
 def finished_job(backend: Backend) -> Backend:
-    backend.serve(JOB_812, _job(812, "failure", native_status="completed"))
+    # `status` is Celesto's word and can lag; only GitHub's `native_status` says it finished.
+    backend.serve(JOB_812, _job(812, "running", native_status="completed"))
     backend.serve(f"{JOB_812}/steps", STEPS)
     backend.serve(f"{JOB_812}/steps/1/log", {"lines": _lines("Runner ready"), "truncated": False})
     backend.serve(
@@ -338,9 +357,12 @@ def test_logs_prints_every_step_in_order(finished_job: Backend, run: Runner) -> 
 def test_logs_step_prints_one_step(finished_job: Backend, run: Runner) -> None:
     result = run("logs", "812", "--step", "4")
     assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[0] == "── Step 4: Run tests (failure) ──"
     assert "Runner ready" not in result.output
     assert "FAILED test_login" in result.output
-    assert f"{JOB_812}/steps/1/log" not in [request["path"] for request in finished_job.requests]
+    paths = [request["path"] for request in finished_job.requests]
+    assert f"{JOB_812}/steps/4/log" in paths
+    assert f"{JOB_812}/steps/1/log" not in paths
 
 
 def test_logs_unknown_step_names_the_recovery_command(finished_job: Backend, run: Runner) -> None:
@@ -381,7 +403,8 @@ RUNNING_NOTE = (
 
 @pytest.fixture
 def running_job(backend: Backend) -> Backend:
-    backend.serve(JOB_812, _job(812, "running", native_status="in_progress"))
+    # Celesto gave up on setup, but GitHub reports the job unfinished; the note follows GitHub.
+    backend.serve(JOB_812, _job(812, "setup_failed", native_status="in_progress"))
     backend.serve(
         f"{JOB_812}/steps",
         {
@@ -423,9 +446,20 @@ NAMED_KEY_MESSAGE = (
 )
 
 
-def test_named_key_gets_the_recovery_message_in_json(backend: Backend, run: Runner) -> None:
-    backend.serve(JOBS_PAGE, NAMED_KEY_REFUSAL, status=403)
-    result = run("jobs", "list", "--json")
+@pytest.mark.parametrize(
+    ("args", "route"),
+    [
+        (("jobs", "list"), JOBS_PAGE),
+        (("jobs", "show", "812"), JOB_812),
+        (("logs", "812"), JOB_812),
+        (("runners", "list"), "/v1/integrations/github/actions/runners"),
+    ],
+)
+def test_named_key_gets_the_recovery_message_in_json(
+    backend: Backend, run: Runner, args: tuple[str, ...], route: str
+) -> None:
+    backend.serve(route, NAMED_KEY_REFUSAL, status=403)
+    result = run(*args, "--json")
     assert result.exit_code == 1
     assert json.loads(result.output)["error"] == {
         "code": "api_key_endpoint_not_allowed",
