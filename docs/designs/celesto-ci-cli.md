@@ -61,7 +61,8 @@ memory, sticky disks, cross-job log search.
   per-noun top-level commands (`celesto jobs`, clashes with sandboxes).
 - Implementation: a `ci` click group in `src/celesto/cli/commands/app.py` with
   `jobs` and `runners` subgroups and a `logs` command; handlers in a new
-  `src/celesto/cli/ci.py`. Add `ci` to CLAUDE.md's CLI design list.
+  `src/celesto/cli/ci.py`. Add `ci` to the CLI design list in AGENTS.md
+  (CLAUDE.md is a symlink to it).
 - Tests: CLI e2e tests for each command (see slice plan).
 - Acceptance: A-01..A-04 (to be drafted).
 
@@ -162,7 +163,8 @@ memory, sticky disks, cross-job log search.
 - Implementation: `logs` first reads `/jobs/{id}`; if the job is not finished,
   it prints the steps it gets and then, on stderr: "Job <id> is still running,
   so its log may be incomplete. Run 'celesto ci logs <id>' again when it
-  finishes." Exit 0. With `--json`, the same text goes in `warnings`.
+  finishes." Exit 0. With `--json`, the same text goes in `data.warnings`
+  (the JSON envelope has no warnings field).
 - Tests: CLI e2e test with a running job stub (human and `--json`).
 - Acceptance: A-02 covers a finished job; running-job behaviour is covered by
   the test.
@@ -216,6 +218,58 @@ memory, sticky disks, cross-job log search.
   deployed backend and confirm the generated client has no diff.
 - Tests: CLI tests as in the slice plan.
 - Acceptance: A-02, A-04, A-05 run against production after #1069 deploys.
+
+### D-14: Every `celesto ci` error says what happened and the exact recovery, and each has a test
+
+- Why: review found two misleading messages (a GitHub 404 read as "job not
+  found", a GitHub outage blamed on the login) and several untested ones
+  (ruled by the user 2026-11-04).
+- Rejected: one generic HTTP message for everything.
+- Implementation: in `src/celesto/cli/ci.py`, same text in human output and
+  the JSON `error`:
+  - not logged in or unreadable login (`ValueError`/`TypeError` opening the
+    connection), `not_logged_in`: "Your Celesto login is missing or invalid.
+    Run 'celesto auth login'."
+  - 401, `unauthorized`: "Your Celesto API key was refused. Run 'celesto auth
+    login'."
+  - 403 named key: D-03.
+  - 404 on job details, `ci_job_not_found`: "CI job <id> was not found. Run
+    'celesto ci jobs list' to see your jobs."
+  - 404 on steps or a step log, `ci_log_unavailable`: "GitHub no longer has the
+    log for job <id>. Open \<github_job_url> to check it."
+  - 502, `github_unavailable`: "GitHub is unavailable right now. Retry in a
+    minute."
+  - transport failure, `cloud_transport_error`: "Could not reach Celesto
+    (<error type>). Check your connection and retry."
+  - unreadable body, `cloud_invalid_response`: "Celesto returned an invalid
+    response. Retry, or run 'celesto update' if it keeps happening."
+  - any other status, `http_<status>`: "Celesto CI returned HTTP <status>.
+    Retry, then check 'celesto auth status'."
+  - `--search` over 200 characters, `--repo`/`--workflow` over 255: click
+    usage error (exit 2) naming the flag and its limit, before any request.
+- Tests: one CLI test per message through the HTTP stub (or a closed port for
+  the transport failure).
+- Acceptance: A-04 covers the happy path; errors are covered by tests.
+
+### D-15: `celesto ci` records no local-usage telemetry
+
+- Why: telemetry features count local computer use; CI commands are cloud
+  reads, like `auth` (ruled by the user 2026-11-04).
+- Rejected: counting them as `setup`.
+- Implementation: `ci` joins the nouns that return early in `_before_command`
+  (`src/celesto/cli/commands/app.py`); the update notice still shows.
+- Tests: n/a (no behaviour visible to the user).
+- Acceptance: n/a.
+
+### D-16: When `jobs list` hits `--limit 100` and more jobs exist, the hint suggests narrowing
+
+- Why: suggesting `--limit 100` when already at 100 is a dead end (ruled by
+  the user 2026-11-04).
+- Implementation: below 100: "Showing <n> of <total> jobs. Run 'celesto ci
+  jobs list --limit 100' to see more." At 100: "Showing 100 of <total> jobs.
+  Narrow the list with --status, --repo or --search."
+- Tests: CLI test for both hints.
+- Acceptance: n/a.
 
 ## Open questions
 
