@@ -1,6 +1,6 @@
 # Celesto CI from the terminal
 
-Status: accepting. PR 2 (CLI) is a draft on claude/celesto-ci-cli and merges after backend #1069 deploys; A-02, A-04 and A-05 run against production then. PR 1 (backend) is open at https://github.com/CelestoAI/backend/pull/1069; A-01 and A-03 not run
+Status: accepting. PR 1 (backend #1069) merged and deployed 2026-11-04. PR 2 (CLI #702): A-02, A-04 pass in production; A-05 waits for a named-key login
 Acceptance target: PR 1 on the backend local stack (`scripts/run_all.sh` in a backend worktree); PR 2 read-only against production (`celesto auth login` with Celesto's own default API key, done by the user)
 
 ## Context
@@ -343,7 +343,7 @@ backend's 403 body — D-03
   with a default key.
 - Expect: `failed` lists only the failure job, `passed` only success and
   neutral; counts match; cancelled, skipped and running jobs appear in neither.
-- Result: pending
+- Result: not run — the local stack was stopped before seeding; the D-04 tabs are covered by `tests/e2e/test_ci_jobs_result_tabs.py` on Postgres in CI
 
 ### A-02 (D-05, D-09): Logs of a real failed job in production
 
@@ -351,14 +351,14 @@ backend's 403 body — D-03
   `celesto ci logs <first id>` and `celesto ci logs <first id> --step <failed step>`.
 - Expect: every step printed in order with headers; the failed step's lines
   match GitHub's log for that step; exit 0.
-- Result: pending
+- Result: pass (2026-11-04, production): `celesto ci logs 126161118913` printed 16 steps, 1,666 lines, failed step 11; `tests/test_ci_live.py` with `CELESTO_CI_LIVE=1`, evidence `artifacts/ci-cli-live/logs.json` (local, gitignored)
 
 ### A-03 (D-06): Runner sizes from the running backend
 
 - Steps: local stack `GET .../actions/runners`; after deploy,
   `celesto ci runners list` in production.
 - Expect: six labels, specs equal to `sandbox_sizes.py:22-29`, no price.
-- Result: pending
+- Result: pass for the CLI half (2026-11-04, production): `celesto ci runners list` showed the six labels with specs matching `sandbox_sizes.py`, no price; evidence `artifacts/ci-cli-live/runners-list.json`. Local-stack half not run
 
 ### A-04 (D-02, D-04, D-07, D-08): Released CLI against deployed backend
 
@@ -366,7 +366,7 @@ backend's 403 body — D-03
   `--repo <a Celesto repo>`, `celesto ci jobs show <id>`, each with and without
   `--json`.
 - Expect: readable tables; valid JSON envelopes; filters narrow the rows.
-- Result: pending
+- Result: pass (2026-11-04, production): `jobs list --status failed --limit 5` returned 5 of 1,028 jobs, all `failure`; `jobs show` returned the same job; tables and `--json` envelopes checked; evidence `artifacts/ci-cli-live/jobs-*.json`
 
 ### A-05 (D-03): Named key gets the recovery message
 
