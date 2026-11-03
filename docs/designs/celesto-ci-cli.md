@@ -1,6 +1,6 @@
 # Celesto CI from the terminal
 
-Status: verifying (PR 2, CLI, on claude/celesto-ci-cli); PR 1 (backend) open at https://github.com/CelestoAI/backend/pull/1069, A-01/A-03 not run
+Status: accepting. PR 2 (CLI) is a draft on claude/celesto-ci-cli and merges after backend #1069 deploys; A-02, A-04 and A-05 run against production then. PR 1 (backend) is open at https://github.com/CelestoAI/backend/pull/1069; A-01 and A-03 not run
 Acceptance target: PR 1 on the backend local stack (`scripts/run_all.sh` in a backend worktree); PR 2 read-only against production (`celesto auth login` with Celesto's own default API key, done by the user)
 
 ## Context
