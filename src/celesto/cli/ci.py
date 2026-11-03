@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 
 from celesto._cloud import _CloudComputer
-from celesto.cli.output import emit_error, emit_json, render_error
+from celesto.cli.output import console_stderr, emit_error, emit_json, render_error
 
 
 class CIError(Exception):
@@ -237,4 +237,73 @@ def run_jobs_show(*, job_id: int, json_output: bool) -> int:
     ):
         if value not in (None, ""):
             print(f"{label + ':':<12} {value}")
+    return 0
+
+
+# The backend returns at most this many lines per step (github_actions_logs.py).
+MAX_STEP_LINES = "5,000"
+
+
+def run_logs(*, job_id: int, step: int | None, json_output: bool) -> int:
+    """Handle ``celesto ci logs``: every step's log in order, or one step's."""
+    from _celesto_cloud_api.api.git_hub_actions_on_celesto import (
+        job_details_v1_integrations_github_actions_jobs_job_id_get as details_endpoint,
+    )
+    from _celesto_cloud_api.api.git_hub_actions_on_celesto import (
+        job_step_log_v1_integrations_github_actions_jobs_job_id_steps_number_log_get as log_endpoint,  # noqa: E501 - generated module name
+    )
+    from _celesto_cloud_api.api.git_hub_actions_on_celesto import (
+        job_steps_v1_integrations_github_actions_jobs_job_id_steps_get as steps_endpoint,
+    )
+
+    command = "ci.logs"
+
+    def read(connection: _Connection) -> dict[str, Any]:
+        job = connection.get(details_endpoint, job_id=job_id)
+        steps = connection.get(steps_endpoint, job_id=job_id).get("steps", [])
+        if step is not None:
+            steps = [item for item in steps if item.get("number") == step]
+            if not steps:
+                raise CIError(
+                    "ci_step_not_found",
+                    f"Job {job_id} has no step {step}. "
+                    f"Run 'celesto ci logs {job_id}' to see all steps.",
+                )
+        result = []
+        for item in steps:
+            log = connection.get(log_endpoint, job_id=job_id, number=item["number"])
+            result.append(
+                {
+                    "number": item["number"],
+                    "name": item.get("name"),
+                    "status": item.get("status"),
+                    "conclusion": item.get("conclusion"),
+                    "lines": log.get("lines", []),
+                    "truncated": bool(log.get("truncated")),
+                }
+            )
+        warnings = []
+        if job.get("native_status") != "completed":
+            warnings.append(
+                f"Job {job_id} is still running, so its log may be incomplete. "
+                f"Run 'celesto ci logs {job_id}' again when it finishes."
+            )
+        return {"job_id": job_id, "steps": result, "warnings": warnings}
+
+    code, data = _run(command, json_output, read)
+    if data is None:
+        return code
+    if json_output:
+        emit_json(command, 0, data=data)
+        return 0
+    for item in data["steps"]:
+        print(
+            f"── Step {item['number']}: {item['name']} ({item['conclusion'] or item['status']}) ──"
+        )
+        if item["truncated"]:
+            print(f"Only the last {MAX_STEP_LINES} lines of this step are shown.")
+        for line in item["lines"]:
+            print(line.get("text", ""))
+    for warning in data["warnings"]:
+        console_stderr().print(warning, style="yellow", highlight=False)
     return 0

@@ -295,3 +295,117 @@ def test_jobs_show_unknown_job_names_the_recovery_command(backend: Backend, run:
         "code": "ci_job_not_found",
         "message": "CI job 999 was not found. Run 'celesto ci jobs list' to see your jobs.",
     }
+
+
+JOB_812 = "/v1/integrations/github/actions/jobs/812"
+STEPS = {
+    "steps": [
+        {"number": 1, "name": "Set up job", "status": "completed", "conclusion": "success"},
+        {"number": 4, "name": "Run tests", "status": "completed", "conclusion": "failure"},
+    ]
+}
+
+
+def _lines(*texts: str) -> list[dict[str, str]]:
+    return [{"at": "2026-11-03T10:00:00Z", "text": text} for text in texts]
+
+
+@pytest.fixture
+def finished_job(backend: Backend) -> Backend:
+    backend.serve(JOB_812, _job(812, "failure", native_status="completed"))
+    backend.serve(f"{JOB_812}/steps", STEPS)
+    backend.serve(f"{JOB_812}/steps/1/log", {"lines": _lines("Runner ready"), "truncated": False})
+    backend.serve(
+        f"{JOB_812}/steps/4/log",
+        {"lines": _lines("collected 3 items", "FAILED test_login"), "truncated": True},
+    )
+    return backend
+
+
+def test_logs_prints_every_step_in_order(finished_job: Backend, run: Runner) -> None:
+    result = run("logs", "812")
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == [
+        "── Step 1: Set up job (success) ──",
+        "Runner ready",
+        "── Step 4: Run tests (failure) ──",
+        "Only the last 5,000 lines of this step are shown.",
+        "collected 3 items",
+        "FAILED test_login",
+    ]
+
+
+def test_logs_step_prints_one_step(finished_job: Backend, run: Runner) -> None:
+    result = run("logs", "812", "--step", "4")
+    assert result.exit_code == 0, result.output
+    assert "Runner ready" not in result.output
+    assert "FAILED test_login" in result.output
+    assert f"{JOB_812}/steps/1/log" not in [request["path"] for request in finished_job.requests]
+
+
+def test_logs_unknown_step_names_the_recovery_command(finished_job: Backend, run: Runner) -> None:
+    result = run("logs", "812", "--step", "9", "--json")
+    assert result.exit_code == 1
+    assert json.loads(result.output)["error"] == {
+        "code": "ci_step_not_found",
+        "message": "Job 812 has no step 9. Run 'celesto ci logs 812' to see all steps.",
+    }
+
+
+def test_logs_json_returns_each_step_with_its_lines(finished_job: Backend, run: Runner) -> None:
+    result = run("logs", "812", "--json")
+    payload = json.loads(result.output)
+    assert payload["command"] == "ci.logs"
+    assert payload["data"]["job_id"] == 812
+    assert payload["data"]["warnings"] == []
+    assert [
+        (step["number"], step["name"], step["conclusion"], step["truncated"])
+        for step in payload["data"]["steps"]
+    ] == [(1, "Set up job", "success", False), (4, "Run tests", "failure", True)]
+    assert payload["data"]["steps"][1]["lines"] == _lines("collected 3 items", "FAILED test_login")
+
+
+def test_logs_unknown_job_names_the_recovery_command(backend: Backend, run: Runner) -> None:
+    result = run("logs", "999", "--json")
+    assert result.exit_code == 1
+    assert json.loads(result.output)["error"]["message"] == (
+        "CI job 999 was not found. Run 'celesto ci jobs list' to see your jobs."
+    )
+
+
+RUNNING_NOTE = (
+    "Job 812 is still running, so its log may be incomplete. "
+    "Run 'celesto ci logs 812' again when it finishes."
+)
+
+
+@pytest.fixture
+def running_job(backend: Backend) -> Backend:
+    backend.serve(JOB_812, _job(812, "running", native_status="in_progress"))
+    backend.serve(
+        f"{JOB_812}/steps",
+        {
+            "steps": [
+                {"number": 1, "name": "Set up job", "status": "in_progress", "conclusion": None}
+            ]
+        },
+    )
+    backend.serve(f"{JOB_812}/steps/1/log", {"lines": [], "truncated": False})
+    return backend
+
+
+def test_logs_of_a_running_job_add_a_note(
+    running_job: Backend, capsys: pytest.CaptureFixture[str]
+) -> None:
+    capsys.readouterr()
+    code = main(["ci", "logs", "812"])
+    out, err = capsys.readouterr()
+    assert code == 0
+    assert out.splitlines() == ["── Step 1: Set up job (in_progress) ──"]
+    assert RUNNING_NOTE in " ".join(err.split())
+
+
+def test_logs_of_a_running_job_warn_in_json(running_job: Backend, run: Runner) -> None:
+    result = run("logs", "812", "--json")
+    assert result.exit_code == 0
+    assert json.loads(result.output)["data"]["warnings"] == [RUNNING_NOTE]

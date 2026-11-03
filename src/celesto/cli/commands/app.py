@@ -345,6 +345,18 @@ def ci_jobs_show(job_id: int, json_output: bool) -> Any:
     return handlers.run_jobs_show(job_id=job_id, json_output=json_output)
 
 
+@ci.command("logs")
+@click.argument("job_id", type=int)
+@click.option("--step", type=click.IntRange(min=1), default=None, help="Show only this step.")
+@json_option
+def ci_logs(job_id: int, step: int | None, json_output: bool) -> Any:
+    """Print a CI job's log, step by step."""
+    _before_command(json_output=json_output)
+    from celesto.cli import ci as handlers
+
+    return handlers.run_logs(job_id=job_id, step=step, json_output=json_output)
+
+
 @ci.group("runners", context_settings=CONTEXT_SETTINGS)
 def ci_runners() -> None:
     """Machine sizes a workflow can ask for with runs-on."""
