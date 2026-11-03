@@ -65,7 +65,7 @@ def _before_command(*, json_output: bool = False, skip_update_notice: bool = Fal
         feature = "image"
     elif noun in {"setup", "doctor", "bridge"}:
         feature = "setup"
-    elif noun in {"auth", "update", "completion", "config", "server", "ui"}:
+    elif noun in {"auth", "ci", "update", "completion", "config", "server", "ui"}:
         return
     else:
         feature = "setup"
@@ -282,6 +282,26 @@ def auth_logout(json_output: bool) -> Any:
     """Remove the locally stored API key."""
     _before_command(json_output=json_output)
     return _handlers()._run_auth_logout(_ns(json=json_output))
+
+
+@cli.group(context_settings=CONTEXT_SETTINGS)
+def ci() -> None:
+    """See your Celesto CI jobs, their logs, and the machine sizes they run on."""
+
+
+@ci.group("runners", context_settings=CONTEXT_SETTINGS)
+def ci_runners() -> None:
+    """Machine sizes a workflow can ask for with runs-on."""
+
+
+@ci_runners.command("list")
+@json_option
+def ci_runners_list(json_output: bool) -> Any:
+    """Show each runs-on label with its vCPUs, RAM and disk."""
+    _before_command(json_output=json_output)
+    from celesto.cli import ci as handlers
+
+    return handlers.run_runners_list(json_output=json_output)
 
 
 @cli.group(context_settings=CONTEXT_SETTINGS)
