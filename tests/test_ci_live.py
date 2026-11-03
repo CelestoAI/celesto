@@ -51,10 +51,23 @@ def test_ci_commands_read_real_jobs(capsys: pytest.CaptureFixture[str]) -> None:
     if not failed["jobs"]:
         pytest.skip("This organization has no failed CI jobs to read a log from.")
 
-    job_id = str(failed["jobs"][0]["job_id"])
-    shown = _ci(capsys, "jobs-show", "jobs", "show", job_id)
-    assert str(shown["job_id"]) == job_id
-
-    log = _ci(capsys, "logs", "logs", job_id)
-    assert log["steps"], "A finished job should have at least one step."
-    assert any(step["lines"] for step in log["steps"]), "A finished job's log should have lines."
+    # GitHub keeps logs for a limited time, so use the newest failed job it still has.
+    for job in failed["jobs"]:
+        job_id = str(job["job_id"])
+        shown = _ci(capsys, "jobs-show", "jobs", "show", job_id)
+        assert str(shown["job_id"]) == job_id
+        capsys.readouterr()
+        code = main(["ci", "logs", job_id, "--json"])
+        output = capsys.readouterr().out
+        payload = json.loads(output)
+        if code == 1 and payload["error"]["code"] == "ci_log_unavailable":
+            continue
+        (ARTIFACTS / "logs.json").write_text(output)
+        assert code == 0 and payload["ok"], output
+        log = payload["data"]
+        assert log["steps"], "A finished job should have at least one step."
+        assert any(step["lines"] for step in log["steps"]), (
+            "A finished job's log should have lines."
+        )
+        return
+    pytest.skip("GitHub no longer keeps a log for any of these failed jobs.")

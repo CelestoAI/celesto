@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 from collections.abc import Callable
 from functools import wraps
 from types import ModuleType
@@ -113,10 +114,16 @@ def _api_error(status_code: int, content: bytes, *, job_id: int | None = None) -
         body = None
     detail = body.get("detail") if isinstance(body, dict) else None
     code = detail.get("error_code") if isinstance(detail, dict) else None
+    # CELESTO_API_KEY wins over the stored login, so logging in again
+    # cannot replace a key that came from the environment.
+    from_environment = bool(os.environ.get("CELESTO_API_KEY", "").strip())
     if status_code == 403 and code == "api_key_endpoint_not_allowed":
         return CIError(
             code,
-            "This API key can't read CI jobs. "
+            "This API key can't read CI jobs. Set CELESTO_API_KEY to your dashboard's "
+            "default API key, or unset it and run 'celesto auth login'."
+            if from_environment
+            else "This API key can't read CI jobs. "
             "Run 'celesto auth login' with your dashboard's default API key.",
         )
     if status_code == 502 and detail == GITHUB_ACCESS_DENIED:
@@ -129,7 +136,11 @@ def _api_error(status_code: int, content: bytes, *, job_id: int | None = None) -
         return CIError("github_unavailable", "GitHub is unavailable right now. Retry in a minute.")
     if status_code == 401:
         return CIError(
-            "unauthorized", "Your Celesto API key was refused. Run 'celesto auth login'."
+            "unauthorized",
+            "Your Celesto API key was refused. Set CELESTO_API_KEY to a valid key, "
+            "or unset it and run 'celesto auth login'."
+            if from_environment
+            else "Your Celesto API key was refused. Run 'celesto auth login'.",
         )
     return CIError(
         f"http_{status_code}",
@@ -226,6 +237,22 @@ STATUS_TABS = {
 }
 
 
+def _jobs_list_command(
+    status: str | None, repository: str | None, workflow: str | None, search: str
+) -> str:
+    """The same `jobs list` with the user's filters and the largest page."""
+    parts = ["celesto", "ci", "jobs", "list"]
+    for flag, value in (
+        ("--status", status),
+        ("--repo", repository),
+        ("--workflow", workflow),
+        ("--search", search),
+    ):
+        if value:
+            parts += [flag, shlex.quote(value)]
+    return " ".join([*parts, "--limit", "100"])
+
+
 @_handler("ci.jobs.list")
 def run_jobs_list(
     *,
@@ -290,7 +317,7 @@ def run_jobs_list(
         more = (
             "Narrow the list with --status, --repo or --search."
             if limit >= 100
-            else "Run 'celesto ci jobs list --limit 100' to see more."
+            else f"Run '{_jobs_list_command(status, repository, workflow, search)}' to see more."
         )
         print(f"Showing {len(jobs)} of {total} jobs. {more}")
     return 0

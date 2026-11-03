@@ -300,6 +300,31 @@ memory, sticky disks, cross-job log search.
 - Tests: CLI tests for all three 502 bodies.
 - Acceptance: n/a.
 
+### D-19: Recovery commands match how the user ran the command
+
+- Why: Greptile review on #702 (2026-11-04, under the user's Auto-fix
+  authorization) found three recoveries that don't work as written.
+- Amends: D-03, D-14 (401) and D-16.
+- Implementation:
+  - When `CELESTO_API_KEY` is set, it wins over the stored login, so `celesto auth login` alone can't fix a refused key. The named-key refusal becomes:
+    "This API key can't read CI jobs. Set CELESTO_API_KEY to your dashboard's
+    default API key, or unset it and run 'celesto auth login'." The 401
+    becomes: "Your Celesto API key was refused. Set CELESTO_API_KEY to a valid
+    key, or unset it and run 'celesto auth login'." Without the variable, the
+    D-03 and D-14 texts stay.
+  - The "see more" hint repeats the user's own filters:
+    "Run 'celesto ci jobs list --status failed --repo acme/api --limit 100'
+    to see more." Values are shell-quoted.
+  - Usage errors (`celesto ci jobs list --limit 101 --json`) name the command
+    (`ci.jobs.list`, `ci.runners.list`, `ci.logs`) and recommend its own help
+    (`celesto ci jobs list --help`), in `_command_name_from_argv` and
+    `_recovery_from_argv` (`src/celesto/cli/main.py`).
+  - The live check tries up to five failed jobs for one whose log GitHub
+    still keeps, and skips when none does.
+- Tests: CLI tests for each message with and without `CELESTO_API_KEY`, for
+  the hint with filters, and for usage errors through `main`.
+- Acceptance: the live check re-run against production.
+
 ## Open questions
 
 (none)

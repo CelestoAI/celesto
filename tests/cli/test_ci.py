@@ -696,3 +696,80 @@ def test_jobs_list_at_100_suggests_narrowing(backend: Backend, run: Runner) -> N
     assert result.output.splitlines()[-1] == (
         "Showing 100 of 340 jobs. Narrow the list with --status, --repo or --search."
     )
+
+
+ENV_NAMED_KEY_MESSAGE = (
+    "This API key can't read CI jobs. Set CELESTO_API_KEY to your dashboard's "
+    "default API key, or unset it and run 'celesto auth login'."
+)
+
+
+def _use_environment_key(monkeypatch: pytest.MonkeyPatch, backend: Backend, key: str) -> None:
+    """Set CELESTO_API_KEY and point the transport's default base URL at the stub.
+
+    With the variable set, the transport ignores the stored login's base URL,
+    so its keyword default must change, or the request would go to production.
+    """
+    from celesto._cloud import _CloudComputer
+
+    defaults = _CloudComputer.__init__.__kwdefaults__
+    assert defaults is not None
+    monkeypatch.setitem(defaults, "base_url", backend.url)
+    monkeypatch.setenv("CELESTO_API_KEY", key)
+
+
+def test_named_key_from_the_environment_says_to_replace_it(
+    backend: Backend, run: Runner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _use_environment_key(monkeypatch, backend, "cel_named_key")
+    backend.serve(JOBS_PAGE, NAMED_KEY_REFUSAL, status=403)
+    assert _error(run("jobs", "list", "--json"))["message"] == ENV_NAMED_KEY_MESSAGE
+
+
+def test_refused_key_from_the_environment_says_to_replace_it(
+    backend: Backend, run: Runner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _use_environment_key(monkeypatch, backend, "cel_bad_key")
+    backend.serve(JOBS_PAGE, {"detail": "Unauthorized."}, 401)
+    assert _error(run("jobs", "list", "--json"))["message"] == (
+        "Your Celesto API key was refused. Set CELESTO_API_KEY to a valid key, "
+        "or unset it and run 'celesto auth login'."
+    )
+
+
+def test_more_jobs_hint_keeps_the_filters(backend: Backend, run: Runner) -> None:
+    backend.serve(JOBS_PAGE, _page([_job(812, "failure")], total=9))
+    result = run(
+        "jobs",
+        "list",
+        "--status",
+        "failed",
+        "--repo",
+        "acme/api",
+        "--search",
+        "fix login",
+        "--limit",
+        "1",
+    )
+    assert result.output.splitlines()[-1] == (
+        "Showing 1 of 9 jobs. Run 'celesto ci jobs list --status failed --repo acme/api "
+        "--search 'fix login' --limit 100' to see more."
+    )
+
+
+@pytest.mark.parametrize(
+    ("args", "command", "recovery"),
+    [
+        (["ci", "jobs", "list", "--limit", "101"], "ci.jobs.list", "celesto ci jobs list --help"),
+        (["ci", "runners", "list", "--bogus"], "ci.runners.list", "celesto ci runners list --help"),
+        (["ci", "logs", "abc"], "ci.logs", "celesto ci logs --help"),
+    ],
+)
+def test_usage_errors_name_the_ci_command(
+    capsys: pytest.CaptureFixture[str], args: list[str], command: str, recovery: str
+) -> None:
+    capsys.readouterr()
+    assert main([*args, "--json"]) == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["command"] == command
+    assert payload["error"]["recovery"] == f"Run '{recovery}' for usage."
