@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Removed
+
+- Drop the retired Celesto Cloud endpoints from the bundled private API client: the agent builder, managed agents and their runs, sessions, end users, credentials, MCP servers and settings, conversation threads, Telegram bots, model providers, traces and agent deployments. The service no longer serves them. The public `Computer` interface is unchanged.
+
 ### Fixed
 
 - Stop sandbox creates failing with "database is locked" when many start at once on a busy disk. Celesto's saved VM data now uses SQLite write-ahead logging, so reads no longer wait for writes and commits no longer wait on several disk flushes each.
