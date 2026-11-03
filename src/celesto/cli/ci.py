@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import os
 from types import ModuleType
 from typing import Any
 
 import httpx
 
 from celesto._cloud import _CloudComputer
+from celesto.cli._credentials import read_credentials
 from celesto.cli.output import console_stderr, emit_error, emit_json, render_error
 
 
@@ -29,6 +31,10 @@ class _Connection:
     """
 
     def __init__(self) -> None:
+        if not os.environ.get("CELESTO_API_KEY"):
+            stored = read_credentials()
+            if stored and not all(isinstance(stored[key], str) for key in ("api_key", "base_url")):
+                raise ValueError("The stored Celesto login has non-text fields.")
         self._transport = _CloudComputer()
 
     def close(self) -> None:
@@ -116,7 +122,7 @@ def _run(command: str, json_output: bool, read: Any) -> tuple[int, dict[str, Any
     """Open a connection, run ``read(connection)``, and report any failure."""
     try:
         connection = _Connection()
-    except (ValueError, TypeError, AttributeError):
+    except ValueError:
         # No API key, or a stored login whose fields are unusable.
         missing = CIError(
             "not_logged_in", "Your Celesto login is missing or invalid. Run 'celesto auth login'."

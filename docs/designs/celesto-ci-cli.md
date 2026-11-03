@@ -227,8 +227,8 @@ memory, sticky disks, cross-job log search.
 - Rejected: one generic HTTP message for everything.
 - Implementation: in `src/celesto/cli/ci.py`, same text in human output and
   the JSON `error`:
-  - not logged in or unreadable login (`ValueError`/`TypeError` opening the
-    connection), `not_logged_in`: "Your Celesto login is missing or invalid.
+  - not logged in or unreadable login (`ValueError` opening the connection; a
+    stored login with non-text fields is checked up front and raises it), `not_logged_in`: "Your Celesto login is missing or invalid.
     Run 'celesto auth login'."
   - 401, `unauthorized`: "Your Celesto API key was refused. Run 'celesto auth
     login'."

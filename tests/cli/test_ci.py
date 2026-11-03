@@ -497,7 +497,10 @@ def test_unreadable_login_says_to_log_in(backend: Backend, run: Runner) -> None:
     _credentials.CREDENTIALS_PATH.write_text(
         json.dumps({"api_key": "cel_test_key", "email": "ci@example.invalid", "base_url": 7})
     )
-    assert _error(run("runners", "list", "--json"))["code"] == "not_logged_in"
+    assert _error(run("runners", "list", "--json")) == {
+        "code": "not_logged_in",
+        "message": "Your Celesto login is missing or invalid. Run 'celesto auth login'.",
+    }
 
 
 def test_refused_key_says_to_log_in_again(backend: Backend, run: Runner) -> None:
