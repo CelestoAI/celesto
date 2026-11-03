@@ -271,6 +271,22 @@ memory, sticky disks, cross-job log search.
 - Tests: CLI test for both hints.
 - Acceptance: n/a.
 
+### D-17: A backend 502 for lost GitHub App access gets its own message
+
+- Why: the backend sends 502 both when GitHub is down and when Celesto's
+  GitHub App lost access; "Retry in a minute" never fixes the second (review
+  finding, ruled by the user 2026-11-04).
+- Rejected: one 502 message (D-14 as first written).
+- Implementation: in `_api_error` (`src/celesto/cli/ci.py`), a 502 whose
+  `detail` is exactly "GitHub access is unavailable. Check the App
+  installation." (`backend/.../github_actions_logs.py:174`) becomes
+  `github_access_denied`: "Celesto's GitHub App can't read this repository.
+  Check its installation in your GitHub organization's settings." Every other
+  502 keeps D-14's `github_unavailable`. Only that exact text is matched;
+  other server text is never printed.
+- Tests: CLI test for both 502 bodies.
+- Acceptance: n/a.
+
 ## Open questions
 
 (none)

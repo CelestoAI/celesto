@@ -535,6 +535,21 @@ def test_github_outage_says_to_retry(finished_job: Backend, run: Runner) -> None
     }
 
 
+def test_lost_github_app_access_says_to_check_the_installation(
+    finished_job: Backend, run: Runner
+) -> None:
+    finished_job.serve(
+        f"{JOB_812}/steps",
+        {"detail": "GitHub access is unavailable. Check the App installation."},
+        502,
+    )
+    assert _error(run("logs", "812", "--json")) == {
+        "code": "github_access_denied",
+        "message": "Celesto's GitHub App can't read this repository. "
+        "Check its installation in your GitHub organization's settings.",
+    }
+
+
 def test_unreachable_backend_says_to_check_the_connection(backend: Backend, run: Runner) -> None:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))

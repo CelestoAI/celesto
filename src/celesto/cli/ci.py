@@ -78,6 +78,10 @@ class _Connection:
         return body
 
 
+# The backend's exact 502 text when GitHub refuses the App (github_actions_logs.py).
+GITHUB_ACCESS_DENIED = "GitHub access is unavailable. Check the App installation."
+
+
 def _api_error(status_code: int, content: bytes, *, job_id: int | None = None) -> CIError:
     # Interpret only known statuses and public error codes; never print
     # arbitrary server text, which can echo credentials.
@@ -97,6 +101,12 @@ def _api_error(status_code: int, content: bytes, *, job_id: int | None = None) -
             code,
             "This API key can't read CI jobs. "
             "Run 'celesto auth login' with your dashboard's default API key.",
+        )
+    if status_code == 502 and detail == GITHUB_ACCESS_DENIED:
+        return CIError(
+            "github_access_denied",
+            "Celesto's GitHub App can't read this repository. "
+            "Check its installation in your GitHub organization's settings.",
         )
     if status_code == 502:
         return CIError("github_unavailable", "GitHub is unavailable right now. Retry in a minute.")
