@@ -46,9 +46,14 @@ class _Connection:
         *,
         job_id: int | None = None,
         missing: CIError | None = None,
+        list_field: str | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """GET one CI route; ``missing`` replaces the job-not-found error for a 404."""
+        """GET one CI route.
+
+        ``missing`` replaces the job-not-found error for a 404; ``list_field``
+        names a field the answer must carry as a list.
+        """
         if job_id is not None:
             kwargs["job_id"] = job_id
         request = endpoint._get_kwargs(
@@ -69,7 +74,9 @@ class _Connection:
             body = response.json()
         except ValueError:
             body = None
-        if not isinstance(body, dict):
+        if not isinstance(body, dict) or (
+            list_field is not None and not isinstance(body.get(list_field), list)
+        ):
             raise CIError(
                 "cloud_invalid_response",
                 "Celesto returned an invalid response. "
@@ -78,8 +85,10 @@ class _Connection:
         return body
 
 
-# The backend's exact 502 text when GitHub refuses the App (github_actions_logs.py).
+# The backend's exact 502 texts for GitHub failures (github_actions_logs.py). Any
+# other 502 may come from a gateway in front of Celesto, so it is not blamed on GitHub.
 GITHUB_ACCESS_DENIED = "GitHub access is unavailable. Check the App installation."
+GITHUB_UNAVAILABLE = "GitHub is unavailable. Try again."
 
 
 def _api_error(status_code: int, content: bytes, *, job_id: int | None = None) -> CIError:
@@ -108,7 +117,7 @@ def _api_error(status_code: int, content: bytes, *, job_id: int | None = None) -
             "Celesto's GitHub App can't read this repository. "
             "Check its installation in your GitHub organization's settings.",
         )
-    if status_code == 502:
+    if status_code == 502 and detail == GITHUB_UNAVAILABLE:
         return CIError("github_unavailable", "GitHub is unavailable right now. Retry in a minute.")
     if status_code == 401:
         return CIError(
@@ -157,7 +166,9 @@ def run_runners_list(*, json_output: bool) -> int:
     )
 
     command = "ci.runners.list"
-    code, data = _run(command, json_output, lambda connection: connection.get(endpoint))
+    code, data = _run(
+        command, json_output, lambda connection: connection.get(endpoint, list_field="runners")
+    )
     if data is None:
         return code
     if json_output:
@@ -202,6 +213,7 @@ def run_jobs_list(
         json_output,
         lambda connection: connection.get(
             endpoint,
+            list_field="items",
             tab=Tab(STATUS_TABS[status]) if status else Tab.ALL,
             q=search,
             repository=repository or UNSET,
@@ -310,7 +322,9 @@ def run_logs(*, job_id: int, step: int | None, json_output: bool) -> int:
             f"GitHub no longer has the log for job {job_id}. "
             f"Open {job.get('github_job_url') or 'the job on GitHub'} to check it.",
         )
-        steps = connection.get(steps_endpoint, job_id=job_id, missing=gone).get("steps", [])
+        steps = connection.get(steps_endpoint, job_id=job_id, missing=gone, list_field="steps")[
+            "steps"
+        ]
         if step is not None:
             steps = [item for item in steps if item.get("number") == step]
             if not steps:
@@ -321,7 +335,9 @@ def run_logs(*, job_id: int, step: int | None, json_output: bool) -> int:
                 )
         result = []
         for item in steps:
-            log = connection.get(log_endpoint, job_id=job_id, missing=gone, number=item["number"])
+            log = connection.get(
+                log_endpoint, job_id=job_id, missing=gone, list_field="lines", number=item["number"]
+            )
             result.append(
                 {
                     "number": item["number"],
@@ -346,14 +362,20 @@ def run_logs(*, job_id: int, step: int | None, json_output: bool) -> int:
     if json_output:
         emit_json(command, 0, data=data)
         return 0
-    for item in data["steps"]:
-        print(
-            f"── Step {item['number']}: {item['name']} ({item['conclusion'] or item['status']}) ──"
-        )
-        if item["truncated"]:
-            print(f"Only the last {MAX_STEP_LINES} lines of this step are shown.")
-        for line in item["lines"]:
-            print(line.get("text", ""))
+    try:
+        for item in data["steps"]:
+            result = item["conclusion"] or item["status"]
+            print(f"── Step {item['number']}: {item['name']} ({result}) ──")
+            if item["truncated"]:
+                print(f"Only the last {MAX_STEP_LINES} lines of this step are shown.")
+            for line in item["lines"]:
+                print(line.get("text", ""))
+    except BrokenPipeError:
+        # The reader exited early (`celesto ci logs 812 | head`).
+        from celesto.cli.main import _suppress_broken_pipe
+
+        _suppress_broken_pipe()
+        return 0
     for warning in data["warnings"]:
         console_stderr().print(warning, style="yellow", highlight=False)
     return 0

@@ -12,8 +12,10 @@ Ways it can go wrong, each covered below:
 
 from __future__ import annotations
 
+import io
 import json
 import socket
+import sys
 import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -548,6 +550,47 @@ def test_lost_github_app_access_says_to_check_the_installation(
         "message": "Celesto's GitHub App can't read this repository. "
         "Check its installation in your GitHub organization's settings.",
     }
+
+
+def test_a_gateway_502_is_not_blamed_on_github(backend: Backend, run: Runner) -> None:
+    backend.serve(JOBS_PAGE, {"detail": "Bad Gateway"}, 502)
+    assert _error(run("jobs", "list", "--json")) == {
+        "code": "http_502",
+        "message": "Celesto CI returned HTTP 502. Retry, then check 'celesto auth status'.",
+    }
+
+
+def test_runners_with_a_null_list_is_an_invalid_response(backend: Backend, run: Runner) -> None:
+    backend.serve("/v1/integrations/github/actions/runners", {"runners": None})
+    human = run("runners", "list")
+    assert human.exit_code == 1 and "Traceback" not in human.output
+    assert _error(run("runners", "list", "--json"))["code"] == "cloud_invalid_response"
+
+
+def test_jobs_with_a_null_list_is_an_invalid_response(backend: Backend, run: Runner) -> None:
+    backend.serve(JOBS_PAGE, {"items": None, "total": 0})
+    assert _error(run("jobs", "list", "--json"))["code"] == "cloud_invalid_response"
+
+
+def test_logs_with_a_null_step_list_is_an_invalid_response(
+    finished_job: Backend, run: Runner
+) -> None:
+    finished_job.serve(f"{JOB_812}/steps", {"steps": None})
+    assert _error(run("logs", "812", "--json"))["code"] == "cloud_invalid_response"
+
+
+def test_logs_piped_into_a_reader_that_exits_early_ends_quietly(
+    finished_job: Backend, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    sink = (tmp_path / "closed").open("w")
+
+    class ClosedPipe(io.TextIOWrapper):
+        def write(self, _text: str) -> int:
+            raise BrokenPipeError
+
+    monkeypatch.setattr(sys, "stdout", ClosedPipe(io.FileIO(sink.fileno(), "w", closefd=False)))
+    assert main(["ci", "logs", "812"]) == 0
+    sink.close()
 
 
 def test_unreachable_backend_says_to_check_the_connection(backend: Backend, run: Runner) -> None:

@@ -287,6 +287,19 @@ memory, sticky disks, cross-job log search.
 - Tests: CLI test for both 502 bodies.
 - Acceptance: n/a.
 
+### D-18: Only the backend's own GitHub-outage 502 says GitHub is down; other 502s get the generic message
+
+- Why: a 502 can come from a Celesto gateway while GitHub is fine; D-14's
+  "GitHub is unavailable" would then mislead (CodeRabbit review on #702,
+  2026-11-04, under the user's Auto-fix authorization).
+- Supersedes: D-14's 502 line.
+- Implementation: `_api_error` returns `github_unavailable` only for a 502
+  whose `detail` is exactly "GitHub is unavailable. Try again."
+  (`backend/.../github_actions_logs.py:175,178`); D-17's access text keeps
+  `github_access_denied`; any other 502 is `http_502`.
+- Tests: CLI tests for all three 502 bodies.
+- Acceptance: n/a.
+
 ## Open questions
 
 (none)
