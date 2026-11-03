@@ -686,6 +686,25 @@ def test_logs_into_a_pipe_that_closed_early_exits_cleanly(
     assert "BrokenPipeError" not in stderr and "Traceback" not in stderr
 
 
+def test_a_redirect_is_not_read_as_job_data(backend: Backend, run: Runner) -> None:
+    backend.serve(JOB_812, {"job_id": 812, "status": "success"}, 302)
+    assert _error(run("jobs", "show", "812", "--json")) == {
+        "code": "http_302",
+        "message": "Celesto CI returned HTTP 302. Retry, then check 'celesto auth status'.",
+    }
+
+
+@pytest.mark.parametrize("total", [None, "40", True])
+def test_jobs_page_without_an_integer_total_is_an_invalid_response(
+    backend: Backend, run: Runner, total: Any
+) -> None:
+    body: dict[str, Any] = {"items": [_job(812, "success")]}
+    if total is not None:
+        body["total"] = total
+    backend.serve(JOBS_PAGE, body)
+    assert _error(run("jobs", "list", "--json"))["code"] == "cloud_invalid_response"
+
+
 def test_unreachable_backend_says_to_check_the_connection(backend: Backend, run: Runner) -> None:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))

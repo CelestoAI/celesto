@@ -72,7 +72,8 @@ class _Connection:
             ) from None
         if response.status_code == 404 and missing is not None:
             raise missing
-        if response.status_code >= 400:
+        # The client follows no redirects, so a 3xx is an answer we can't use, not data.
+        if not 200 <= response.status_code < 300:
             raise _api_error(response.status_code, response.content, job_id=job_id)
         try:
             body = response.json()
@@ -292,8 +293,11 @@ def run_jobs_list(
     )
     if data is None:
         return code
-    jobs = data.get("items", [])
-    total = data.get("total", len(jobs))
+    jobs = data["items"]
+    total = data.get("total")
+    # bool is an int subclass; a page without a real count can't say how many jobs exist.
+    if not isinstance(total, int) or isinstance(total, bool):
+        return _fail(command, _invalid_response(), json_output=json_output)
     if json_output:
         emit_json(command, 0, data={"jobs": jobs, "total": total})
         return 0
