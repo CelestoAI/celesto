@@ -593,6 +593,60 @@ def test_logs_piped_into_a_reader_that_exits_early_ends_quietly(
     sink.close()
 
 
+@pytest.mark.parametrize(
+    ("args", "route", "body"),
+    [
+        (("runners", "list"), "/v1/integrations/github/actions/runners", {"runners": [None]}),
+        (("runners", "list"), "/v1/integrations/github/actions/runners", {"runners": [{}]}),
+        (("jobs", "list"), JOBS_PAGE, {"items": ["812"], "total": 1}),
+        (("logs", "812"), f"{JOB_812}/steps", {"steps": [None]}),
+    ],
+)
+def test_malformed_items_are_an_invalid_response_not_a_traceback(
+    backend: Backend, run: Runner, args: tuple[str, ...], route: str, body: Any
+) -> None:
+    backend.serve(JOB_812, _job(812, "failure", native_status="completed"))
+    backend.serve(route, body)
+    human = run(*args)
+    assert human.exit_code == 1 and "Traceback" not in human.output
+    # Items that aren't objects fail in --json too; an object missing fields
+    # passes through there, since --json returns the backend's objects as-is.
+    if body != {"runners": [{}]}:
+        assert _error(run(*args, "--json"))["code"] == "cloud_invalid_response"
+
+
+@pytest.mark.parametrize(
+    ("args", "route", "body"),
+    [
+        (("runners", "list"), "/v1/integrations/github/actions/runners", RUNNERS),
+        (
+            ("jobs", "list"),
+            JOBS_PAGE,
+            {"items": [{"job_id": 812, "status": "failure"}], "total": 1},
+        ),
+        (("jobs", "show", "812"), JOB_812, {"job_id": 812, "status": "failure"}),
+    ],
+)
+def test_text_output_into_a_closed_pipe_ends_quietly(
+    backend: Backend,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    args: tuple[str, ...],
+    route: str,
+    body: Any,
+) -> None:
+    backend.serve(route, body)
+    sink = (tmp_path / "closed").open("w")
+
+    class ClosedPipe(io.TextIOWrapper):
+        def write(self, _text: str) -> int:
+            raise BrokenPipeError
+
+    monkeypatch.setattr(sys, "stdout", ClosedPipe(io.FileIO(sink.fileno(), "w", closefd=False)))
+    assert main(["ci", *args]) == 0
+    sink.close()
+
+
 def test_unreachable_backend_says_to_check_the_connection(backend: Backend, run: Runner) -> None:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))

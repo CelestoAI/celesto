@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
+from functools import wraps
 from types import ModuleType
 from typing import Any
 
@@ -74,15 +76,21 @@ class _Connection:
             body = response.json()
         except ValueError:
             body = None
+        items = body.get(list_field) if isinstance(body, dict) and list_field else None
         if not isinstance(body, dict) or (
-            list_field is not None and not isinstance(body.get(list_field), list)
+            list_field is not None
+            and not (isinstance(items, list) and all(isinstance(item, dict) for item in items))
         ):
-            raise CIError(
-                "cloud_invalid_response",
-                "Celesto returned an invalid response. "
-                "Retry, or run 'celesto update' if it keeps happening.",
-            )
+            raise _invalid_response()
         return body
+
+
+def _invalid_response() -> CIError:
+    return CIError(
+        "cloud_invalid_response",
+        "Celesto returned an invalid response. "
+        "Retry, or run 'celesto update' if it keeps happening.",
+    )
 
 
 # The backend's exact 502 texts for GitHub failures (github_actions_logs.py). Any
@@ -155,10 +163,37 @@ def _run(command: str, json_output: bool, read: Any) -> tuple[int, dict[str, Any
         connection.close()
 
 
+def _handler(command: str) -> Callable[[Callable[..., int]], Callable[..., int]]:
+    """Guard a command's output: a reader that closed early, or an answer missing fields.
+
+    ``celesto ci logs 812 | head`` closes stdout mid-print; that ends quietly.
+    A backend answer whose items lack the fields the text output reads is
+    reported as an invalid response instead of a traceback.
+    """
+
+    def wrap(handler: Callable[..., int]) -> Callable[..., int]:
+        @wraps(handler)
+        def run(*, json_output: bool, **kwargs: Any) -> int:
+            try:
+                return handler(json_output=json_output, **kwargs)
+            except BrokenPipeError:
+                from celesto.cli.main import _suppress_broken_pipe
+
+                _suppress_broken_pipe()
+                return 0
+            except (KeyError, TypeError, AttributeError):
+                return _fail(command, _invalid_response(), json_output=json_output)
+
+        return run
+
+    return wrap
+
+
 def _gib(megabytes: int) -> str:
     return f"{megabytes / 1024:g} GiB"
 
 
+@_handler("ci.runners.list")
 def run_runners_list(*, json_output: bool) -> int:
     """Handle ``celesto ci runners list``."""
     from _celesto_cloud_api.api.git_hub_actions_on_celesto import (
@@ -175,7 +210,7 @@ def run_runners_list(*, json_output: bool) -> int:
         emit_json(command, 0, data=data)
         return 0
     print(f"{'LABEL':<18}  {'VCPU':>4}  {'RAM':>7}  {'DISK':>8}")
-    for runner in data.get("runners", []):
+    for runner in data["runners"]:
         ram, disk = _gib(runner["ram_mb"]), _gib(runner["disk_size_mb"])
         print(f"{runner['label']:<18}  {runner['vcpus']:>4}  {ram:>7}  {disk:>8}")
     return 0
@@ -191,6 +226,7 @@ STATUS_TABS = {
 }
 
 
+@_handler("ci.jobs.list")
 def run_jobs_list(
     *,
     status: str | None,
@@ -260,6 +296,7 @@ def run_jobs_list(
     return 0
 
 
+@_handler("ci.jobs.show")
 def run_jobs_show(*, job_id: int, json_output: bool) -> int:
     """Handle ``celesto ci jobs show``."""
     from _celesto_cloud_api.api.git_hub_actions_on_celesto import (
@@ -301,6 +338,7 @@ def run_jobs_show(*, job_id: int, json_output: bool) -> int:
 MAX_STEP_LINES = "5,000"
 
 
+@_handler("ci.logs")
 def run_logs(*, job_id: int, step: int | None, json_output: bool) -> int:
     """Handle ``celesto ci logs``: every step's log in order, or one step's."""
     from _celesto_cloud_api.api.git_hub_actions_on_celesto import (
@@ -362,20 +400,13 @@ def run_logs(*, job_id: int, step: int | None, json_output: bool) -> int:
     if json_output:
         emit_json(command, 0, data=data)
         return 0
-    try:
-        for item in data["steps"]:
-            result = item["conclusion"] or item["status"]
-            print(f"── Step {item['number']}: {item['name']} ({result}) ──")
-            if item["truncated"]:
-                print(f"Only the last {MAX_STEP_LINES} lines of this step are shown.")
-            for line in item["lines"]:
-                print(line.get("text", ""))
-    except BrokenPipeError:
-        # The reader exited early (`celesto ci logs 812 | head`).
-        from celesto.cli.main import _suppress_broken_pipe
-
-        _suppress_broken_pipe()
-        return 0
+    for item in data["steps"]:
+        result = item["conclusion"] or item["status"]
+        print(f"── Step {item['number']}: {item['name']} ({result}) ──")
+        if item["truncated"]:
+            print(f"Only the last {MAX_STEP_LINES} lines of this step are shown.")
+        for line in item["lines"]:
+            print(line.get("text", ""))
     for warning in data["warnings"]:
         console_stderr().print(warning, style="yellow", highlight=False)
     return 0

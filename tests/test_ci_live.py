@@ -46,7 +46,7 @@ def test_ci_commands_read_real_jobs(capsys: pytest.CaptureFixture[str]) -> None:
     ]
 
     failed = _ci(capsys, "jobs-list-failed", "jobs", "list", "--status", "failed", "--limit", "5")
-    unscored = {"success", "neutral", "skipped", "cancelled", "stale", None}
+    unscored = {"success", "neutral", "skipped", "cancelled", "stale", "completed", None}
     assert all(job["native_conclusion"] not in unscored for job in failed["jobs"])
     if not failed["jobs"]:
         pytest.skip("This organization has no failed CI jobs to read a log from.")
