@@ -8,6 +8,8 @@ Ways it can go wrong, each covered below:
 - A command calls the wrong route, drops the API key, or sends wrong filters.
 - Human output hides a field or `--json` breaks the standard envelope.
 - An error from the backend becomes a traceback or a message without a recovery command.
+- Terminal output overflows, hides a job ID/status, or interprets names as markup.
+- Styling wraps or alters raw log lines, or contaminates JSON with terminal codes.
 """
 
 from __future__ import annotations
@@ -28,6 +30,8 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from click.testing import CliRunner
+from rich.cells import cell_len
+from rich.text import Text
 
 from celesto.cli import _credentials
 from celesto.cli.commands.app import build_cli
@@ -171,8 +175,37 @@ def _page(items: list[dict[str, Any]], total: int) -> dict[str, Any]:
     return {"items": items, "total": total, "page": 0, "page_size": 20, "counts": {}}
 
 
-def test_jobs_list_sends_filters_and_prints_each_job(backend: Backend, run: Runner) -> None:
-    backend.serve(JOBS_PAGE, _page([_job(812, "failure"), _job(811, "failure")], total=2))
+@pytest.mark.parametrize("force_color", [False, True])
+def test_jobs_list_sends_filters_and_prints_each_job(
+    backend: Backend,
+    run: Runner,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    force_color: bool,
+) -> None:
+    # Redirected lists must keep every field even when color is forced.
+    assert not sys.stdout.isatty()
+    if force_color:
+        monkeypatch.setenv("FORCE_COLOR", "1")
+        monkeypatch.setenv("TERM", "xterm-256color")
+        monkeypatch.delenv("NO_COLOR")
+    monkeypatch.setenv("COLUMNS", "60")
+    backend.serve(
+        JOBS_PAGE,
+        _page(
+            [
+                _job(
+                    812,
+                    "failure",
+                    workflow_name="integration-tests-across-all-supported-platforms",
+                    job_name="pytest-with-production-configuration",
+                    head_branch="fix/a-very-long-branch-name",
+                ),
+                _job(811, "failure"),
+            ],
+            total=2,
+        ),
+    )
     result = run(
         "jobs",
         "list",
@@ -187,6 +220,7 @@ def test_jobs_list_sends_filters_and_prints_each_job(backend: Backend, run: Runn
         "--limit",
         "5",
     )
+    (tmp_path / "jobs-piped.txt").write_text(result.output)
     assert result.exit_code == 0, result.output
     assert backend.requests[0]["query"] == {
         "tab": "failed",
@@ -196,9 +230,9 @@ def test_jobs_list_sends_filters_and_prints_each_job(backend: Backend, run: Runn
         "page": "0",
         "page_size": "5",
     }
-    lines = result.output.splitlines()
+    lines = Text.from_ansi(result.output).plain.splitlines()
     assert lines[0].split() == [
-        "JOB",
+        "ID",
         "STATUS",
         "REPOSITORY",
         "WORKFLOW",
@@ -210,9 +244,9 @@ def test_jobs_list_sends_filters_and_prints_each_job(backend: Backend, run: Runn
         "812",
         "failure",
         "acme/api",
-        "tests",
-        "pytest",
-        "main",
+        "integration-tests-across-all-supported-platforms",
+        "pytest-with-production-configuration",
+        "fix/a-very-long-branch-name",
         "2026-11-03T10:00:00Z",
     ]
     assert len(lines) == 3
@@ -230,6 +264,54 @@ def test_jobs_list_maps_every_status_name(backend: Backend, run: Runner) -> None
         assert backend.requests[-1]["query"]["tab"] == tab
     assert run("jobs", "list").exit_code == 0
     assert backend.requests[-1]["query"]["tab"] == "all"
+
+
+@pytest.mark.parametrize(
+    ("width", "no_color"), [(60, False), (80, False), (120, False), (80, True)]
+)
+def test_terminal_jobs_are_scannable_and_point_to_details_and_logs(
+    backend: Backend,
+    run: Runner,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    width: int,
+    no_color: bool,
+) -> None:
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    monkeypatch.setenv("TERM", "xterm-256color")
+    if not no_color:
+        monkeypatch.delenv("NO_COLOR")
+    monkeypatch.setenv("COLUMNS", str(width))
+    backend.serve(
+        JOBS_PAGE,
+        _page(
+            [
+                _job(
+                    12345678901,
+                    "setup_failed",
+                    repository="acme/a-repository-with-a-long-name",
+                    workflow_name="Integration tests across all supported platforms",
+                    job_name="pytest [linux] with the production configuration",
+                    head_branch="fix/a-long-branch-name",
+                ),
+                _job(812, "success", job_name="[linux]"),
+            ],
+            total=2,
+        ),
+    )
+    result = run("jobs", "list")
+    (tmp_path / f"jobs-{width}.ansi").write_text(result.output)
+    plain = Text.from_ansi(result.output).plain
+    assert result.exit_code == 0, plain
+    assert all(cell_len(line) <= width for line in plain.splitlines()), plain
+    assert "12345678901" in plain.splitlines()[1] and "setup_failed" in plain.splitlines()[1]
+    assert "[linux]" in plain
+    assert "celesto ci jobs show 12345678901" in plain
+    assert "celesto ci logs 12345678901" in plain
+    assert "ID" in plain.splitlines()[0]
+    if not no_color:
+        assert "\x1b[" in result.output
 
 
 def test_jobs_list_says_when_more_jobs_exist(backend: Backend, run: Runner) -> None:
@@ -262,7 +344,14 @@ def test_jobs_list_has_no_more_jobs_line_when_all_are_shown(backend: Backend, ru
     assert "Showing" not in result.output
 
 
-def test_jobs_list_json_returns_jobs_and_total(backend: Backend, run: Runner) -> None:
+@pytest.mark.parametrize("terminal", [False, True])
+def test_jobs_list_json_returns_jobs_and_total(
+    backend: Backend, run: Runner, monkeypatch: pytest.MonkeyPatch, terminal: bool
+) -> None:
+    if terminal:
+        monkeypatch.setenv("FORCE_COLOR", "1")
+        monkeypatch.setenv("TERM", "xterm-256color")
+        monkeypatch.delenv("NO_COLOR")
     job = _job(812, "failure")
     backend.serve(JOBS_PAGE, _page([job], total=1))
     result = run("jobs", "list", "--json")
@@ -270,6 +359,7 @@ def test_jobs_list_json_returns_jobs_and_total(backend: Backend, run: Runner) ->
     payload = json.loads(result.output)
     assert payload["command"] == "ci.jobs.list"
     assert payload["data"] == {"jobs": [job], "total": 1}
+    assert "\x1b" not in result.output
 
 
 DETAIL = _job(
@@ -284,16 +374,30 @@ DETAIL = _job(
 )
 
 
-def test_jobs_show_prints_the_job(backend: Backend, run: Runner) -> None:
-    backend.serve("/v1/integrations/github/actions/jobs/812", DETAIL)
+@pytest.mark.parametrize("terminal", [False, True])
+def test_jobs_show_prints_the_job(
+    backend: Backend,
+    run: Runner,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    terminal: bool,
+) -> None:
+    if terminal:
+        monkeypatch.setenv("FORCE_COLOR", "1")
+        monkeypatch.setenv("TERM", "xterm-256color")
+        monkeypatch.delenv("NO_COLOR")
+    backend.serve(
+        "/v1/integrations/github/actions/jobs/812", {**DETAIL, "job_name": "pytest [linux]"}
+    )
     result = run("jobs", "show", "812")
+    (tmp_path / "job-show.ansi").write_text(result.output)
     assert result.exit_code == 0, result.output
-    assert result.output.splitlines() == [
+    expected = [
         "Job:         812",
         "Status:      failure (The job failed.)",
         "Repository:  acme/api",
         "Workflow:    tests",
-        "Job name:    pytest",
+        "Job name:    pytest [linux]",
         "Branch:      main",
         "Commit:      abc1234",
         "Machine:     standard",
@@ -302,6 +406,9 @@ def test_jobs_show_prints_the_job(backend: Backend, run: Runner) -> None:
         "Finished:    2026-11-03T10:02:05Z",
         "GitHub:      https://github.com/acme/api/actions/runs/9/job/812",
     ]
+    if terminal:
+        expected.append("Logs: celesto ci logs 812")
+    assert Text.from_ansi(result.output).plain.splitlines() == expected
     assert backend.requests[0]["path"] == "/v1/integrations/github/actions/jobs/812"
 
 
@@ -346,12 +453,31 @@ def finished_job(backend: Backend) -> Backend:
     return backend
 
 
-def test_logs_prints_every_step_in_order(finished_job: Backend, run: Runner) -> None:
+@pytest.mark.parametrize("terminal", [False, True])
+def test_logs_prints_every_step_in_order(
+    finished_job: Backend,
+    run: Runner,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    terminal: bool,
+) -> None:
+    if terminal:
+        monkeypatch.setenv("FORCE_COLOR", "1")
+        monkeypatch.setenv("TERM", "xterm-256color")
+        monkeypatch.delenv("NO_COLOR")
+        monkeypatch.setenv("COLUMNS", "60")
+    raw_line = "[red] literal log [/red] https://example.com/" + "x" * 160
+    finished_job.serve(
+        f"{JOB_812}/steps/1/log", {"lines": _lines("Runner ready", raw_line), "truncated": False}
+    )
     result = run("logs", "812")
+    (tmp_path / "logs.ansi").write_text(result.output)
     assert result.exit_code == 0, result.output
-    assert result.output.splitlines() == [
+    assert raw_line + "\n" in result.output
+    assert Text.from_ansi(result.output).plain.splitlines() == [
         "── Step 1: Set up job (success) ──",
         "Runner ready",
+        raw_line,
         "── Step 4: Run tests (failure) ──",
         "Only the last 5,000 lines of this step are shown.",
         "collected 3 items",

@@ -12,10 +12,12 @@ from types import ModuleType
 from typing import Any
 
 import httpx
+from rich.table import Table
+from rich.text import Text
 
 from celesto._cloud import _CloudComputer
 from celesto.cli._credentials import read_credentials
-from celesto.cli.output import console_stderr, emit_error, emit_json, render_error
+from celesto.cli.output import console_stderr, console_stdout, emit_error, emit_json, render_error
 
 
 class CIError(Exception):
@@ -210,6 +212,24 @@ def _gib(megabytes: int) -> str:
     return f"{megabytes / 1024:g} GiB"
 
 
+def _status_text(status: str) -> Text:
+    """Keep the API's status readable even without color."""
+    styles = {
+        "success": "green",
+        "failure": "red",
+        "failed": "red",
+        "setup_failed": "red",
+        "timed_out": "red",
+        "action_required": "yellow",
+        "queued": "yellow",
+        "running": "yellow",
+        "in_progress": "yellow",
+        "cancelled": "dim",
+        "skipped": "dim",
+    }
+    return Text(status, style=styles.get(status, ""))
+
+
 @_handler("ci.runners.list")
 def run_runners_list(*, json_output: bool) -> int:
     """Handle ``celesto ci runners list``."""
@@ -316,19 +336,52 @@ def run_jobs_list(
         ]
         for job in jobs
     ]
-    header = ["JOB", "STATUS", "REPOSITORY", "WORKFLOW", "JOB", "BRANCH", "CREATED"]
-    widths = [max(len(row[i]) for row in [header, *rows]) for i in range(len(header))]
-    for row in [header, *rows]:
-        print(
-            "  ".join(cell.ljust(width) for cell, width in zip(row, widths, strict=True)).rstrip()
-        )
+    header = ["ID", "STATUS", "REPOSITORY", "WORKFLOW", "JOB", "BRANCH", "CREATED"]
+    console = console_stdout()
+    # Rich's terminal flag also honors FORCE_COLOR, including redirected stdout.
+    interactive = sys.stdout.isatty()
+    if interactive:
+        # Keep IDs and statuses intact; full names and timestamps are in jobs show.
+        table = Table(box=None, padding=(0, 1), pad_edge=False)
+        table.add_column("ID", no_wrap=True)
+        table.add_column("STATUS", no_wrap=True)
+        for label in ("REPOSITORY", "JOB / WORKFLOW", "BRANCH"):
+            table.add_column(Text(label, no_wrap=True, overflow="ellipsis"), overflow="ellipsis")
+        if console.width >= 120:
+            table.add_column("CREATED", no_wrap=True)
+        for row in rows:
+            cells = [
+                Text(row[0]),
+                _status_text(row[1]),
+                Text(row[2], no_wrap=True, overflow="ellipsis"),
+                Text(f"{row[4]} / {row[3]}", no_wrap=True, overflow="ellipsis"),
+                Text(row[5], no_wrap=True, overflow="ellipsis"),
+            ]
+            if console.width >= 120:
+                cells.append(Text(row[6], style="dim"))
+            table.add_row(*cells)
+        console.print(table)
+        console.print(Text(f"Details: celesto ci jobs show {rows[0][0]}", style="dim"))
+        console.print(Text(f"Logs:    celesto ci logs {rows[0][0]}", style="dim"))
+    else:
+        widths = [max(len(row[i]) for row in [header, *rows]) for i in range(len(header))]
+        for row in [header, *rows]:
+            print(
+                "  ".join(
+                    cell.ljust(width) for cell, width in zip(row, widths, strict=True)
+                ).rstrip()
+            )
     if total > len(jobs):
         more = (
             "Narrow the list with --status, --repo or --search."
             if limit >= 100
             else f"Run '{_jobs_list_command(status, repository, workflow, search)}' to see more."
         )
-        print(f"Showing {len(jobs)} of {total} jobs. {more}")
+        message = f"Showing {len(jobs)} of {total} jobs. {more}"
+        if interactive:
+            console.print(Text(message, style="dim"))
+        else:
+            print(message)
     return 0
 
 
@@ -349,8 +402,11 @@ def run_jobs_show(*, job_id: int, json_output: bool) -> int:
         emit_json(command, 0, data=job)
         return 0
     status = str(job.get("status") or "")
+    status_text = _status_text(status)
     if job.get("status_message"):
         status += f" ({job['status_message']})"
+        status_text.append(f" ({job['status_message']})", style="default")
+    console = console_stdout()
     for label, value in (
         ("Job", job.get("job_id")),
         ("Status", status),
@@ -366,7 +422,18 @@ def run_jobs_show(*, job_id: int, json_output: bool) -> int:
         ("GitHub", job.get("github_job_url")),
     ):
         if value not in (None, ""):
-            print(f"{label + ':':<12} {value}")
+            if console.is_terminal:
+                console.print(
+                    Text.assemble(
+                        (f"{label + ':':<12} ", "bold"),
+                        status_text if label == "Status" else Text(str(value)),
+                    ),
+                    soft_wrap=True,
+                )
+            else:
+                print(f"{label + ':':<12} {value}")
+    if console.is_terminal:
+        console.print(Text(f"Logs: celesto ci logs {job_id}", style="dim"))
     return 0
 
 
@@ -436,13 +503,18 @@ def run_logs(*, job_id: int, step: int | None, json_output: bool) -> int:
     if json_output:
         emit_json(command, 0, data=data)
         return 0
+    console = console_stdout()
     for item in data["steps"]:
         result = item["conclusion"] or item["status"]
-        print(f"── Step {item['number']}: {item['name']} ({result}) ──")
+        heading = f"── Step {item['number']}: {item['name']} ({result}) ──"
+        if console.is_terminal:
+            console.print(Text(heading, style=_status_text(str(result)).style), soft_wrap=True)
+        else:
+            print(heading)
         if item["truncated"]:
             print(f"Only the last {MAX_STEP_LINES} lines of this step are shown.")
         for line in item["lines"]:
             print(line.get("text", ""))
     for warning in data["warnings"]:
-        console_stderr().print(warning, style="yellow", highlight=False)
+        console_stderr().print(Text(warning, style="yellow"))
     return 0
