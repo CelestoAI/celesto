@@ -1280,7 +1280,15 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/OrganizationMemberRead"
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/components/schemas/OrganizationMemberRead"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/InvitationRead"
+                                        }
+                                    ],
+                                    "title": "Response Add Member V1 Organizations Org Id Members Post"
                                 }
                             }
                         }
@@ -19359,6 +19367,25 @@
                 ],
                 "title": "WaitlistRequest",
                 "description": "Request body for joining a feature waitlist."
+            },
+            "InvitationRead": {
+                "properties": {
+                    "email": {
+                        "type": "string",
+                        "title": "Email"
+                    },
+                    "status": {
+                        "type": "string",
+                        "const": "PENDING",
+                        "title": "Status",
+                        "default": "PENDING"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "email"
+                ],
+                "title": "InvitationRead"
             }
         }
     }
