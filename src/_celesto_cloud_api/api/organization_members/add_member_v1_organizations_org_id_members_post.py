@@ -10,6 +10,7 @@ from ... import errors
 
 from ...models.add_member_request import AddMemberRequest
 from ...models.http_validation_error import HTTPValidationError
+from ...models.invitation_read import InvitationRead
 from ...models.organization_member_read import OrganizationMemberRead
 from typing import cast
 
@@ -38,9 +39,27 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | OrganizationMemberRead | None:
+) -> HTTPValidationError | InvitationRead | OrganizationMemberRead | None:
     if response.status_code == 201:
-        response_201 = OrganizationMemberRead.from_dict(response.json())
+
+        def _parse_response_201(
+            data: object,
+        ) -> InvitationRead | OrganizationMemberRead:
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                response_201_type_0 = OrganizationMemberRead.from_dict(data)
+
+                return response_201_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            if not isinstance(data, dict):
+                raise TypeError()
+            response_201_type_1 = InvitationRead.from_dict(data)
+
+            return response_201_type_1
+
+        response_201 = _parse_response_201(response.json())
 
         return response_201
 
@@ -57,7 +76,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | OrganizationMemberRead]:
+) -> Response[HTTPValidationError | InvitationRead | OrganizationMemberRead]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -71,7 +90,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: AddMemberRequest,
-) -> Response[HTTPValidationError | OrganizationMemberRead]:
+) -> Response[HTTPValidationError | InvitationRead | OrganizationMemberRead]:
     """Add a member to the organization
 
      Adds a user to the organization with the specified role. Reactivates if previously removed.
@@ -85,7 +104,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | OrganizationMemberRead]
+        Response[HTTPValidationError | InvitationRead | OrganizationMemberRead]
     """
 
     kwargs = _get_kwargs(
@@ -105,7 +124,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     body: AddMemberRequest,
-) -> HTTPValidationError | OrganizationMemberRead | None:
+) -> HTTPValidationError | InvitationRead | OrganizationMemberRead | None:
     """Add a member to the organization
 
      Adds a user to the organization with the specified role. Reactivates if previously removed.
@@ -119,7 +138,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | OrganizationMemberRead
+        HTTPValidationError | InvitationRead | OrganizationMemberRead
     """
 
     return sync_detailed(
@@ -134,7 +153,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: AddMemberRequest,
-) -> Response[HTTPValidationError | OrganizationMemberRead]:
+) -> Response[HTTPValidationError | InvitationRead | OrganizationMemberRead]:
     """Add a member to the organization
 
      Adds a user to the organization with the specified role. Reactivates if previously removed.
@@ -148,7 +167,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | OrganizationMemberRead]
+        Response[HTTPValidationError | InvitationRead | OrganizationMemberRead]
     """
 
     kwargs = _get_kwargs(
@@ -166,7 +185,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     body: AddMemberRequest,
-) -> HTTPValidationError | OrganizationMemberRead | None:
+) -> HTTPValidationError | InvitationRead | OrganizationMemberRead | None:
     """Add a member to the organization
 
      Adds a user to the organization with the specified role. Reactivates if previously removed.
@@ -180,7 +199,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | OrganizationMemberRead
+        HTTPValidationError | InvitationRead | OrganizationMemberRead
     """
 
     return (

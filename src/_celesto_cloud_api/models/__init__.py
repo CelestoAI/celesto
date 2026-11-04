@@ -203,6 +203,7 @@ from .inspect_retained_command_v1_computers_computer_id_commands_command_id_get_
 )
 from .inventory import Inventory
 from .inventory_computers_item import InventoryComputersItem
+from .invitation_read import InvitationRead
 from .job_details_v1_integrations_github_actions_jobs_job_id_get_response_job_details_v1_integrations_github_actions_jobs_job_id_get import (
     JobDetailsV1IntegrationsGithubActionsJobsJobIdGetResponseJobDetailsV1IntegrationsGithubActionsJobsJobIdGet,
 )
@@ -563,6 +564,7 @@ __all__ = (
     "InspectRetainedCommandV1ComputersComputerIdCommandsCommandIdGetResponseInspectRetainedCommandV1ComputersComputerIdCommandsCommandIdGet",
     "Inventory",
     "InventoryComputersItem",
+    "InvitationRead",
     "JobDetailsV1IntegrationsGithubActionsJobsJobIdGetResponseJobDetailsV1IntegrationsGithubActionsJobsJobIdGet",
     "JobsSummaryV1IntegrationsGithubActionsJobsSummaryGetResponseJobsSummaryV1IntegrationsGithubActionsJobsSummaryGet",
     "JobStepLogV1IntegrationsGithubActionsJobsJobIdStepsNumberLogGetResponseJobStepLogV1IntegrationsGithubActionsJobsJobIdStepsNumberLogGet",
