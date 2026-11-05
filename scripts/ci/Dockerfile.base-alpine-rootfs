@@ -17,8 +17,10 @@ FROM alpine:3.20
 # Single RUN keeps everything in one layer. ``--no-cache`` is the apk
 # equivalent of apt's "clean + rm -rf /var/lib/apt/lists/*" — it skips
 # writing the package index to /var/cache/apk in the first place.
+# openssh-server 9.7_p1-r6 fixes the password bypass CVE-2026-123158. The floor
+# also stops Docker from reusing an older cached package layer.
 RUN apk add --no-cache \
-        openssh-server \
+        'openssh-server>=9.7_p1-r6' \
         openssh-keygen \
         openrc \
         iproute2 \

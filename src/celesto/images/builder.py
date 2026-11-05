@@ -559,8 +559,11 @@ ARG SSH_PASSWORD
 # Install SSH, networking utilities, a shell, and python3. The Celesto
 # guest agent is injected later as a standalone Rust binary, so python3 is
 # not required for the control plane.
+# openssh-server 9.6_p1-r3 fixes the password bypass CVE-2026-123158. The floor also
+# stops Docker from reusing an older cached package layer.
 RUN apk add --no-cache \\
     openssh \\
+    'openssh-server>=9.6_p1-r3' \\
     iproute2 \\
     curl \\
     bash \\
@@ -618,9 +621,6 @@ RUN chmod +x /init
                 fingerprint_data=fingerprint_data,
             )
         except (subprocess.CalledProcessError, ImageError) as e:
-            # Clean up partial build
-            if rootfs_path.exists():
-                rootfs_path.unlink()
             if isinstance(e, ImageError):
                 raise
             raise ImageError(f"Image build failed: {e}") from e
@@ -663,8 +663,11 @@ FROM alpine:3.19
 # Install SSH, networking utilities, a shell, and python3. The Celesto
 # guest agent is injected later as a standalone Rust binary, so python3 is
 # not required for the control plane.
+# openssh-server 9.6_p1-r3 fixes the password bypass CVE-2026-123158. The floor also
+# stops Docker from reusing an older cached package layer.
 RUN apk add --no-cache \
     openssh \
+    'openssh-server>=9.6_p1-r3' \
     iproute2 \
     curl \
     bash \
@@ -708,8 +711,6 @@ RUN chmod +x /init
                 raise self.docker_requirement_error()
 
             logger.info("Inputs changed for image '%s'. Rebuilding...", name)
-            # Remove stale files
-            rootfs_path.unlink(missing_ok=True)
         elif not self.check_docker():
             raise self.docker_requirement_error()
 
@@ -729,8 +730,6 @@ RUN chmod +x /init
                 fingerprint_data=fingerprint_data,
             )
         except (subprocess.CalledProcessError, ImageError) as e:
-            if rootfs_path.exists():
-                rootfs_path.unlink()
             if isinstance(e, ImageError):
                 raise
             raise ImageError(f"Image build failed: {e}") from e
@@ -820,8 +819,6 @@ RUN chmod +x /init
                 raise self.docker_requirement_error()
 
             logger.info("Inputs changed for image '%s'. Rebuilding...", name)
-            # Remove stale files
-            rootfs_path.unlink(missing_ok=True)
         elif not self.check_docker():
             raise self.docker_requirement_error()
 
@@ -841,8 +838,6 @@ RUN chmod +x /init
                 fingerprint_data=fingerprint_data,
             )
         except (subprocess.CalledProcessError, ImageError) as e:
-            if rootfs_path.exists():
-                rootfs_path.unlink()
             if isinstance(e, ImageError):
                 raise
             raise ImageError(f"Image build failed: {e}") from e
@@ -1431,7 +1426,6 @@ RUN chmod +x /init
                 return (kernel_path, rootfs_path)
 
             logger.info("Inputs changed for browser image '%s'. Rebuilding...", name)
-            rootfs_path.unlink(missing_ok=True)
 
         logger.info("Building browser image '%s'...", name)
         image_dir.mkdir(parents=True, exist_ok=True)
@@ -1456,8 +1450,6 @@ RUN chmod +x /init
                 fingerprint_data=fingerprint_data,
             )
         except (subprocess.CalledProcessError, ImageError) as e:
-            if rootfs_path.exists():
-                rootfs_path.unlink()
             if isinstance(e, ImageError):
                 raise
             raise ImageError(f"Image build failed: {e}") from e
@@ -2141,6 +2133,11 @@ done
 
         tmp_path = image_dir / f".build-{uuid.uuid4().hex[:8]}"
         tmp_path.mkdir(parents=True, exist_ok=True)
+        # Saved shared-disk VMs boot from the cached rootfs, so it is only replaced
+        # once the whole build has succeeded.
+        temp_rootfs = rootfs_path.with_name(
+            f".{rootfs_path.stem}-{uuid.uuid4().hex[:8]}.tmp{rootfs_path.suffix}"
+        )
         try:
             # Write Dockerfile and init script
             (tmp_path / "Dockerfile").write_text(dockerfile_content)
@@ -2189,9 +2186,9 @@ done
 
             # 3. Create ext4 filesystem and populate it
             if self._loopfs_helper_path() is not None:
-                self._create_ext4_with_loopfs(tar_path, rootfs_path, rootfs_size_mb, tmp_path)
+                self._create_ext4_with_loopfs(tar_path, temp_rootfs, rootfs_size_mb, tmp_path)
             else:
-                self._create_ext4_with_docker(tar_path, rootfs_path, rootfs_size_mb, tmp_path)
+                self._create_ext4_with_docker(tar_path, temp_rootfs, rootfs_size_mb, tmp_path)
 
             # 4. Download architecture-compatible kernel
             resolved_kernel_url = kernel_url or self._kernel_url_for_host()
@@ -2201,11 +2198,14 @@ done
             )
             self._download_kernel(resolved_kernel_url, kernel_path)
 
+            temp_rootfs.replace(rootfs_path)
+
             # 5. Write cache fingerprint if provided and successful
             if fingerprint_data is not None:
                 self._write_fingerprint(image_dir, fingerprint_data)
 
         finally:
+            temp_rootfs.unlink(missing_ok=True)
             shutil.rmtree(tmp_path, ignore_errors=True)
 
 
