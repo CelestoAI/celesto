@@ -142,20 +142,18 @@ def _try_bypass(port: int) -> list[str]:
     return outcomes
 
 
+def _container_logs(container: str) -> str:
+    return subprocess.run(
+        ["docker", "logs", container], capture_output=True, text=True, check=False
+    ).stderr
+
+
 def _wait_for_sshd(container: str) -> int:
     for _ in range(50):
-        if (
-            "Server listening"
-            in subprocess.run(
-                ["docker", "logs", container], capture_output=True, text=True, check=False
-            ).stderr
-        ):
+        if "Server listening" in _container_logs(container):
             return int(_run("docker", "port", container, "22/tcp").rsplit(":", 1)[1])
         time.sleep(0.2)
-    logs = subprocess.run(
-        ["docker", "logs", container], capture_output=True, text=True, check=False
-    )
-    raise AssertionError(f"sshd did not start:\n{logs.stderr}")
+    raise AssertionError("sshd did not start")
 
 
 def _write_report(recipe: str, report: dict[str, Any], tmp_path: Path) -> Path:
@@ -180,39 +178,38 @@ def test_alpine_recipe_rejects_sshd_password_bypass(
     comparison = _run("docker", "run", "--rm", tag, "apk", "version", "-t", installed, floor)
 
     container = f"{tag}-sshd"
-    _run(
-        "docker",
-        "run",
-        "-d",
-        "--name",
-        container,
-        "-p",
-        "127.0.0.1::22",
-        tag,
-        "sh",
-        "-c",
-        PROBE_SETUP,
-    )
+    report: dict[str, Any] = {
+        "cve": "CVE-2026-123158",
+        "recipe": recipe,
+        "alpine": alpine,
+        "openssh_server": installed,
+        "required_openssh_server": floor,
+        "bypass_attempts": [],
+    }
     try:
-        outcomes = _try_bypass(_wait_for_sshd(container))
+        _run(
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            container,
+            "-p",
+            "127.0.0.1::22",
+            tag,
+            "sh",
+            "-c",
+            PROBE_SETUP,
+        )
+        report["bypass_attempts"] = _try_bypass(_wait_for_sshd(container))
+    except Exception as error:
+        report["error"] = repr(error)
+        report["sshd_logs"] = _container_logs(container)
+        raise
     finally:
+        print(f"report: {_write_report(recipe, report, tmp_path)}")
         subprocess.run(["docker", "rm", "-f", container], capture_output=True, check=False)
 
-    report_path = _write_report(
-        recipe,
-        {
-            "cve": "CVE-2026-123158",
-            "recipe": recipe,
-            "alpine": alpine,
-            "openssh_server": installed,
-            "required_openssh_server": floor,
-            "bypass_attempts": outcomes,
-        },
-        tmp_path,
-    )
-    print(f"report: {report_path}")
-
-    assert outcomes == ["rejected", "rejected"]
+    assert report["bypass_attempts"] == ["rejected", "rejected"]
     assert comparison in {">", "="}, f"{installed} is older than {floor}"
     # A floor in the recipe stops an old cached layer or image from being reused.
     assert f"openssh-server>={floor}" in dockerfile

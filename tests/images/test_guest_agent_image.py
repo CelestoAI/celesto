@@ -464,7 +464,11 @@ def test_do_build_bakes_agent_into_context(
             "_loopfs_helper_path",
             return_value=Path("/usr/local/libexec/celesto-loopfs-helper"),
         ),
-        patch.object(ImageBuilder, "_create_ext4_with_loopfs"),
+        patch.object(
+            ImageBuilder,
+            "_create_ext4_with_loopfs",
+            side_effect=lambda _tar, rootfs, _size, _tmp: rootfs.write_bytes(b"ext4"),
+        ),
         patch.object(ImageBuilder, "_download_kernel"),
         patch("celesto.images.builder._guest_agent_binary", return_value=fake_agent),
     ):
