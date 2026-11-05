@@ -559,8 +559,11 @@ ARG SSH_PASSWORD
 # Install SSH, networking utilities, a shell, and python3. The Celesto
 # guest agent is injected later as a standalone Rust binary, so python3 is
 # not required for the control plane.
+# openssh-server 9.6_p1-r3 fixes the password bypass CVE-2026-123158. The floor also
+# stops Docker from reusing an older cached package layer.
 RUN apk add --no-cache \\
     openssh \\
+    'openssh-server>=9.6_p1-r3' \\
     iproute2 \\
     curl \\
     bash \\
@@ -663,8 +666,11 @@ FROM alpine:3.19
 # Install SSH, networking utilities, a shell, and python3. The Celesto
 # guest agent is injected later as a standalone Rust binary, so python3 is
 # not required for the control plane.
+# openssh-server 9.6_p1-r3 fixes the password bypass CVE-2026-123158. The floor also
+# stops Docker from reusing an older cached package layer.
 RUN apk add --no-cache \
     openssh \
+    'openssh-server>=9.6_p1-r3' \
     iproute2 \
     curl \
     bash \
