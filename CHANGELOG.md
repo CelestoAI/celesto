@@ -10,6 +10,17 @@
 
 - Stop sandbox creates failing with "database is locked" when many start at once on a busy disk. Celesto's saved VM data now uses SQLite write-ahead logging, so reads no longer wait for writes and commits no longer wait on several disk flushes each.
 
+## 0.1.13 — 2026-11-06
+
+### Security
+
+- Require the fixed `openssh-server` in Alpine images built on your machine, so a rebuild can't reuse a package open to the password bypass CVE-2026-123158. Cached Alpine images rebuild once the next time they're used, which needs Docker and network access. Published images use Ubuntu and aren't affected.
+
+### Fixed
+
+- Keep the existing image when a rebuild fails, so saved shared-disk sandboxes can still start. A failed rebuild used to delete it.
+- Handle email invitations when adding an organization member through the bundled client. Adding someone who gets an invitation used to raise `KeyError` after the invitation had already been sent.
+
 ## 0.1.10 — 2026-10-25
 
 ### Security

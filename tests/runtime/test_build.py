@@ -14,6 +14,7 @@
 
 """Tests for Celesto image builder module."""
 
+import re
 import shutil
 import subprocess
 import tarfile
@@ -302,7 +303,15 @@ class TestImageBuilderLoopFs:
         self, mock_run_command: MagicMock, mock_subprocess_run: MagicMock, tmp_path: Path
     ) -> None:
         builder = ImageBuilder(cache_dir=tmp_path / "images")
-        mock_subprocess_run.side_effect = _ok_subprocess_run
+
+        def _subprocess_side_effect(
+            cmd: list[str], *args: object, **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            if cmd[0] == "dd":
+                Path(cmd[2].removeprefix("of=")).write_bytes(b"ext4")
+            return _ok_subprocess_run(cmd, *args, **kwargs)
+
+        mock_subprocess_run.side_effect = _subprocess_side_effect
         mock_run_command.return_value = subprocess.CompletedProcess(
             args=["sudo", "-n", "/usr/local/libexec/celesto-loopfs-helper"],
             returncode=0,
@@ -634,7 +643,9 @@ class TestBrowserImageBuilder:
             if cmd[:2] == ["docker", "run"]:
                 volumes = [cmd[i + 1] for i, token in enumerate(cmd) if token == "-v"]
                 out_host = Path(volumes[1].split(":", 1)[0])
-                (out_host / "rootfs.ext4").write_bytes(b"ext4")
+                rootfs_name = re.search(r"/work/out/(\S+)", cmd[-1])
+                assert rootfs_name is not None
+                (out_host / rootfs_name.group(1)).write_bytes(b"ext4")
                 return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
@@ -900,3 +911,98 @@ def test_recipe_kernel_pin_upgrade_preserves_saved_vm_kernel(
     with pytest.raises(ImageError, match="rootfs build failed"):
         getattr(builder, recipe)(*args, name="upgrade-proof", rootfs_size_mb=2049)
     assert [path.read_bytes() for path in paths] == [b"before", b"after"]
+    assert (paths[0].parent / "rootfs.ext4").read_bytes() == b"rootfs"
+
+
+class TestDoBuildReplacesRootfsOnlyAfterSuccess:
+    """Shared-disk VMs boot from the cached rootfs, so a failed rebuild must keep it.
+
+    Ways this could fail, and which test catches each:
+    - ext4 creation fails after clobbering the old file: ``test_ext4_failure``.
+    - The kernel download fails after the rootfs was swapped: ``test_kernel_failure``.
+    - A failed build leaves a partial temp file behind: both failure tests.
+    - A successful build never reaches the cache path: ``test_success``.
+    """
+
+    @staticmethod
+    def _build(builder: ImageBuilder, image_dir: Path) -> None:
+        def fake_run(
+            cmd: list[str], *args: object, **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="container-id\n", stderr="")
+
+        with (
+            patch("celesto.images.builder.subprocess.run", side_effect=fake_run),
+            patch.object(ImageBuilder, "_loopfs_helper_path", return_value=None),
+            patch(
+                "celesto.images.builder._guest_agent_binary",
+                return_value=_fake_guest_agent_binary(image_dir.parent),
+            ),
+        ):
+            builder._do_build(
+                name="demo",
+                dockerfile_content="FROM scratch\n",
+                init_script="#!/bin/sh\n",
+                image_dir=image_dir,
+                kernel_path=image_dir / "vmlinux.bin",
+                rootfs_path=image_dir / "rootfs.ext4",
+                rootfs_size_mb=8,
+                kernel_url="https://example.invalid/vmlinux",
+                fingerprint_data={"recipe": "new"},
+            )
+
+    @staticmethod
+    def _cached_image(tmp_path: Path) -> tuple[ImageBuilder, Path]:
+        image_dir = tmp_path / "image"
+        image_dir.mkdir()
+        (image_dir / "rootfs.ext4").write_bytes(b"old")
+        return ImageBuilder(cache_dir=tmp_path / "images"), image_dir
+
+    @staticmethod
+    def _write_new_rootfs(_tar: Path, rootfs_path: Path, _size: int, _tmp: Path) -> None:
+        rootfs_path.write_bytes(b"new")
+
+    def test_ext4_failure(self, tmp_path: Path) -> None:
+        builder, image_dir = self._cached_image(tmp_path)
+
+        def partial_then_fail(_tar: Path, rootfs_path: Path, _size: int, _tmp: Path) -> None:
+            rootfs_path.write_bytes(b"partial")
+            raise ImageError("ext4 failed")
+
+        with (
+            patch.object(ImageBuilder, "_create_ext4_with_docker", side_effect=partial_then_fail),
+            pytest.raises(ImageError, match="ext4 failed"),
+        ):
+            self._build(builder, image_dir)
+
+        assert (image_dir / "rootfs.ext4").read_bytes() == b"old"
+        assert [path.name for path in image_dir.iterdir()] == ["rootfs.ext4"]
+
+    def test_kernel_failure(self, tmp_path: Path) -> None:
+        builder, image_dir = self._cached_image(tmp_path)
+
+        with (
+            patch.object(
+                ImageBuilder, "_create_ext4_with_docker", side_effect=self._write_new_rootfs
+            ),
+            patch.object(ImageBuilder, "_download_kernel", side_effect=ImageError("kernel failed")),
+            pytest.raises(ImageError, match="kernel failed"),
+        ):
+            self._build(builder, image_dir)
+
+        assert (image_dir / "rootfs.ext4").read_bytes() == b"old"
+        assert [path.name for path in image_dir.iterdir()] == ["rootfs.ext4"]
+
+    def test_success(self, tmp_path: Path) -> None:
+        builder, image_dir = self._cached_image(tmp_path)
+
+        with (
+            patch.object(
+                ImageBuilder, "_create_ext4_with_docker", side_effect=self._write_new_rootfs
+            ),
+            patch.object(ImageBuilder, "_download_kernel"),
+        ):
+            self._build(builder, image_dir)
+
+        assert (image_dir / "rootfs.ext4").read_bytes() == b"new"
+        assert builder._check_fingerprint(image_dir, {"recipe": "new"})
