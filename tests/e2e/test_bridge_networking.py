@@ -16,14 +16,20 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import platform
 import secrets
 import subprocess
+import tempfile
+import threading
 import time
 from contextlib import suppress
 from dataclasses import dataclass
+from pathlib import Path
 from shutil import which
+from typing import Any
 
 import pytest
 from _util import (
@@ -35,10 +41,14 @@ from _util import (
 )
 
 from celesto import Celesto
+from celesto.cli._sqlite import SQLiteStateManager
 from celesto.comm import host_supports_vsock
+from celesto.exceptions import CelestoError, VMNotFoundError
 from celesto.facade import _build_auto_config
-from celesto.runtime.backends import BACKEND_FIRECRACKER
+from celesto.host.network import NetworkManager
+from celesto.runtime.backends import BACKEND_FIRECRACKER, BACKEND_QEMU
 from celesto.types import NetworkAttachmentConfig, SnapshotType, VMState
+from celesto.vm import CelestoManager
 
 pytestmark = pytest.mark.e2e
 
@@ -254,3 +264,118 @@ def test_bridge_connectivity_restart_restore_and_delete(
             target.delete()
         if tap_name is not None:
             _run_privileged("ip", "link", "del", tap_name, check=False)
+
+
+def test_cancelled_async_create_removes_the_interface_it_was_setting_up(
+    bridge_lab: _BridgeLab,
+    request: pytest.FixtureRequest,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cancelling creation waits for interface setup, then removes the interface.
+
+    Ways this can fail: the cancelled call returns and releases the computer's
+    lock while setup still runs on a worker thread; rollback runs before the
+    interface exists, so the interface appears afterwards with no computer
+    that owns it; or the computer's row is left behind.
+    """
+    selected = selected_backend(request.config)
+    if selected not in ("all", BACKEND_QEMU):
+        pytest.skip(
+            f"End-to-end tests for 'qemu' are skipped because this run selected "
+            f"'{selected}'; rerun with: pytest tests/e2e --e2e-backend qemu."
+        )
+    require_backend_available(BACKEND_QEMU, request.config, sandbox_name="bridge-cancel")
+    if not host_supports_vsock():
+        pytest.skip("Bridge e2e requires /dev/vhost-vsock for QEMU.")
+
+    vm_name = f"e2e-bridge-cancel-{secrets.token_hex(2)}"
+    config, _ = _build_auto_config(vm_name=vm_name, os="alpine", backend=BACKEND_QEMU)
+    config = config.model_copy(
+        update={
+            "comm_channel": "vsock",
+            "network_attachment": NetworkAttachmentConfig(mode="bridge", bridge=bridge_lab.bridge),
+        }
+    )
+    data = Path(tempfile.mkdtemp(prefix="bc-data-"))
+    sockets = Path(tempfile.mkdtemp(prefix="bc-", dir="/tmp"))
+    state = SQLiteStateManager(data / "celesto.db")
+    manager = CelestoManager(data_dir=data, socket_dir=sockets, state_manager=state)
+
+    events: list[dict[str, Any]] = []
+    entered = threading.Event()
+    released = threading.Event()
+    tap: dict[str, str] = {}
+    original_prepare = NetworkManager.prepare_bridged_tap
+
+    def gated_prepare(self: NetworkManager, tap_name: str, *args: Any, **kw: Any) -> None:
+        # Hold before the interface exists: the moment a cancel used to
+        # let rollback run too early.
+        tap["name"] = tap_name
+        events.append({"event": "setup_waiting_to_create_interface", "tap": tap_name})
+        entered.set()
+        released.wait(120)
+        original_prepare(self, tap_name, *args, **kw)
+        events.append({"event": "interface_created", "tap": tap_name})
+
+    monkeypatch.setattr(NetworkManager, "prepare_bridged_tap", gated_prepare)
+
+    def lock_free() -> bool:
+        try:
+            lock = manager._acquire_operation_lock(
+                manager._lifecycle_lock_name(vm_name), timeout=0, vm_id=vm_name
+            )
+        except CelestoError:
+            return False
+        manager._release_vm_create_lock(lock)
+        return True
+
+    def row_exists() -> bool:
+        try:
+            state.get_vm(vm_name)
+        except VMNotFoundError:
+            return False
+        return True
+
+    async def cancel_during_setup() -> tuple[dict[str, Any], str]:
+        task = asyncio.ensure_future(manager.async_create(config))
+        assert await asyncio.to_thread(entered.wait, 120), "create never reached setup"
+        task.cancel()
+        done, _ = await asyncio.wait({task}, timeout=3.0)
+        held = {"returned_before_setup_finished": bool(done), "lock_free": lock_free()}
+        events.append({"event": "while_setup_held", **held})
+        released.set()
+        try:
+            await task
+        except asyncio.CancelledError:
+            return held, "cancelled"
+        except Exception as exc:  # noqa: BLE001 - reported by the test
+            return held, repr(exc)
+        return held, "returned"
+
+    facts: dict[str, Any] = {}
+    try:
+        held, ended = asyncio.run(cancel_during_setup())
+        interface_left = (
+            _run_privileged("ip", "link", "show", tap["name"], check=False).returncode == 0
+        )
+        facts.update(held=held, ended=ended, row_after=row_exists(), interface_left=interface_left)
+    finally:
+        released.set()
+        artifact_dir = Path(os.environ.get("CELESTO_E2E_ARTIFACT_DIR") or tmp_path)
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        artifact = artifact_dir / f"{request.node.name}-{vm_name}.json"
+        artifact.write_text(json.dumps({"events": events, "facts": facts}, indent=2) + "\n")
+        print(f"bridge cancel report: {artifact}")
+        if "name" in tap:
+            _run_privileged("ip", "link", "del", tap["name"], check=False)
+        with suppress(Exception):
+            manager.delete(vm_name)
+        manager.close()
+        state.close()
+
+    assert not held["returned_before_setup_finished"], "create returned while setup ran"
+    assert not held["lock_free"], "create released the lock while setup ran"
+    assert ended == "cancelled", f"the cancelled create ended with {ended}"
+    assert not facts["row_after"], "cancelled create left the computer's row behind"
+    assert not interface_left, f"cancelled create left interface {tap['name']} behind"
