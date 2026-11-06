@@ -3532,18 +3532,24 @@ class CelestoManager:
         if not snapshot_id:
             raise ValueError("snapshot_id cannot be empty")
 
-        snapshot = self.get_snapshot(snapshot_id)
-        # Held through the artifact copy so snapshot deletion cannot remove the input.
-        with self._snapshot_operation_locks(
-            snapshot.vm_id,
-            snapshot_id,
-            include_lifecycle=True,
-        ):
-            return self._restore_snapshot_locked(
+        while True:
+            vm_id = self.get_snapshot(snapshot_id).vm_id
+            # Held through the artifact copy so snapshot deletion cannot remove the input.
+            with self._snapshot_operation_locks(
+                vm_id,
                 snapshot_id,
-                resume_vm=resume_vm,
-                force=force,
-            )
+                include_lifecycle=True,
+            ):
+                # The snapshot may have been deleted and recreated for another
+                # computer before the locks were taken. The snapshot-ID lock
+                # now pins it, so recheck and relock that computer if it moved.
+                if self.get_snapshot(snapshot_id).vm_id != vm_id:
+                    continue
+                return self._restore_snapshot_locked(
+                    snapshot_id,
+                    resume_vm=resume_vm,
+                    force=force,
+                )
 
     def _restore_snapshot_locked(
         self,
@@ -5232,133 +5238,146 @@ class CelestoManager:
             raise
 
         try:
-            if backend == BACKEND_VZ:
-                logger.info("VM created (async): %s (backend=vz)", effective_config.vm_id)
-                return self.state.get_vm(effective_config.vm_id)
-
-            channel_resolution = self._resolve_control_channel_for_config(effective_config, backend)
-
-            if self._is_bridge_attachment(effective_config):
-                await asyncio.to_thread(
-                    self._validate_bridge_mode,
-                    effective_config,
-                    backend,
-                    channel_resolution,
-                )
-                bridge_name = effective_config.network_attachment.bridge
-                assert bridge_name is not None
-                tap_name = self.state.reserve_tap_name(
-                    effective_config.vm_id,
-                    mode="bridge",
-                    bridge_name=bridge_name,
-                )
-                network_config = NetworkConfig(
-                    mode="bridge",
-                    bridge=bridge_name,
-                    tap_device=tap_name,
-                    guest_mac=self.network.generate_bridge_mac(tap_name),
-                )
-                vm_info = self.state.update_vm(
-                    effective_config.vm_id,
-                    network=network_config,
-                )
-                vm_info = self._maybe_enable_vsock(effective_config, backend, vm_info)
-                user = os.environ.get("USER", "root")
-                await self.network.async_prepare_bridged_tap(
-                    tap_name,
-                    bridge_name,
-                    effective_config.vm_id,
-                    user=user,
-                )
-                logger.info(
-                    "VM created (bridge, async): %s (bridge=%s, TAP=%s)",
-                    effective_config.vm_id,
-                    bridge_name,
-                    tap_name,
-                )
-                return vm_info
-
-            ssh_forward_required = self._should_reserve_ssh_forward(
-                effective_config,
-                backend,
-                resolution=channel_resolution,
+            # Network setup runs on worker threads that cancellation cannot
+            # stop. Finish it before rolling back, so rollback sees every
+            # interface it created and nothing appears after the lock is released.
+            vm_info, cancelled = await _wait_despite_cancel(
+                self._async_create_network(effective_config, backend)
             )
-            ssh_host_port = (
-                self._reserve_available_ssh_port(effective_config.vm_id)
-                if ssh_forward_required
-                else None
-            )
-
-            if not self._uses_host_tap_networking(effective_config, backend):
-                mac_seed = ((ssh_host_port or SSH_PORT_START) % 65534) + 1
-                guest_mac = self.network.generate_mac(mac_seed)
-                guest_ip, gateway_ip, netmask = _usernet_addresses(backend, effective_config.vm_id)
-                network_config = NetworkConfig(
-                    guest_ip=guest_ip,
-                    gateway_ip=gateway_ip,
-                    netmask=netmask,
-                    tap_device="usernet",
-                    guest_mac=guest_mac,
-                    ssh_host_port=ssh_host_port,
-                )
-                vm_info = self.state.update_vm(effective_config.vm_id, network=network_config)
-                vm_info = self._maybe_enable_vsock(effective_config, backend, vm_info)
-                return vm_info
-
-            # --- NAT TAP mode (async) ---
-            # Firecracker networking (async)
-            guest_ip = self.state.allocate_ip(effective_config.vm_id, "pending")
-            vm_number = ip_to_pool_index(guest_ip)
-            tap_name = f"tap{vm_number}"
-            self.state.update_ip_lease_tap(effective_config.vm_id, tap_name)
-            user = os.environ.get("USER", "root")
-            await self.network.async_prepare_tap_device(tap_name, user=user, netmask="32")
-            await self.network.async_add_route(guest_ip, tap_name)
-            await self._async_setup_policy_network(effective_config, tap_name, guest_ip)
-
-            # Apply domain allowlist if configured
-            if (
-                effective_config.internet_settings is not None
-                and effective_config.internet_settings.mode is None
-                and not effective_config.internet_settings.is_allow_all_domains
-            ):
-                allowed_ips = resolve_domains_to_ips(
-                    effective_config.internet_settings.allowed_domains
-                )
-                await self.network.async_apply_egress_allowlist(tap_name, allowed_ips)
-
-            if ssh_host_port is not None:
-                await self.network.async_setup_ssh_port_forward(
-                    vm_id=effective_config.vm_id,
-                    guest_ip=guest_ip,
-                    host_port=ssh_host_port,
-                )
-
-            guest_mac = self.network.generate_mac(vm_number)
-            network_config = NetworkConfig(
-                guest_ip=guest_ip,
-                gateway_ip=self.network.host_ip,
-                tap_device=tap_name,
-                guest_mac=guest_mac,
-                ssh_host_port=ssh_host_port,
-            )
-            vm_info = self.state.update_vm(effective_config.vm_id, network=network_config)
-
-            vm_info = self._maybe_enable_vsock(effective_config, backend, vm_info)
-
+            if cancelled:
+                raise asyncio.CancelledError
             return vm_info
 
         except BaseException as e:
             # See create(): roll back on Ctrl-C too.
             logger.error("Failed to create VM %s: %s", effective_config.vm_id, e)
-            await self._async_cleanup_resources(
-                effective_config.vm_id,
-                preserve_managed_disk=managed_disk_existed,
+            # A second cancellation must not cut rollback short either.
+            await _wait_despite_cancel(
+                self._async_cleanup_resources(
+                    effective_config.vm_id,
+                    preserve_managed_disk=managed_disk_existed,
+                )
             )
             self._restore_retained_marker(managed_disk_path, managed_disk_was_saved)
             with suppress(Exception):
                 self.state.delete_vm(effective_config.vm_id)
             raise
+
+    async def _async_create_network(self, effective_config: VMConfig, backend: str) -> VMInfo:
+        """Set up networking for a computer whose row was just created."""
+        if backend == BACKEND_VZ:
+            logger.info("VM created (async): %s (backend=vz)", effective_config.vm_id)
+            return self.state.get_vm(effective_config.vm_id)
+
+        channel_resolution = self._resolve_control_channel_for_config(effective_config, backend)
+
+        if self._is_bridge_attachment(effective_config):
+            await asyncio.to_thread(
+                self._validate_bridge_mode,
+                effective_config,
+                backend,
+                channel_resolution,
+            )
+            bridge_name = effective_config.network_attachment.bridge
+            assert bridge_name is not None
+            tap_name = self.state.reserve_tap_name(
+                effective_config.vm_id,
+                mode="bridge",
+                bridge_name=bridge_name,
+            )
+            network_config = NetworkConfig(
+                mode="bridge",
+                bridge=bridge_name,
+                tap_device=tap_name,
+                guest_mac=self.network.generate_bridge_mac(tap_name),
+            )
+            vm_info = self.state.update_vm(
+                effective_config.vm_id,
+                network=network_config,
+            )
+            vm_info = self._maybe_enable_vsock(effective_config, backend, vm_info)
+            user = os.environ.get("USER", "root")
+            await self.network.async_prepare_bridged_tap(
+                tap_name,
+                bridge_name,
+                effective_config.vm_id,
+                user=user,
+            )
+            logger.info(
+                "VM created (bridge, async): %s (bridge=%s, TAP=%s)",
+                effective_config.vm_id,
+                bridge_name,
+                tap_name,
+            )
+            return vm_info
+
+        ssh_forward_required = self._should_reserve_ssh_forward(
+            effective_config,
+            backend,
+            resolution=channel_resolution,
+        )
+        ssh_host_port = (
+            self._reserve_available_ssh_port(effective_config.vm_id)
+            if ssh_forward_required
+            else None
+        )
+
+        if not self._uses_host_tap_networking(effective_config, backend):
+            mac_seed = ((ssh_host_port or SSH_PORT_START) % 65534) + 1
+            guest_mac = self.network.generate_mac(mac_seed)
+            guest_ip, gateway_ip, netmask = _usernet_addresses(backend, effective_config.vm_id)
+            network_config = NetworkConfig(
+                guest_ip=guest_ip,
+                gateway_ip=gateway_ip,
+                netmask=netmask,
+                tap_device="usernet",
+                guest_mac=guest_mac,
+                ssh_host_port=ssh_host_port,
+            )
+            vm_info = self.state.update_vm(effective_config.vm_id, network=network_config)
+            vm_info = self._maybe_enable_vsock(effective_config, backend, vm_info)
+            return vm_info
+
+        # --- NAT TAP mode (async) ---
+        # Firecracker networking (async)
+        guest_ip = self.state.allocate_ip(effective_config.vm_id, "pending")
+        vm_number = ip_to_pool_index(guest_ip)
+        tap_name = f"tap{vm_number}"
+        self.state.update_ip_lease_tap(effective_config.vm_id, tap_name)
+        user = os.environ.get("USER", "root")
+        await self.network.async_prepare_tap_device(tap_name, user=user, netmask="32")
+        await self.network.async_add_route(guest_ip, tap_name)
+        await self._async_setup_policy_network(effective_config, tap_name, guest_ip)
+
+        # Apply domain allowlist if configured
+        if (
+            effective_config.internet_settings is not None
+            and effective_config.internet_settings.mode is None
+            and not effective_config.internet_settings.is_allow_all_domains
+        ):
+            allowed_ips = resolve_domains_to_ips(effective_config.internet_settings.allowed_domains)
+            await self.network.async_apply_egress_allowlist(tap_name, allowed_ips)
+
+        if ssh_host_port is not None:
+            await self.network.async_setup_ssh_port_forward(
+                vm_id=effective_config.vm_id,
+                guest_ip=guest_ip,
+                host_port=ssh_host_port,
+            )
+
+        guest_mac = self.network.generate_mac(vm_number)
+        network_config = NetworkConfig(
+            guest_ip=guest_ip,
+            gateway_ip=self.network.host_ip,
+            tap_device=tap_name,
+            guest_mac=guest_mac,
+            ssh_host_port=ssh_host_port,
+        )
+        vm_info = self.state.update_vm(effective_config.vm_id, network=network_config)
+
+        vm_info = self._maybe_enable_vsock(effective_config, backend, vm_info)
+
+        return vm_info
 
     async def async_start(
         self,
@@ -5435,6 +5454,7 @@ class CelestoManager:
             self._check_qemu_slirp_host_forward_ports(vm_info)
         log_path = self.data_dir / f"{vm_id}.log"
         adapter = self._runtime_adapter_for_backend(backend)
+        stopping_after_cancel = False
         try:
             vm_info = self._prepare_public_egress(vm_info)
             # Cancellation cannot stop the launch's worker thread. Wait for the
@@ -5460,6 +5480,7 @@ class CelestoManager:
                 display=launch.display,
             )
             if cancelled:
+                stopping_after_cancel = True
                 await self._async_stop_claimed(vm_id, 10.0)
                 raise asyncio.CancelledError
             self._unrecorded_public_launches.pop(vm_id, None)
@@ -5471,6 +5492,12 @@ class CelestoManager:
             )
             return vm_info
         except Exception as e:
+            if stopping_after_cancel:
+                # The stop can fail while the guest is still running. The row
+                # already records its PID and socket, so keep them for a later
+                # stop or delete to retry instead of forgetting a live guest.
+                logger.error("Could not stop VM %s after a cancelled start: %s", vm_id, e)
+                raise
             logger.error("Failed to start VM %s: %s", vm_id, e)
             pending = self._unrecorded_public_launches.get(vm_id)
             if pending is not None:

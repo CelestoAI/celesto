@@ -42,6 +42,13 @@ Ways each case can fail, written before the fix:
    being removed, and the row survives with its disk gone.
 9. Stopping during a snapshot: the snapshot finishes afterwards and marks the
    stopped computer "paused" with no process, so it can no longer start.
+10. A cancelled async start whose cleanup stop fails: the row forgets the
+    still-running guest's process ID, so a later delete skips stopping it
+    and removes files the guest still uses.
+11. Restoring a snapshot whose ID was deleted and recreated for another
+    computer while restore waited: restore locks the first computer but
+    changes the second, so the second computer's start, stop and delete can
+    overlap the disk replacement.
 
 Every test writes a JSON report of what happened, in order, to
 ``$CELESTO_E2E_ARTIFACT_DIR`` (or pytest's temporary folder), and checks that
@@ -785,3 +792,141 @@ def test_stop_during_snapshot_keeps_the_computer_stopped(
     assert after == stopped, "the snapshot overwrote the stop that ran during it"
     monkeypatch.undo()
     _assert_starts_cleanly(case)
+
+
+# ---------------------------------------------------------------------------
+# 10. A failed stop after a cancelled start keeps the guest tracked
+# ---------------------------------------------------------------------------
+
+
+def test_failed_stop_after_cancelled_start_keeps_the_guest_tracked(
+    live_case: LiveCase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case, report = live_case, live_case.report
+    case.manager.create(case.config)
+    gate = Gate()
+    launched: dict[str, Any] = {}
+    original_start = QemuRuntimeAdapter.start
+    original_stop = QemuRuntimeAdapter.stop
+
+    def gated_start(self: QemuRuntimeAdapter, vm_info: Any, **kw: Any) -> Any:
+        launch = original_start(self, vm_info, **kw)
+        if vm_info.vm_id == case.name:
+            launched["pid"] = launch.pid
+            report.event("guest_launched", pid=launch.pid)
+            gate.hold_once()
+        return launch
+
+    def failing_stop(self: QemuRuntimeAdapter, vm_info: Any, **kw: Any) -> None:
+        # QEMU can fail to stop while its process is still running.
+        if vm_info.vm_id == case.name:
+            report.event("stop_failed", pid=vm_info.pid, pid_alive=_pid_alive(vm_info.pid))
+            raise CelestoError("QEMU did not stop")
+        original_stop(self, vm_info, **kw)
+
+    monkeypatch.setattr(QemuRuntimeAdapter, "start", gated_start)
+    monkeypatch.setattr(QemuRuntimeAdapter, "stop", failing_stop)
+
+    held, ended = asyncio.run(
+        _cancel_while_gated(
+            case, gate, lambda: case.manager.async_start(case.name, boot_timeout=BOOT_TIMEOUT)
+        )
+    )
+    after = _row(case.state, case.name)
+    report.facts.update(held=held, ended=ended, row_after=after, launched_pid=launched.get("pid"))
+
+    assert not held["returned_before_work_finished"]
+    assert not held["lock_free_while_work_runs"]
+    assert "QEMU did not stop" in ended, f"the cancelled call ended with {ended}"
+    assert _pid_alive(launched["pid"]), "the guest stopped even though its stop failed"
+    assert after["pid"] == launched["pid"], "the row forgot the running guest's process ID"
+
+    # Once stopping works again, delete must stop the guest it still tracks.
+    monkeypatch.undo()
+    case.manager.delete(case.name)
+    guests = _runtime_processes(case.data_dir)
+    report.event("deleted", row=_row(case.state, case.name), guest_processes=guests)
+    assert _row(case.state, case.name) == {"exists": False}
+    assert guests == [], f"delete left the guest running: {guests}"
+    assert not _pid_alive(launched["pid"])
+
+
+# ---------------------------------------------------------------------------
+# 11. Restore locks the computer that owns the snapshot when it runs
+# ---------------------------------------------------------------------------
+
+
+def test_restore_locks_the_computer_a_recreated_snapshot_belongs_to(
+    live_case: LiveCase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case, report = live_case, live_case.report
+    snapshot_id = f"snap-{uuid.uuid4().hex[:8]}"
+    first = _boot(case)
+    case.manager.create_snapshot(case.name, snapshot_id, snapshot_type=SnapshotType.DISK)
+    first.stop()
+
+    other_name = f"{case.name}-b"
+    other_config, _ = _build_auto_config(vm_name=other_name, os="alpine", backend=BACKEND_QEMU)
+    other = _boot(case, other_config)
+    assert other.run("echo second-computer > /root/marker; sync").exit_code == 0
+    report.facts.update(snapshot_id=snapshot_id, first=case.name, second=other_name)
+
+    read_gate = Gate()
+    copy_gate = Gate()
+    original_get_snapshot = case.manager.get_snapshot
+    original_copy = QemuRuntimeAdapter._copy_disk_standalone
+
+    def gated_get_snapshot(requested_id: str) -> Any:
+        snapshot = original_get_snapshot(requested_id)
+        if requested_id == snapshot_id and snapshot.vm_id == case.name:
+            # Restore has read the old owner and has not taken any lock yet.
+            report.event("restore_read_snapshot_owner", vm_id=snapshot.vm_id)
+            read_gate.hold_once()
+        return snapshot
+
+    def gated_copy(src: Path, dest: Path, *, _depth: int = 0) -> None:
+        name = Path(dest).name
+        if _depth == 0 and name.startswith(f"{other_name}.") and ".restore-" in name:
+            report.event("restore_copying_disk", dest=str(dest))
+            copy_gate.hold_once()
+        original_copy(src, dest, _depth=_depth)
+
+    monkeypatch.setattr(case.manager, "get_snapshot", gated_get_snapshot)
+    monkeypatch.setattr(QemuRuntimeAdapter, "_copy_disk_standalone", staticmethod(gated_copy))
+
+    restore_thread, restore = _in_thread(lambda: case.manager.restore_snapshot(snapshot_id))
+    assert read_gate.entered.wait(GATE_TIMEOUT), "restore never read the snapshot"
+
+    # Move the snapshot ID to the second computer while restore waits.
+    case.manager.delete_snapshot(snapshot_id)
+    case.manager.create_snapshot(other_name, snapshot_id, snapshot_type=SnapshotType.DISK)
+    other.stop()
+    report.event("snapshot_recreated_for_second_computer")
+
+    read_gate.released.set()
+    copied = copy_gate.entered.wait(GATE_TIMEOUT)
+    second_lock_free = _lifecycle_lock_free(case.manager, other_name)
+    report.event(
+        "while_restore_replaces_disk",
+        reached_copy=copied,
+        second_lock_free=second_lock_free,
+        restore_error=repr(restore.get("error")),
+    )
+    copy_gate.released.set()
+    restore_thread.join(GATE_TIMEOUT)
+    report.event("restore_finished", error=repr(restore.get("error")))
+
+    assert copied, f"restore never replaced the disk: {restore.get('error')!r}"
+    assert not second_lock_free, "restore changed the second computer without its lock"
+    assert "error" not in restore, f"restore failed: {restore.get('error')!r}"
+    assert restore["result"].vm_id == other_name
+
+    monkeypatch.undo()
+    restored = Celesto.from_id(other_name, **case.handle_kwargs)
+    restored.start(boot_timeout=BOOT_TIMEOUT)
+    restored.wait_for_ready(timeout=BOOT_TIMEOUT)
+    marker = restored.run("cat /root/marker").stdout.strip()
+    first_row = _row(case.state, case.name)
+    report.facts.update(restored_marker=marker, first_row_after=first_row)
+    assert marker == "second-computer"
+    assert first_row == {"exists": True, "status": "stopped", "pid": None}
