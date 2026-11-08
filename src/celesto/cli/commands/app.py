@@ -424,7 +424,9 @@ def sandbox() -> None:
 @click.option("--template", "template_id", default=None, help="Cloud template ID.")
 @click.option("--template-version", default=None, help="Cloud template version.")
 @click.option(
-    "--internet/--no-internet", default=True, help="Allow cloud outbound internet access."
+    "--internet/--no-internet",
+    default=None,
+    help="Set cloud outbound internet access; omitted uses the server default.",
 )
 @click.option(
     "--memory",
@@ -494,7 +496,7 @@ def sandbox_create(
     size_id: str | None,
     template_id: str | None,
     template_version: str | None,
-    internet: bool,
+    internet: bool | None,
     memory_mib: int | None,
     disk_size_mib: int | None,
     width: int | None,
@@ -513,6 +515,18 @@ def sandbox_create(
 ) -> Any:
     """Create a minimal computer; add --desktop for a Linux desktop."""
     _before_command(json_output=json_output)
+    cloud_command = ["celesto", "computer", "create", "--cloud"]
+    for flag, value in (
+        ("--size", size_id),
+        ("--template", template_id),
+        ("--template-version", template_version),
+        ("--image", image),
+    ):
+        if value is not None:
+            cloud_command.extend((flag, value))
+    if internet is not None:
+        cloud_command.append("--internet" if internet else "--no-internet")
+    cloud_recovery = shlex.join(cloud_command)
     if provider == "cloud":
         _reject_provided_options(
             (
@@ -533,7 +547,7 @@ def sandbox_create(
                 "network_mode",
                 "bridge_name",
             ),
-            recovery="celesto computer create --cloud --size micro",
+            recovery=cloud_recovery,
         )
         return _handlers()._run_computer(
             _ns(
@@ -548,10 +562,10 @@ def sandbox_create(
                 json=json_output,
             )
         )
-    _reject_provided_options(
-        ("size_id", "template_id", "template_version", "internet"),
-        recovery="celesto computer create --cloud --size micro",
-    )
+    if any(value is not None for value in (size_id, template_id, template_version, internet)):
+        raise click.UsageError(
+            f"Cloud size, template, and internet options require --cloud; run '{cloud_recovery}'."
+        )
     if desktop:
         if backend not in (None, "auto", "qemu", "firecracker"):
             raise click.UsageError(

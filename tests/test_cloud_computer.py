@@ -1385,8 +1385,12 @@ def test_named_size_and_network_policy_reach_cloud_api(
     comp.close()
 
 
+@pytest.mark.parametrize("internet_flag,mode", [("--no-internet", "off"), ("--internet", "open")])
 def test_cloud_cli_named_size_reaches_api(
-    cloud: tuple[list[httpx.Request], list[Any]], capsys: pytest.CaptureFixture[str]
+    cloud: tuple[list[httpx.Request], list[Any]],
+    capsys: pytest.CaptureFixture[str],
+    internet_flag: str,
+    mode: str,
 ) -> None:
     from celesto.cli.main import main
 
@@ -1402,7 +1406,7 @@ def test_cloud_cli_named_size_reaches_api(
                 "micro",
                 "--template",
                 "scratch",
-                "--no-internet",
+                internet_flag,
                 "--json",
             ]
         )
@@ -1411,5 +1415,23 @@ def test_cloud_cli_named_size_reaches_api(
     body = json.loads(requests[0].content)
     assert body["size_id"] == "micro"
     assert body["template_id"] == "scratch"
-    assert body["network_policy"] == {"mode": "off"}
+    assert body["network_policy"] == {"mode": mode}
+    assert all(request.method != "DELETE" for request in requests)
     assert json.loads(capsys.readouterr().out)["data"]["computer_id"] == "cloud-test"
+
+
+@pytest.mark.parametrize("extra", [[], ["--cloud", "--name", "demo"]])
+def test_cloud_create_recovery_preserves_size_and_network_policy(
+    cloud: tuple[list[httpx.Request], list[Any]],
+    capsys: pytest.CaptureFixture[str],
+    extra: list[str],
+) -> None:
+    from celesto.cli.main import main
+
+    requests, _ = cloud
+    assert main(["computer", "create", *extra, "--size", "small", "--no-internet", "--json"]) == 2
+    message = json.loads(capsys.readouterr().out)["error"]["message"]
+    assert "celesto computer create --cloud --size small --no-internet" in message
+    if not extra:
+        assert "require --cloud" in message
+    assert not requests

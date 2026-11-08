@@ -21,8 +21,8 @@ with Computer(size_id="micro") as comp:
 The constructor validates configuration without contacting the server. Entering the block creates a computer and waits for it to run. Each command returns `stdout`, `stderr`, and `exit_code`; nonzero command exit codes do not raise an exception. Cloud commands support up to 10,000 characters and a timeout of 1–300 seconds.
 
 The free trial allows two cloud sandboxes at a time, including stopped sandboxes.
-To create another, delete the existing sandbox in the cloud dashboard or add
-prepaid credit. To reuse it, reconnect with `Computer.get(computer_id)` instead
+To create another when both slots are occupied, delete a sandbox in the cloud
+dashboard or add prepaid credit. To reuse it, reconnect with `Computer.get(computer_id)` instead
 of creating a new `Computer()`. Stopping a sandbox does not free the trial slot.
 When this limit is reached, `CloudAPIError` explains the restriction and recovery
 options alongside HTTP 429. A separate running-sandbox limit can apply after

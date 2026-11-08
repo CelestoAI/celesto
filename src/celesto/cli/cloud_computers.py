@@ -21,8 +21,9 @@ def run_cloud_computer(args: SimpleNamespace) -> int:
                 for key in ("size_id", "template_id", "template_version", "image")
                 if (value := getattr(args, key, None)) is not None
             }
-            if not getattr(args, "internet", True):
-                options["network_policy"] = {"mode": "off"}
+            internet = getattr(args, "internet", None)
+            if internet is not None:
+                options["network_policy"] = {"mode": "open" if internet else "off"}
             handle = CloudComputer(
                 lifetime="persistent", startup_timeout=args.boot_timeout, **options
             )
