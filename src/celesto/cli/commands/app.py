@@ -117,7 +117,7 @@ def _reject_provided_options(names: tuple[str, ...], *, recovery: str) -> None:
                 else f"--{name.replace('_', '-')}"
             )
             raise click.UsageError(
-                f"{flag} is unavailable for this computer; run '{recovery}' instead."
+                f"{flag} is unavailable for this computer; omit it and run '{recovery}'."
             )
 
 
@@ -406,17 +406,42 @@ def sandbox() -> None:
     "--desktop", is_flag=True, help="Create a Linux desktop computer instead of a minimal one."
 )
 @computer_provider_options
-@click.option("-n", "--name", default=None, help="Name for the computer.")
+@click.option("-n", "--name", default=None, help="Name for a local computer.")
 @click.option(
     "--os",
     "os_name",
     type=click.Choice([guest_os.value for guest_os in GuestOS]),
     default=None,
-    help="Operating system image; auto-detected when omitted.",
+    help="Operating system image for local computers; auto-detected when omitted.",
 )
-@click.option("--image", default=None, help="S3 URI or local qcow2 image path.")
-@click.option("--memory", "memory_mib", type=int, default=None, metavar="MIB")
-@click.option("--disk-size", "disk_size_mib", type=int, default=None, metavar="MIB")
+@click.option("--image", default=None, help="Cloud OS image, S3 URI, or local qcow2 image path.")
+@click.option(
+    "--size",
+    "size_id",
+    default=None,
+    help="Cloud size, such as micro, small, or standard; omitted uses the account default.",
+)
+@click.option("--template", "template_id", default=None, help="Cloud template ID.")
+@click.option("--template-version", default=None, help="Cloud template version.")
+@click.option(
+    "--internet/--no-internet", default=True, help="Allow cloud outbound internet access."
+)
+@click.option(
+    "--memory",
+    "memory_mib",
+    type=int,
+    default=None,
+    metavar="MIB",
+    help="Local computer memory; use --size for cloud computers.",
+)
+@click.option(
+    "--disk-size",
+    "disk_size_mib",
+    type=int,
+    default=None,
+    metavar="MIB",
+    help="Local computer disk size; use --size for cloud computers.",
+)
 @click.option("--width", type=int, default=None, callback=_computer_range(640, 7680, 1440))
 @click.option("--height", type=int, default=None, callback=_computer_range(480, 4320, 900))
 @backend_option(default=None)
@@ -466,6 +491,10 @@ def sandbox_create(
     name: str | None,
     os_name: str | None,
     image: str | None,
+    size_id: str | None,
+    template_id: str | None,
+    template_version: str | None,
+    internet: bool,
     memory_mib: int | None,
     disk_size_mib: int | None,
     width: int | None,
@@ -490,7 +519,6 @@ def sandbox_create(
                 "desktop",
                 "name",
                 "os_name",
-                "image",
                 "memory_mib",
                 "disk_size_mib",
                 "width",
@@ -505,16 +533,25 @@ def sandbox_create(
                 "network_mode",
                 "bridge_name",
             ),
-            recovery="celesto computer create --cloud",
+            recovery="celesto computer create --cloud --size micro",
         )
         return _handlers()._run_computer(
             _ns(
                 computer_action="create",
                 provider="cloud",
+                size_id=size_id,
+                template_id=template_id,
+                template_version=template_version,
+                image=image,
+                internet=internet,
                 boot_timeout=boot_timeout,
                 json=json_output,
             )
         )
+    _reject_provided_options(
+        ("size_id", "template_id", "template_version", "internet"),
+        recovery="celesto computer create --cloud --size micro",
+    )
     if desktop:
         if backend not in (None, "auto", "qemu", "firecracker"):
             raise click.UsageError(

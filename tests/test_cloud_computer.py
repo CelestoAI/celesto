@@ -5,6 +5,7 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import httpx
 import pytest
@@ -26,7 +27,7 @@ from celesto import (
 from celesto._cloud import _CloudComputer
 
 
-def computer(status="running"):
+def computer(status: str = "running") -> dict[str, Any]:
     return {
         "id": "cloud-test",
         "name": "trial",
@@ -1367,3 +1368,48 @@ def test_cli_create_names_cli_as_the_client_without_leaking(cloud, monkeypatch, 
     # A later SDK create in the same process is still reported as the SDK.
     Computer(lifetime="persistent").start()
     assert requests[1].headers["x-celesto-client"] == "sdk"
+
+
+def test_named_size_and_network_policy_reach_cloud_api(
+    cloud: tuple[list[httpx.Request], list[Any]],
+) -> None:
+    requests, replies = cloud
+    replies.extend([(201, computer()), (200, computer())])
+    comp = Computer(size_id="micro", network_policy={"mode": "off"})
+    comp.start()
+    body = json.loads(requests[0].content)
+    assert body["size_id"] == "micro"
+    assert body["network_policy"] == {"mode": "off"}
+    assert not {"vcpus", "ram_mb", "disk_size_mb"}.intersection(body)
+    assert requests[0].headers["Idempotency-Key"]
+    comp.close()
+
+
+def test_cloud_cli_named_size_reaches_api(
+    cloud: tuple[list[httpx.Request], list[Any]], capsys: pytest.CaptureFixture[str]
+) -> None:
+    from celesto.cli.main import main
+
+    requests, replies = cloud
+    replies.extend([(201, computer()), (200, computer())])
+    assert (
+        main(
+            [
+                "computer",
+                "create",
+                "--cloud",
+                "--size",
+                "micro",
+                "--template",
+                "scratch",
+                "--no-internet",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    body = json.loads(requests[0].content)
+    assert body["size_id"] == "micro"
+    assert body["template_id"] == "scratch"
+    assert body["network_policy"] == {"mode": "off"}
+    assert json.loads(capsys.readouterr().out)["data"]["computer_id"] == "cloud-test"

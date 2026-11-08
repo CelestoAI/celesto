@@ -16,7 +16,16 @@ def run_cloud_computer(args: SimpleNamespace) -> int:
     handle = None
     try:
         if action == "create":
-            handle = CloudComputer(lifetime="persistent", startup_timeout=args.boot_timeout)
+            options = {
+                key: value
+                for key in ("size_id", "template_id", "template_version", "image")
+                if (value := getattr(args, key, None)) is not None
+            }
+            if not getattr(args, "internet", True):
+                options["network_policy"] = {"mode": "off"}
+            handle = CloudComputer(
+                lifetime="persistent", startup_timeout=args.boot_timeout, **options
+            )
             handle.start()
             if json_output:
                 emit_json(command, 0, data={"computer_id": handle.id, "provider": "cloud"})

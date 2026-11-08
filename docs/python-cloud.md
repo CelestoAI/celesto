@@ -13,20 +13,34 @@ pip install .
 ```python
 from celesto import CloudComputer as Computer
 
-with Computer() as comp:
+with Computer(size_id="micro") as comp:
     result = comp.run("echo hello")
     print(result.stdout)
 ```
 
 The constructor validates configuration without contacting the server. Entering the block creates a computer and waits for it to run. Each command returns `stdout`, `stderr`, and `exit_code`; nonzero command exit codes do not raise an exception. Cloud commands support up to 10,000 characters and a timeout of 1–300 seconds.
 
-The free trial allows one cloud sandbox at a time, including stopped sandboxes.
+The free trial allows two cloud sandboxes at a time, including stopped sandboxes.
 To create another, delete the existing sandbox in the cloud dashboard or add
 prepaid credit. To reuse it, reconnect with `Computer.get(computer_id)` instead
 of creating a new `Computer()`. Stopping a sandbox does not free the trial slot.
 When this limit is reached, `CloudAPIError` explains the restriction and recovery
 options alongside HTTP 429. A separate running-sandbox limit can apply after
 adding credit; that error reports the allowed count when available.
+
+## Choose a cloud size
+
+Pass `size_id="micro"` for a small cloud computer, or choose another named size
+allowed by your credits. Omit it to let the backend choose your account's default.
+CPU, RAM, and disk overrides are not supported by the current cloud API.
+
+```console
+celesto computer create --cloud --size micro
+celesto computer create --cloud --size micro --template scratch --no-internet
+```
+
+The Python equivalent is `Computer(size_id="micro", network_policy={"mode": "off"})`.
+Cloud creation also accepts `image`, `template_id`, and `template_version`.
 
 ## Stream command output
 

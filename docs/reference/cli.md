@@ -84,7 +84,7 @@ Images are stored in `~/.celesto/images`. To keep them somewhere else, set the `
 | `celesto auth login` | Save a cloud API key for later `--cloud` commands. |
 | `celesto computer create --desktop --name NAME` | Start a local computer with a Linux desktop, a browser-based viewer, and Chromium. |
 | `celesto computer list --desktop` / `open NAME` / `delete NAME --desktop` | Find that computer, open its desktop viewer in your browser, or delete it. |
-| `celesto computer create --cloud` / `list --cloud` / `info ID --cloud` | Create, find, or inspect cloud computers. |
+| `celesto computer create --cloud [--size micro] [--template ID] [--no-internet]` / `list --cloud` / `info ID --cloud` | Create, find, or inspect cloud computers. |
 | `celesto computer start ID --cloud` / `stop ID --cloud` | Resume or stop a cloud computer. Without `--cloud`, `start` and `stop` act on local computers. |
 | `celesto computer port publish` / `unpublish` | Publish or unpublish a cloud computer's port on a public URL. Local `port expose` only forwards to your machine. |
 | `celesto computer templates` | List the available desktop templates. |
