@@ -5,6 +5,7 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import httpx
 import pytest
@@ -26,7 +27,7 @@ from celesto import (
 from celesto._cloud import _CloudComputer
 
 
-def computer(status="running"):
+def computer(status: str = "running") -> dict[str, Any]:
     return {
         "id": "cloud-test",
         "name": "trial",
@@ -864,9 +865,9 @@ def test_other_error_statuses_do_not_retain_detail(cloud, status):
         (402, {"error_code": "prepaid_credit_depleted"}, "credit"),
         (
             429,
-            {"error_code": "trial_retained_sandbox_limit_reached"},
-            "The free trial allows one sandbox at a time, including stopped sandboxes. "
-            "Reuse your existing sandbox, delete it in the cloud dashboard, or add "
+            {"error_code": "trial_retained_sandbox_limit_reached", "limit": 2},
+            "The free trial allows 2 retained sandboxes at a time, including stopped sandboxes. "
+            "Reuse an existing sandbox, delete one in the cloud dashboard, or add "
             "prepaid credit before creating another.",
         ),
         (
@@ -1203,7 +1204,15 @@ def test_connection_permission_recovery_is_preserved_and_safe(cloud, operation):
     comp.close()
 
 
-def test_documented_validation_error_names_only_safe_fields(cloud):
+@pytest.mark.parametrize(
+    "field,constraint,options",
+    [
+        ("vcpus", "greater_than", {"vcpus": 0}),
+        ("size_id", "string_too_short", {"size_id": "micro"}),
+        ("size_id", "string_too_long", {"size_id": "micro"}),
+    ],
+)
+def test_documented_validation_error_names_only_safe_fields(cloud, field, constraint, options):
     requests, replies = cloud
     replies.append(
         (
@@ -1213,8 +1222,8 @@ def test_documented_validation_error_names_only_safe_fields(cloud):
                 "status_code": 422,
                 "errors": [
                     {
-                        "loc": ["body", "vcpus"],
-                        "type": "greater_than",
+                        "loc": ["body", field],
+                        "type": constraint,
                         "msg": "credential-secret",
                         "input": "credential-secret",
                         "ctx": {"gt": 0},
@@ -1229,11 +1238,11 @@ def test_documented_validation_error_names_only_safe_fields(cloud):
         )
     )
     with pytest.raises(CloudAPIError) as caught:
-        Computer(vcpus=0).start()
+        Computer(**options).start()
     error = caught.value
     assert error.status_code == 422 and error.code == "validation_error"
-    assert error.validation_errors == ({"field": "vcpus", "code": "greater_than"},)
-    assert "vcpus" in str(error) and "positive" in str(error)
+    assert error.validation_errors == ({"field": field, "code": constraint},)
+    assert field in str(error)
     assert error.side_effects == "none" and error.recovery_action == "fix_and_retry"
     assert "credential-secret" not in str(error) + repr(error.details) + repr(
         error.validation_errors
@@ -1367,3 +1376,131 @@ def test_cli_create_names_cli_as_the_client_without_leaking(cloud, monkeypatch, 
     # A later SDK create in the same process is still reported as the SDK.
     Computer(lifetime="persistent").start()
     assert requests[1].headers["x-celesto-client"] == "sdk"
+
+
+def test_named_size_and_network_policy_reach_cloud_api(
+    cloud: tuple[list[httpx.Request], list[Any]],
+) -> None:
+    requests, replies = cloud
+    replies.extend([(201, computer()), (200, computer())])
+    comp = Computer(size_id="micro", network_policy={"mode": "off"})
+    comp.start()
+    body = json.loads(requests[0].content)
+    assert body["size_id"] == "micro"
+    assert body["network_policy"] == {"mode": "off"}
+    assert not {"vcpus", "ram_mb", "disk_size_mb"}.intersection(body)
+    assert requests[0].headers["Idempotency-Key"]
+    comp.close()
+
+
+@pytest.mark.parametrize(
+    "options,expected",
+    [
+        (
+            [
+                "--size",
+                "micro",
+                "--template",
+                "scratch",
+                "--template-version",
+                "v1",
+                "--image",
+                "custom-image",
+                "--no-internet",
+            ],
+            {
+                "size_id": "micro",
+                "template_id": "scratch",
+                "template_version": "v1",
+                "image": "custom-image",
+                "network_policy": {"mode": "off"},
+            },
+        ),
+        (
+            ["--size", "micro", "--internet"],
+            {"size_id": "micro", "network_policy": {"mode": "open"}},
+        ),
+        ([], {}),
+    ],
+)
+def test_cloud_cli_create_options_reach_api(
+    cloud: tuple[list[httpx.Request], list[Any]],
+    capsys: pytest.CaptureFixture[str],
+    options: list[str],
+    expected: dict[str, Any],
+) -> None:
+    from celesto.cli.main import main
+
+    requests, replies = cloud
+    replies.extend([(201, computer()), (200, computer())])
+    assert main(["computer", "create", "--cloud", *options, "--json"]) == 0
+    body = json.loads(requests[0].content)
+    for field in ("size_id", "template_id", "template_version", "network_policy"):
+        if field in expected:
+            assert body[field] == expected[field]
+        else:
+            assert field not in body
+    assert body["image"] == expected.get("image", "ubuntu-desktop-24.04")
+    assert not {"vcpus", "ram_mb", "disk_size_mb"}.intersection(body)
+    assert all(request.method != "DELETE" for request in requests)
+    assert json.loads(capsys.readouterr().out)["data"]["computer_id"] == "cloud-test"
+
+
+@pytest.mark.parametrize(
+    "arguments,recovery",
+    [
+        (
+            ["--size", "small", "--no-internet"],
+            "celesto computer create --cloud --size small --no-internet --json",
+        ),
+        (
+            [
+                "--cloud",
+                "--name",
+                "demo",
+                "--size",
+                "small",
+                "--no-internet",
+                "--boot-timeout",
+                "600",
+            ],
+            "celesto computer create --cloud --size small --no-internet "
+            "--boot-timeout 600.0 --json",
+        ),
+        (
+            ["--image", "./disk.qcow2", "--size", "small"],
+            "celesto computer create --cloud --size small --json",
+        ),
+        (["--cloud", "--name", "demo"], "celesto computer create --cloud --json"),
+        (
+            ["--image", "ubuntu-desktop-24.04"],
+            "celesto computer create --cloud --json --image ubuntu-desktop-24.04",
+        ),
+    ],
+)
+def test_cloud_create_recovery_preserves_cloud_options(
+    cloud: tuple[list[httpx.Request], list[Any]],
+    capsys: pytest.CaptureFixture[str],
+    arguments: list[str],
+    recovery: str,
+) -> None:
+    from celesto.cli.main import main
+
+    requests, _ = cloud
+    assert main(["computer", "create", *arguments, "--json"]) == 2
+    message = json.loads(capsys.readouterr().out)["error"]["message"]
+    assert f"run '{recovery}'" in message
+    if "--cloud" not in arguments:
+        assert "require --cloud" in message
+    assert not requests
+
+
+@pytest.mark.parametrize("size_id", ["", "x" * 33])
+def test_invalid_cloud_size_is_rejected_without_allocating(
+    cloud: tuple[list[httpx.Request], list[Any]],
+    size_id: str,
+) -> None:
+    requests, _ = cloud
+    with pytest.raises(ValueError, match="size_id"):
+        Computer(size_id=size_id)
+    assert not requests
