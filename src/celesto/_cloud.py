@@ -170,6 +170,10 @@ class _CloudComputer:
             raise_on_unexpected_status=True,
         )
         self._organization = organization_id if organization_id is not None else UNSET
+        if size_id is not None and (not isinstance(size_id, str) or not 1 <= len(size_id) <= 32):
+            raise ValueError(
+                "size_id must be a string of 1-32 characters; choose a named size such as 'micro'."
+            )
         if size_id is not None and any(
             value is not None for value in (vcpus, ram_mb, disk_size_mb)
         ):
@@ -473,10 +477,21 @@ class _CloudComputer:
         elif status_code == 429 and isinstance(public_detail, dict):
             code = public_detail.get("error_code")
             if code == "trial_retained_sandbox_limit_reached":
+                trial_limit = public_detail.get("limit")
+                reason = (
+                    (
+                        f"The free trial allows {trial_limit} retained sandboxes at a time, "
+                        "including stopped sandboxes."
+                    )
+                    if type(trial_limit) is int and 1 <= trial_limit <= 1000
+                    else (
+                        "The free trial's retained sandbox limit has been reached; "
+                        "stopped sandboxes also count."
+                    )
+                )
                 recovery = (
-                    "The free trial allows one sandbox at a time, including stopped sandboxes. "
-                    "Reuse your existing sandbox, delete it in the cloud dashboard, or add "
-                    "prepaid credit before creating another."
+                    f"{reason} Reuse an existing sandbox, delete one in the cloud dashboard, "
+                    "or add prepaid credit before creating another."
                 )
             elif code == "concurrency_limit_reached":
                 limit = public_detail.get("running_limit")
@@ -528,6 +543,7 @@ class _CloudComputer:
         if status_code == 422:
             recognized_code = "validation_error"
             allowed_fields = {
+                "size_id",
                 "vcpus",
                 "ram_mb",
                 "disk_size_mb",

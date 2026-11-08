@@ -414,7 +414,11 @@ def sandbox() -> None:
     default=None,
     help="Operating system image for local computers; auto-detected when omitted.",
 )
-@click.option("--image", default=None, help="Cloud OS image, S3 URI, or local qcow2 image path.")
+@click.option(
+    "--image",
+    default=None,
+    help="Cloud OS image, S3 URI, or local qcow2 image path; unavailable with --desktop.",
+)
 @click.option(
     "--size",
     "size_id",
@@ -520,12 +524,19 @@ def sandbox_create(
         ("--size", size_id),
         ("--template", template_id),
         ("--template-version", template_version),
-        ("--image", image),
+        ("--image", image if provider == "cloud" else None),
     ):
         if value is not None:
             cloud_command.extend((flag, value))
     if internet is not None:
         cloud_command.append("--internet" if internet else "--no-internet")
+    if (
+        click.get_current_context().get_parameter_source("boot_timeout")
+        != click.core.ParameterSource.DEFAULT
+    ):
+        cloud_command.extend(("--boot-timeout", str(boot_timeout)))
+    if json_output:
+        cloud_command.append("--json")
     cloud_recovery = shlex.join(cloud_command)
     if provider == "cloud":
         _reject_provided_options(
