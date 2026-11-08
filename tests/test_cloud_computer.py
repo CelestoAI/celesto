@@ -1472,6 +1472,10 @@ def test_cloud_cli_create_options_reach_api(
             "celesto computer create --cloud --size small --json",
         ),
         (["--cloud", "--name", "demo"], "celesto computer create --cloud --json"),
+        (
+            ["--image", "ubuntu-desktop-24.04"],
+            "celesto computer create --cloud --json --image ubuntu-desktop-24.04",
+        ),
     ],
 )
 def test_cloud_create_recovery_preserves_cloud_options(

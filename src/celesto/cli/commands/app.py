@@ -417,7 +417,10 @@ def sandbox() -> None:
 @click.option(
     "--image",
     default=None,
-    help="Cloud OS image, S3 URI, or local qcow2 image path; unavailable with --desktop.",
+    help=(
+        "Cloud image ID (requires --cloud), S3 URI, or local qcow2 path; "
+        "unavailable with --desktop."
+    ),
 )
 @click.option(
     "--size",
@@ -623,6 +626,15 @@ def sandbox_create(
             )
         )
     _reject_provided_options(("width", "height"), recovery="celesto computer create --desktop")
+    if image is not None and os_name is None:
+        from celesto.facade import _is_local_image
+
+        if _is_local_image(image):
+            cloud_image_recovery = shlex.join([*cloud_command, "--image", image])
+            raise click.UsageError(
+                "Local image files need --os windows. Cloud image IDs require --cloud; "
+                f"run '{cloud_image_recovery}' for a cloud image."
+            )
     return _handlers()._run_create(
         _ns(
             command_name="sandbox.create",
