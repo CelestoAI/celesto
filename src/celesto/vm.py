@@ -146,6 +146,9 @@ RETAINED_DISK_MARKER_SUFFIX = ".retained"
 # Backend-specific defaults
 QEMU_GUEST_IP = "10.0.2.15"
 _MIB = 1024 * 1024
+# How long _kill_process waits to reap a SIGKILLed child. A large QEMU can take
+# longer than 0.1 s to free its memory; past this a later liveness check reaps it.
+_KILLED_PROCESS_REAP_TIMEOUT = 1.0
 LIBKRUN_GUEST_IP = "192.168.127.2"
 LIBKRUN_GATEWAY_IP = "192.168.127.1"
 _QEMU_VSOCK_CID_RE = re.compile(r"vhost-vsock-(?:pci|device),guest-cid=(\d+)")
@@ -3939,11 +3942,33 @@ class CelestoManager:
             except Exception:
                 logger.warning("Failed to kill process %d", pid)
 
+        # Reap it now: some stop paths (Firecracker) call nothing after this,
+        # and an unreaped child stays a zombie for as long as this process runs.
+        self._reap_after_kill(pid, timeout=_KILLED_PROCESS_REAP_TIMEOUT)
+
+    def _reap_after_kill(self, pid: int, timeout: float) -> None:
+        """Wait up to *timeout* seconds for a SIGKILLed child to exit, and reap it.
+
+        Uses this manager's Popen handle when it has one. Otherwise it reaps
+        with waitpid, which works for a child that another manager in this
+        process started. A pid that is not our child returns at once; the
+        caller's own checks decide what to do with it.
+        """
         handle = self._process_handles.get(pid)
         if handle is not None:
             with suppress(subprocess.TimeoutExpired):
-                handle.wait(timeout=0.1)
+                handle.wait(timeout=timeout)
                 self._process_handles.pop(pid, None)
+            return
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                reaped, _status = os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                return  # not our child, or already reaped
+            if reaped == pid or time.monotonic() >= deadline:
+                return
+            time.sleep(0.01)
 
     @staticmethod
     def _reap_exited_child(pid: int) -> bool:
@@ -4007,6 +4032,8 @@ class CelestoManager:
         except PermissionError:
             pass
         if self._is_zombie_process(pid):
+            # It may have exited after the reap attempt above; reap it now.
+            self._reap_exited_child(pid)
             return False
         # Starting ps can reap a detached Popen child via subprocess._cleanup.
         # A now-missing process is not a live one merely because ps saw no Z.
