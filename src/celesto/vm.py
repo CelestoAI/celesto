@@ -3946,6 +3946,28 @@ class CelestoManager:
                 self._process_handles.pop(pid, None)
 
     @staticmethod
+    def _reap_exited_child(pid: int) -> bool:
+        """Reap *pid* if it is an exited child of this process; return True if reaped.
+
+        Each manager keeps Popen handles only for processes it started, but a
+        long-lived host process (the pool agent) builds a new manager per
+        command. The manager that stops a VM often lacks the starter's handle,
+        so without this the killed QEMU stays a zombie until the starter
+        manager is garbage collected, which can take hours.
+
+        Safe for any pid: WNOHANG never blocks, a live child returns 0, and a
+        pid that is not our child raises ChildProcessError. A zombie's pid
+        cannot be reused before it is reaped, so this never reaps a stranger.
+        A starter's Popen that later polls the reaped pid gets ECHILD, which
+        Popen treats as an exit.
+        """
+        try:
+            reaped, _status = os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            return False
+        return reaped == pid
+
+    @staticmethod
     def _is_zombie_process(pid: int) -> bool:
         """Return whether an existing process has exited but is not yet reaped."""
         try:
@@ -3974,6 +3996,9 @@ class CelestoManager:
         handle = self._process_handles.get(pid)
         if handle is not None and handle.poll() is not None:
             self._process_handles.pop(pid, None)
+            return False
+        # No handle here: another manager in this process may have started it.
+        if self._reap_exited_child(pid):
             return False
         try:
             os.kill(pid, 0)
