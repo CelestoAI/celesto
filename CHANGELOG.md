@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- Stop a stopped VM's process from staying behind as a zombie when a long-running program uses one Celesto object to start a VM and another to stop it. Celesto now collects the exited process even when the object that stops the VM did not start it. The Celesto Cloud pool agent works this way, and a leftover zombie made a host release roll back.
 - Stop sandbox creates failing with "database is locked" when many start at once on a busy disk. Celesto's saved VM data now uses SQLite write-ahead logging, so reads no longer wait for writes and commits no longer wait on several disk flushes each.
 
 ## 0.1.13 — 2026-11-06
