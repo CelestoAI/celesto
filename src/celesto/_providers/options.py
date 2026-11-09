@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 
 from celesto.callbacks import Callback
 from celesto.comm.base import CommChannelKind
@@ -37,6 +37,8 @@ class CloudOptions(TypedDict, total=False):
     organization_id: str | None
     startup_timeout: float
     cleanup_timeout: float
+    size_id: str | None
+    network_policy: dict[str, Literal["open", "off"]] | None
     vcpus: int | None
     ram_mb: int | None
     disk_size_mb: int | None

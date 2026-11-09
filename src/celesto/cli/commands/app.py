@@ -117,7 +117,7 @@ def _reject_provided_options(names: tuple[str, ...], *, recovery: str) -> None:
                 else f"--{name.replace('_', '-')}"
             )
             raise click.UsageError(
-                f"{flag} is unavailable for this computer; run '{recovery}' instead."
+                f"{flag} is unavailable for this computer; omit it and run '{recovery}'."
             )
 
 
@@ -406,17 +406,51 @@ def sandbox() -> None:
     "--desktop", is_flag=True, help="Create a Linux desktop computer instead of a minimal one."
 )
 @computer_provider_options
-@click.option("-n", "--name", default=None, help="Name for the computer.")
+@click.option("-n", "--name", default=None, help="Name for a local computer.")
 @click.option(
     "--os",
     "os_name",
     type=click.Choice([guest_os.value for guest_os in GuestOS]),
     default=None,
-    help="Operating system image; auto-detected when omitted.",
+    help="Operating system image for local computers; auto-detected when omitted.",
 )
-@click.option("--image", default=None, help="S3 URI or local qcow2 image path.")
-@click.option("--memory", "memory_mib", type=int, default=None, metavar="MIB")
-@click.option("--disk-size", "disk_size_mib", type=int, default=None, metavar="MIB")
+@click.option(
+    "--image",
+    default=None,
+    help=(
+        "Cloud image ID (requires --cloud), S3 URI, or local qcow2 path; "
+        "unavailable with --desktop."
+    ),
+)
+@click.option(
+    "--size",
+    "size_id",
+    default=None,
+    help="Cloud size, such as micro, small, or standard; omitted uses the account default.",
+)
+@click.option("--template", "template_id", default=None, help="Cloud template ID.")
+@click.option("--template-version", default=None, help="Cloud template version.")
+@click.option(
+    "--internet/--no-internet",
+    default=None,
+    help="Set cloud outbound internet access; omitted uses the server default.",
+)
+@click.option(
+    "--memory",
+    "memory_mib",
+    type=int,
+    default=None,
+    metavar="MIB",
+    help="Local computer memory; use --size for cloud computers.",
+)
+@click.option(
+    "--disk-size",
+    "disk_size_mib",
+    type=int,
+    default=None,
+    metavar="MIB",
+    help="Local computer disk size; use --size for cloud computers.",
+)
 @click.option("--width", type=int, default=None, callback=_computer_range(640, 7680, 1440))
 @click.option("--height", type=int, default=None, callback=_computer_range(480, 4320, 900))
 @backend_option(default=None)
@@ -466,6 +500,10 @@ def sandbox_create(
     name: str | None,
     os_name: str | None,
     image: str | None,
+    size_id: str | None,
+    template_id: str | None,
+    template_version: str | None,
+    internet: bool | None,
     memory_mib: int | None,
     disk_size_mib: int | None,
     width: int | None,
@@ -484,13 +522,31 @@ def sandbox_create(
 ) -> Any:
     """Create a minimal computer; add --desktop for a Linux desktop."""
     _before_command(json_output=json_output)
+    cloud_command = ["celesto", "computer", "create", "--cloud"]
+    for flag, value in (
+        ("--size", size_id),
+        ("--template", template_id),
+        ("--template-version", template_version),
+        ("--image", image if provider == "cloud" else None),
+    ):
+        if value is not None:
+            cloud_command.extend((flag, value))
+    if internet is not None:
+        cloud_command.append("--internet" if internet else "--no-internet")
+    if (
+        click.get_current_context().get_parameter_source("boot_timeout")
+        != click.core.ParameterSource.DEFAULT
+    ):
+        cloud_command.extend(("--boot-timeout", str(boot_timeout)))
+    if json_output:
+        cloud_command.append("--json")
+    cloud_recovery = shlex.join(cloud_command)
     if provider == "cloud":
         _reject_provided_options(
             (
                 "desktop",
                 "name",
                 "os_name",
-                "image",
                 "memory_mib",
                 "disk_size_mib",
                 "width",
@@ -505,15 +561,24 @@ def sandbox_create(
                 "network_mode",
                 "bridge_name",
             ),
-            recovery="celesto computer create --cloud",
+            recovery=cloud_recovery,
         )
         return _handlers()._run_computer(
             _ns(
                 computer_action="create",
                 provider="cloud",
+                size_id=size_id,
+                template_id=template_id,
+                template_version=template_version,
+                image=image,
+                internet=internet,
                 boot_timeout=boot_timeout,
                 json=json_output,
             )
+        )
+    if any(value is not None for value in (size_id, template_id, template_version, internet)):
+        raise click.UsageError(
+            f"Cloud size, template, and internet options require --cloud; run '{cloud_recovery}'."
         )
     if desktop:
         if backend not in (None, "auto", "qemu", "firecracker"):
@@ -561,6 +626,15 @@ def sandbox_create(
             )
         )
     _reject_provided_options(("width", "height"), recovery="celesto computer create --desktop")
+    if image is not None and os_name is None:
+        from celesto.facade import _is_local_image
+
+        if _is_local_image(image):
+            cloud_image_recovery = shlex.join([*cloud_command, "--image", image])
+            raise click.UsageError(
+                "Local image files need --os windows. Cloud image IDs require --cloud; "
+                f"run '{cloud_image_recovery}' for a cloud image."
+            )
     return _handlers()._run_create(
         _ns(
             command_name="sandbox.create",
