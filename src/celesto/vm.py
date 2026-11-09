@@ -38,7 +38,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Collection, Iterator
 from contextlib import asynccontextmanager, contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -71,7 +71,9 @@ from celesto.runtime.backends import (
 from celesto.runtime.base import (
     QemuDirtyBitmapBackup,
     QemuDirtyBitmapStatus,
+    RuntimeAdapter,
     RuntimeContext,
+    RuntimeLaunch,
     SnapshotCreateRequest,
     SnapshotRestoreRequest,
 )
@@ -89,7 +91,6 @@ from celesto.storage import (
     StateManagerProtocol,
     ip_to_pool_index,
 )
-from celesto.storage._base import VSOCK_CID_END, VSOCK_CID_START
 from celesto.types import (
     GuestOS,
     NetworkConfig,
@@ -149,6 +150,30 @@ _MIB = 1024 * 1024
 LIBKRUN_GUEST_IP = "192.168.127.2"
 LIBKRUN_GATEWAY_IP = "192.168.127.1"
 _QEMU_VSOCK_CID_RE = re.compile(r"vhost-vsock-(?:pci|device),guest-cid=(\d+)")
+# QEMU's message when the kernel still has the CID bound to another vhost-vsock
+# device, and how many boots a VM gets before the start fails.
+_QEMU_CID_BUSY_TEXT = b"unable to set guest cid: Address already in use"
+_QEMU_CID_BOOT_ATTEMPTS = 3
+# QEMU prints the error just before it exits, so the log tail is enough.
+_QEMU_LOG_TAIL_BYTES = 64 * 1024
+
+
+def _qemu_exit_says_cid_busy(error: CelestoError, log_path: Path) -> bool:
+    """Return whether QEMU exited during boot because its vsock CID was taken.
+
+    Only an exit proves this boot wrote the log: QEMU's adapter sets
+    ``exit_code`` when the process ended before its control socket answered,
+    and each boot truncates the log, so the text is from this boot.
+    """
+    if type(error.details.get("exit_code")) is not int:
+        return False
+    try:
+        with log_path.open("rb") as log:
+            log.seek(0, os.SEEK_END)
+            log.seek(max(0, log.tell() - _QEMU_LOG_TAIL_BYTES))
+            return _QEMU_CID_BUSY_TEXT in log.read()
+    except OSError:
+        return False
 
 
 @dataclass(frozen=True)
@@ -2009,6 +2034,9 @@ class CelestoManager:
                 "vsock": VsockConfig(
                     guest_cid=cid,
                     uds_path=uds_path,
+                    # Only a CID Celesto picked may be swapped at boot (see
+                    # _start_qemu_on_free_cid); a caller's CID stays as asked.
+                    auto_assigned=requested_vsock is None,
                 )
             }
         )
@@ -2023,14 +2051,18 @@ class CelestoManager:
         vm_id: str,
         backend: str,
         requested_cid: int | None,
+        *,
+        exclude: Collection[int] = (),
     ) -> int:
-        """Reserve a CID, avoiding live QEMU CIDs missing from local state."""
+        """Reserve a CID, avoiding live QEMU CIDs missing from local state.
+
+        *exclude* lists more CIDs to skip for an automatic pick, such as a CID
+        that QEMU just failed to bind.
+        """
         if backend != BACKEND_QEMU:
-            return self.state.reserve_vsock_cid(vm_id, requested_cid)
+            return self.state.reserve_vsock_cid(vm_id, requested_cid, exclude=exclude)
 
         live_cids = self._live_qemu_vsock_cids()
-        if not live_cids:
-            return self.state.reserve_vsock_cid(vm_id, requested_cid)
 
         if requested_cid is not None:
             cid = self.state.reserve_vsock_cid(vm_id, requested_cid)
@@ -2044,18 +2076,9 @@ class CelestoManager:
                 )
             return cid
 
-        existing_cid = self.state.get_vsock_cid(vm_id)
-        if existing_cid is not None:
-            return existing_cid
-
-        for candidate_cid in range(VSOCK_CID_START, VSOCK_CID_END + 1):
-            if candidate_cid in live_cids:
-                continue
-            try:
-                return self.state.reserve_vsock_cid(vm_id, candidate_cid)
-            except NetworkError:
-                continue
-        raise NetworkError("No vsock CIDs available in pool")
+        # The store picks the next CID in rotation. Live QEMU CIDs are skipped
+        # too, because a QEMU process can outlive its VM record.
+        return self.state.reserve_vsock_cid(vm_id, exclude=live_cids | set(exclude))
 
     @staticmethod
     def _live_qemu_vsock_cids(proc_dir: Path = Path("/proc")) -> set[int]:
@@ -2640,7 +2663,9 @@ class CelestoManager:
         adapter = self._runtime_adapter_for_backend(backend)
         try:
             vm_info = self._prepare_public_egress(vm_info)
-            launch = adapter.start(vm_info, log_path=log_path, boot_timeout=boot_timeout)
+            launch, vm_info = self._start_runtime_on_free_cid(
+                adapter, backend, vm_info, log_path=log_path, boot_timeout=boot_timeout
+            )
             if vm_id in self._public_egress:
                 self._unrecorded_public_launches[vm_id] = vm_info.model_copy(
                     update={
@@ -2681,6 +2706,70 @@ class CelestoManager:
             )
             self._close_runtime_log(vm_id, backend, vm_info.control_socket_path)
             raise
+
+    def _start_runtime_on_free_cid(
+        self,
+        adapter: RuntimeAdapter,
+        backend: str,
+        vm_info: VMInfo,
+        *,
+        log_path: Path,
+        boot_timeout: float,
+    ) -> tuple[RuntimeLaunch, VMInfo]:
+        """Start the runtime, moving a QEMU VM to a new CID if its CID is still held.
+
+        A deleted VM's QEMU can keep its vsock CID bound in the host kernel for
+        some seconds after Celesto frees the CID (a killed QEMU whose threads
+        are still stuck in I/O). A new VM given that CID then exits at once with
+        "unable to set guest cid: Address already in use". CID rotation makes
+        this rare; this retry covers what is left.
+
+        Only a CID that Celesto picked (``auto_assigned``) is changed. Each
+        retry skips every CID that already failed, and the boot is tried at
+        most ``_QEMU_CID_BOOT_ATTEMPTS`` times. Returns the launch and the VM
+        info the launch used, because the CID in it may have changed.
+        """
+        failed_cids: set[int] = set()
+        while True:
+            try:
+                launch = adapter.start(vm_info, log_path=log_path, boot_timeout=boot_timeout)
+                return launch, vm_info
+            except CelestoError as error:
+                vsock = vm_info.config.vsock
+                if (
+                    backend != BACKEND_QEMU
+                    or vsock is None
+                    or not vsock.auto_assigned
+                    or len(failed_cids) + 1 >= _QEMU_CID_BOOT_ATTEMPTS
+                    or not _qemu_exit_says_cid_busy(error, log_path)
+                ):
+                    raise
+                failed_cids.add(vsock.guest_cid)
+            vm_info = self._move_to_new_vsock_cid(vm_info, backend, exclude=failed_cids)
+
+    def _move_to_new_vsock_cid(
+        self, vm_info: VMInfo, backend: str, *, exclude: Collection[int]
+    ) -> VMInfo:
+        """Give *vm_info* a new automatic CID, skipping *exclude*, and persist it."""
+        old_vsock = vm_info.config.vsock
+        assert old_vsock is not None
+        # The failed boot's console handle is still tracked; the next boot opens
+        # (and truncates) the log again, so close this handle first.
+        self._close_runtime_log(vm_info.vm_id, backend, vm_info.control_socket_path)
+        self.state.release_vsock_cid(vm_info.vm_id)
+        cid = self._reserve_vsock_cid_for_backend(vm_info.vm_id, backend, None, exclude=exclude)
+        config = vm_info.config.model_copy(
+            update={"vsock": old_vsock.model_copy(update={"guest_cid": cid})}
+        )
+        # Persist the new CID: callers dial the CID stored for the VM.
+        self.state.update_vm(vm_info.vm_id, config=config)
+        logger.warning(
+            "Host kernel still holds vsock CID %d; starting VM %s again with CID %d",
+            old_vsock.guest_cid,
+            vm_info.vm_id,
+            cid,
+        )
+        return vm_info.model_copy(update={"config": config})
 
     def stop(self, vm_id: str, timeout: float = 10.0) -> VMInfo:
         """Stop a running microVM.

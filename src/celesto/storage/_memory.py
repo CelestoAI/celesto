@@ -17,6 +17,7 @@ import os
 import secrets
 import socket
 import threading
+from collections.abc import Collection
 from datetime import datetime
 from pathlib import Path
 from typing import Any, BinaryIO
@@ -35,10 +36,11 @@ from celesto.storage._base import (
     IP_POOL_START,
     SSH_PORT_END,
     SSH_PORT_START,
-    VSOCK_CID_END,
     VSOCK_CID_START,
     ip_to_pool_index,
+    next_free_vsock_cid,
     pool_index_to_ip,
+    vsock_cid_after,
 )
 from celesto.types import (
     BrowserSessionConfig,
@@ -66,6 +68,8 @@ class MemoryStateManager:
         self._ip_leases: dict[str, tuple[str, str]] = {}
         self._ssh_ports: dict[str, int] = {}
         self._vsock_cids: dict[str, int] = {}
+        # Where the next automatic CID search starts (CIDs rotate).
+        self._next_vsock_cid = VSOCK_CID_START
         self._tap_allocations: dict[str, tuple[str, str, str | None]] = {}
         self._snapshots: dict[str, SnapshotInfo] = {}
         self._browser_sessions: dict[str, BrowserSessionInfo] = {}
@@ -279,7 +283,13 @@ class MemoryStateManager:
             self._ssh_ports.pop(vm_id, None)
             self._release_claim("ssh", vm_id)
 
-    def reserve_vsock_cid(self, vm_id: str, guest_cid: int | None = None) -> int:
+    def reserve_vsock_cid(
+        self,
+        vm_id: str,
+        guest_cid: int | None = None,
+        *,
+        exclude: Collection[int] = (),
+    ) -> int:
         with self._lock:
             existing = self._vsock_cids.get(vm_id)
             if existing is not None:
@@ -290,17 +300,21 @@ class MemoryStateManager:
                     )
                 return existing
             used = set(self._vsock_cids.values())
-            candidates = (
-                [guest_cid] if guest_cid is not None else range(VSOCK_CID_START, VSOCK_CID_END + 1)
-            )
-            for candidate in candidates:
-                if (
-                    candidate is not None
-                    and candidate not in used
-                    and self._try_claim("vsock", vm_id, candidate)
-                ):
-                    self._vsock_cids[vm_id] = candidate
-                    return candidate
+            if guest_cid is not None:
+                # An explicit CID is taken as asked and does not move the rotation.
+                if guest_cid not in used and self._try_claim("vsock", vm_id, guest_cid):
+                    self._vsock_cids[vm_id] = guest_cid
+                    return guest_cid
+            else:
+                # Rotate like the SQLite store (see next_free_vsock_cid). A CID
+                # whose file lock another process holds is skipped, not retried.
+                taken = used | set(exclude)
+                while (candidate := next_free_vsock_cid(self._next_vsock_cid, taken)) is not None:
+                    if self._try_claim("vsock", vm_id, candidate):
+                        self._vsock_cids[vm_id] = candidate
+                        self._next_vsock_cid = vsock_cid_after(candidate)
+                        return candidate
+                    taken.add(candidate)
         if guest_cid is not None:
             raise NetworkError(f"Requested vsock CID {guest_cid} is not available")
         raise NetworkError("No vsock CIDs available in pool")

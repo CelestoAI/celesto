@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from datetime import datetime
 from pathlib import Path
 from typing import Protocol
@@ -124,7 +125,13 @@ class StateManagerProtocol(Protocol):
     # vsock CID allocation
     # ------------------------------------------------------------------
 
-    def reserve_vsock_cid(self, vm_id: str, guest_cid: int | None = None) -> int:
+    def reserve_vsock_cid(
+        self,
+        vm_id: str,
+        guest_cid: int | None = None,
+        *,
+        exclude: Collection[int] = (),
+    ) -> int:
         pass
 
     def get_vsock_cid(self, vm_id: str) -> int | None:

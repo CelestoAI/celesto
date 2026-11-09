@@ -327,10 +327,15 @@ class VsockConfig(BaseModel):
             1 = reserved, 2 = host). Each VM must have a unique CID.
         uds_path: Path to the Unix domain socket on the host. If ``None``,
             Celesto auto-generates one in the socket directory.
+        auto_assigned: ``True`` when Celesto picked the CID itself. Celesto
+            may then move the computer to another CID if the host kernel still
+            holds this one when QEMU boots. A CID you set yourself is never
+            changed.
     """
 
     guest_cid: Annotated[int, Field(ge=3, le=4294967295)]
     uds_path: str | None = None
+    auto_assigned: bool = False
 
     model_config = {"frozen": True}
 

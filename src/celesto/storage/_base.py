@@ -17,7 +17,9 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Collection
 from datetime import UTC, datetime
+from itertools import chain
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +54,35 @@ SSH_PORT_END = 65535
 # and gives ample headroom for concurrent VMs.
 VSOCK_CID_START = 3
 VSOCK_CID_END = 1_000_000
+
+
+def next_free_vsock_cid(cursor: int, taken: Collection[int]) -> int | None:
+    """Return the first CID at or after *cursor* that is not in *taken*.
+
+    CIDs are handed out in rotation, not lowest-free first. When a VM is
+    deleted, its QEMU process can keep the CID bound in the kernel for some
+    seconds after Celesto frees it (a killed QEMU whose threads are still
+    stuck in I/O). Lowest-free allocation gave that CID to the very next VM,
+    and QEMU then failed with "unable to set guest cid: Address already in
+    use". With rotation, a freed CID comes back only after the whole pool has
+    been used once.
+
+    The search wraps from the end of the pool back to its start once.
+    Returns ``None`` when every CID is taken.
+    """
+    # Read the bounds at call time so tests can shrink the pool.
+    start, end = VSOCK_CID_START, VSOCK_CID_END
+    if not start <= cursor <= end:
+        cursor = start
+    for candidate in chain(range(cursor, end + 1), range(start, cursor)):
+        if candidate not in taken:
+            return candidate
+    return None
+
+
+def vsock_cid_after(cid: int) -> int:
+    """Return the rotation position that follows *cid*, wrapping at the pool end."""
+    return VSOCK_CID_START if cid >= VSOCK_CID_END else cid + 1
 
 
 def pool_index_to_ip(index: int) -> str:

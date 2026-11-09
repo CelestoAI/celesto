@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- Stop QEMU sandboxes failing to boot with "vhost-vsock: unable to set guest cid: Address already in use" right after another sandbox is deleted. The host kernel can keep a deleted sandbox's vsock ID (CID) for some seconds, and Celesto used to give that same ID to the next sandbox. Celesto now hands out CIDs in rotation, and if QEMU still finds a CID taken, it starts the sandbox again with a new one (up to 3 tries). A CID you set yourself is never changed. `VsockConfig` has a new `auto_assigned` field that marks CIDs Celesto picked.
 - Stop sandbox creates failing with "database is locked" when many start at once on a busy disk. Celesto's saved VM data now uses SQLite write-ahead logging, so reads no longer wait for writes and commits no longer wait on several disk flushes each.
 
 ## 0.1.13 — 2026-11-06

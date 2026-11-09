@@ -20,6 +20,7 @@ import pytest
 
 from celesto.cli.state import SQLiteStateManager as StateManager
 from celesto.storage._base import VSOCK_CID_START
+from celesto.storage._memory import MemoryStateManager
 from celesto.types import GuestOS, VMConfig
 
 
@@ -63,14 +64,72 @@ def test_distinct_vms_get_distinct_cids(state: StateManager, tmp_path: Path) -> 
     assert cid_a != cid_b
 
 
-def test_release_frees_cid_for_reuse(state: StateManager, tmp_path: Path) -> None:
+def test_released_cid_is_not_given_out_again_at_once(state: StateManager, tmp_path: Path) -> None:
+    """A deleted VM's QEMU can hold its CID in the kernel for seconds after the
+    delete. Rotation gives the next VM a different CID, so it cannot collide."""
     state.create_vm(_make_config(tmp_path, "vm-a"))
     cid = state.reserve_vsock_cid("vm-a")
     state.release_vsock_cid("vm-a")
     assert state.get_vsock_cid("vm-a") is None
 
     state.create_vm(_make_config(tmp_path, "vm-b"))
-    assert state.reserve_vsock_cid("vm-b") == cid
+    assert state.reserve_vsock_cid("vm-b") == cid + 1
+
+
+def test_rotation_continues_in_a_new_state_manager(tmp_path: Path) -> None:
+    """The pool agent opens a new state manager for each command, so the
+    rotation position must be stored in the database, not in memory."""
+    first = StateManager(tmp_path / "state.db")
+    first.create_vm(_make_config(tmp_path, "vm-a"))
+    cid = first.reserve_vsock_cid("vm-a")
+    first.release_vsock_cid("vm-a")
+
+    second = StateManager(tmp_path / "state.db")
+    second.create_vm(_make_config(tmp_path, "vm-b"))
+    assert second.reserve_vsock_cid("vm-b") == cid + 1
+
+
+def test_rotation_wraps_to_pool_start_and_skips_cids_in_use(
+    state: StateManager, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("celesto.storage._base.VSOCK_CID_END", VSOCK_CID_START + 2)
+    for vm_id in ("vm-a", "vm-b", "vm-c"):
+        state.create_vm(_make_config(tmp_path, vm_id))
+        state.reserve_vsock_cid(vm_id)
+    # The pool is full. Free the middle CID: the next VM wraps past the
+    # still-used first CID and gets the freed one.
+    state.release_vsock_cid("vm-b")
+
+    state.create_vm(_make_config(tmp_path, "vm-d"))
+    assert state.reserve_vsock_cid("vm-d") == VSOCK_CID_START + 1
+
+
+def test_reserve_skips_excluded_cids(state: StateManager, tmp_path: Path) -> None:
+    """Callers exclude CIDs that the kernel still holds (live QEMU processes,
+    or a CID that QEMU just failed to bind)."""
+    state.create_vm(_make_config(tmp_path, "vm-a"))
+    excluded = {VSOCK_CID_START, VSOCK_CID_START + 1}
+    assert state.reserve_vsock_cid("vm-a", exclude=excluded) == VSOCK_CID_START + 2
+
+
+def test_explicit_cid_does_not_move_rotation(state: StateManager, tmp_path: Path) -> None:
+    state.create_vm(_make_config(tmp_path, "vm-a"))
+    state.reserve_vsock_cid("vm-a", guest_cid=42)
+
+    state.create_vm(_make_config(tmp_path, "vm-b"))
+    assert state.reserve_vsock_cid("vm-b") == VSOCK_CID_START
+
+
+def test_memory_state_rotates_cids(tmp_path: Path) -> None:
+    memory = MemoryStateManager(tmp_path)
+    memory.create_vm(_make_config(tmp_path, "vm-a"))
+    cid = memory.reserve_vsock_cid("vm-a")
+    memory.release_vsock_cid("vm-a")
+
+    memory.create_vm(_make_config(tmp_path, "vm-b"))
+    assert memory.reserve_vsock_cid("vm-b") == cid + 1
+    memory.create_vm(_make_config(tmp_path, "vm-c"))
+    assert memory.reserve_vsock_cid("vm-c", exclude={cid + 2}) == cid + 3
 
 
 def test_explicit_cid_request_for_restore(state: StateManager, tmp_path: Path) -> None:

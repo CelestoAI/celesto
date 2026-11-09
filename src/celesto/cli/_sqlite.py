@@ -25,7 +25,7 @@ import os
 import sqlite3
 import stat
 import sys
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from contextlib import closing, contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -47,10 +47,12 @@ from celesto.storage._base import (
     VSOCK_CID_END,
     VSOCK_CID_START,
     browser_session_info_from_row,
+    next_free_vsock_cid,
     now_iso,
     pool_index_to_ip,
     snapshot_info_from_row,
     vm_config_from_json,
+    vsock_cid_after,
 )
 from celesto.types import (
     BrowserSessionConfig,
@@ -246,6 +248,14 @@ class SQLiteStateManager:
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_vsock_cids_vm_id ON vsock_cids(vm_id);
+
+                -- One row: where the next automatic CID search starts. CIDs
+                -- rotate so a just-freed CID is not reused at once (see
+                -- next_free_vsock_cid). A missing row means the pool start.
+                CREATE TABLE IF NOT EXISTS vsock_cid_cursor (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    next_cid INTEGER NOT NULL
+                );
 
                 CREATE TABLE IF NOT EXISTS tap_allocations (
                     vm_id TEXT PRIMARY KEY,
@@ -663,12 +673,19 @@ class SQLiteStateManager:
     # vsock CID allocation
     # ------------------------------------------------------------------
 
-    def reserve_vsock_cid(self, vm_id: str, guest_cid: int | None = None) -> int:
+    def reserve_vsock_cid(
+        self,
+        vm_id: str,
+        guest_cid: int | None = None,
+        *,
+        exclude: Collection[int] = (),
+    ) -> int:
         """Reserve a unique guest vsock CID for *vm_id* (idempotent).
 
-        Mirrors :meth:`reserve_ssh_port`: returns the existing CID if the VM
-        already has one, otherwise allocates the lowest free CID in the pool
-        (or *guest_cid* if explicitly requested, e.g. on snapshot restore).
+        Returns the existing CID if the VM already has one. Otherwise reserves
+        *guest_cid* when given (e.g. on snapshot restore), or the next free CID
+        in rotation, skipping any CID in *exclude*. The rotation position is
+        stored in the database because each command may use a new manager.
         """
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
@@ -693,18 +710,28 @@ class SQLiteStateManager:
             allocated = conn.execute("SELECT guest_cid FROM vsock_cids").fetchall()
             allocated_set = {int(row["guest_cid"]) for row in allocated}
 
-            candidate_cids = (
-                [guest_cid] if guest_cid is not None else range(VSOCK_CID_START, VSOCK_CID_END + 1)
-            )
-            for candidate_cid in candidate_cids:
-                if candidate_cid in allocated_set:
-                    continue
+            if guest_cid is not None:
+                # An explicit CID is taken as asked and does not move the rotation.
+                chosen = guest_cid if guest_cid not in allocated_set else None
+            else:
+                cursor_row = conn.execute(
+                    "SELECT next_cid FROM vsock_cid_cursor WHERE id = 1"
+                ).fetchone()
+                cursor = int(cursor_row["next_cid"]) if cursor_row else VSOCK_CID_START
+                chosen = next_free_vsock_cid(cursor, allocated_set | set(exclude))
+                if chosen is not None:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO vsock_cid_cursor (id, next_cid) VALUES (1, ?)",
+                        (vsock_cid_after(chosen),),
+                    )
+
+            if chosen is not None:
                 conn.execute(
                     "INSERT INTO vsock_cids (vm_id, guest_cid, created_at) VALUES (?, ?, ?)",
-                    (vm_id, candidate_cid, now),
+                    (vm_id, chosen, now),
                 )
-                logger.info("Reserved vsock CID %d for VM %s", candidate_cid, vm_id)
-                return candidate_cid
+                logger.info("Reserved vsock CID %d for VM %s", chosen, vm_id)
+                return chosen
 
         if guest_cid is not None:
             raise NetworkError(f"Requested vsock CID {guest_cid} is not available")

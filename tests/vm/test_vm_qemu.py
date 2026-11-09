@@ -20,6 +20,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from celesto.exceptions import CelestoError, NetworkError, VMNotFoundError
+from celesto.runtime.base import RuntimeLaunch
 from celesto.types import NetworkConfig, PortForwardConfig, VMConfig, VMInfo, VMState, VsockConfig
 from celesto.vm import CelestoManager
 
@@ -350,7 +351,7 @@ def test_create_qemu_auto_vsock_skips_live_qemu_cids(tmp_path: Path) -> None:
         mock_overlay.side_effect = lambda source, target, **_kwargs: target.write_text("overlay")
         vm_info = sdk.create(config)
 
-    assert vm_info.config.vsock == VsockConfig(guest_cid=6)
+    assert vm_info.config.vsock == VsockConfig(guest_cid=6, auto_assigned=True)
     assert sdk.state.get_vsock_cid("vm-qemu-auto-vsock") == 6
 
 
@@ -755,3 +756,128 @@ def test_delete_qemu_retains_isolated_disk_when_enabled(tmp_path: Path) -> None:
     sdk.delete("vm-qemu3")
 
     assert disk_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# Boot retry when the kernel still holds the vsock CID
+#
+# A deleted VM's QEMU can keep its CID bound in the kernel for seconds after
+# Celesto frees it. A new VM that gets that CID fails at boot with QEMU's
+# "unable to set guest cid: Address already in use". Ways this can go wrong,
+# each covered below:
+#   1. The VM is not moved to another CID, so the boot fails (the bug).
+#   2. The retry reuses the CID that just failed.
+#   3. The retry changes a CID the caller set on purpose.
+#   4. Any early QEMU exit is retried, hiding real boot errors.
+#   5. The retry never stops while the kernel keeps refusing CIDs.
+# These tests replace only the QEMU adapter: the kernel refusal cannot be made
+# on a test machine, and the adapter is where QEMU's exit reaches the SDK.
+# ---------------------------------------------------------------------------
+
+_CID_BUSY_LOG = (
+    "qemu-system-x86_64: -device vhost-vsock-device,guest-cid={cid}: "
+    "vhost-vsock: unable to set guest cid: Address already in use\n"
+)
+
+
+class _FakeQemuAdapter:
+    """QEMU adapter stand-in whose first ``failing_boots`` boots exit early.
+
+    A failing boot writes ``log_text`` to the runtime log and raises the error
+    the real adapter raises when QEMU exits before its control socket answers.
+    """
+
+    def __init__(self, failing_boots: int, log_text: str = _CID_BUSY_LOG) -> None:
+        self.failing_boots = failing_boots
+        self.log_text = log_text
+        self.boot_cids: list[int] = []
+
+    def start(self, vm_info: VMInfo, *, log_path: Path, boot_timeout: float) -> RuntimeLaunch:
+        assert vm_info.config.vsock is not None
+        cid = vm_info.config.vsock.guest_cid
+        self.boot_cids.append(cid)
+        if len(self.boot_cids) <= self.failing_boots:
+            log_path.write_text(self.log_text.format(cid=cid))
+            raise CelestoError("QEMU exited early while booting computer '4242'", {"exit_code": 1})
+        return RuntimeLaunch(pid=4242, control_socket_path=None, status=VMState.RUNNING)
+
+    def stop(self, vm_info: VMInfo, *, timeout: float) -> None:
+        return None
+
+
+def _vsock_vm(tmp_path: Path, *, auto_assigned: bool) -> tuple[CelestoManager, str, int]:
+    """Create a QEMU VM record with a reserved CID, ready to start."""
+    vm_info = _qemu_vm_info(tmp_path)
+    sdk = CelestoManager(
+        data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu"
+    )
+    sdk.state.create_vm(vm_info.config)
+    sdk.state.update_vm(vm_info.vm_id, network=vm_info.network)
+    cid = sdk.state.reserve_vsock_cid(vm_info.vm_id, None if auto_assigned else 42)
+    config = vm_info.config.model_copy(
+        update={"vsock": VsockConfig(guest_cid=cid, auto_assigned=auto_assigned)}
+    )
+    sdk.state.update_vm(vm_info.vm_id, config=config)
+    return sdk, vm_info.vm_id, cid
+
+
+def _start_with(sdk: CelestoManager, vm_id: str, adapter: _FakeQemuAdapter) -> VMInfo:
+    with (
+        patch.object(CelestoManager, "_local_ssh_port_is_available", return_value=True),
+        patch.object(CelestoManager, "_live_qemu_vsock_cids", return_value=set()),
+        patch.object(sdk, "_runtime_adapter_for_backend", return_value=adapter),
+    ):
+        return sdk.start(vm_id)
+
+
+def test_start_moves_auto_cid_that_the_kernel_still_holds(tmp_path: Path) -> None:
+    sdk, vm_id, first_cid = _vsock_vm(tmp_path, auto_assigned=True)
+    adapter = _FakeQemuAdapter(failing_boots=1)
+
+    started = _start_with(sdk, vm_id, adapter)
+
+    assert len(adapter.boot_cids) == 2
+    new_cid = adapter.boot_cids[1]
+    assert new_cid != first_cid
+    # Callers dial the CID from the returned info and from state, so both
+    # must name the CID QEMU actually bound.
+    assert started.status == VMState.RUNNING
+    assert started.config.vsock == VsockConfig(guest_cid=new_cid, auto_assigned=True)
+    assert sdk.state.get_vsock_cid(vm_id) == new_cid
+    assert sdk.state.get_vm(vm_id).config.vsock == started.config.vsock
+
+
+def test_start_gives_up_after_three_busy_cids(tmp_path: Path) -> None:
+    sdk, vm_id, _ = _vsock_vm(tmp_path, auto_assigned=True)
+    adapter = _FakeQemuAdapter(failing_boots=99)
+
+    with pytest.raises(CelestoError, match="QEMU exited early"):
+        _start_with(sdk, vm_id, adapter)
+
+    assert len(adapter.boot_cids) == 3
+    assert len(set(adapter.boot_cids)) == 3
+    assert sdk.state.get_vm(vm_id).status == VMState.ERROR
+
+
+def test_start_keeps_a_cid_the_caller_set(tmp_path: Path) -> None:
+    sdk, vm_id, cid = _vsock_vm(tmp_path, auto_assigned=False)
+    adapter = _FakeQemuAdapter(failing_boots=1)
+
+    with pytest.raises(CelestoError, match="QEMU exited early"):
+        _start_with(sdk, vm_id, adapter)
+
+    assert adapter.boot_cids == [cid]
+    assert sdk.state.get_vsock_cid(vm_id) == cid
+
+
+def test_start_does_not_retry_other_early_exits(tmp_path: Path) -> None:
+    sdk, vm_id, cid = _vsock_vm(tmp_path, auto_assigned=True)
+    adapter = _FakeQemuAdapter(
+        failing_boots=1, log_text="qemu-system-x86_64: could not open disk image\n"
+    )
+
+    with pytest.raises(CelestoError, match="QEMU exited early"):
+        _start_with(sdk, vm_id, adapter)
+
+    assert adapter.boot_cids == [cid]
+    assert sdk.state.get_vsock_cid(vm_id) == cid
