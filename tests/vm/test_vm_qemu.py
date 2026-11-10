@@ -14,13 +14,27 @@
 
 """QEMU-specific Celesto manager tests."""
 
+import asyncio
+import signal
+import subprocess
+import sys
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from celesto.exceptions import CelestoError, NetworkError, VMNotFoundError
-from celesto.types import NetworkConfig, PortForwardConfig, VMConfig, VMInfo, VMState, VsockConfig
+from celesto.types import (
+    NetworkConfig,
+    PortForwardConfig,
+    VMConfig,
+    VMInfo,
+    VMState,
+    VsockConfig,
+    WorkspaceMount,
+)
 from celesto.vm import CelestoManager
 
 
@@ -755,3 +769,222 @@ def test_delete_qemu_retains_isolated_disk_when_enabled(tmp_path: Path) -> None:
     sdk.delete("vm-qemu3")
 
     assert disk_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# How stop and delete end the QEMU process.
+#
+# On SIGTERM, QEMU writes every disk's cached data to the host before it
+# exits. On a busy host that takes longer than the 10 s stop timeout. Delete
+# removes the disk right after, so it kills QEMU at once instead, but only
+# when no file QEMU writes outlives the delete.
+#
+# Ways this can break, and the test that catches each:
+# - delete (sync or async) still sends SIGTERM and waits for the flush
+#   -> test_delete_kills_qemu_at_once_when_its_disk_is_deleted
+# - delete returns before QEMU has exited, so its resources (such as the
+#   vsock address) are reused while QEMU still holds them -> same test
+#   (the process must already be reaped when delete returns)
+# - a kill that QEMU survives no longer raises -> tests/runtime/test_runtime_qemu.py
+# - a plain stop loses its SIGTERM -> test_stop_still_lets_qemu_flush_before_it_exits
+# - a delete that keeps data kills QEMU at once
+#   -> test_delete_stops_qemu_gracefully_when_its_data_outlives_the_delete
+#
+# A real child process stands in for QEMU so the real signal, wait and reap
+# code runs. Only the QEMU launch itself is skipped.
+# ---------------------------------------------------------------------------
+
+# Stand-in for QEMU. On SIGTERM it records the signal in argv[1], then takes
+# argv[2] seconds to exit, like QEMU writing its disk caches to the host.
+_FAKE_QEMU_SCRIPT = """
+import pathlib, signal, sys, time
+
+def on_sigterm(_signum, _frame):
+    pathlib.Path(sys.argv[1]).write_text("SIGTERM")
+    time.sleep(float(sys.argv[2]))
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, on_sigterm)
+print("ready", flush=True)
+while True:
+    time.sleep(60)
+"""
+
+FakeQemu = Callable[..., tuple[subprocess.Popen[bytes], Path]]
+
+
+@pytest.fixture
+def fake_qemu(tmp_path: Path) -> Iterator[FakeQemu]:
+    """Return a helper that marks a VM as running on a QEMU stand-in process.
+
+    The helper returns the process and the file it writes when it receives
+    SIGTERM. Any process a failed test leaves behind is killed at teardown.
+    """
+    processes: list[subprocess.Popen[bytes]] = []
+
+    def run(
+        sdk: CelestoManager, vm_id: str, *, flush_seconds: float
+    ) -> tuple[subprocess.Popen[bytes], Path]:
+        sigterm_marker = tmp_path / f"{vm_id}.sigterm"
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-I",
+                "-c",
+                _FAKE_QEMU_SCRIPT,
+                str(sigterm_marker),
+                str(flush_seconds),
+            ],
+            stdout=subprocess.PIPE,
+        )
+        processes.append(process)
+        # Wait until the SIGTERM handler is installed; a SIGTERM before that
+        # would end the process without writing the marker.
+        assert process.stdout is not None
+        assert process.stdout.readline() == b"ready\n"
+        process.stdout.close()
+        # The manager reaps the processes it launched through these handles.
+        sdk._process_handles[process.pid] = process
+        sdk.state.update_vm(vm_id, status=VMState.RUNNING, pid=process.pid)
+        return process, sigterm_marker
+
+    yield run
+
+    for process in processes:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+
+
+def _create_qemu_vm(sdk: CelestoManager, tmp_path: Path, vm_id: str, **config: Any) -> None:
+    """Create a QEMU VM record without building a real disk image."""
+    kernel = tmp_path / "vmlinux"
+    rootfs = tmp_path / "rootfs.ext4"
+    kernel.touch()
+    rootfs.write_text("rootfs-data")
+    with patch.object(CelestoManager, "_create_qemu_overlay_disk") as mock_overlay:
+        mock_overlay.side_effect = lambda _source, target, **_kwargs: target.write_text(
+            "managed-qcow2"
+        )
+        sdk.create(
+            VMConfig(
+                vm_id=vm_id,
+                kernel_path=kernel,
+                rootfs_path=rootfs,
+                backend="qemu",
+                boot_args="console=ttyAMA0 reboot=k panic=1 init=/init",
+                **config,
+            )
+        )
+
+
+def _qemu_manager(tmp_path: Path) -> CelestoManager:
+    return CelestoManager(
+        data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu"
+    )
+
+
+@pytest.mark.parametrize("call", ["delete", "async_delete"])
+def test_delete_kills_qemu_at_once_when_its_disk_is_deleted(
+    tmp_path: Path, fake_qemu: FakeQemu, call: str
+) -> None:
+    """Delete skips QEMU's exit flush when the disk it would flush is removed."""
+    sdk = _qemu_manager(tmp_path)
+    _create_qemu_vm(sdk, tmp_path, "vm-del-fast")
+    disk = sdk.data_dir / "disks" / "vm-del-fast.qcow2"
+    assert disk.exists()
+    # A 30 s flush makes a graceful stop obvious: delete would wait 10 s first.
+    process, sigterm_marker = fake_qemu(sdk, "vm-del-fast", flush_seconds=30)
+
+    if call == "async_delete":
+        asyncio.run(sdk.async_delete("vm-del-fast"))
+    else:
+        sdk.delete("vm-del-fast")
+
+    assert not sigterm_marker.exists(), "QEMU was asked to exit gracefully"
+    # returncode is set only once the manager has reaped the process, so this
+    # also proves delete waited for QEMU to exit before it returned.
+    assert process.returncode == -signal.SIGKILL
+    assert not disk.exists()
+    with pytest.raises(VMNotFoundError):
+        sdk.get("vm-del-fast")
+
+
+def _retain_the_disk(tmp_path: Path) -> dict[str, Any]:
+    return {"retain_disk_on_delete": True}
+
+
+def _share_the_rootfs(tmp_path: Path) -> dict[str, Any]:
+    return {"disk_mode": "shared"}
+
+
+def _keep_an_extra_drive(tmp_path: Path) -> dict[str, Any]:
+    drive = tmp_path / "data-drive.raw"
+    drive.write_text("user-data")
+    return {"extra_drives": [drive]}
+
+
+def _keep_a_writable_shared_folder(tmp_path: Path) -> dict[str, Any]:
+    folder = tmp_path / "workspace"
+    folder.mkdir()
+    return {"workspace_mounts": [WorkspaceMount(host_path=folder, writable=True)]}
+
+
+@pytest.mark.parametrize("call", ["delete", "async_delete"])
+@pytest.mark.parametrize(
+    "kept_data",
+    [
+        pytest.param(_retain_the_disk, id="retain_disk_on_delete"),
+        pytest.param(_share_the_rootfs, id="shared_disk"),
+        pytest.param(_keep_an_extra_drive, id="extra_drive"),
+        pytest.param(_keep_a_writable_shared_folder, id="writable_shared_folder"),
+        pytest.param(None, id="disk_marked_as_kept"),
+    ],
+)
+def test_delete_stops_qemu_gracefully_when_its_data_outlives_the_delete(
+    tmp_path: Path,
+    fake_qemu: FakeQemu,
+    kept_data: Callable[[Path], dict[str, Any]] | None,
+    call: str,
+) -> None:
+    """Delete keeps the graceful stop whenever a file QEMU writes survives it.
+
+    QEMU's exit flush is what puts its cached writes into those files.
+    """
+    sdk = _qemu_manager(tmp_path)
+    _create_qemu_vm(sdk, tmp_path, "vm-del-keep", **(kept_data(tmp_path) if kept_data else {}))
+    if kept_data is None:
+        # A disk marked as kept survives delete even without retain_disk_on_delete.
+        disk = sdk.data_dir / "disks" / "vm-del-keep.qcow2"
+        sdk._mark_disk_retained(disk)
+    process, sigterm_marker = fake_qemu(sdk, "vm-del-keep", flush_seconds=0.2)
+
+    if call == "async_delete":
+        asyncio.run(sdk.async_delete("vm-del-keep"))
+    else:
+        sdk.delete("vm-del-keep")
+
+    assert sigterm_marker.read_text() == "SIGTERM"
+    # The stand-in finished its flush and exited on its own.
+    assert process.returncode == 0
+
+
+@pytest.mark.parametrize("call", ["stop", "async_stop"])
+def test_stop_still_lets_qemu_flush_before_it_exits(
+    tmp_path: Path, fake_qemu: FakeQemu, call: str
+) -> None:
+    """A plain stop keeps the disk, so QEMU must still flush it on SIGTERM."""
+    sdk = _qemu_manager(tmp_path)
+    # The same VM shape that delete kills at once.
+    _create_qemu_vm(sdk, tmp_path, "vm-stop")
+    process, sigterm_marker = fake_qemu(sdk, "vm-stop", flush_seconds=0.2)
+
+    if call == "async_stop":
+        asyncio.run(sdk.async_stop("vm-stop"))
+    else:
+        sdk.stop("vm-stop")
+
+    assert sigterm_marker.read_text() == "SIGTERM"
+    assert process.returncode == 0
+    assert sdk.get("vm-stop").status == VMState.STOPPED
+    assert (sdk.data_dir / "disks" / "vm-stop.qcow2").exists()

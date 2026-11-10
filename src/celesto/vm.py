@@ -2701,7 +2701,16 @@ class CelestoManager:
         with self._vm_operation_guard(vm_id, "stop"):
             return self._stop_claimed(vm_id, timeout)
 
-    def _stop_claimed(self, vm_id: str, timeout: float) -> VMInfo:
+    def _stop_claimed(self, vm_id: str, timeout: float, *, for_delete: bool = False) -> VMInfo:
+        """Stop a VM whose operation claim the caller holds.
+
+        Args:
+            vm_id: The VM identifier.
+            timeout: Seconds to wait for a graceful exit before killing.
+            for_delete: True when delete calls this. A QEMU VM is then killed
+                at once if the delete removes every file QEMU writes (see
+                :meth:`_delete_discards_qemu_writes`).
+        """
         logger.info("Stopping VM: %s", vm_id)
 
         # A launched process may be newer than its inventory row if persistence
@@ -2713,7 +2722,16 @@ class CelestoManager:
             return vm_info
 
         backend = self._backend_for_vm(vm_info)
-        self._runtime_adapter_for_backend(backend).stop(vm_info, timeout=timeout)
+        adapter = self._runtime_adapter_for_backend(backend)
+        if (
+            for_delete
+            and isinstance(adapter, QemuRuntimeAdapter)
+            and self._delete_discards_qemu_writes(vm_info)
+        ):
+            logger.info("Killing QEMU for VM %s at once: delete removes its disk", vm_id)
+            adapter.stop(vm_info, timeout=timeout, graceful=False)
+        else:
+            adapter.stop(vm_info, timeout=timeout)
         self._unrecorded_public_launches.pop(vm_id, None)
         self._stop_public_egress(vm_id)
         self._close_runtime_log(vm_id, backend, vm_info.control_socket_path)
@@ -2726,6 +2744,38 @@ class CelestoManager:
         )
         logger.info("VM stopped: %s (backend=%s)", vm_id, backend)
         return vm_info
+
+    def _delete_discards_qemu_writes(self, vm_info: VMInfo) -> bool:
+        """Return whether deleting this QEMU VM removes every file QEMU writes.
+
+        On SIGTERM, QEMU writes all cached disk data to the host before it
+        exits. On a busy host that can take longer than the stop timeout,
+        and the slow exit holds host resources, such as the VM's vsock
+        address, that the next VM may need. When delete removes the disk
+        right after, that work is wasted: the host drops unwritten data of a
+        deleted file. Delete can then kill QEMU at once.
+
+        Each check below finds a file that QEMU writes and that delete keeps.
+        Any one of them means QEMU must exit gracefully so its data reaches
+        that file. The checks mirror :meth:`_cleanup_vm_artifacts`.
+        """
+        config = vm_info.config
+        # The user asked to keep the disk and the firmware state after delete.
+        if config.retain_disk_on_delete:
+            return False
+        # Shared disk mode, or a root disk the SDK did not create: delete
+        # leaves it in place.
+        managed_disk = self._managed_disk_for_vm(vm_info)
+        if managed_disk is None:
+            return False
+        # A disk marked as kept on purpose survives delete.
+        if self._retained_marker_path(managed_disk).exists():
+            return False
+        # Extra drives belong to the user; delete never removes them.
+        if config.extra_drives:
+            return False
+        # A writable shared folder is a user folder that QEMU writes to.
+        return not any(mount.writable for mount in config.workspace_mounts)
 
     def pause(self, vm_id: str) -> VMInfo:
         """Pause a running VM."""
@@ -3497,8 +3547,10 @@ class CelestoManager:
     def _delete_claimed(self, vm_id: str) -> None:
         logger.info("Deleting VM: %s", vm_id)
 
+        # for_delete lets a QEMU VM skip its exit flush when its disk is
+        # deleted below anyway.
         if vm_id in self._unrecorded_public_launches:
-            self._stop_claimed(vm_id, 10.0)
+            self._stop_claimed(vm_id, 10.0, for_delete=True)
         # Stop if running
         try:
             vm_info = self.state.get_vm(vm_id)
@@ -3508,7 +3560,7 @@ class CelestoManager:
             raise
 
         if vm_info.status in (VMState.RUNNING, VMState.PAUSED):
-            self._stop_claimed(vm_id, 10.0)
+            self._stop_claimed(vm_id, 10.0, for_delete=True)
 
         self._stop_public_egress(vm_id)
         self._delete_macos_bundle(vm_info)
@@ -4970,7 +5022,10 @@ class CelestoManager:
         with self._vm_operation_guard(vm_id, "stop"):
             return await self._async_stop_claimed(vm_id, timeout)
 
-    async def _async_stop_claimed(self, vm_id: str, timeout: float) -> VMInfo:
+    async def _async_stop_claimed(
+        self, vm_id: str, timeout: float, *, for_delete: bool = False
+    ) -> VMInfo:
+        """Async version of :meth:`_stop_claimed`."""
         logger.info("Stopping VM (async): %s", vm_id)
 
         vm_info = self._unrecorded_public_launches.get(vm_id) or self.state.get_vm(vm_id)
@@ -4980,7 +5035,16 @@ class CelestoManager:
             return vm_info
 
         backend = self._backend_for_vm(vm_info)
-        await self._runtime_adapter_for_backend(backend).async_stop(vm_info, timeout=timeout)
+        adapter = self._runtime_adapter_for_backend(backend)
+        if (
+            for_delete
+            and isinstance(adapter, QemuRuntimeAdapter)
+            and self._delete_discards_qemu_writes(vm_info)
+        ):
+            logger.info("Killing QEMU for VM %s at once: delete removes its disk", vm_id)
+            await adapter.async_stop(vm_info, timeout=timeout, graceful=False)
+        else:
+            await adapter.async_stop(vm_info, timeout=timeout)
         self._unrecorded_public_launches.pop(vm_id, None)
         self._stop_public_egress(vm_id)
         self._close_runtime_log(vm_id, backend, vm_info.control_socket_path)
@@ -5004,8 +5068,9 @@ class CelestoManager:
     async def _async_delete_claimed(self, vm_id: str) -> None:
         logger.info("Deleting VM (async): %s", vm_id)
 
+        # See _delete_claimed: a QEMU VM may skip its exit flush here.
         if vm_id in self._unrecorded_public_launches:
-            await self._async_stop_claimed(vm_id, 10.0)
+            await self._async_stop_claimed(vm_id, 10.0, for_delete=True)
         try:
             vm_info = self.state.get_vm(vm_id)
         except VMNotFoundError:
@@ -5013,7 +5078,7 @@ class CelestoManager:
             raise
 
         if vm_info.status in (VMState.RUNNING, VMState.PAUSED):
-            await self._async_stop_claimed(vm_id, 10.0)
+            await self._async_stop_claimed(vm_id, 10.0, for_delete=True)
 
         self._stop_public_egress(vm_id)
         await asyncio.to_thread(self._delete_macos_bundle, vm_info)

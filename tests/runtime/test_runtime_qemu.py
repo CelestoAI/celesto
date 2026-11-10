@@ -104,6 +104,27 @@ def test_stop_raises_when_qemu_survives_hard_kill(tmp_path: Path) -> None:
     cast(MagicMock, context.unlink_socket).assert_not_called()
 
 
+def test_stop_without_graceful_exit_still_waits_and_reports_a_survivor(tmp_path: Path) -> None:
+    """Skipping SIGTERM must keep the post-kill wait and the error if QEMU survives.
+
+    A caller that frees the VM's resources after stop() returns relies on
+    QEMU being gone. A real process cannot survive SIGKILL, so this case is
+    only reachable with mocks.
+    """
+    context = _make_context()
+    cast(MagicMock, context.is_process_running).return_value = True
+    adapter = QemuRuntimeAdapter(context)
+    vm_info = _make_vm_info(tmp_path)
+
+    with patch("os.kill") as mock_os_kill, pytest.raises(CelestoError, match="did not exit"):
+        adapter.stop(vm_info, timeout=10.0, graceful=False)
+
+    mock_os_kill.assert_not_called()  # no SIGTERM
+    cast(MagicMock, context.kill_process).assert_called_once_with(vm_info.pid)
+    cast(MagicMock, context.wait_for_process).assert_called_once_with(vm_info.pid, 5.0)
+    cast(MagicMock, context.unlink_socket).assert_not_called()
+
+
 def test_qcow2_backing_inspection_force_shares_running_qemu_disk(tmp_path: Path) -> None:
     """Inspecting a paused-but-open QEMU disk must bypass qemu-img's image lock."""
     disk = tmp_path / "vm.qcow2"

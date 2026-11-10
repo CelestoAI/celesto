@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- Delete QEMU sandboxes without waiting for QEMU to save disk writes that the delete then throws away. On a busy machine that wait could pass 10 seconds, and the slow exit could make the next sandbox fail to start with "unable to set guest cid: Address already in use". Stopping a sandbox, or deleting one whose files are kept (for example with `retain_disk_on_delete`), still waits for those writes.
 - Stop sandbox creates failing with "database is locked" when many start at once on a busy disk. Celesto's saved VM data now uses SQLite write-ahead logging, so reads no longer wait for writes and commits no longer wait on several disk flushes each.
 
 ## 0.1.13 — 2026-11-06
