@@ -9,6 +9,8 @@
  * x86_64 only: the guest code and register layout are x86.
  * Exit status 0 and "KVM_SMOKE_PASS" on success; non-zero otherwise.
  */
+/* O_CLOEXEC and MAP_ANONYMOUS need this under strict -std modes. */
+#define _GNU_SOURCE
 #include <err.h>
 #include <fcntl.h>
 #include <linux/kvm.h>
