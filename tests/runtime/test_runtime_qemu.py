@@ -2,6 +2,7 @@
 
 import subprocess
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 from unittest.mock import MagicMock, call, patch
@@ -9,10 +10,19 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 
 from celesto.exceptions import CelestoError
-from celesto.runtime.base import RuntimeContext
+from celesto.runtime.base import RuntimeContext, SnapshotRestoreRequest
 from celesto.runtime.guest_platforms import GuestPlatformSpec
 from celesto.runtime.qemu import QemuRuntimeAdapter, _SwtpmSidecar
-from celesto.types import GuestOS, NetworkConfig, VMConfig, VMInfo, VMState
+from celesto.types import (
+    GuestOS,
+    NetworkConfig,
+    SnapshotArtifacts,
+    SnapshotInfo,
+    SnapshotType,
+    VMConfig,
+    VMInfo,
+    VMState,
+)
 
 
 def _make_context() -> RuntimeContext:
@@ -314,6 +324,49 @@ def test_start_stops_swtpm_when_qemu_fails_to_boot(
     sidecar = _SwtpmSidecar(vm_id=vm_info.vm_id, firmware_dir=context.firmware_dir, context=context)
     assert not sidecar.pidfile_path.exists()
     assert not sidecar.socket_path.exists()
+
+
+def test_restore_snapshot_kills_qemu_process_when_interrupted(tmp_path: Path) -> None:
+    """Ctrl-C after QEMU starts for a restore must still reap that process."""
+    context = _make_context()
+    adapter = QemuRuntimeAdapter(context)
+    vm_info = _make_vm_info(tmp_path)
+    assert vm_info.network is not None
+    control_socket_path = context.socket_dir / f"qmp-{vm_info.vm_id}.sock"
+    control_socket_path.parent.mkdir(parents=True, exist_ok=True)
+    control_socket_path.touch()
+    snapshot_disk = tmp_path / "snapshot.qcow2"
+    snapshot_disk.write_text("snapshotted-qcow2")
+    snapshot = SnapshotInfo(
+        snapshot_id="snap-interrupt",
+        vm_id=vm_info.vm_id,
+        backend="qemu",
+        artifacts=SnapshotArtifacts(disk_path=snapshot_disk),
+        vm_config=vm_info.config,
+        network_config=vm_info.network,
+        created_at=datetime.now(UTC),
+        snapshot_type=SnapshotType.DISK,
+    )
+    cast(MagicMock, context.start_qemu).return_value = MagicMock(pid=4242)
+
+    with (
+        patch.object(QemuRuntimeAdapter, "_copy_disk_standalone"),
+        patch.object(QemuRuntimeAdapter, "_wait_for_runtime", side_effect=KeyboardInterrupt),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        adapter.restore_snapshot(
+            SnapshotRestoreRequest(
+                snapshot=snapshot,
+                managed_disk_path=tmp_path / "restore.qcow2",
+                log_path=tmp_path / "qemu.log",
+                resume_vm=False,
+                boot_timeout=1.0,
+            )
+        )
+
+    cast(MagicMock, context.kill_process).assert_called_once_with(4242)
+    # The stale socket is removed before the launch and again during rollback.
+    assert call(control_socket_path) in cast(MagicMock, context.unlink_socket).call_args_list
 
 
 def test_start_leaves_swtpm_running_when_the_launch_succeeds(tmp_path: Path) -> None:

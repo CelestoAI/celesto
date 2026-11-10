@@ -259,7 +259,9 @@ class FirecrackerRuntimeAdapter(RuntimeAdapter):
             )
             try:
                 self.pause(paused_info)
-            except Exception:
+            except BaseException:
+                # BaseException: Ctrl-C must not leave the restarted guest
+                # running after the restore is abandoned.
                 with suppress(Exception):
                     self.stop(paused_info, timeout=5.0)
                 raise
@@ -297,7 +299,9 @@ class FirecrackerRuntimeAdapter(RuntimeAdapter):
                 status=VMState.RUNNING if request.resume_vm else VMState.PAUSED,
                 vsock_uds_path=vsock_uds_path,
             )
-        except Exception:
+        except BaseException:
+            # BaseException: Ctrl-C during the snapshot load must still reap
+            # the Firecracker process started for this restore.
             if process is not None:
                 with suppress(Exception):
                     self._context.kill_process(process.pid)
