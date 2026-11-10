@@ -19,5 +19,5 @@ CONFIG_SERIAL_8250_CONSOLE=y        # why: register 8250 as boot console
 # when a VM is created.
 CONFIG_VIRTUALIZATION=y             # why: menu that holds the KVM options
 CONFIG_KVM=y                        # why: /dev/kvm for nested VMs
-CONFIG_KVM_INTEL=y                  # why: Intel VT-x hosts (AWS)
-CONFIG_KVM_AMD=y                    # why: AMD-V hosts (OVH EPYC)
+CONFIG_KVM_INTEL=y                  # why: hosts with Intel VT-x
+CONFIG_KVM_AMD=y                    # why: hosts with AMD-V
