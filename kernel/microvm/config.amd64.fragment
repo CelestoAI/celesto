@@ -8,3 +8,16 @@
 # ── Serial / console ─────────────────────────────────────────────────
 CONFIG_SERIAL_8250=y                # why: x86 console on QEMU + libkrun
 CONFIG_SERIAL_8250_CONSOLE=y        # why: register 8250 as boot console
+
+# ── Nested virtualization ────────────────────────────────────────────
+# Gives the guest /dev/kvm, so a workload can start its own VMs (Android
+# emulator, Firecracker, QEMU -accel kvm). Built in, because production
+# kernels have no module support. KVM creates /dev/kvm only when the VMM
+# shows the CPU's virtualization flag (vmx/svm, e.g. QEMU -cpu host) and
+# the host allows nesting; otherwise it logs "not supported" and stays
+# inactive. Boot with kvm.enable_virt_at_load=0 to turn VMX/SVM on only
+# when a VM is created.
+CONFIG_VIRTUALIZATION=y             # why: menu that holds the KVM options
+CONFIG_KVM=y                        # why: /dev/kvm for nested VMs
+CONFIG_KVM_INTEL=y                  # why: Intel VT-x hosts (AWS)
+CONFIG_KVM_AMD=y                    # why: AMD-V hosts (OVH EPYC)
