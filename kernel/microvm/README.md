@@ -154,7 +154,9 @@ That's what the fragments in this directory encode.
 - KVM / Hypervisor.framework paravirt symbols (`CONFIG_KVM_GUEST`,
   `CONFIG_PARAVIRT`) — `KVM_GUEST` is x86-only (arm64 doesn't have the
   symbol); the perf wins are minor and the upstream defconfig already
-  enables what's needed.
+  enables what's needed. These are guest-side symbols. The host-side
+  `CONFIG_KVM` that gives a guest `/dev/kvm` for nested VMs *is* enabled
+  on amd64 (see `config.amd64.fragment`).
 - Kernel modules — see "no modules" row above. The kernel ships without
   `/lib/modules/$(uname -r)`, so userspace `modprobe` will fail with
   "module not found" even for built-in drivers. The Celesto facade's
@@ -169,7 +171,7 @@ That's what the fragments in this directory encode.
 | `linux.version` | Single line: the upstream Linux release we build (e.g. `6.12.10`). Updated after checking upstream stable releases and advisories. |
 | `linux.sha256` | One `sha256sum -c` line for the tarball at `cdn.kernel.org`. |
 | `config.fragment` | Common deltas vs `x86_64_defconfig` (x86) / `defconfig` (arm64) — symbols that exist on both archs. Every line carries an inline `# why:` comment — that's the source of truth for "why is this in our kernel." |
-| `config.amd64.fragment` | x86-only deltas (8250 console). Merged on top of `config.fragment` for amd64 builds. |
+| `config.amd64.fragment` | x86-only deltas (8250 console, KVM for nested VMs). Merged on top of `config.fragment` for amd64 builds. |
 | `config.arm64.fragment` | arm64-only deltas (PCI host-generic, PL011 console). Merged on top of `config.fragment` for arm64 builds. |
 | `build.sh` | The exact recipe CI runs. Also runnable locally — see below. |
 
