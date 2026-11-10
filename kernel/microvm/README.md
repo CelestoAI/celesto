@@ -15,6 +15,13 @@ linux.version + linux.sha256
 
 The sandbox profile keeps XFS disabled. The CI overlay enables it as a built-in
 driver; neither profile requires kernel modules or an initrd in production.
+
+Both amd64 profiles include KVM (`CONFIG_KVM`, `CONFIG_KVM_INTEL`,
+`CONFIG_KVM_AMD`), so a guest can run nested VMs. `/dev/kvm` appears only when
+the VMM shows the CPU's virtualization flag (`vmx`/`svm`, for example QEMU
+`-cpu host`) and the host allows nesting. Otherwise KVM logs "not supported"
+and stays inactive. Boot with `kvm.enable_virt_at_load=0` so KVM turns on
+VMX/SVM only when a nested VM is created.
 Each build produces an ELF for Firecracker and an Image/bzImage for QEMU.
 
 Build a specific profile and architecture on Linux:
@@ -59,7 +66,8 @@ bash kernel/microvm/smoke/run.sh amd64 /tmp/kernel-out /tmp/kernel-guest /tmp/ke
 
 The AMD64 release runner boots each profile from an ext4 root filesystem
 in QEMU twice, checks ext4 persistence, namespaces, Docker overlay storage,
-container memory/CPU limits, bridge DNS/HTTP, and CI XFS mounting with reflinks.
+container memory/CPU limits, bridge DNS/HTTP, CI XFS mounting with reflinks,
+and (amd64) a nested VM through `/dev/kvm` with the `kvm-smoke` probe.
 `receipt.json` records the tested kernel digests, sizes, checks, and console log
 paths. A failed rerun removes any previous success receipt. Run the negative
 control with a separate output directory to prove an XFS-enabled CI kernel is
@@ -146,7 +154,9 @@ That's what the fragments in this directory encode.
 - KVM / Hypervisor.framework paravirt symbols (`CONFIG_KVM_GUEST`,
   `CONFIG_PARAVIRT`) — `KVM_GUEST` is x86-only (arm64 doesn't have the
   symbol); the perf wins are minor and the upstream defconfig already
-  enables what's needed.
+  enables what's needed. These are guest-side symbols. The host-side
+  `CONFIG_KVM` that gives a guest `/dev/kvm` for nested VMs *is* enabled
+  on amd64 (see `config.amd64.fragment`).
 - Kernel modules — see "no modules" row above. The kernel ships without
   `/lib/modules/$(uname -r)`, so userspace `modprobe` will fail with
   "module not found" even for built-in drivers. The Celesto facade's
@@ -161,7 +171,7 @@ That's what the fragments in this directory encode.
 | `linux.version` | Single line: the upstream Linux release we build (e.g. `6.12.10`). Updated after checking upstream stable releases and advisories. |
 | `linux.sha256` | One `sha256sum -c` line for the tarball at `cdn.kernel.org`. |
 | `config.fragment` | Common deltas vs `x86_64_defconfig` (x86) / `defconfig` (arm64) — symbols that exist on both archs. Every line carries an inline `# why:` comment — that's the source of truth for "why is this in our kernel." |
-| `config.amd64.fragment` | x86-only deltas (8250 console). Merged on top of `config.fragment` for amd64 builds. |
+| `config.amd64.fragment` | x86-only deltas (8250 console, KVM for nested VMs). Merged on top of `config.fragment` for amd64 builds. |
 | `config.arm64.fragment` | arm64-only deltas (PCI host-generic, PL011 console). Merged on top of `config.fragment` for arm64 builds. |
 | `build.sh` | The exact recipe CI runs. Also runnable locally — see below. |
 

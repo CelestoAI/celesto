@@ -49,7 +49,8 @@ for profile in ("sandbox", "github-ci"):
     receipt["profiles"][profile] = {
         "sha256": hashlib.sha256(asset.read_bytes()).hexdigest(), "bytes": asset.stat().st_size,
         "checks": ["namespaces", "ext4-restart", "docker-overlay-storage", "docker-cgroups", "docker-bridge-dns"]
-                  + (["xfs-mount-reflink"] if profile == "github-ci" else ["xfs-absent"]),
+                  + (["xfs-mount-reflink"] if profile == "github-ci" else ["xfs-absent"])
+                  + (["kvm-nested-vm"] if arch == "amd64" else []),
         "console_logs": [f"{profile}-{phase}.console.log" for phase in ("write", "read")],
     }
 (proof / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")

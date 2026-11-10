@@ -177,7 +177,7 @@ def _release_asset_url(preset: Preset, arch: Arch, suffix: str, os: Os = "ubuntu
 
 
 # Kernels have an independent release cadence from preset root filesystems.
-KERNELS_RELEASE_TAG = "kernels-2026.10.28.0"
+KERNELS_RELEASE_TAG = "kernels-2026.11.10.0"
 # ARM sandbox kernels have an independently qualified Linux 7.3 release.
 ARM_KERNELS_RELEASE_TAG = "kernels-arm64-2026.10.29.0"
 KernelProfile = Literal["sandbox", "github-ci"]
@@ -215,9 +215,9 @@ BASE_KERNELS: dict[Arch, BaseKernel] = {
     "amd64": BaseKernel(
         arch="amd64",
         elf_url=_release_kernel_url("amd64", "elf"),
-        elf_sha256="c84de1079890e77aa9b44ca1f3e6220cfe643e97e66d1aca2bc344ce75c49a0e",
+        elf_sha256="7e2b006b3b9fb659acc98b3b56568d7a31fd6bab2db2e7049ffec4eb31921598",
         image_url=_release_kernel_url("amd64", "image"),
-        image_sha256="a39bf2d165743be84b6e9607983bd2fb24ba63ace721269d746a87cfab1bf016",
+        image_sha256="f08805f54b4ccf7c07ac77e5f4ee5a989331bae384e34f6f4d4ca28bbaab2f79",
     ),
     "arm64": BaseKernel(
         arch="arm64",
@@ -233,9 +233,9 @@ CI_KERNELS: dict[Arch, BaseKernel] = {
     "amd64": BaseKernel(
         arch="amd64",
         elf_url=_release_kernel_url("amd64", "elf", profile="github-ci"),
-        elf_sha256="24f9bbd3813c7c9c899764c1d7a1caea1677010b62320babb5438afc7396c789",
+        elf_sha256="ddec4fbd54d99ce7ed34c15c9dcdc19b753717638274e49ac021e0d593541933",
         image_url=_release_kernel_url("amd64", "image", profile="github-ci"),
-        image_sha256="52fc02f5fd3140f46e00dd7d8498eba0a15e3ba212d0ba13dcf379cd0932d829",
+        image_sha256="fe4c737114391e0295c7af8229044d0dab53340ceac0a4f8de31233df22f3d30",
     ),
 }
 
