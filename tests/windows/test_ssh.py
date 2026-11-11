@@ -17,6 +17,7 @@
 import base64
 import errno
 import logging
+from collections.abc import Sequence
 from pathlib import Path
 from typing import BinaryIO
 from unittest.mock import MagicMock, patch
@@ -105,25 +106,78 @@ class TestSSHClientInit:
             SSHClient("172.16.0.2", port=70000)
 
 
+class _FakeChannel:
+    """Scripted paramiko channel: stdout/stderr chunks arrive in the given order.
+
+    Each script entry is ``("out", bytes)`` or ``("err", bytes)``. ``recv_ready``
+    reports the stream of the next entry, so a test can make stderr pile up
+    while stdout is still open, and an entry of ``None`` means "no output
+    yet" for one poll.
+    """
+
+    def __init__(self, script: Sequence[tuple[str, bytes] | None], exit_code: int = 0) -> None:
+        self.script: list[tuple[str, bytes] | None] = list(script)
+        self.exit_code = exit_code
+        self.closed = False
+        self.eof_received = False
+        self.close_calls = 0
+        self.recv_sizes: list[int] = []
+
+    def _skip_pauses(self) -> None:
+        while self.script and self.script[0] is None:
+            self.script.pop(0)
+
+    def _next_is(self, stream: str) -> bool:
+        return bool(self.script) and self.script[0] is not None and self.script[0][0] == stream
+
+    def recv_ready(self) -> bool:
+        return self._next_is("out")
+
+    def recv_stderr_ready(self) -> bool:
+        return self._next_is("err")
+
+    def _take(self, stream: str, size: int) -> bytes:
+        self.recv_sizes.append(size)
+        if not self._next_is(stream):
+            return b""
+        _stream, data = self.script.pop(0)  # type: ignore[misc]
+        if len(data) > size:
+            self.script.insert(0, (stream, data[size:]))
+            data = data[:size]
+        return data
+
+    def recv(self, size: int) -> bytes:
+        return self._take("out", size)
+
+    def recv_stderr(self, size: int) -> bytes:
+        return self._take("err", size)
+
+    def exit_status_ready(self) -> bool:
+        self._skip_pauses()
+        return not self.script
+
+    def recv_exit_status(self) -> int:
+        return self.exit_code
+
+    def close(self) -> None:
+        self.closed = True
+        self.close_calls += 1
+
+
 def _mock_exec_result(
     exit_code: int, stdout: str, stderr: str
 ) -> tuple[None, MagicMock, MagicMock]:
-    stdout_ch = MagicMock()
-    stderr_ch = MagicMock()
-    pending = [stdout.encode("utf-8"), stderr.encode("utf-8")]
-    channel = stdout_ch.channel
-    channel.recv_ready.side_effect = lambda: bool(pending[0])
-    channel.recv_stderr_ready.side_effect = lambda: bool(pending[1])
+    script: list[tuple[str, bytes] | None] = []
+    if stdout:
+        script.append(("out", stdout.encode("utf-8")))
+    if stderr:
+        script.append(("err", stderr.encode("utf-8")))
+    return _mock_exec_channel(_FakeChannel(script, exit_code))
 
-    def drain(index: int) -> bytes:
-        data = pending[index]
-        pending[index] = b""
-        return data
 
-    channel.recv.side_effect = lambda size: drain(0)
-    channel.recv_stderr.side_effect = lambda size: drain(1)
-    channel.exit_status_ready.return_value = True
-    channel.recv_exit_status.return_value = exit_code
+def _mock_exec_channel(channel: _FakeChannel) -> tuple[None, MagicMock, MagicMock]:
+    stdout_ch = MagicMock(channel=channel)
+    stderr_ch = MagicMock(channel=channel)
     return (None, stdout_ch, stderr_ch)
 
 
@@ -181,6 +235,128 @@ class TestSSHClientRun:
         assert events[2].data == "warning\n"  # type: ignore[union-attr]
         assert events[3].exit_code == 7  # type: ignore[union-attr]
         channel.close.assert_called_once()
+
+    @patch.object(SSHClient, "_ensure_connected")
+    def test_run_rejects_output_over_host_cap(
+        self, mock_connected: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A guest that streams output forever cannot grow host memory without bound."""
+        monkeypatch.setattr("celesto.ssh._DEFAULT_MAX_COMMAND_OUTPUT_BYTES", 1024)
+        channel = _FakeChannel([("out", b"y\n" * 256)] * 64)  # 32 KiB, like `yes`
+        mock_client = MagicMock()
+        mock_client.exec_command.return_value = _mock_exec_channel(channel)
+        mock_connected.return_value = mock_client
+
+        with pytest.raises(CelestoError, match="run_stream") as excinfo:
+            SSHClient("172.16.0.2").run("yes", timeout=5)
+
+        assert "1024 bytes" in str(excinfo.value)
+        assert sum(len(d) for e in channel.script if e for _s, d in [e]) >= 30 * 1024
+        assert channel.close_calls == 1
+
+    @patch.object(SSHClient, "_ensure_connected")
+    def test_run_cap_counts_stdout_and_stderr_together(
+        self, mock_connected: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("celesto.ssh._DEFAULT_MAX_COMMAND_OUTPUT_BYTES", 1024)
+        channel = _FakeChannel([("out", b"a" * 600), ("err", b"b" * 600)])
+        mock_client = MagicMock()
+        mock_client.exec_command.return_value = _mock_exec_channel(channel)
+        mock_connected.return_value = mock_client
+
+        with pytest.raises(CelestoError, match="run_stream"):
+            SSHClient("172.16.0.2").run("cmd")
+        assert channel.close_calls == 1
+
+    @patch.object(SSHClient, "_ensure_connected")
+    def test_run_accepts_output_exactly_at_cap(
+        self, mock_connected: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("celesto.ssh._DEFAULT_MAX_COMMAND_OUTPUT_BYTES", 1024)
+        channel = _FakeChannel([("out", b"a" * 1000), ("err", b"b" * 24)])
+        mock_client = MagicMock()
+        mock_client.exec_command.return_value = _mock_exec_channel(channel)
+        mock_connected.return_value = mock_client
+
+        result = SSHClient("172.16.0.2").run("cmd")
+
+        assert len(result.stdout) + len(result.stderr) == 1024
+
+    @patch.object(SSHClient, "_ensure_connected")
+    def test_run_drains_stderr_while_stdout_is_still_open(
+        self, mock_connected: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """stderr arriving before stdout closes is counted against the cap as it arrives."""
+        monkeypatch.setattr("celesto.ssh._DEFAULT_MAX_COMMAND_OUTPUT_BYTES", 1024)
+        # stderr floods while stdout has produced one chunk and not yet closed.
+        channel = _FakeChannel([("out", b"x")] + [("err", b"e" * 512)] * 8 + [("out", b"y")])
+        mock_client = MagicMock()
+        mock_client.exec_command.return_value = _mock_exec_channel(channel)
+        mock_connected.return_value = mock_client
+
+        with pytest.raises(CelestoError, match="run_stream"):
+            SSHClient("172.16.0.2").run("cmd")
+
+        # The host stopped after the chunk that crossed the cap, not after draining stdout.
+        assert len(channel.script) >= 5
+        assert channel.close_calls == 1
+
+    @patch.object(SSHClient, "_ensure_connected")
+    def test_run_reads_output_in_bounded_chunks(self, mock_connected: MagicMock) -> None:
+        channel = _FakeChannel([("out", b"hel"), ("err", b"warn"), ("out", b"lo\n")])
+        mock_client = MagicMock()
+        mock_client.exec_command.return_value = _mock_exec_channel(channel)
+        mock_connected.return_value = mock_client
+
+        result = SSHClient("172.16.0.2").run("echo hello")
+
+        assert result.stdout == "hello\n"
+        assert result.stderr == "warn"
+        assert channel.recv_sizes
+        assert all(0 < size <= 1024 * 1024 for size in channel.recv_sizes)
+
+    @patch.object(SSHClient, "_ensure_connected")
+    def test_run_keeps_output_that_arrives_with_the_exit_status(
+        self, mock_connected: MagicMock
+    ) -> None:
+        """Data buffered just before the exit status is read, not dropped."""
+
+        class _TailArrivesWithExit(_FakeChannel):
+            def __init__(self) -> None:
+                super().__init__([("out", b"head\n")])
+                self.tail_sent = False
+
+            def exit_status_ready(self) -> bool:
+                # paramiko's transport thread delivers the last chunk and the
+                # exit status back to back, in the gap after a drain pass.
+                if not self.tail_sent:
+                    self.tail_sent = True
+                    self.script.append(("out", b"tail\n"))
+                return True
+
+        channel = _TailArrivesWithExit()
+        mock_client = MagicMock()
+        mock_client.exec_command.return_value = _mock_exec_channel(channel)
+        mock_connected.return_value = mock_client
+
+        result = SSHClient("172.16.0.2").run("cat file")
+
+        assert result.stdout == "head\ntail\n"
+
+    @patch.object(SSHClient, "_ensure_connected")
+    def test_run_times_out_when_command_goes_quiet(self, mock_connected: MagicMock) -> None:
+        class _NeverFinishes(_FakeChannel):
+            def exit_status_ready(self) -> bool:
+                return False
+
+        channel = _NeverFinishes([("out", b"start\n")])
+        mock_client = MagicMock()
+        mock_client.exec_command.return_value = _mock_exec_channel(channel)
+        mock_connected.return_value = mock_client
+
+        with pytest.raises(OperationTimeoutError):
+            SSHClient("172.16.0.2").run("sleep 100", timeout=1)
+        assert channel.close_calls == 1
 
     def test_run_empty_command_raises(self) -> None:
         """Test that empty command raises ValueError."""
