@@ -145,6 +145,21 @@ export class ModelAccessService {
       ],
       api: openAICompletionsApi(),
     }));
+
+    // UberLLM (OpenAI-compatible gateway, one key for many vendors' models)
+    models.setProvider(createProvider({
+      id: "uberllm",
+      name: "UberLLM",
+      baseUrl: "https://api.uberllm.dev/v1",
+      auth: { apiKey: envApiKeyAuth("UberLLM API key", ["UBERLLM_API_KEY"]) },
+      models: [
+        { id: "anthropic/claude-sonnet-4.6", name: "Claude Sonnet 4.6", api: "openai-completions" as const, provider: "uberllm", baseUrl: "https://api.uberllm.dev/v1", reasoning: true, input: ["text", "image"] as const, cost: { input: 1.2, output: 6, cacheRead: 0.12, cacheWrite: 1.5 }, contextWindow: 1000000, maxTokens: 64000 },
+        { id: "openai/gpt-5.4", name: "GPT-5.4", api: "openai-completions" as const, provider: "uberllm", baseUrl: "https://api.uberllm.dev/v1", reasoning: true, input: ["text", "image"] as const, cost: { input: 1.55, output: 9.3, cacheRead: 0.155, cacheWrite: 1.55 }, contextWindow: 1000000, maxTokens: 131072 },
+        { id: "openai/gpt-5.4-mini", name: "GPT-5.4 Mini", api: "openai-completions" as const, provider: "uberllm", baseUrl: "https://api.uberllm.dev/v1", reasoning: true, input: ["text", "image"] as const, cost: { input: 0.135, output: 0.81, cacheRead: 0.0135, cacheWrite: 0.135 }, contextWindow: 400000, maxTokens: 128000 },
+        { id: "google/gemini-3.1-pro", name: "Gemini 3.1 Pro", api: "openai-completions" as const, provider: "uberllm", baseUrl: "https://api.uberllm.dev/v1", reasoning: true, input: ["text", "image"] as const, cost: { input: 1.92, output: 11.52, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1048576, maxTokens: 65536 },
+      ],
+      api: openAICompletionsApi(),
+    }));
     return new ModelAccessService(models, process.env.OPEN_MUSE_ENABLE_SUBSCRIPTION_AUTH === "1", credentials instanceof FileCredentialStore ? credentials.path : undefined);
   }
 
@@ -177,6 +192,7 @@ export class ModelAccessService {
           "openrouter": "OPENROUTER_API_KEY",
           "xai": "XAI_API_KEY",
           "cohere": "COHERE_API_KEY",
+          "uberllm": "UBERLLM_API_KEY",
         }[provider.id],
       } : {}),
         methods,

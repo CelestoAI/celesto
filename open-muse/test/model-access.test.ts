@@ -168,6 +168,7 @@ test("the default provider list includes all registered providers and keeps subs
     "openrouter",
     "xai",
     "cohere",
+    "uberllm",
   ]);
     assert.equal(snapshot.providers.find((provider) => provider.id === "openai-codex")?.methods.find((method) => method.type === "oauth")?.enabled, false);
     assert.equal(snapshot.providers.find((provider) => provider.id === "openai")?.methods.find((method) => method.type === "api_key")?.enabled, true);
