@@ -48,10 +48,16 @@ async function fixture() {
   class ShellComputer implements RemoteComputer {
     beforeRun?: (command: string) => Promise<void>;
     transfers: string[] = [];
+    commands: string[] = [];
     async run(
       command: string,
       params?: ExecParams,
     ): Promise<ComputerExecResponse> {
+      this.commands.push(command);
+      assert(
+        command.length <= 10_000,
+        `Cloud command is ${command.length} characters`,
+      );
       await this.beforeRun?.(command);
       return new Promise((resolve) => {
         const child = execFile(
@@ -766,6 +772,74 @@ test("failed remote preparation cleans files created before the failure", async 
       /Prepare .*failed/,
     );
     assert.deepEqual(await readdir(f.remote), []);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("deep quoted paths sync large files within the Cloud command limit", async () => {
+  const f = await fixture();
+  try {
+    await writeFile(path.join(f.local, "seed.txt"), "baseline");
+    let { revision } = await uploadInitialWorkspace(
+      f.computer,
+      f.local,
+      f.remote,
+    );
+    const relative = [
+      ...Array.from(
+        { length: process.platform === "linux" ? 30 : 9 },
+        (_, index) => `part-${index}-${"x".repeat(72)}'`,
+      ),
+      "payload.bin",
+    ].join("/");
+    const local = path.join(f.local, relative);
+    const remote = path.join(f.remote, relative);
+    assert(remote.length >= 780);
+    await mkdir(path.dirname(local), { recursive: true });
+    for (const [size, byte] of [
+      [20000, 0xab],
+      [18000, 0xcd],
+    ] as const) {
+      const content = Buffer.alloc(size, byte);
+      await writeFile(local, content);
+      await chmod(local, 0o664);
+      const result = await syncWorkspace(
+        f.computer,
+        f.local,
+        f.remote,
+        revision,
+      );
+      assert.deepEqual(result.conflicts, []);
+      assert.deepEqual(await readFile(remote), content);
+      assert.equal((await stat(remote)).mode & 0o777, 0o664);
+      revision = result.revision;
+    }
+    if (process.env.PI_TEST_ARTIFACT_DIR) {
+      const directory = process.env.PI_TEST_ARTIFACT_DIR;
+      await mkdir(directory, { recursive: true });
+      const transferred = await readFile(remote);
+      await writeFile(
+        path.join(directory, "deep-path-result.bin"),
+        transferred,
+      );
+      await writeFile(
+        path.join(directory, "deep-path-sync.json"),
+        JSON.stringify(
+          {
+            platform: process.platform,
+            pathCharacters: remote.length,
+            maxCommandCharacters: Math.max(
+              ...f.computer.commands.map((command) => command.length),
+            ),
+            commandCount: f.computer.commands.length,
+            finalBytes: transferred.length,
+          },
+          null,
+          2,
+        ),
+      );
+    }
   } finally {
     await f.cleanup();
   }

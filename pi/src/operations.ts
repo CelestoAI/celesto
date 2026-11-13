@@ -35,14 +35,13 @@ export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
-function checkedRemoteParents(destination: string, root: string): string[] {
+function checkedRemoteParents(root: string): string[] {
   return [
     [
-      `celesto_checked_target=${shellQuote(destination)}`,
       `celesto_checked_root=${shellQuote(root)}`,
       "celesto_parent_changed() { printf '%s\\n' 'Workspace changed during sync; retry /celesto sync.' >&2; exit 1; }",
-      'case "$celesto_checked_target" in "$celesto_checked_root"/*) ;; *) celesto_parent_changed ;; esac',
-      'celesto_checked_parent="${celesto_checked_target%/*}"; if [ -z "$celesto_checked_parent" ]; then celesto_checked_parent=/; fi',
+      'case "$celesto_target" in "$celesto_checked_root"/*) ;; *) celesto_parent_changed ;; esac',
+      'celesto_checked_parent="${celesto_target%/*}"; if [ -z "$celesto_checked_parent" ]; then celesto_checked_parent=/; fi',
       "while :; do",
       '  if [ -L "$celesto_checked_parent" ]; then celesto_parent_changed; fi',
       '  if [ "$celesto_checked_parent" = "$celesto_checked_root" ]; then break; fi',
@@ -54,18 +53,13 @@ function checkedRemoteParents(destination: string, root: string): string[] {
 }
 
 function guardedRemoteCommit(
-  destination: string,
-  backup: string,
   guard: RemoteFileGuard,
-  temporary?: string,
+  install: boolean,
 ): string[] {
   const target = '"$celesto_target"';
   const previous = '"$celesto_previous"';
   const changed = "Workspace changed during sync; retry /celesto sync.";
   const commands = [
-    `celesto_target=${shellQuote(destination)}`,
-    `celesto_previous=${shellQuote(backup)}`,
-    ...(temporary ? [`celesto_staged=${shellQuote(temporary)}`] : []),
     "celesto_claimed=false",
     "celesto_changed() {",
     `  if [ "$celesto_claimed" = true ] && { [ -e ${previous} ] || [ -L ${previous} ]; }; then`,
@@ -77,8 +71,7 @@ function guardedRemoteCommit(
     `  printf '%s\\n' ${shellQuote(changed)} >&2; exit 1`,
     "}",
   ];
-  if (guard.root)
-    commands.push(...checkedRemoteParents(destination, guard.root));
+  if (guard.root) commands.push(...checkedRemoteParents(guard.root));
   if (guard.expected) {
     const expected = guard.expected;
     commands.push(
@@ -95,7 +88,7 @@ function guardedRemoteCommit(
       `elif [ -e ${target} ] || [ -L ${target} ]; then celesto_changed; fi`,
     );
   }
-  if (temporary)
+  if (install)
     commands.push(
       `if ! ln -T -- "$celesto_staged" ${target}; then celesto_changed; fi`,
     );
@@ -226,66 +219,63 @@ export async function writeRemoteFile(
     : Buffer.from(content).toString("base64");
   const parent = path.posix.dirname(remotePath);
   const transferId = randomUUID();
-  const encodedPath = `${remotePath}.celesto.${transferId}.b64`;
-  const temporaryPath = `${remotePath}.celesto.${transferId}.tmp`;
-  const backupPath = `${remotePath}.celesto-sync-backup.${transferId}`;
-  const checkParents = guard?.root
-    ? checkedRemoteParents(remotePath, guard.root)
-    : [];
+  // Bind the path once per request; derive sibling paths without repeating a
+  // potentially long, shell-escaped destination in each command.
+  const prefix = [
+    "set -eu",
+    `celesto_target=${shellQuote(remotePath)}`,
+    `celesto_encoded="$celesto_target.celesto.${transferId}.b64"`,
+    `celesto_staged="$celesto_target.celesto.${transferId}.tmp"`,
+    `celesto_previous="$celesto_target.celesto-sync-backup.${transferId}"`,
+    ...(guard?.root ? checkedRemoteParents(guard.root) : []),
+  ];
+  const uploadCommand = (chunk: string): string =>
+    [...prefix, `printf %s ${shellQuote(chunk)} >> "$celesto_encoded"`].join(
+      "; ",
+    );
+  // Base64 contains no shell quotes, so its length adds directly to the
+  // complete command overhead, including escaped paths and parent checks.
+  const chunkCharacters = Math.min(
+    REMOTE_WRITE_CHUNK_CHARACTERS,
+    10_000 - uploadCommand("").length,
+  );
+  if (chunkCharacters < 1)
+    throw new Error(
+      "Cloud cannot upload this path within its command limit. Shorten the file path and retry.",
+    );
 
   try {
     await execChecked(
       computer,
       [
-        "set -eu",
-        ...checkParents,
+        ...prefix,
         `mkdir -p ${shellQuote(parent)}`,
         "umask 077",
-        `: > ${shellQuote(encodedPath)}`,
-        `: > ${shellQuote(temporaryPath)}`,
+        ': > "$celesto_encoded"',
+        ': > "$celesto_staged"',
       ].join("; "),
       `Prepare ${remotePath}`,
     );
-    for (
-      let offset = 0;
-      offset < encoded.length;
-      offset += REMOTE_WRITE_CHUNK_CHARACTERS
-    ) {
-      const chunk = encoded.slice(
-        offset,
-        offset + REMOTE_WRITE_CHUNK_CHARACTERS,
-      );
-      await execChecked(
-        computer,
-        [
-          "set -eu",
-          ...checkParents,
-          `printf %s ${shellQuote(chunk)} >> ${shellQuote(encodedPath)}`,
-        ].join("; "),
-        `Write ${remotePath}`,
-        { timeout: 300 },
-      );
+    for (let offset = 0; offset < encoded.length; offset += chunkCharacters) {
+      const chunk = encoded.slice(offset, offset + chunkCharacters);
+      await execChecked(computer, uploadCommand(chunk), `Write ${remotePath}`, {
+        timeout: 300,
+      });
     }
     await execChecked(
       computer,
       [
-        "set -eu",
-        ...checkParents,
-        `base64 -d ${shellQuote(encodedPath)} > ${shellQuote(temporaryPath)}`,
-        `rm -f -- ${shellQuote(encodedPath)}`,
+        ...prefix,
+        'base64 -d "$celesto_encoded" > "$celesto_staged"',
+        'rm -f -- "$celesto_encoded"',
         ...(guard
           ? [
-              `chmod ${(guard.mode ?? guard.expected?.mode ?? 0o600).toString(8)} ${shellQuote(temporaryPath)}`,
-              ...guardedRemoteCommit(
-                remotePath,
-                backupPath,
-                guard,
-                temporaryPath,
-              ),
+              `chmod ${(guard.mode ?? guard.expected?.mode ?? 0o600).toString(8)} "$celesto_staged"`,
+              ...guardedRemoteCommit(guard, true),
             ]
           : [
-              `if [ -f ${shellQuote(remotePath)} ]; then celesto_mode=$(stat -c '%a' ${shellQuote(remotePath)}); chmod "$(printf '%o' "$((0$celesto_mode & 0777))")" ${shellQuote(temporaryPath)}; fi`,
-              `mv -T ${shellQuote(temporaryPath)} ${shellQuote(remotePath)}`,
+              `if [ -f "$celesto_target" ]; then celesto_mode=$(stat -c '%a' "$celesto_target"); chmod "$(printf '%o' "$((0$celesto_mode & 0777))")" "$celesto_staged"; fi`,
+              'mv -T "$celesto_staged" "$celesto_target"',
             ]),
       ].join("; "),
       `Finish ${remotePath}`,
@@ -294,11 +284,7 @@ export async function writeRemoteFile(
   } finally {
     await computer
       .run(
-        [
-          "set -eu",
-          ...checkParents,
-          `rm -f -- ${shellQuote(encodedPath)} ${shellQuote(temporaryPath)}`,
-        ].join("; "),
+        [...prefix, 'rm -f -- "$celesto_encoded" "$celesto_staged"'].join("; "),
       )
       .catch(() => undefined);
   }
@@ -317,11 +303,11 @@ export async function removeRemotePath(
     [
       "set -eu",
       ...(guard
-        ? guardedRemoteCommit(
-            remotePath,
-            `${remotePath}.celesto-sync-backup.${randomUUID()}`,
-            guard,
-          )
+        ? [
+            `celesto_target=${shellQuote(remotePath)}`,
+            `celesto_previous="$celesto_target.celesto-sync-backup.${randomUUID()}"`,
+            ...guardedRemoteCommit(guard, false),
+          ]
         : [`rm -f -- ${shellQuote(remotePath)}`]),
       `parent=${shellQuote(path.posix.dirname(remotePath))}`,
       `while [ "$parent" != ${shellQuote(remoteRoot)} ]; do rmdir -- "$parent" 2>/dev/null || break; parent="\${parent%/*}"; if [ -z "$parent" ]; then parent=/; fi; done`,
