@@ -4,7 +4,6 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { promisify } from "node:util";
 
 import type {
   ComputerExecResponse,
@@ -24,7 +23,6 @@ import {
 } from "../src/operations.js";
 
 const REMOTE_ROOT = "/home/celesto/workspace";
-const execFile = promisify(execFileCallback);
 
 class FakeComputer implements RemoteComputer {
   commands: string[] = [];
@@ -87,11 +85,20 @@ test("prepareRemoteWorkspace creates the home workspace and migrates files", asy
   class LocalShellComputer extends FakeComputer {
     override async run(command: string): Promise<ComputerExecResponse> {
       this.commands.push(command);
-      const result = await execFile("sh", ["-c", command], {
-        encoding: "utf8",
-        env: { ...process.env, HOME: home },
+      return new Promise((resolve, reject) => {
+        const child = execFileCallback(
+          "/bin/sh",
+          [],
+          {
+            encoding: "utf8",
+            timeout: 10_000,
+            env: { ...process.env, HOME: home },
+          },
+          (error, stdout, stderr) =>
+            error ? reject(error) : resolve({ exitCode: 0, stdout, stderr }),
+        );
+        child.stdin?.end(command);
       });
-      return { exitCode: 0, stdout: result.stdout, stderr: result.stderr };
     }
   }
 

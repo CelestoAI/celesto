@@ -37,7 +37,7 @@ jobs:
       - run: npm run check
       - name: Pack and smoke-test the actual Pi artifact
         run: |
-          archive="$(npm pack --silent)"
+          archive="$(npm pack --silent --ignore-scripts)"
           mkdir package-smoke
           tar -xzf "$archive" -C package-smoke
           PI_TEST_EXTENSION_PATH="$PWD/package-smoke/package/dist/index.js" PI_TEST_ARTIFACT_DIR="$PWD/test-artifacts" ./node_modules/.bin/tsx --test tests/cloud-compatibility.test.ts
