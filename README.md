@@ -181,6 +181,18 @@ celesto computer delete agent-job --json
 
 Use unique names for concurrent jobs. Prefer `exec` for automation; reserve `shell`, `ssh`, and `desktop` for interactive work. Commands return a nonzero exit code on failure, and JSON errors include a recovery command when Celesto can provide one.
 
+## Run Pi in Celesto Cloud
+
+Run Pi's coding tools in a Celesto computer while keeping its interface and model credentials on your machine:
+
+```bash
+pi install npm:@celestoai/pi
+celesto auth login
+pi --celesto
+```
+
+Use `/celesto push` inside Pi to copy the project explicitly. See the [Pi extension guide](pi/README.md) for workspace synchronization, reuse, and cleanup.
+
 ## Inspect and connect
 
 Use `celesto computer list` to see computers, `celesto computer logs my-computer` to inspect startup output, or `celesto computer shell my-computer` to open a fast interactive shell.
