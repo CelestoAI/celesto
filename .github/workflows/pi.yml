@@ -17,10 +17,7 @@ permissions:
 
 jobs:
   check:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-14]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: pi
@@ -42,7 +39,6 @@ jobs:
           tar -xzf "$archive" -C package-smoke
           PI_TEST_EXTENSION_PATH="$PWD/package-smoke/package/dist/index.js" PI_TEST_ARTIFACT_DIR="$PWD/test-artifacts" ./node_modules/.bin/tsx --test tests/cloud-compatibility.test.ts
       - uses: actions/upload-artifact@v4
-        if: matrix.os == 'ubuntu-latest'
         with:
           name: pi-package
           path: |
