@@ -274,6 +274,45 @@ test("session replacement retains resumable computers; quit cleans them", async 
     });
 });
 
+// Value: protects=failed incoming sessions cannot use or delete an outgoing computer;
+// fails_when=the extension retains the outgoing live runtime after non-quit shutdown;
+// why_new=existing lifecycle cases instantiate a fresh extension for each session; seam=none
+test("a reused extension detaches the outgoing computer before incoming startup fails", async (t) => {
+  for (const reason of ["new", "resume", "fork", "reload"] as const)
+    await t.test(reason, async () => {
+      const f = await fixture();
+      try {
+        const outgoing = f.manager();
+        const h = f.harness(outgoing);
+        await h.start("startup");
+        const id = f.latestState(outgoing)!.computerId!;
+        await h.shutdown(reason);
+        assert(f.resources.has(id));
+        Object.assign(h.ctx, { sessionManager: f.manager() });
+        Computer.create = async () => {
+          throw new Error("Incoming startup failed");
+        };
+        await h.start(reason);
+        const prompt = await h.emit("before_agent_start", {
+          systemPrompt: "Incoming session prompt",
+        });
+        const error = await h.bash("must-not-run").then(
+          () => undefined,
+          (failure: Error) => failure,
+        );
+        await h.shutdown("quit");
+        assert(error instanceof Error);
+        assert.match(error.message, /Incoming startup failed/);
+        assert.equal(prompt, undefined);
+        assert(!f.commands.some((command) => command.includes("must-not-run")));
+        assert(f.resources.has(id));
+        assert.equal(f.latestState(outgoing)!.computerId, id);
+      } finally {
+        await f.cleanup();
+      }
+    });
+});
+
 test("an explicitly selected fork never inherits its parent's deletion right", async () => {
   const f = await fixture();
   try {

@@ -149,7 +149,7 @@ test("writeRemoteFile sends large payloads in bounded chunks", async () => {
   );
   assert(appendCommands.length > 1);
   const uploaded = appendCommands
-    .map((command) => command.match(/^printf %s '([^']*)'/)?.[1] ?? "")
+    .map((command) => command.match(/printf %s '([^']*)'/)?.[1] ?? "")
     .join("");
   assert.equal(uploaded, encoded);
   assert.ok(appendCommands.every((command) => command.length <= 10_000));

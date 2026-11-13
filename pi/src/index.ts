@@ -403,6 +403,8 @@ export default function celestoPiExtension(pi: ExtensionAPI): void {
     if (!state) return;
     if (event.reason !== "quit") {
       persist(state);
+      runtime = undefined;
+      updateStatus(ctx);
       return;
     }
 

@@ -61,7 +61,7 @@ After pushing, copy changes in either direction explicitly:
 /celesto sync
 ```
 
-The sync command preserves independently changed files under `.celesto-conflicts/` instead of overwriting local work. Push and sync wait for earlier remote `bash`, `write`, and `edit` operations to finish, and those tools wait while a transfer runs. Pi never syncs files automatically when it exits.
+The sync command preserves independently changed files under `.celesto-conflicts/` instead of overwriting local work. Local sync requires hard-link support; unsupported filesystems report an error before moving an existing file. Push and sync wait for earlier remote `bash`, `write`, and `edit` operations to finish, and those tools wait while a transfer runs. Pi never syncs files automatically when it exits.
 
 ## Check the computer
 

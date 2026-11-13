@@ -410,6 +410,18 @@ export async function downloadRemoteWorkspace(
     } else if (type === "f") selected.set(name, size);
   }
 
+  const excludedNames = new Set(excludedPaths);
+  const collapsedExclusions = excludedPaths.filter((name) => {
+    for (
+      let parent = path.posix.dirname(name);
+      parent !== ".";
+      parent = path.posix.dirname(parent)
+    ) {
+      if (excludedNames.has(parent)) return false;
+    }
+    return true;
+  });
+
   const directory = await mkdtemp(path.join(os.tmpdir(), "celesto-download-"));
   const archivePath = path.join(directory, "workspace.tgz");
   const root = path.join(directory, "workspace");
@@ -494,7 +506,7 @@ export async function downloadRemoteWorkspace(
   }
   return {
     root,
-    excludedPaths,
+    excludedPaths: collapsedExclusions,
     cleanup: () => rm(directory, { recursive: true, force: true }),
   };
 }
@@ -657,6 +669,10 @@ async function claimLocalDestination(
     return undefined;
   }
   const backup = `${destination}.celesto-sync-backup.${randomUUID()}`;
+  // Both installation and rollback need hardlinks on this filesystem. Probe
+  // before moving the original so unsupported filesystems leave it in place.
+  await link(destination, backup);
+  await rm(backup);
   try {
     await rename(destination, backup);
   } catch (error) {
@@ -854,18 +870,24 @@ export async function syncWorkspace(
       let parent = path.posix.dirname(name);
       while (parent !== ".") {
         if (
-          [baseRevision.files, localScan.manifest, remoteScan.manifest].some(
-            (files) => Object.hasOwn(files, parent),
+          [localScan.manifest, remoteScan.manifest].some((files) =>
+            Object.hasOwn(files, parent),
           )
         )
           excludedRoots.add(parent);
         parent = path.posix.dirname(parent);
       }
     }
-    const excluded = (name: string) =>
-      [...excludedRoots].some(
-        (root) => name === root || name.startsWith(`${root}/`),
-      );
+    const excluded = (name: string) => {
+      for (
+        let candidate = name;
+        candidate !== ".";
+        candidate = path.posix.dirname(candidate)
+      ) {
+        if (excludedRoots.has(candidate)) return true;
+      }
+      return false;
+    };
     const eligible = (files: WorkspaceManifest) =>
       Object.fromEntries(
         Object.entries(files).filter(([name]) => !excluded(name)),

@@ -297,3 +297,95 @@ test("sync refuses a remote ancestor symlink even when outside bytes match the s
       }
     });
 });
+
+// Value: protects=unsupported hardlinks cannot remove an existing sync destination;
+// fails_when=the file is renamed before the filesystem's link support is known;
+// why_new=destination-race cases cover content changes, not link capability failure; seam=none
+// Failure modes: installation and rollback both reject links, a failed capability
+// probe leaks staging files, or the failed pull advances the remote baseline.
+test("sync preserves the original file when its filesystem rejects hardlinks", async () => {
+  const f = await fixture();
+  let restoreLink: (() => void) | undefined;
+  try {
+    const name = "tracked.txt";
+    const localPath = path.join(f.local, name);
+    await fs.writeFile(localPath, "baseline", { mode: 0o644 });
+    const { revision } = await uploadInitialWorkspace(
+      f.computer,
+      f.local,
+      f.remote,
+    );
+    const revisionPath = path.join(f.remote, ".celesto-sync.json");
+    const beforeRevision = await fs.readFile(revisionPath, "utf8");
+    await fs.writeFile(path.join(f.remote, name), "remote-update");
+    let rejectedLink = false;
+    const originalLink = fs.link;
+    const stub = mock.method(fs, "link", (async (
+      ...args: Parameters<typeof fs.link>
+    ) => {
+      if (String(args[1]).startsWith(`${f.local}${path.sep}`)) {
+        rejectedLink = true;
+        throw Object.assign(new Error("Hardlinks are not supported"), {
+          code: "EOPNOTSUPP",
+        });
+      }
+      return originalLink(...args);
+    }) as typeof fs.link);
+    syncBuiltinESMExports();
+    restoreLink = () => {
+      stub.mock.restore();
+      syncBuiltinESMExports();
+    };
+    await assert.rejects(
+      syncWorkspace(f.computer, f.local, f.remote, revision),
+    );
+    assert(
+      rejectedLink,
+      "fixture must reach the unsupported hardlink operation",
+    );
+    const original = await fs
+      .readFile(localPath, "utf8")
+      .catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOENT") throw error;
+        return undefined;
+      });
+    assert.equal(
+      original,
+      "baseline",
+      "unsupported installation must leave the original pathname intact",
+    );
+    assert.equal(await fs.readFile(revisionPath, "utf8"), beforeRevision);
+    assert.deepEqual(
+      await fs.readdir(f.local),
+      [name],
+      "failed capability probe and staging files must be cleaned up",
+    );
+    restoreLink();
+    restoreLink = undefined;
+    await syncWorkspace(f.computer, f.local, f.remote, revision);
+    assert.equal(await fs.readFile(localPath, "utf8"), "remote-update");
+    if (process.env.PI_TEST_ARTIFACT_DIR) {
+      await fs.mkdir(process.env.PI_TEST_ARTIFACT_DIR, { recursive: true });
+      await fs.writeFile(
+        path.join(
+          process.env.PI_TEST_ARTIFACT_DIR,
+          "destination-hardlink-capability.json",
+        ),
+        JSON.stringify(
+          {
+            unsupportedLink: true,
+            originalPreserved: true,
+            baselineUnchanged: true,
+            stagingCleaned: true,
+            retrySucceeded: true,
+          },
+          null,
+          2,
+        ),
+      );
+    }
+  } finally {
+    restoreLink?.();
+    await f.cleanup();
+  }
+});

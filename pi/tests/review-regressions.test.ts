@@ -9,6 +9,7 @@ import {
   readFile,
   rename,
   rm,
+  readdir,
   stat,
   symlink,
   writeFile,
@@ -485,6 +486,11 @@ test("remote exclusions stay out of the transferred archive", async () => {
       assert(snapshot.excludedPaths.includes(".env"));
       assert(snapshot.excludedPaths.includes("oversized.bin"));
       assert(snapshot.excludedPaths.includes("node_modules"));
+      assert.deepEqual(snapshot.excludedPaths.sort(), [
+        ".env",
+        "node_modules",
+        "oversized.bin",
+      ]);
       assert.equal(f.computer.transfers.length, 1);
       const wire = path.join(f.root, "wire.tgz");
       await writeFile(wire, Buffer.from(f.computer.transfers[0]!, "base64"));
@@ -633,6 +639,133 @@ test("remote hardlinks stay excluded without deleting tracked counterparts", asy
       );
       assert.deepEqual(result.revision.files[name], revision.files[name]);
     }
+  } finally {
+    await f.cleanup();
+  }
+});
+
+// An obsolete baseline file must not hide live eligible children merely because
+// an ignored descendant exists beside them. The public sync must merge the tree.
+test("ignored children do not stall a tracked file replaced by directories on both sides", async (t) => {
+  for (const ignoredSide of ["local", "remote"] as const) {
+    await t.test(ignoredSide, async () => {
+      const f = await fixture();
+      try {
+        await writeFile(path.join(f.local, "pkg"), "baseline file");
+        const { revision } = await uploadInitialWorkspace(
+          f.computer,
+          f.local,
+          f.remote,
+        );
+        for (const side of ["local", "remote"] as const) {
+          await rm(path.join(f[side], "pkg"));
+          await mkdir(path.join(f[side], "pkg"));
+          await writeFile(
+            path.join(f[side], "pkg", `${side}.txt`),
+            `${side} edit`,
+          );
+        }
+        const secret = path.join(f[ignoredSide], "pkg", ".env");
+        await writeFile(secret, "PRIVATE=preserve");
+        const result = await syncWorkspace(
+          f.computer,
+          f.local,
+          f.remote,
+          revision,
+        );
+        assert.deepEqual(result.conflicts, []);
+        for (const side of ["local", "remote"] as const) {
+          assert.equal(
+            await readFile(path.join(f[side], "pkg", "local.txt"), "utf8"),
+            "local edit",
+          );
+          assert.equal(
+            await readFile(path.join(f[side], "pkg", "remote.txt"), "utf8"),
+            "remote edit",
+          );
+        }
+        assert.equal(await readFile(secret, "utf8"), "PRIVATE=preserve");
+        assert(!Object.hasOwn(result.revision.files, "pkg"));
+        const retry = await syncWorkspace(
+          f.computer,
+          f.local,
+          f.remote,
+          result.revision,
+        );
+        assert.equal(retry.pulled + retry.pushed + retry.conflicts.length, 0);
+      } finally {
+        await f.cleanup();
+      }
+    });
+  }
+});
+
+test("a changed remote ancestor is rejected before upload staging", async () => {
+  const f = await fixture();
+  try {
+    await mkdir(path.join(f.local, "dir"));
+    await writeFile(path.join(f.local, "dir", "kept.txt"), "baseline");
+    const { revision } = await uploadInitialWorkspace(
+      f.computer,
+      f.local,
+      f.remote,
+    );
+    await mkdir(path.join(f.local, "dir", "new"));
+    await writeFile(
+      path.join(f.local, "dir", "new", "file.txt"),
+      "private upload",
+    );
+    const outside = path.join(f.root, "outside");
+    await mkdir(outside);
+    await writeFile(path.join(outside, "keep.txt"), "outside");
+    let changed = false;
+    f.computer.beforeRun = async (command) => {
+      if (
+        !changed &&
+        command.includes("mkdir -p") &&
+        command.includes(path.join(f.remote, "dir", "new"))
+      ) {
+        changed = true;
+        await rename(
+          path.join(f.remote, "dir"),
+          path.join(f.remote, "original-dir"),
+        );
+        await symlink(outside, path.join(f.remote, "dir"));
+      }
+    };
+    await assert.rejects(
+      syncWorkspace(f.computer, f.local, f.remote, revision),
+      /changed during sync/i,
+    );
+    assert(changed);
+    assert.deepEqual(await readdir(outside), ["keep.txt"]);
+    assert.equal(
+      await readFile(path.join(outside, "keep.txt"), "utf8"),
+      "outside",
+    );
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("failed remote preparation cleans files created before the failure", async () => {
+  const f = await fixture();
+  try {
+    const interrupted: RemoteComputer = {
+      run: (command, params) =>
+        f.computer.run(
+          command.includes("umask 077") ? `${command}; false` : command,
+          params,
+        ),
+      runStream: (command, params) => f.computer.runStream(command, params),
+    };
+    await assert.rejects(
+      writeRemoteFile(interrupted, path.join(f.remote, "file.txt"), "content", {
+        root: f.remote,
+      }),
+      /Prepare .*failed/,
+    );
+    assert.deepEqual(await readdir(f.remote), []);
   } finally {
     await f.cleanup();
   }
