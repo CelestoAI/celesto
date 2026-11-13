@@ -167,7 +167,9 @@ test("oversized tracked files do not delete their counterpart", async (t) => {
         );
         await writeFile(
           path.join(f[side], "tracked.bin"),
-          Buffer.alloc(DEFAULT_MAX_FILE_BYTES + 1, 0x61),
+          Buffer.alloc(DEFAULT_MAX_FILE_BYTES + 1).fill(
+            "oversized-file-fixture-0123456789",
+          ),
         );
         const result = await syncWorkspace(
           f.computer,
