@@ -63,6 +63,8 @@ After pushing, copy changes in either direction explicitly:
 
 The sync command preserves independently changed files under `.celesto-conflicts/` instead of overwriting local work. Local sync requires hard-link support; unsupported filesystems report an error before moving an existing file. Push and sync wait for earlier remote `bash`, `write`, and `edit` operations to finish, and those tools wait while a transfer runs. Pi never syncs files automatically when it exits.
 
+Sync coordinates Pi's own tools. Other programs that replace workspace directories while sync runs can redirect its shell operations outside the workspace. Pause those programs before syncing. The path checks and writes are separate operations.
+
 ## Check the computer
 
 ```text
