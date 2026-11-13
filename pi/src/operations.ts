@@ -25,8 +25,75 @@ export interface RemoteComputer {
   ): AsyncGenerator<ComputerExecStreamEvent>;
 }
 
+export interface RemoteFileGuard {
+  expected?: { sha256: string; size: number; mode: number };
+  mode?: number;
+  root?: string;
+}
+
 export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+function guardedRemoteCommit(
+  destination: string,
+  backup: string,
+  guard: RemoteFileGuard,
+  temporary?: string,
+): string[] {
+  const target = '"$celesto_target"';
+  const previous = '"$celesto_previous"';
+  const changed = "Workspace changed during sync; retry /celesto sync.";
+  const commands = [
+    `celesto_target=${shellQuote(destination)}`,
+    `celesto_previous=${shellQuote(backup)}`,
+    ...(temporary ? [`celesto_staged=${shellQuote(temporary)}`] : []),
+    "celesto_claimed=false",
+    "celesto_changed() {",
+    `  if [ "$celesto_claimed" = true ] && { [ -e ${previous} ] || [ -L ${previous} ]; }; then`,
+    `    mv -T -n -- ${previous} ${target} 2>/dev/null || true`,
+    `    if [ -e ${previous} ] || [ -L ${previous} ]; then`,
+    `      printf '%s Previous destination retained at %s\\n' ${shellQuote(changed)} ${previous} >&2; exit 1`,
+    "    fi",
+    "  fi",
+    `  printf '%s\\n' ${shellQuote(changed)} >&2; exit 1`,
+    "}",
+  ];
+  if (guard.root) {
+    commands.push(
+      `celesto_root=${shellQuote(guard.root)}`,
+      'case "$celesto_target" in "$celesto_root"/*) ;; *) celesto_changed ;; esac',
+      'celesto_parent="${celesto_target%/*}"; if [ -z "$celesto_parent" ]; then celesto_parent=/; fi',
+      "while :; do",
+      '  if [ -L "$celesto_parent" ]; then celesto_changed; fi',
+      '  if [ "$celesto_parent" = "$celesto_root" ]; then break; fi',
+      '  if [ "$celesto_parent" = / ]; then celesto_changed; fi',
+      '  celesto_parent="${celesto_parent%/*}"; if [ -z "$celesto_parent" ]; then celesto_parent=/; fi',
+      "done",
+    );
+  }
+  if (guard.expected) {
+    const expected = guard.expected;
+    commands.push(
+      `if ! mv -T -- ${target} ${previous}; then celesto_changed; fi`,
+      "celesto_claimed=true",
+      `if [ -L ${previous} ] || [ ! -f ${previous} ] || [ "$(stat -c '%s' -- ${previous})" != ${shellQuote(String(expected.size))} ] || [ "$((0$(stat -c '%a' -- ${previous}) & 0777))" -ne ${expected.mode} ] || [ "$(sha256sum < ${previous} | cut -d ' ' -f 1)" != ${shellQuote(expected.sha256)} ]; then celesto_changed; fi`,
+    );
+  } else {
+    commands.push(
+      `if [ -d ${target} ] && [ ! -L ${target} ]; then`,
+      `  if ! mv -T -- ${target} ${previous}; then celesto_changed; fi`,
+      "  celesto_claimed=true",
+      `  if [ -L ${previous} ] || [ ! -d ${previous} ] || ! rmdir -- ${previous}; then celesto_changed; fi`,
+      `elif [ -e ${target} ] || [ -L ${target} ]; then celesto_changed; fi`,
+    );
+  }
+  if (temporary)
+    commands.push(
+      `if ! ln -T -- "$celesto_staged" ${target}; then celesto_changed; fi`,
+    );
+  commands.push(`rm -f -- ${previous}`);
+  return [commands.join("\n")];
 }
 
 export function toRemotePath(
@@ -145,6 +212,7 @@ export async function writeRemoteFile(
   computer: RemoteComputer,
   remotePath: string,
   content: Buffer | string,
+  guard?: RemoteFileGuard,
 ): Promise<void> {
   const encoded = Buffer.isBuffer(content)
     ? content.toString("base64")
@@ -153,6 +221,7 @@ export async function writeRemoteFile(
   const transferId = randomUUID();
   const encodedPath = `${remotePath}.celesto.${transferId}.b64`;
   const temporaryPath = `${remotePath}.celesto.${transferId}.tmp`;
+  const backupPath = `${remotePath}.celesto-sync-backup.${transferId}`;
 
   try {
     await execChecked(
@@ -188,8 +257,20 @@ export async function writeRemoteFile(
         "set -eu",
         `base64 -d ${shellQuote(encodedPath)} > ${shellQuote(temporaryPath)}`,
         `rm -f -- ${shellQuote(encodedPath)}`,
-        `if [ -f ${shellQuote(remotePath)} ]; then celesto_mode=$(stat -c '%a' ${shellQuote(remotePath)}); chmod "$(printf '%o' "$((0$celesto_mode & 0777))")" ${shellQuote(temporaryPath)}; fi`,
-        `mv ${shellQuote(temporaryPath)} ${shellQuote(remotePath)}`,
+        ...(guard
+          ? [
+              `chmod ${(guard.mode ?? guard.expected?.mode ?? 0o600).toString(8)} ${shellQuote(temporaryPath)}`,
+              ...guardedRemoteCommit(
+                remotePath,
+                backupPath,
+                guard,
+                temporaryPath,
+              ),
+            ]
+          : [
+              `if [ -f ${shellQuote(remotePath)} ]; then celesto_mode=$(stat -c '%a' ${shellQuote(remotePath)}); chmod "$(printf '%o' "$((0$celesto_mode & 0777))")" ${shellQuote(temporaryPath)}; fi`,
+              `mv -T ${shellQuote(temporaryPath)} ${shellQuote(remotePath)}`,
+            ]),
       ].join("; "),
       `Finish ${remotePath}`,
       { timeout: 300 },
@@ -205,6 +286,7 @@ export async function removeRemotePath(
   computer: RemoteComputer,
   remotePath: string,
   remoteRoot: string,
+  guard?: RemoteFileGuard,
 ): Promise<void> {
   if (!remotePath.startsWith(`${remoteRoot}/`))
     throw new Error("Sync paths must stay inside the remote workspace.");
@@ -212,9 +294,15 @@ export async function removeRemotePath(
     computer,
     [
       "set -eu",
-      `rm -f -- ${shellQuote(remotePath)}`,
+      ...(guard
+        ? guardedRemoteCommit(
+            remotePath,
+            `${remotePath}.celesto-sync-backup.${randomUUID()}`,
+            guard,
+          )
+        : [`rm -f -- ${shellQuote(remotePath)}`]),
       `parent=${shellQuote(path.posix.dirname(remotePath))}`,
-      `while [ "$parent" != ${shellQuote(remoteRoot)} ]; do rmdir -- "$parent" 2>/dev/null || break; parent=$(dirname -- "$parent"); done`,
+      `while [ "$parent" != ${shellQuote(remoteRoot)} ]; do rmdir -- "$parent" 2>/dev/null || break; parent="\${parent%/*}"; if [ -z "$parent" ]; then parent=/; fi; done`,
     ].join("; "),
     `Delete ${remotePath}`,
   );
@@ -333,7 +421,9 @@ export function createCelestoBashOperations(
     exec: async (command, cwd, { onData, signal, timeout }) => {
       const remoteCwd = toRemotePath(cwd, localRoot, remoteRoot);
       const timeoutSeconds =
-        timeout === undefined ? undefined : Math.max(1, Math.min(300, timeout));
+        timeout === undefined
+          ? undefined
+          : Math.max(1, Math.min(300, Math.ceil(timeout)));
       const token = randomUUID();
       const pidFile = `/tmp/celesto-pi-${token}.pid`;
       const childCommand = `env CELESTO_PI_COMMAND_ID=${shellQuote(token)} setsid bash --noprofile --norc -c ${shellQuote(command)}`;
@@ -368,6 +458,7 @@ export function createCelestoBashOperations(
             onData(Buffer.from(event.data));
           } else if (event.type === "exit") {
             exitCode = event.exitCode;
+            if (event.timedOut) await cleanup();
           }
         }
       } catch (error) {

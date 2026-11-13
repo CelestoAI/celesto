@@ -5,6 +5,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
   SessionStartEvent,
+  BashOperations,
 } from "@earendil-works/pi-coding-agent";
 import {
   createBashTool,
@@ -147,6 +148,23 @@ export default function celestoPiExtension(pi: ExtensionAPI): void {
   let startupError: Error | undefined;
   let syncing: Promise<SyncResult> | undefined;
   let workspaceOperation: Promise<unknown> | undefined;
+  let mutationTail: Promise<void> = Promise.resolve();
+  let shuttingDown = false;
+
+  function withMutation<T>(
+    operation: () => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    const current = mutationTail.then(() => {
+      if (shuttingDown || signal?.aborted) throw new Error("aborted");
+      return operation();
+    });
+    mutationTail = current.then(
+      () => {},
+      () => {},
+    );
+    return current;
+  }
 
   const persist = (state: RuntimeState): void => {
     const {
@@ -195,7 +213,8 @@ export default function celestoPiExtension(pi: ExtensionAPI): void {
     if (selected) {
       computer = await Computer.get(selected);
       const sameSavedComputer = saved?.computerId === computer.id;
-      owned = sameSavedComputer ? saved.owned : false;
+      owned =
+        sameSavedComputer && event.reason !== "fork" ? saved.owned : false;
       keep = sameSavedComputer ? saved.keep : false;
       revision = sameSavedComputer ? saved.revision : undefined;
     } else if (saved) {
@@ -332,7 +351,7 @@ export default function celestoPiExtension(pi: ExtensionAPI): void {
     if (workspaceOperation) {
       throw new Error("Another Celesto workspace transfer is already running.");
     }
-    const current = operation();
+    const current = withMutation(operation);
     workspaceOperation = current;
     try {
       return await current;
@@ -352,6 +371,7 @@ export default function celestoPiExtension(pi: ExtensionAPI): void {
 
   pi.on("session_start", async (event, ctx) => {
     startupError = undefined;
+    shuttingDown = false;
     try {
       starting = initialize(event, ctx)
         .then((state) => {
@@ -372,9 +392,19 @@ export default function celestoPiExtension(pi: ExtensionAPI): void {
     }
   });
 
+  pi.on("session_tree", async () => {
+    if (runtime) persist(runtime);
+  });
+
   pi.on("session_shutdown", async (event, ctx) => {
+    shuttingDown = true;
+    await mutationTail;
     const state = runtime;
-    if (!state || event.reason === "reload") return;
+    if (!state) return;
+    if (event.reason !== "quit") {
+      persist(state);
+      return;
+    }
 
     if (state.owned && !state.keep) {
       ctx.ui.notify(
@@ -525,13 +555,17 @@ export default function celestoPiExtension(pi: ExtensionAPI): void {
         return createWriteTool(ctx.cwd).execute(id, params, signal, onUpdate);
       }
       const state = await ensureRuntime(ctx);
-      return createWriteTool(state.remoteWorkspace, {
-        operations: createCelestoWriteOperations(
-          state.computer,
-          state.localRoot,
-          state.remoteWorkspace,
-        ),
-      }).execute(id, params, signal, onUpdate);
+      return withMutation(
+        () =>
+          createWriteTool(state.remoteWorkspace, {
+            operations: createCelestoWriteOperations(
+              state.computer,
+              state.localRoot,
+              state.remoteWorkspace,
+            ),
+          }).execute(id, params, signal, onUpdate),
+        signal,
+      );
     },
   });
 
@@ -542,13 +576,17 @@ export default function celestoPiExtension(pi: ExtensionAPI): void {
         return createEditTool(ctx.cwd).execute(id, params, signal, onUpdate);
       }
       const state = await ensureRuntime(ctx);
-      return createEditTool(state.remoteWorkspace, {
-        operations: createCelestoEditOperations(
-          state.computer,
-          state.localRoot,
-          state.remoteWorkspace,
-        ),
-      }).execute(id, params, signal, onUpdate);
+      return withMutation(
+        () =>
+          createEditTool(state.remoteWorkspace, {
+            operations: createCelestoEditOperations(
+              state.computer,
+              state.localRoot,
+              state.remoteWorkspace,
+            ),
+          }).execute(id, params, signal, onUpdate),
+        signal,
+      );
     },
   });
 
@@ -559,26 +597,37 @@ export default function celestoPiExtension(pi: ExtensionAPI): void {
         return createBashTool(ctx.cwd).execute(id, params, signal, onUpdate);
       }
       const state = await ensureRuntime(ctx);
-      return createBashTool(state.remoteWorkspace, {
-        operations: createCelestoBashOperations(
-          state.computer,
-          state.localRoot,
-          state.remoteWorkspace,
-        ),
-      }).execute(id, params, signal, onUpdate);
+      return withMutation(
+        () =>
+          createBashTool(state.remoteWorkspace, {
+            operations: createCelestoBashOperations(
+              state.computer,
+              state.localRoot,
+              state.remoteWorkspace,
+            ),
+          }).execute(id, params, signal, onUpdate),
+        signal,
+      );
     },
   });
 
   pi.on("user_bash", async (_event, ctx) => {
     if (!modeEnabled) return undefined;
     const state = await ensureRuntime(ctx);
-    return {
-      operations: createCelestoBashOperations(
-        state.computer,
-        state.localRoot,
-        state.remoteWorkspace,
-      ),
+    const operations = createCelestoBashOperations(
+      state.computer,
+      state.localRoot,
+      state.remoteWorkspace,
+    );
+    const queued: BashOperations = {
+      exec(command, cwd, options) {
+        return withMutation(
+          () => operations.exec(command, cwd, options),
+          options.signal,
+        );
+      },
     };
+    return { operations: queued };
   });
 
   pi.on("before_agent_start", async (event) => {

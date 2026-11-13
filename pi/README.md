@@ -61,7 +61,7 @@ After pushing, copy changes in either direction explicitly:
 /celesto sync
 ```
 
-The sync command preserves independently changed files under `.celesto-conflicts/` instead of overwriting local work. Pi never syncs files automatically when it exits.
+The sync command preserves independently changed files under `.celesto-conflicts/` instead of overwriting local work. Push and sync wait for earlier remote `bash`, `write`, and `edit` operations to finish, and those tools wait while a transfer runs. Pi never syncs files automatically when it exits.
 
 ## Check the computer
 
@@ -73,13 +73,15 @@ This shows the computer name, workspace, cleanup behavior, and current sync revi
 
 ## Keep the computer
 
-Computers created by the extension are deleted when Pi exits, without an automatic sync. Run `/celesto sync` first if you want local copies of remote changes. Keep a computer for later use with:
+When you quit Pi, the extension deletes the active session's computer if it created that computer and you have not marked it to keep. It does not sync automatically. Run `/celesto sync` first if you want local copies of remote changes. Keep the active computer for later use with:
 
 ```text
 /celesto keep
 ```
 
 The command prints the exact `celesto computer delete <id> --cloud` command to use when you no longer need it.
+
+Starting a new session, resuming another session, forking, or reloading preserves the previous session's computer and saved workspace metadata. Computers belonging to inactive sessions remain available. Resume a session and quit Pi to apply that session's saved cleanup setting, or delete its computer explicitly with `celesto computer delete <id> --cloud`. Quitting Pi does not clean up every inactive session's computer.
 
 ## Reuse an existing computer
 
@@ -93,7 +95,7 @@ The extension never deletes caller-owned computers. If this Pi session originall
 
 ## Files excluded from explicit transfers
 
-For `/celesto push` and `/celesto sync`, the extension reads `.gitignore` and then applies `.celestoignore` overrides. It also excludes common secrets, dependency directories, build output, files larger than 25 MB, and symbolic links. `.git` remains available so Pi can inspect branches and diffs.
+For `/celesto push` and `/celesto sync`, the extension reads `.gitignore` and then applies `.celestoignore` overrides. It also excludes common secrets, dependency directories, build output, files larger than 25 MB, and symbolic links. Sync downloads also skip hard links. `.git` remains available so Pi can inspect branches and diffs.
 
 Add project-specific patterns to `.celestoignore`:
 

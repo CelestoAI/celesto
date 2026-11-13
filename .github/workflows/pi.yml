@@ -32,6 +32,8 @@ jobs:
           cache-dependency-path: pi/package-lock.json
       - run: npm ci
       - run: npm run check
+        env:
+          PI_TEST_ARTIFACT_DIR: ${{ github.workspace }}/pi/test-artifacts
       - name: Pack and smoke-test the actual Pi artifact
         run: |
           archive="$(npm pack --silent --ignore-scripts)"

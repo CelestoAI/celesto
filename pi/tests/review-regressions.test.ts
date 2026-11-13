@@ -1,17 +1,22 @@
 import assert from "node:assert/strict";
+import { unlinkSync } from "node:fs";
 import { execFile } from "node:child_process";
 import {
   chmod,
+  link,
   mkdir,
   mkdtemp,
   readFile,
+  rename,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import * as tar from "tar";
 import { installLinuxCommandShims } from "./fixtures/linux-tools.js";
 import {
   createCelestoBashOperations,
@@ -25,6 +30,8 @@ import type {
   ExecParams,
 } from "../src/computer.js";
 import {
+  createWorkspaceIgnore,
+  downloadRemoteWorkspace,
   DEFAULT_MAX_FILE_BYTES,
   syncWorkspace,
   uploadInitialWorkspace,
@@ -39,6 +46,7 @@ async function fixture() {
   await installLinuxCommandShims(bin);
   class ShellComputer implements RemoteComputer {
     beforeRun?: (command: string) => Promise<void>;
+    transfers: string[] = [];
     async run(
       command: string,
       params?: ExecParams,
@@ -78,6 +86,8 @@ async function fixture() {
       params?: ExecParams,
     ): AsyncGenerator<ComputerExecStreamEvent> {
       const result = await this.run(command, params);
+      if (command.includes("base64") && result.stdout)
+        this.transfers.push(result.stdout);
       if (result.stdout) yield { type: "stdout", data: result.stdout };
       if (result.stderr) yield { type: "stderr", data: result.stderr };
       yield { type: "exit", exitCode: result.exitCode };
@@ -138,6 +148,8 @@ test("initial transfer preserves ordinary file modes without false sync changes"
   try {
     await writeFile(path.join(f.local, "shared.txt"), "shared");
     await chmod(path.join(f.local, "shared.txt"), 0o664);
+    await writeFile(path.join(f.local, "run.sh"), "#!/bin/sh\n");
+    await chmod(path.join(f.local, "run.sh"), 0o755);
     const { revision } = await uploadInitialWorkspace(
       f.computer,
       f.local,
@@ -146,6 +158,10 @@ test("initial transfer preserves ordinary file modes without false sync changes"
     assert.equal(
       (await stat(path.join(f.remote, "shared.txt"))).mode & 0o777,
       0o664,
+    );
+    assert.equal(
+      (await stat(path.join(f.remote, "run.sh"))).mode & 0o777,
+      0o755,
     );
     const result = await syncWorkspace(f.computer, f.local, f.remote, revision);
     assert.equal(result.pulled + result.pushed + result.conflicts.length, 0);
@@ -379,6 +395,243 @@ test("edits during upload remain pending instead of becoming shared state", asyn
         await readFile(path.join(tree, "upload.txt"), "utf8"),
         "late-upload-edit",
       );
+    }
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("writing a directory fails without depositing a temporary file inside it", async () => {
+  const f = await fixture();
+  try {
+    const directory = path.join(f.remote, "directory");
+    await mkdir(directory);
+    await writeFile(path.join(directory, "keep.txt"), "keep");
+    await assert.rejects(writeRemoteFile(f.computer, directory, "new"));
+    assert.deepEqual(
+      await (await import("node:fs/promises")).readdir(directory),
+      ["keep.txt"],
+    );
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("failed archive creation cleans up its owned temporary directory", async () => {
+  const f = await fixture();
+  const originalTmpdir = os.tmpdir;
+  try {
+    const temp = path.join(f.root, "archive-temp");
+    await mkdir(temp);
+    const file = path.join(f.local, "vanishing.txt");
+    await writeFile(file, "scan then disappear");
+    let removed = false;
+    os.tmpdir = () => {
+      if (!removed) {
+        removed = true;
+        unlinkSync(file);
+      }
+      return temp;
+    };
+    await assert.rejects(uploadInitialWorkspace(f.computer, f.local, f.remote));
+    os.tmpdir = originalTmpdir;
+    assert.deepEqual(
+      await (await import("node:fs/promises")).readdir(temp),
+      [],
+    );
+  } finally {
+    os.tmpdir = originalTmpdir;
+    await f.cleanup();
+  }
+});
+
+// This guards the transfer boundary: scanning only after extraction leaks
+// ignored bytes and lets excluded compressible files reject the whole sync.
+test("remote exclusions stay out of the transferred archive", async () => {
+  const f = await fixture();
+  try {
+    await mkdir(path.join(f.remote, "node_modules"));
+    await writeFile(path.join(f.remote, ".env"), "SECRET=must-not-transfer");
+    await writeFile(
+      path.join(f.remote, "node_modules", "ignored.bin"),
+      Buffer.alloc(DEFAULT_MAX_FILE_BYTES + 1),
+    );
+    await writeFile(
+      path.join(f.remote, "oversized.bin"),
+      Buffer.alloc(DEFAULT_MAX_FILE_BYTES + 1),
+    );
+    await writeFile(
+      path.join(f.remote, "selected.bin"),
+      Buffer.alloc(1024 * 1024),
+    );
+    await writeFile(path.join(f.remote, "-file\nwith newline.txt"), "allowed");
+    const snapshot = await downloadRemoteWorkspace(
+      f.computer,
+      f.remote,
+      await createWorkspaceIgnore(f.local),
+    );
+    try {
+      assert.equal(
+        (await readFile(path.join(snapshot.root, "selected.bin"))).length,
+        1024 * 1024,
+      );
+      assert.equal(
+        await readFile(
+          path.join(snapshot.root, "-file\nwith newline.txt"),
+          "utf8",
+        ),
+        "allowed",
+      );
+      assert(snapshot.excludedPaths.includes(".env"));
+      assert(snapshot.excludedPaths.includes("oversized.bin"));
+      assert(snapshot.excludedPaths.includes("node_modules"));
+      assert.equal(f.computer.transfers.length, 1);
+      const wire = path.join(f.root, "wire.tgz");
+      await writeFile(wire, Buffer.from(f.computer.transfers[0]!, "base64"));
+      const entries: string[] = [];
+      await tar.t({
+        file: wire,
+        onReadEntry: (entry) => entries.push(entry.path.replace(/^\.\//, "")),
+      });
+      assert.deepEqual(entries.sort(), [
+        "-file\nwith newline.txt",
+        "selected.bin",
+      ]);
+    } finally {
+      await snapshot.cleanup();
+    }
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("changed remote symlink ancestors cannot transfer outside file contents", async () => {
+  const f = await fixture();
+  try {
+    const folder = "dir\n";
+    await mkdir(path.join(f.local, folder));
+    await writeFile(path.join(f.local, folder, "file.txt"), "tracked");
+    const { revision } = await uploadInitialWorkspace(
+      f.computer,
+      f.local,
+      f.remote,
+    );
+    const baseline = JSON.parse(JSON.stringify(revision));
+    const outside = path.join(f.root, "outside");
+    await mkdir(outside);
+    await writeFile(path.join(outside, "file.txt"), "private");
+    let changed = false;
+    f.computer.beforeRun = async (command) => {
+      if (!changed && command.includes("tar --null")) {
+        changed = true;
+        await rename(
+          path.join(f.remote, folder),
+          path.join(f.remote, "original-dir"),
+        );
+        await symlink(outside, path.join(f.remote, folder));
+      }
+    };
+
+    await assert.rejects(
+      syncWorkspace(f.computer, f.local, f.remote, revision),
+      /Download .*failed/,
+    );
+    assert(changed);
+    assert.equal(
+      await readFile(path.join(f.local, folder, "file.txt"), "utf8"),
+      "tracked",
+    );
+    assert.deepEqual(revision, baseline);
+    assert.deepEqual(f.computer.transfers, []);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+// Value: protects=excluded hardlink contents stay off the download wire;
+// fails_when=a selected file becomes a hardlink after metadata inspection;
+// why_new=the static hardlink test only covers links present during inspection; seam=none
+test("a selected remote file becoming a hardlink aborts before download", async () => {
+  const f = await fixture();
+  let snapshot: Awaited<ReturnType<typeof downloadRemoteWorkspace>> | undefined;
+  try {
+    const selected = path.join(f.remote, "selected.txt");
+    const outside = path.join(f.root, "outside.txt");
+    await writeFile(selected, "visible");
+    await writeFile(outside, "private");
+    let changed = false;
+    f.computer.beforeRun = async (command) => {
+      if (!changed && command.includes("tar --null")) {
+        changed = true;
+        await rm(selected);
+        await link(outside, selected);
+      }
+    };
+    await assert.rejects(async () => {
+      snapshot = await downloadRemoteWorkspace(
+        f.computer,
+        f.remote,
+        await createWorkspaceIgnore(f.local),
+      );
+    }, /Download .*failed/);
+    assert(changed);
+    assert.deepEqual(f.computer.transfers, []);
+    assert.equal(await readFile(outside, "utf8"), "private");
+  } finally {
+    await snapshot?.cleanup();
+    await f.cleanup();
+  }
+});
+
+test("remote hardlinks stay excluded without deleting tracked counterparts", async () => {
+  const f = await fixture();
+  try {
+    await writeFile(path.join(f.local, "tracked-a.txt"), "tracked-a");
+    await writeFile(path.join(f.local, "tracked-b.txt"), "tracked-b");
+    await writeFile(path.join(f.local, "selected.txt"), "selected");
+    const { revision } = await uploadInitialWorkspace(
+      f.computer,
+      f.local,
+      f.remote,
+    );
+    await rm(path.join(f.remote, "tracked-b.txt"));
+    await link(
+      path.join(f.remote, "tracked-a.txt"),
+      path.join(f.remote, "tracked-b.txt"),
+    );
+    assert.equal((await stat(path.join(f.remote, "tracked-a.txt"))).nlink, 2);
+    const snapshot = await downloadRemoteWorkspace(
+      f.computer,
+      f.remote,
+      await createWorkspaceIgnore(f.local),
+    );
+    try {
+      for (const name of ["tracked-a.txt", "tracked-b.txt"])
+        assert(snapshot.excludedPaths.includes(name));
+      assert.equal(
+        await readFile(path.join(snapshot.root, "selected.txt"), "utf8"),
+        "selected",
+      );
+      assert.equal(f.computer.transfers.length, 1);
+      const wire = path.join(f.root, "wire.tgz");
+      await writeFile(wire, Buffer.from(f.computer.transfers[0]!, "base64"));
+      const entries: string[] = [];
+      await tar.t({
+        file: wire,
+        onReadEntry: (entry) => entries.push(entry.path.replace(/^\.\//, "")),
+      });
+      assert.deepEqual(entries, ["selected.txt"]);
+    } finally {
+      await snapshot.cleanup();
+    }
+    const result = await syncWorkspace(f.computer, f.local, f.remote, revision);
+    assert.equal(result.pulled + result.pushed + result.conflicts.length, 0);
+    for (const name of ["tracked-a.txt", "tracked-b.txt"]) {
+      assert.equal(
+        await readFile(path.join(f.local, name), "utf8"),
+        path.parse(name).name,
+      );
+      assert.deepEqual(result.revision.files[name], revision.files[name]);
     }
   } finally {
     await f.cleanup();

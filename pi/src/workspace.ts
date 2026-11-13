@@ -3,6 +3,7 @@ import {
   chmod,
   copyFile,
   lstat,
+  link,
   mkdir,
   mkdtemp,
   readFile,
@@ -35,6 +36,7 @@ const SAFE_IGNORE_PATTERNS = [
   REVISION_FILE,
   ".celesto-conflicts/",
   "**/.celesto-conflicts/",
+  "**/*.celesto-sync-backup.*",
   ".env",
   ".env.*",
   "!.env.example",
@@ -225,18 +227,23 @@ export function createRevision(manifest: WorkspaceManifest): WorkspaceRevision {
 async function createArchive(root: string, files: string[]): Promise<string> {
   const directory = await mkdtemp(path.join(os.tmpdir(), "celesto-upload-"));
   const archivePath = path.join(directory, "workspace.tgz");
-  await tar.create(
-    {
-      cwd: root,
-      file: archivePath,
-      gzip: true,
-      portable: false,
-      noMtime: true,
-      follow: false,
-    },
-    files,
-  );
-  return archivePath;
+  try {
+    await tar.create(
+      {
+        cwd: root,
+        file: archivePath,
+        gzip: true,
+        portable: false,
+        noMtime: true,
+        follow: false,
+      },
+      files,
+    );
+    return archivePath;
+  } catch (error) {
+    await rm(directory, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 async function uploadEncodedFile(
@@ -361,72 +368,130 @@ function safeArchivePath(entryPath: string): boolean {
 export async function downloadRemoteWorkspace(
   computer: RemoteComputer,
   remoteRoot: string,
+  ignore: Ignore,
 ): Promise<RemoteSnapshot> {
-  const encoded = await streamStdout(
+  // Inspect names, sizes and links before transferring contents. NUL framing preserves
+  // spaces/newlines, and find does not traverse symbolic links.
+  const metadata = await streamStdout(
     computer,
-    `bash --noprofile --norc -o pipefail -c ${shellQuote(`tar -czf - -C ${shellQuote(remoteRoot)} . | base64`)}`,
-    `Download ${remoteRoot}`,
+    `cd ${shellQuote(remoteRoot)} && find . -mindepth 1 -printf ${shellQuote("%y\\0%s\\0%n\\0%p\\0")}`,
+    `Inspect ${remoteRoot}`,
   );
+  const fields = metadata.toString().split("\0");
+  if (fields.pop() !== "" || fields.length % 4 !== 0)
+    throw new Error(
+      "Celesto returned invalid workspace metadata. Retry /celesto sync.",
+    );
+  const selected = new Map<string, number>();
+  const excludedPaths: string[] = [];
+  for (let index = 0; index < fields.length; index += 4) {
+    const [type, rawSize, rawLinks, rawName] = fields.slice(index, index + 4);
+    const name = rawName?.replace(/^\.\//, "");
+    const size = Number(rawSize);
+    const links = Number(rawLinks);
+    if (
+      !name ||
+      !safeArchivePath(name) ||
+      path.posix.normalize(name) !== name ||
+      !Number.isSafeInteger(size) ||
+      size < 0 ||
+      !Number.isSafeInteger(links) ||
+      links < 1
+    )
+      throw new Error(
+        "Celesto returned invalid workspace metadata. Retry /celesto sync.",
+      );
+    if (
+      ignore.ignores(type === "d" ? `${name}/` : name) ||
+      (type !== "f" && type !== "d") ||
+      (type === "f" && (size > DEFAULT_MAX_FILE_BYTES || links > 1))
+    ) {
+      excludedPaths.push(name);
+    } else if (type === "f") selected.set(name, size);
+  }
+
   const directory = await mkdtemp(path.join(os.tmpdir(), "celesto-download-"));
   const archivePath = path.join(directory, "workspace.tgz");
   const root = path.join(directory, "workspace");
-  await mkdir(root, { recursive: true });
-
-  const excludedPaths: string[] = [];
-  const fileModes = new Map<string, number>();
-  let unsafePath = false;
+  const allowlist = `/tmp/celesto-${randomUUID()}.files`;
   try {
-    await writeFile(archivePath, Buffer.from(encoded.toString(), "base64"));
-    await tar.extract({
-      cwd: root,
-      file: archivePath,
-      preservePaths: false,
-      strict: true,
-      chmod: true,
-      processUmask: 0,
-      filter: (entryPath, entry) => {
-        const entryType = "type" in entry ? entry.type : undefined;
-        if (!safeArchivePath(entryPath)) {
-          unsafePath = true;
-          return false;
-        }
-        if (
-          entryType !== "File" &&
-          entryType !== "OldFile" &&
-          entryType !== "ContiguousFile" &&
-          entryType !== "Directory" &&
-          entryType !== "GNUDumpDir"
-        ) {
-          excludedPaths.push(entryPath.replace(/^\.\//, "").replace(/\/$/, ""));
-          return false;
-        }
-        if (
-          entryType === "File" ||
-          entryType === "OldFile" ||
-          entryType === "ContiguousFile"
-        ) {
-          if (typeof entry.mode !== "number") {
-            unsafePath = true;
+    await mkdir(root, { recursive: true });
+    if (selected.size > 0) {
+      await writeRemoteFile(
+        computer,
+        allowlist,
+        Buffer.from([...selected.keys()].map((name) => `./${name}\0`).join("")),
+      );
+      // No recursion: a selected file changing into a directory cannot pull in
+      // excluded children. Fast compression keeps ordinary repetitive files
+      // below tar's unchanged decompression-ratio safeguard.
+      const downloadCommand = [
+        "set -eu",
+        `[ ! -L ${shellQuote(remoteRoot)} ] || exit 1`,
+        `cd ${shellQuote(remoteRoot)}`,
+        "while IFS= read -r -d '' celesto_path; do",
+        "  celesto_parent=${celesto_path%/*}",
+        '  while [ "$celesto_parent" != . ]; do',
+        '    [ ! -L "$celesto_parent" ] && [ -d "$celesto_parent" ] || exit 1',
+        "    celesto_parent=${celesto_parent%/*}",
+        "  done",
+        '  [ ! -L "$celesto_path" ] && [ -f "$celesto_path" ] || exit 1',
+        '  [ "$(stat -c \'%h\' "$celesto_path")" -eq 1 ] || exit 1',
+        `  [ "$(stat -c '%s' "$celesto_path")" -le ${DEFAULT_MAX_FILE_BYTES} ] || exit 1`,
+        `done < ${shellQuote(allowlist)}`,
+        `tar --null --no-recursion -cf - -C ${shellQuote(remoteRoot)} -T ${shellQuote(allowlist)} | gzip -1 | base64`,
+      ].join("\n");
+      const encoded = await streamStdout(
+        computer,
+        `bash --noprofile --norc -o pipefail -c ${shellQuote(downloadCommand)}`,
+        `Download ${remoteRoot}`,
+      );
+      await writeFile(archivePath, Buffer.from(encoded.toString(), "base64"));
+      const fileModes = new Map<string, number>();
+      let invalid = false;
+      await tar.extract({
+        cwd: root,
+        file: archivePath,
+        preservePaths: false,
+        strict: true,
+        chmod: true,
+        processUmask: 0,
+        filter: (entryPath, entry) => {
+          const name = entryPath.replace(/^\.\//, "");
+          const type = "type" in entry ? entry.type : undefined;
+          if (
+            !safeArchivePath(entryPath) ||
+            !selected.has(name) ||
+            fileModes.has(name) ||
+            (type !== "File" &&
+              type !== "OldFile" &&
+              type !== "ContiguousFile") ||
+            entry.size !== selected.get(name) ||
+            typeof entry.mode !== "number"
+          ) {
+            invalid = true;
             return false;
           }
-          fileModes.set(entryPath, entry.mode & 0o777);
-        }
-        return true;
-      },
-    });
-    if (unsafePath)
-      throw new Error(
-        "Celesto returned an invalid workspace archive. Retry /celesto sync.",
-      );
-    // Freshly created files still inherit the host umask. Restore the ordinary
-    // archive permissions explicitly rather than recording masked metadata.
-    for (const [name, mode] of fileModes)
-      await chmod(await checkedLocalPath(root, name), mode);
+          fileModes.set(name, entry.mode & 0o777);
+          return true;
+        },
+      });
+      if (invalid || fileModes.size !== selected.size)
+        throw new Error(
+          "Celesto returned a changed or invalid workspace archive. Retry /celesto sync.",
+        );
+      for (const [name, mode] of fileModes)
+        await chmod(await checkedLocalPath(root, name), mode);
+    }
   } catch (error) {
     await rm(directory, { recursive: true, force: true });
     throw error;
+  } finally {
+    if (selected.size > 0)
+      await computer
+        .run(`rm -f -- ${shellQuote(allowlist)}`)
+        .catch(() => undefined);
   }
-
   return {
     root,
     excludedPaths,
@@ -534,21 +599,107 @@ async function checkedLocalPath(
   return destination;
 }
 
+async function assertLocalDestination(
+  destination: string,
+  expected: WorkspaceFile | undefined,
+): Promise<void> {
+  let info;
+  try {
+    info = await lstat(destination);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  if (expected) {
+    if (
+      info?.isFile() &&
+      info.size === expected.size &&
+      (info.mode & 0o777) === expected.mode &&
+      (await hashFile(destination)) === expected.sha256
+    )
+      return;
+  } else if (
+    !info ||
+    (info.isDirectory() && (await readdir(destination)).length === 0)
+  ) {
+    return;
+  }
+  throw new Error(
+    `Workspace changed during sync: ${destination}. Retry /celesto sync.`,
+  );
+}
+
+async function restoreLocalDestination(
+  backup: string,
+  destination: string,
+): Promise<void> {
+  try {
+    // An editor may already have recreated the destination. Never overwrite it.
+    await link(backup, destination);
+    await rm(backup);
+  } catch {
+    throw new Error(
+      `Workspace changed during sync: ${destination}. Preserved previous contents at ${backup}. Retry /celesto sync.`,
+    );
+  }
+}
+
+async function claimLocalDestination(
+  destination: string,
+  expected: WorkspaceFile | undefined,
+): Promise<string | undefined> {
+  await assertLocalDestination(destination, expected);
+  if (!expected) {
+    try {
+      if ((await lstat(destination)).isDirectory()) await rmdir(destination);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    return undefined;
+  }
+  const backup = `${destination}.celesto-sync-backup.${randomUUID()}`;
+  try {
+    await rename(destination, backup);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    throw new Error(
+      `Workspace changed during sync: ${destination}. Retry /celesto sync.`,
+    );
+  }
+  try {
+    await assertLocalDestination(backup, expected);
+  } catch (error) {
+    await restoreLocalDestination(backup, destination);
+    throw error;
+  }
+  return backup;
+}
+
 async function replaceLocalFile(
   destination: string,
   source: string,
   mode: number,
+  expected: WorkspaceFile | undefined,
 ): Promise<void> {
-  try {
-    if ((await lstat(destination)).isDirectory()) await rmdir(destination);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
   await mkdir(path.dirname(destination), { recursive: true });
   const temporary = `${destination}.celesto.${randomUUID()}`;
-  await copyFile(source, temporary);
-  await chmod(temporary, mode);
-  await rename(temporary, destination);
+  try {
+    await copyFile(source, temporary);
+    await chmod(temporary, mode);
+    const backup = await claimLocalDestination(destination, expected);
+    try {
+      // Unlike rename, link refuses a destination that appeared after validation.
+      await link(temporary, destination);
+    } catch (error) {
+      if (backup) await restoreLocalDestination(backup, destination);
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      throw new Error(
+        `Workspace changed during sync: ${destination}. Retry /celesto sync.`,
+      );
+    }
+    if (backup) await rm(backup);
+  } finally {
+    await rm(temporary, { force: true });
+  }
 }
 
 async function applyRemoteToLocal(
@@ -556,10 +707,12 @@ async function applyRemoteToLocal(
   snapshotRoot: string,
   relativePath: string,
   remoteFile: WorkspaceFile | undefined,
+  expected: WorkspaceFile | undefined,
 ): Promise<void> {
   const localPath = await checkedLocalPath(localRoot, relativePath);
   if (!remoteFile) {
-    await rm(localPath, { force: true });
+    const backup = await claimLocalDestination(localPath, expected);
+    if (backup) await rm(backup);
     let parent = path.dirname(localPath);
     while (parent !== path.resolve(localRoot)) {
       try {
@@ -581,6 +734,7 @@ async function applyRemoteToLocal(
     localPath,
     path.join(snapshotRoot, relativePath),
     remoteFile.mode,
+    expected,
   );
 }
 
@@ -590,10 +744,14 @@ async function pushLocalToRemote(
   remoteRoot: string,
   relativePath: string,
   localFile: WorkspaceFile | undefined,
+  expected: WorkspaceFile | undefined,
 ): Promise<WorkspaceFile | undefined> {
   const remotePath = path.posix.join(remoteRoot, relativePath);
   if (!localFile) {
-    await removeRemotePath(computer, remotePath, remoteRoot);
+    await removeRemotePath(computer, remotePath, remoteRoot, {
+      expected,
+      root: remoteRoot,
+    });
     return undefined;
   }
   const content = await readFile(
@@ -603,17 +761,11 @@ async function pushLocalToRemote(
     throw new Error(
       `${relativePath} grew past the transfer limit during sync. Retry /celesto sync.`,
     );
-  await execChecked(
-    computer,
-    `if [ -d ${shellQuote(remotePath)} ]; then rmdir -- ${shellQuote(remotePath)}; fi`,
-    `Replace ${remotePath}`,
-  );
-  await writeRemoteFile(computer, remotePath, content);
-  await execChecked(
-    computer,
-    `chmod ${localFile.mode.toString(8)} ${shellQuote(remotePath)}`,
-    `Update ${remotePath}`,
-  );
+  await writeRemoteFile(computer, remotePath, content, {
+    expected,
+    mode: localFile.mode,
+    root: remoteRoot,
+  });
   return {
     sha256: createHash("sha256").update(content).digest("hex"),
     size: content.length,
@@ -666,7 +818,7 @@ export async function syncWorkspace(
   baseRevision: WorkspaceRevision,
 ): Promise<SyncResult> {
   const ignore = await createWorkspaceIgnore(localRoot);
-  const snapshot = await downloadRemoteWorkspace(computer, remoteRoot);
+  const snapshot = await downloadRemoteWorkspace(computer, remoteRoot, ignore);
 
   try {
     const [localScan, remoteScan] = await Promise.all([
@@ -737,7 +889,15 @@ export async function syncWorkspace(
       const file = Object.hasOwn(remoteFiles, relativePath)
         ? remoteFiles[relativePath]
         : undefined;
-      await applyRemoteToLocal(localRoot, snapshot.root, relativePath, file);
+      await applyRemoteToLocal(
+        localRoot,
+        snapshot.root,
+        relativePath,
+        file,
+        Object.hasOwn(localFiles, relativePath)
+          ? localFiles[relativePath]
+          : undefined,
+      );
       if (file) shared.set(relativePath, file);
       else shared.delete(relativePath);
     }
@@ -749,6 +909,9 @@ export async function syncWorkspace(
         relativePath,
         Object.hasOwn(localFiles, relativePath)
           ? localFiles[relativePath]
+          : undefined,
+        Object.hasOwn(remoteFiles, relativePath)
+          ? remoteFiles[relativePath]
           : undefined,
       );
       if (file) shared.set(relativePath, file);

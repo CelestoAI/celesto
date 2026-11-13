@@ -1,14 +1,5 @@
 import assert from "node:assert/strict";
-import {
-  chmod,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  stat,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -18,12 +9,10 @@ import type {
   ComputerExecStreamEvent,
   ExecParams,
 } from "../src/computer.js";
-import * as tar from "tar";
 
 import type { RemoteComputer } from "../src/operations.js";
 import {
   createRevision,
-  downloadRemoteWorkspace,
   planWorkspaceSync,
   scanWorkspace,
   type WorkspaceFile,
@@ -111,52 +100,6 @@ test("uploadInitialWorkspace supports an empty project", async () => {
     );
     assert(!computer.commands.some((command) => command.includes("tar -xzf")));
   } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("downloaded modes do not create false sync changes", async () => {
-  const root = await temporaryDirectory();
-  const source = path.join(root, "source");
-  const archive = path.join(root, "workspace.tgz");
-  await mkdir(source);
-  await writeFile(path.join(source, "run.sh"), "#!/bin/sh\n");
-  await chmod(path.join(source, "run.sh"), 0o755);
-  await writeFile(path.join(source, "shared.txt"), "shared");
-  await chmod(path.join(source, "shared.txt"), 0o664);
-  await tar.create(
-    { cwd: source, file: archive, gzip: true, portable: false, noMtime: true },
-    ["run.sh", "shared.txt"],
-  );
-  const encoded = (await readFile(archive)).toString("base64");
-  const computer = new SuccessfulComputer();
-  computer.runStream = async function* () {
-    yield { type: "stdout", data: encoded };
-    yield { type: "exit", exitCode: 0 };
-  };
-
-  const snapshot = await downloadRemoteWorkspace(computer, REMOTE_ROOT);
-  try {
-    assert.equal(
-      (await stat(path.join(snapshot.root, "run.sh"))).mode & 0o777,
-      0o755,
-    );
-    assert.equal(
-      (await stat(path.join(snapshot.root, "shared.txt"))).mode & 0o777,
-      0o664,
-    );
-    const local = await scanWorkspace(source);
-    const remote = await scanWorkspace(snapshot.root);
-    assert.deepEqual(
-      planWorkspaceSync(local.manifest, local.manifest, remote.manifest),
-      {
-        pull: [],
-        push: [],
-        conflicts: [],
-      },
-    );
-  } finally {
-    await snapshot.cleanup();
     await rm(root, { recursive: true, force: true });
   }
 });

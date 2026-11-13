@@ -127,6 +127,7 @@ test(
           const output = await execute("/bin/bash", ["-c", body.command], {
             env: {
               ...process.env,
+              COPYFILE_DISABLE: "1",
               PATH: `${bin}${path.delimiter}${process.env.PATH}`,
             },
             timeout: 10_000,
@@ -415,7 +416,7 @@ test(
         },
       );
       await handlers.get("session_shutdown")!(
-        { type: "session_shutdown", reason: "exit" },
+        { type: "session_shutdown", reason: "quit" },
         context,
       );
       assert.deepEqual([...allocated], ["cmp_existing"]);
@@ -482,7 +483,7 @@ test(
             assert.deepEqual(restored.errors, []);
             assert.equal(keys.length, count + 1);
             await restored.handlers.get("session_shutdown")!(
-              { type: "session_shutdown", reason: "exit" },
+              { type: "session_shutdown", reason: "quit" },
               restored.context,
             );
             assert.equal(allocated.size, before);
@@ -497,7 +498,7 @@ test(
           assert.deepEqual(caller.errors, []);
           assert.equal(existingStopped, false);
           await caller.handlers.get("session_shutdown")!(
-            { type: "session_shutdown", reason: "exit" },
+            { type: "session_shutdown", reason: "quit" },
             caller.context,
           );
           assert(allocated.has("cmp_existing"));
@@ -514,7 +515,7 @@ test(
           );
           assert.deepEqual(caller.errors, []);
           await caller.handlers.get("session_shutdown")!(
-            { type: "session_shutdown", reason: "exit" },
+            { type: "session_shutdown", reason: "quit" },
             caller.context,
           );
           assert(allocated.has("cmp_existing"));
@@ -526,7 +527,7 @@ test(
         assert.deepEqual(kept.errors, []);
         await kept.commands.get("celesto")!("keep", kept.context);
         await kept.handlers.get("session_shutdown")!(
-          { type: "session_shutdown", reason: "exit" },
+          { type: "session_shutdown", reason: "quit" },
           kept.context,
         );
         assert.equal(allocated.size, before + 1);

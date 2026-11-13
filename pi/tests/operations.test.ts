@@ -224,3 +224,22 @@ test("aborting bash explicitly terminates the remote process group", async () =>
   assert.match(computer.commands[1] ?? "", /kill -TERM/);
   assert.match(computer.commands[1] ?? "", /pgid=/);
 });
+
+test("fractional Bash timeouts are rounded into Cloud's bounded integer format", async () => {
+  for (const [timeout, expected] of [
+    [undefined, undefined],
+    [0.5, 1],
+    [1.5, 2],
+    [299.2, 300],
+    [301, 300],
+  ]) {
+    const computer = new FakeComputer();
+    computer.events = [{ type: "exit", exitCode: 0 }];
+    await createCelestoBashOperations(computer, "/project", REMOTE_ROOT).exec(
+      "true",
+      "/project",
+      { onData() {}, timeout },
+    );
+    assert.equal(computer.streamParams?.timeout, expected);
+  }
+});
