@@ -127,10 +127,10 @@ export async function readRemoteFile(
 ): Promise<Buffer> {
   const response = await execChecked(
     computer,
-    `base64 < ${shellQuote(remotePath)} | tr -d '\\n'`,
+    `base64 < ${shellQuote(remotePath)}`,
     `Read ${remotePath}`,
   );
-  const encoded = response.stdout.trim();
+  const encoded = response.stdout.trim().replace(/\r?\n/g, "");
   if (
     !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
       encoded,
@@ -188,6 +188,7 @@ export async function writeRemoteFile(
         "set -eu",
         `base64 -d ${shellQuote(encodedPath)} > ${shellQuote(temporaryPath)}`,
         `rm -f -- ${shellQuote(encodedPath)}`,
+        `if [ -f ${shellQuote(remotePath)} ]; then celesto_mode=$(stat -c '%a' ${shellQuote(remotePath)}); chmod "$(printf '%o' "$((0$celesto_mode & 0777))")" ${shellQuote(temporaryPath)}; fi`,
         `mv ${shellQuote(temporaryPath)} ${shellQuote(remotePath)}`,
       ].join("; "),
       `Finish ${remotePath}`,
@@ -203,10 +204,18 @@ export async function writeRemoteFile(
 export async function removeRemotePath(
   computer: RemoteComputer,
   remotePath: string,
+  remoteRoot: string,
 ): Promise<void> {
+  if (!remotePath.startsWith(`${remoteRoot}/`))
+    throw new Error("Sync paths must stay inside the remote workspace.");
   await execChecked(
     computer,
-    `rm -f -- ${shellQuote(remotePath)}`,
+    [
+      "set -eu",
+      `rm -f -- ${shellQuote(remotePath)}`,
+      `parent=${shellQuote(path.posix.dirname(remotePath))}`,
+      `while [ "$parent" != ${shellQuote(remoteRoot)} ]; do rmdir -- "$parent" 2>/dev/null || break; parent=$(dirname -- "$parent"); done`,
+    ].join("; "),
     `Delete ${remotePath}`,
   );
 }
@@ -327,7 +336,7 @@ export function createCelestoBashOperations(
         timeout === undefined ? undefined : Math.max(1, Math.min(300, timeout));
       const token = randomUUID();
       const pidFile = `/tmp/celesto-pi-${token}.pid`;
-      const childCommand = `env CELESTO_PI_COMMAND_ID=${shellQuote(token)} setsid sh -c ${shellQuote(command)}`;
+      const childCommand = `env CELESTO_PI_COMMAND_ID=${shellQuote(token)} setsid bash --noprofile --norc -c ${shellQuote(command)}`;
       const commandBody = [
         `${childCommand} & child=$!`,
         `printf '%s\\n' \"$child\" > ${shellQuote(pidFile)}`,

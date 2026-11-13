@@ -8,6 +8,7 @@ import {
   readFile,
   readdir,
   rename,
+  rmdir,
   rm,
   stat,
   writeFile,
@@ -91,6 +92,7 @@ export interface WorkspaceScan {
   manifest: WorkspaceManifest;
   skippedSymlinks: number;
   skippedLargeFiles: number;
+  excludedPaths: string[];
 }
 
 export interface SyncResult {
@@ -108,6 +110,7 @@ export interface WorkspaceSyncPlan {
 
 export interface RemoteSnapshot {
   root: string;
+  excludedPaths: string[];
   cleanup(): Promise<void>;
 }
 
@@ -150,6 +153,7 @@ export async function scanWorkspace(
   const maxFileBytes = options.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES;
   const files: string[] = [];
   const manifest: WorkspaceManifest = {};
+  const excludedPaths: string[] = [];
   let skippedSymlinks = 0;
   let skippedLargeFiles = 0;
 
@@ -162,10 +166,14 @@ export async function scanWorkspace(
       const relative = path.join(relativeDirectory, entry.name);
       const portable = portablePath(relative);
       const ignoredPath = entry.isDirectory() ? `${portable}/` : portable;
-      if (matcher.ignores(ignoredPath)) continue;
+      if (matcher.ignores(ignoredPath)) {
+        excludedPaths.push(portable);
+        continue;
+      }
 
       const absolute = path.join(absoluteRoot, relative);
       if (entry.isSymbolicLink()) {
+        excludedPaths.push(portable);
         skippedSymlinks += 1;
         continue;
       }
@@ -173,10 +181,14 @@ export async function scanWorkspace(
         await walk(relative);
         continue;
       }
-      if (!entry.isFile()) continue;
+      if (!entry.isFile()) {
+        excludedPaths.push(portable);
+        continue;
+      }
 
       const info = await stat(absolute);
       if (info.size > maxFileBytes) {
+        excludedPaths.push(portable);
         skippedLargeFiles += 1;
         continue;
       }
@@ -190,7 +202,7 @@ export async function scanWorkspace(
   }
 
   await walk("");
-  return { files, manifest, skippedSymlinks, skippedLargeFiles };
+  return { files, manifest, skippedSymlinks, skippedLargeFiles, excludedPaths };
 }
 
 function stableManifestJson(manifest: WorkspaceManifest): string {
@@ -218,7 +230,7 @@ async function createArchive(root: string, files: string[]): Promise<string> {
       cwd: root,
       file: archivePath,
       gzip: true,
-      portable: true,
+      portable: false,
       noMtime: true,
       follow: false,
     },
@@ -277,7 +289,7 @@ export async function uploadInitialWorkspace(
     const archiveCommands = archivePath
       ? [
           `base64 -d ${shellQuote(encodedRemote)} > ${shellQuote(archiveRemote)}`,
-          `tar -xzf ${shellQuote(archiveRemote)} -C ${shellQuote(staging)}`,
+          `tar --no-same-owner -xpzf ${shellQuote(archiveRemote)} -C ${shellQuote(staging)}`,
           `rm -f -- ${shellQuote(encodedRemote)} ${shellQuote(archiveRemote)}`,
         ]
       : [];
@@ -352,7 +364,7 @@ export async function downloadRemoteWorkspace(
 ): Promise<RemoteSnapshot> {
   const encoded = await streamStdout(
     computer,
-    `tar -czf - -C ${shellQuote(remoteRoot)} . | base64 | tr -d '\\n'`,
+    `bash --noprofile --norc -o pipefail -c ${shellQuote(`tar -czf - -C ${shellQuote(remoteRoot)} . | base64`)}`,
     `Download ${remoteRoot}`,
   );
   const directory = await mkdtemp(path.join(os.tmpdir(), "celesto-download-"));
@@ -360,23 +372,56 @@ export async function downloadRemoteWorkspace(
   const root = path.join(directory, "workspace");
   await mkdir(root, { recursive: true });
 
+  const excludedPaths: string[] = [];
+  const fileModes = new Map<string, number>();
+  let unsafePath = false;
   try {
     await writeFile(archivePath, Buffer.from(encoded.toString(), "base64"));
     await tar.extract({
       cwd: root,
       file: archivePath,
       preservePaths: false,
+      strict: true,
       chmod: true,
-      processUmask: 0o022,
+      processUmask: 0,
       filter: (entryPath, entry) => {
         const entryType = "type" in entry ? entry.type : undefined;
-        return (
-          safeArchivePath(entryPath) &&
-          entryType !== "SymbolicLink" &&
-          entryType !== "Link"
-        );
+        if (!safeArchivePath(entryPath)) {
+          unsafePath = true;
+          return false;
+        }
+        if (
+          entryType !== "File" &&
+          entryType !== "OldFile" &&
+          entryType !== "ContiguousFile" &&
+          entryType !== "Directory" &&
+          entryType !== "GNUDumpDir"
+        ) {
+          excludedPaths.push(entryPath.replace(/^\.\//, "").replace(/\/$/, ""));
+          return false;
+        }
+        if (
+          entryType === "File" ||
+          entryType === "OldFile" ||
+          entryType === "ContiguousFile"
+        ) {
+          if (typeof entry.mode !== "number") {
+            unsafePath = true;
+            return false;
+          }
+          fileModes.set(entryPath, entry.mode & 0o777);
+        }
+        return true;
       },
     });
+    if (unsafePath)
+      throw new Error(
+        "Celesto returned an invalid workspace archive. Retry /celesto sync.",
+      );
+    // Freshly created files still inherit the host umask. Restore the ordinary
+    // archive permissions explicitly rather than recording masked metadata.
+    for (const [name, mode] of fileModes)
+      await chmod(await checkedLocalPath(root, name), mode);
   } catch (error) {
     await rm(directory, { recursive: true, force: true });
     throw error;
@@ -384,6 +429,7 @@ export async function downloadRemoteWorkspace(
 
   return {
     root,
+    excludedPaths,
     cleanup: () => rm(directory, { recursive: true, force: true }),
   };
 }
@@ -424,6 +470,40 @@ export function planWorkspaceSync(
     else plan.conflicts.push(relativePath);
   }
 
+  // A merge must be representable as a file tree on both sides. Conflicting
+  // parent/child shapes keep the entire affected subtree out of mutations.
+  const projectedLocal = new Map(Object.entries(local));
+  const projectedRemote = new Map(Object.entries(remote));
+  for (const name of plan.pull) {
+    if (Object.hasOwn(remote, name)) projectedLocal.set(name, remote[name]!);
+    else projectedLocal.delete(name);
+  }
+  for (const name of plan.push) {
+    if (Object.hasOwn(local, name)) projectedRemote.set(name, local[name]!);
+    else projectedRemote.delete(name);
+  }
+  const blockedRoots = new Set<string>();
+  for (const tree of [projectedLocal, projectedRemote]) {
+    for (const name of tree.keys()) {
+      let parent = path.posix.dirname(name);
+      while (parent !== ".") {
+        if (tree.has(parent)) blockedRoots.add(parent);
+        parent = path.posix.dirname(parent);
+      }
+    }
+  }
+  for (const name of paths) {
+    if (
+      [...blockedRoots].some(
+        (root) => name === root || name.startsWith(`${root}/`),
+      )
+    ) {
+      if (!plan.conflicts.includes(name)) plan.conflicts.push(name);
+    }
+  }
+  const conflicts = new Set(plan.conflicts);
+  plan.pull = plan.pull.filter((name) => !conflicts.has(name));
+  plan.push = plan.push.filter((name) => !conflicts.has(name));
   return plan;
 }
 
@@ -459,6 +539,11 @@ async function replaceLocalFile(
   source: string,
   mode: number,
 ): Promise<void> {
+  try {
+    if ((await lstat(destination)).isDirectory()) await rmdir(destination);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
   await mkdir(path.dirname(destination), { recursive: true });
   const temporary = `${destination}.celesto.${randomUUID()}`;
   await copyFile(source, temporary);
@@ -475,6 +560,21 @@ async function applyRemoteToLocal(
   const localPath = await checkedLocalPath(localRoot, relativePath);
   if (!remoteFile) {
     await rm(localPath, { force: true });
+    let parent = path.dirname(localPath);
+    while (parent !== path.resolve(localRoot)) {
+      try {
+        await rmdir(parent);
+      } catch (error) {
+        if (
+          ["ENOTEMPTY", "EEXIST", "ENOENT"].includes(
+            (error as NodeJS.ErrnoException).code ?? "",
+          )
+        )
+          break;
+        throw error;
+      }
+      parent = path.dirname(parent);
+    }
     return;
   }
   await replaceLocalFile(
@@ -490,22 +590,35 @@ async function pushLocalToRemote(
   remoteRoot: string,
   relativePath: string,
   localFile: WorkspaceFile | undefined,
-): Promise<void> {
+): Promise<WorkspaceFile | undefined> {
   const remotePath = path.posix.join(remoteRoot, relativePath);
   if (!localFile) {
-    await removeRemotePath(computer, remotePath);
-    return;
+    await removeRemotePath(computer, remotePath, remoteRoot);
+    return undefined;
   }
-  await writeRemoteFile(
-    computer,
-    remotePath,
-    await readFile(await checkedLocalPath(localRoot, relativePath)),
+  const content = await readFile(
+    await checkedLocalPath(localRoot, relativePath),
   );
+  if (content.length > DEFAULT_MAX_FILE_BYTES)
+    throw new Error(
+      `${relativePath} grew past the transfer limit during sync. Retry /celesto sync.`,
+    );
+  await execChecked(
+    computer,
+    `if [ -d ${shellQuote(remotePath)} ]; then rmdir -- ${shellQuote(remotePath)}; fi`,
+    `Replace ${remotePath}`,
+  );
+  await writeRemoteFile(computer, remotePath, content);
   await execChecked(
     computer,
     `chmod ${localFile.mode.toString(8)} ${shellQuote(remotePath)}`,
     `Update ${remotePath}`,
   );
+  return {
+    sha256: createHash("sha256").update(content).digest("hex"),
+    size: content.length,
+    mode: localFile.mode,
+  };
 }
 
 async function preserveConflict(
@@ -560,28 +673,86 @@ export async function syncWorkspace(
       scanWorkspace(localRoot, { ignore }),
       scanWorkspace(snapshot.root, { ignore }),
     ]);
-    const plan = planWorkspaceSync(
-      baseRevision.files,
-      localScan.manifest,
-      remoteScan.manifest,
-    );
-
-    for (const relativePath of plan.pull) {
-      await applyRemoteToLocal(
-        localRoot,
-        snapshot.root,
-        relativePath,
-        remoteScan.manifest[relativePath],
-      );
+    // A local link that collides with a remote file remains an explicit refusal,
+    // even though other excluded paths are left untouched by the planner.
+    for (const name of localScan.excludedPaths) {
+      if (
+        !remoteScan.files.some(
+          (remoteName) =>
+            remoteName === name || remoteName.startsWith(`${name}/`),
+        )
+      )
+        continue;
+      try {
+        if ((await lstat(path.join(localRoot, name))).isSymbolicLink())
+          throw new Error(
+            `Sync refuses a local symlink: ${path.join(localRoot, name)}`,
+          );
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
     }
-    for (const relativePath of plan.push) {
-      await pushLocalToRemote(
+    const excludedRoots = new Set([
+      ...localScan.excludedPaths,
+      ...remoteScan.excludedPaths,
+      ...snapshot.excludedPaths,
+    ]);
+    // A skipped descendant also blocks replacing an ancestor file/directory.
+    for (const name of [...excludedRoots]) {
+      let parent = path.posix.dirname(name);
+      while (parent !== ".") {
+        if (
+          [baseRevision.files, localScan.manifest, remoteScan.manifest].some(
+            (files) => Object.hasOwn(files, parent),
+          )
+        )
+          excludedRoots.add(parent);
+        parent = path.posix.dirname(parent);
+      }
+    }
+    const excluded = (name: string) =>
+      [...excludedRoots].some(
+        (root) => name === root || name.startsWith(`${root}/`),
+      );
+    const eligible = (files: WorkspaceManifest) =>
+      Object.fromEntries(
+        Object.entries(files).filter(([name]) => !excluded(name)),
+      );
+    const localFiles = eligible(localScan.manifest);
+    const remoteFiles = eligible(remoteScan.manifest);
+    const plan = planWorkspaceSync(
+      eligible(baseRevision.files),
+      localFiles,
+      remoteFiles,
+    );
+    const shared = new Map(Object.entries(localFiles));
+    const ordered = (names: string[], files: WorkspaceManifest) => [
+      ...names
+        .filter((name) => !Object.hasOwn(files, name))
+        .sort((a, b) => b.length - a.length),
+      ...names.filter((name) => Object.hasOwn(files, name)),
+    ];
+
+    for (const relativePath of ordered(plan.pull, remoteFiles)) {
+      const file = Object.hasOwn(remoteFiles, relativePath)
+        ? remoteFiles[relativePath]
+        : undefined;
+      await applyRemoteToLocal(localRoot, snapshot.root, relativePath, file);
+      if (file) shared.set(relativePath, file);
+      else shared.delete(relativePath);
+    }
+    for (const relativePath of ordered(plan.push, localFiles)) {
+      const file = await pushLocalToRemote(
         computer,
         localRoot,
         remoteRoot,
         relativePath,
-        localScan.manifest[relativePath],
+        Object.hasOwn(localFiles, relativePath)
+          ? localFiles[relativePath]
+          : undefined,
       );
+      if (file) shared.set(relativePath, file);
+      else shared.delete(relativePath);
     }
     for (const relativePath of plan.conflicts) {
       await preserveConflict(
@@ -602,8 +773,12 @@ export async function syncWorkspace(
       };
     }
 
-    const converged = await scanWorkspace(localRoot, { ignore });
-    const revision = createRevision(converged.manifest);
+    // Preserve unobserved baseline entries; all other entries describe the
+    // snapshots or exact bytes sent, never a later editor save.
+    for (const [name, file] of Object.entries(baseRevision.files)) {
+      if (excluded(name)) shared.set(name, file);
+    }
+    const revision = createRevision(Object.fromEntries(shared));
     await writeRemoteRevision(computer, remoteRoot, revision);
     return {
       revision,

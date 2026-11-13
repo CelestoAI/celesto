@@ -3,7 +3,7 @@
 Run Pi's coding tools away from your laptop while keeping its interface and
 conversation history local. A Celesto computer is an isolated remote computer
 that holds your project and runs the tools. Model credentials are the secrets
-Pi uses to access an AI model. They stay on your machine.
+Pi uses to access an AI model. The extension does not forward Pi’s model authentication.
 
 This package is maintained in the [Celesto repository](https://github.com/CelestoAI/celesto/tree/main/pi). See the [Cloud guide](https://github.com/CelestoAI/celesto/blob/main/docs/python-cloud.md) for Celesto authentication and computer lifecycle details.
 
@@ -102,7 +102,7 @@ fixtures/private/
 *.large-test-data
 ```
 
-Model-provider credentials are never copied into the Celesto computer. `CELESTO_API_KEY` is used only by the local extension to contact Celesto Cloud.
+The extension does not automatically forward its authentication credentials or model-provider credentials. `CELESTO_API_KEY` is used locally to contact Celesto Cloud. Explicit transfers use overridable filename filters: `.gitignore` or `.celestoignore` negations can include files such as `.env`, so review those rules before pushing secrets.
 
 ## Command output
 

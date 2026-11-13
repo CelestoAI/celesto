@@ -183,7 +183,7 @@ Use unique names for concurrent jobs. Prefer `exec` for automation; reserve `she
 
 ## Run Pi in Celesto Cloud
 
-Run Pi's coding tools in a Celesto computer while keeping its interface and model credentials on your machine:
+Run Pi's coding tools in a Celesto computer while keeping its interface and model authentication local:
 
 ```bash
 pi install npm:@celestoai/pi

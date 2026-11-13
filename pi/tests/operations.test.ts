@@ -181,7 +181,7 @@ test("bash operations stream stdout and stderr and pass the abort signal", async
   assert.equal(computer.streamParams?.timeout, 300);
   assert.match(
     computer.commands[0] ?? "",
-    /^cd '\/home\/celesto\/workspace\/src' && \{ env CELESTO_PI_COMMAND_ID='[^']+' setsid sh -c 'echo test'/,
+    /^cd '\/home\/celesto\/workspace\/src' && \{ env CELESTO_PI_COMMAND_ID='[^']+' setsid bash --noprofile --norc -c 'echo test'/,
   );
 });
 
@@ -217,7 +217,10 @@ test("aborting bash explicitly terminates the remote process group", async () =>
   setTimeout(() => controller.abort(), 10);
 
   await assert.rejects(execution, /aborted/);
-  assert.match(computer.commands[0] ?? "", /setsid sh -c 'sleep 30'/);
+  assert.match(
+    computer.commands[0] ?? "",
+    /setsid bash --noprofile --norc -c 'sleep 30'/,
+  );
   assert.match(computer.commands[1] ?? "", /kill -TERM/);
   assert.match(computer.commands[1] ?? "", /pgid=/);
 });

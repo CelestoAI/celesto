@@ -122,9 +122,11 @@ test("downloaded modes do not create false sync changes", async () => {
   await mkdir(source);
   await writeFile(path.join(source, "run.sh"), "#!/bin/sh\n");
   await chmod(path.join(source, "run.sh"), 0o755);
+  await writeFile(path.join(source, "shared.txt"), "shared");
+  await chmod(path.join(source, "shared.txt"), 0o664);
   await tar.create(
-    { cwd: source, file: archive, gzip: true, portable: true, noMtime: true },
-    ["run.sh"],
+    { cwd: source, file: archive, gzip: true, portable: false, noMtime: true },
+    ["run.sh", "shared.txt"],
   );
   const encoded = (await readFile(archive)).toString("base64");
   const computer = new SuccessfulComputer();
@@ -138,6 +140,10 @@ test("downloaded modes do not create false sync changes", async () => {
     assert.equal(
       (await stat(path.join(snapshot.root, "run.sh"))).mode & 0o777,
       0o755,
+    );
+    assert.equal(
+      (await stat(path.join(snapshot.root, "shared.txt"))).mode & 0o777,
+      0o664,
     );
     const local = await scanWorkspace(source);
     const remote = await scanWorkspace(snapshot.root);

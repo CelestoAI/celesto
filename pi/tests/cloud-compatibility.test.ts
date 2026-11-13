@@ -25,6 +25,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { discoverAndLoadExtensions } from "@earendil-works/pi-coding-agent";
 import celestoPiExtension from "../src/index.js";
+import { installLinuxCommandShims } from "./fixtures/linux-tools.js";
 
 const execute = promisify(execFile);
 
@@ -44,17 +45,7 @@ test(
     await writeFile(path.join(localRoot, "hello.txt"), "hello from Pi\n");
     const largeContents = randomBytes(24_000).toString("hex");
     await writeFile(path.join(localRoot, "large.txt"), largeContents);
-    if (process.platform === "darwin") {
-      // macOS compatibility only; Linux CI uses the guest's actual command tools.
-      await writeFile(path.join(bin, "setsid"), '#!/bin/sh\nexec "$@"\n', {
-        mode: 0o755,
-      });
-      await writeFile(
-        path.join(bin, "base64"),
-        '#!/bin/sh\nif [ "$1" = -d ] && [ "$#" = 2 ]; then exec /usr/bin/base64 -d -i "$2"; fi\nexec /usr/bin/base64 "$@"\n',
-        { mode: 0o755 },
-      );
-    }
+    await installLinuxCommandShims(bin);
     const calls: Array<{ method?: string; url?: string }> = [];
     const keys: string[] = [];
     const allocated = new Set(["cmp_existing"]);
