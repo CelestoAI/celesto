@@ -789,7 +789,8 @@ test("deep quoted paths sync large files within the Cloud command limit", async 
     const relative = [
       ...Array.from(
         { length: process.platform === "linux" ? 30 : 9 },
-        (_, index) => `part-${index}-${"x".repeat(72)}'`,
+        (_, index) =>
+          `part-${index}-${process.platform === "linux" ? "'".repeat(32) + "x".repeat(40) : "x".repeat(72)}'`,
       ),
       "payload.bin",
     ].join("/");
@@ -815,10 +816,20 @@ test("deep quoted paths sync large files within the Cloud command limit", async 
       assert.equal((await stat(remote)).mode & 0o777, 0o664);
       revision = result.revision;
     }
+    const transferred = await readFile(remote);
+    await rm(local);
+    const removed = await syncWorkspace(
+      f.computer,
+      f.local,
+      f.remote,
+      revision,
+    );
+    assert.deepEqual(removed.conflicts, []);
+    assert(!Object.hasOwn(removed.revision.files, relative));
+    await assert.rejects(readFile(remote), { code: "ENOENT" });
     if (process.env.PI_TEST_ARTIFACT_DIR) {
       const directory = process.env.PI_TEST_ARTIFACT_DIR;
       await mkdir(directory, { recursive: true });
-      const transferred = await readFile(remote);
       await writeFile(
         path.join(directory, "deep-path-result.bin"),
         transferred,
@@ -834,6 +845,7 @@ test("deep quoted paths sync large files within the Cloud command limit", async 
             ),
             commandCount: f.computer.commands.length,
             finalBytes: transferred.length,
+            remoteDeleted: true,
           },
           null,
           2,

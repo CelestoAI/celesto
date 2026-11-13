@@ -243,3 +243,22 @@ test("fractional Bash timeouts are rounded into Cloud's bounded integer format",
     assert.equal(computer.streamParams?.timeout, expected);
   }
 });
+
+// Fixed preparation/finalization overhead can exceed the wire limit even with
+// no payload. Reject before executing anything; chunk budgeting alone misses it.
+test("unrepresentable fixed upload commands fail before any remote request", async () => {
+  const computer = new FakeComputer();
+  const relative = Array.from(
+    { length: 34 },
+    (_, index) => `part-${index}-${"'".repeat(32)}${"x".repeat(40)}'`,
+  ).join("/");
+  await assert.rejects(
+    writeRemoteFile(computer, `${REMOTE_ROOT}/${relative}/payload.bin`, "", {
+      root: REMOTE_ROOT,
+      expected: { sha256: "a".repeat(64), size: 1, mode: 0o644 },
+      mode: 0o644,
+    }),
+    /command limit/,
+  );
+  assert.deepEqual(computer.commands, []);
+});
