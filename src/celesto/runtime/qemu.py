@@ -1707,7 +1707,9 @@ class QemuRuntimeAdapter(RuntimeAdapter):
                 control_socket_path=control_socket_path,
                 status=VMState.RUNNING if request.resume_vm else VMState.PAUSED,
             )
-        except Exception:
+        except BaseException:
+            # BaseException: Ctrl-C must still reap the QEMU process that was
+            # already started for this restore.
             if process is not None:
                 with suppress(Exception):
                     self._context.kill_process(process.pid)

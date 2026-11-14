@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- Keep a computer's existing disk when a snapshot restore is interrupted with Ctrl-C. The restore used to leave an empty disk at the live path and strand the real one under a backup name, so the next start booted a blank disk.
 - Stop sandbox creates failing with "database is locked" when many start at once on a busy disk. Celesto's saved VM data now uses SQLite write-ahead logging, so reads no longer wait for writes and commits no longer wait on several disk flushes each.
 
 ## 0.1.13 — 2026-11-06

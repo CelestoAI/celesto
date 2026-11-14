@@ -3388,7 +3388,12 @@ class CelestoManager:
                 with suppress(Exception):
                     sidecar.unlink()
             return vm_info
-        except Exception:
+        except BaseException:
+            # BaseException, not Exception: a Ctrl-C during the slow disk copy
+            # or boot would otherwise strand the real disk under its backup
+            # name and leave an empty placeholder at the managed path. The
+            # suppress(Exception) calls below stay narrow so a second Ctrl-C
+            # still aborts cleanup, matching the create paths.
             if launch is not None:
                 with suppress(Exception):
                     adapter.stop(
