@@ -41,9 +41,9 @@ pi --celesto
 ```
 
 The extension creates an empty `$HOME/workspace` on a Celesto computer and
-runs Pi's `read`, `write`, `edit`, and `bash` tools there. Computers created by
-the extension use a persistent home, so `$HOME` survives stop and restore. The
-extension does not copy anything from your machine automatically.
+runs Pi's `read`, `write`, `edit`, and `bash` tools there. Creation uses the
+Cloud defaults, without requesting an external volume. The extension does not
+copy anything from your machine automatically.
 
 ## Copy a project explicitly
 

@@ -114,7 +114,7 @@ test("Cloud computer uses current Celesto credentials and API contracts", async 
       assert.equal(lastOrigin, "https://api.celesto.ai");
     });
     await t.test(
-      "create uses one distinct key per persistent-home allocation",
+      "create uses one distinct idempotency key per allocation",
       async () => {
         await Computer.create();
         await Computer.create();
@@ -122,7 +122,6 @@ test("Cloud computer uses current Celesto credentials and API contracts", async 
         assert.equal(creations.length, 2);
         assert.match(creations[0]!.key ?? "", /^[0-9a-f-]{36}$/);
         assert.notEqual(creations[0]!.key, creations[1]!.key);
-        assert.deepEqual(creations[0]!.body, { external_volume_enabled: true });
       },
     );
     const computer = await Computer.get("cmp_test");

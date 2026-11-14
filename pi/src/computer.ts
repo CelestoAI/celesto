@@ -137,7 +137,7 @@ export class Computer {
       await computer.request(
         "POST",
         "/v1/computers",
-        { external_volume_enabled: true },
+        {},
         { idempotencyKey: randomUUID() },
       ),
     );

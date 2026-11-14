@@ -74,7 +74,14 @@ test(
           );
           return;
         }
-        assert.equal(body.external_volume_enabled, true);
+        if (body.external_volume_enabled === true) {
+          response.writeHead(422).end(
+            JSON.stringify({
+              detail: "External volumes are not available on pool computers",
+            }),
+          );
+          return;
+        }
         keys.push(key);
         const id = `cmp_contract_${keys.length}`;
         allocated.add(id);
