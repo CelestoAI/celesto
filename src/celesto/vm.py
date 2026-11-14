@@ -3715,6 +3715,9 @@ class CelestoManager:
 
         boot_args = self._resolve_boot_args(vm_info)
         host_system = platform.system()
+        profile = os.environ.get(_QEMU_APPARMOR_PROFILE_ENV)
+        if profile and host_system != "Linux":
+            raise CelestoError("QEMU AppArmor confinement requires Linux.")
         platform_spec = get_guest_platform(
             vm_info.config.guest_os,
             host_system=host_system,
@@ -3731,15 +3734,14 @@ class CelestoManager:
             swtpm_socket=swtpm_socket,
             start_paused=start_paused,
             root_node_name=root_node_name,
+            allow_egress_relay=not profile,
         )
 
         # The Linux pool sets this in the host service, outside guest configuration.
         # Keep the QEMU process on the same PID so QMP, stop and the watchdog
         # continue to use the existing lifecycle. aa-exec replaces itself.
         environment = None
-        if profile := os.environ.get(_QEMU_APPARMOR_PROFILE_ENV):
-            if host_system != "Linux":
-                raise CelestoError("QEMU AppArmor confinement requires Linux.")
+        if profile:
             cmd = [
                 "/usr/bin/aa-exec",
                 "-p",

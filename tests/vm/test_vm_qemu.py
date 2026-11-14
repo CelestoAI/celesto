@@ -20,7 +20,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from celesto.exceptions import CelestoError, NetworkError, VMNotFoundError
-from celesto.types import NetworkConfig, PortForwardConfig, VMConfig, VMInfo, VMState, VsockConfig
+from celesto.types import (
+    InternetSettings,
+    NetworkConfig,
+    PortForwardConfig,
+    VMConfig,
+    VMInfo,
+    VMState,
+    VsockConfig,
+)
 from celesto.vm import CelestoManager
 
 
@@ -289,6 +297,68 @@ def test_start_qemu_uses_distinct_block_backend_and_node_names(
     # ends up being whichever virtio-blk-device was added last).
     blk_devs = [a for a in cmd if isinstance(a, str) and a.startswith("virtio-blk-device,")]
     assert blk_devs[-1] == "virtio-blk-device,drive=rootdisk0-drive"
+
+
+@pytest.mark.parametrize(
+    ("network_mode", "profile"),
+    [
+        ("public", None),
+        ("public", "celesto-test-qemu"),
+        ("tap", "celesto-test-qemu"),
+        ("off", "celesto-test-qemu"),
+    ],
+)
+def test_qemu_apparmor_launch_preserves_supported_networking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, network_mode: str, profile: str | None
+) -> None:
+    if profile is None:
+        monkeypatch.delenv("CELESTO_QEMU_APPARMOR_PROFILE", raising=False)
+    else:
+        monkeypatch.setenv("CELESTO_QEMU_APPARMOR_PROFILE", profile)
+    internet = (
+        InternetSettings(mode="restricted", allowed_cidrs=["192.0.2.0/24"])
+        if network_mode == "tap"
+        else InternetSettings(mode="public" if network_mode == "public" else "off")
+    )
+    info = _qemu_vm_info(tmp_path)
+    assert info.network is not None
+    config = info.config.model_copy(
+        update={
+            "qemu_network": "tap" if network_mode == "tap" else "slirp",
+            "internet_settings": internet,
+        },
+    )
+    network = info.network
+    if network_mode == "public":
+        network = network.model_copy(update={"egress_proxy_host_port": 43128})
+    info = info.model_copy(update={"config": config, "network": network})
+    sdk = CelestoManager(
+        data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu"
+    )
+    with (
+        patch.object(sdk, "_find_qemu_binary", return_value=Path("/usr/bin/qemu-system-x86_64")),
+        patch("celesto.vm.platform.system", return_value="Linux"),
+        patch("celesto.vm.platform.machine", return_value="x86_64"),
+        patch("celesto.vm.subprocess.Popen") as popen,
+    ):
+        if profile and network_mode == "public":
+            with pytest.raises(CelestoError, match="requires TAP networking for public browsing"):
+                sdk._start_qemu(info, tmp_path / "vm-qemu.log")
+            popen.assert_not_called()
+            return
+        sdk._start_qemu(info, tmp_path / "vm-qemu.log")
+
+    cmd = popen.call_args.args[0]
+    netdev = cmd[cmd.index("-netdev") + 1]
+    if profile:
+        assert cmd[:4] == ["/usr/bin/aa-exec", "-p", profile, "--"]
+        assert "spawn=deny" in cmd[cmd.index("-sandbox") + 1]
+        assert "guestfwd" not in netdev
+        assert netdev.startswith("tap," if network_mode == "tap" else "user,")
+    else:
+        assert cmd[0] == "/usr/bin/qemu-system-x86_64"
+        assert "guestfwd" in netdev
+        assert "-sandbox" not in cmd
 
 
 def test_create_qemu_preserves_requested_vsock_cid(tmp_path: Path) -> None:
