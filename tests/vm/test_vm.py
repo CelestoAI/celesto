@@ -1774,32 +1774,41 @@ class TestRefreshStatus:
             result = smol_vm.refresh_status(vm_info)
         assert result is vm_info
 
-    def test_running_with_dead_pid_demoted_to_error(
-        self, smol_vm: CelestoManager, sample_config: VMConfig
+    @pytest.mark.parametrize("status", [VMState.RUNNING, VMState.PAUSED])
+    def test_dead_pid_demoted_to_error(
+        self, smol_vm: CelestoManager, sample_config: VMConfig, status: VMState
     ) -> None:
-        vm_info = _info(sample_config, VMState.RUNNING, pid=99999)
-        updated = _info(sample_config, VMState.ERROR, pid=None)
-        with (
-            patch.object(smol_vm, "_is_process_running", return_value=False),
-            patch.object(smol_vm.state, "update_vm", return_value=updated) as mock_update,
-        ):
+        smol_vm.state.create_vm(sample_config)
+        vm_info = smol_vm.state.update_vm(sample_config.vm_id, status=status, pid=99999)
+        with patch.object(smol_vm, "_is_process_running", return_value=False):
             result = smol_vm.refresh_status(vm_info)
         assert result.status == VMState.ERROR
-        mock_update.assert_called_once_with(
-            sample_config.vm_id, status=VMState.ERROR, clear_pid=True
-        )
+        assert result.pid is None
+        stored = smol_vm.state.get_vm(sample_config.vm_id)
+        assert stored.status == VMState.ERROR
+        assert stored.pid is None
 
-    def test_paused_with_dead_pid_demoted_to_error(
+    def test_dead_pid_does_not_demote_a_replaced_runtime(
         self, smol_vm: CelestoManager, sample_config: VMConfig
     ) -> None:
-        vm_info = _info(sample_config, VMState.PAUSED, pid=99999)
-        updated = _info(sample_config, VMState.ERROR, pid=None)
-        with (
-            patch.object(smol_vm, "_is_process_running", return_value=False),
-            patch.object(smol_vm.state, "update_vm", return_value=updated),
-        ):
-            result = smol_vm.refresh_status(vm_info)
-        assert result.status == VMState.ERROR
+        """A check of an old process must not touch the runtime that replaced it.
+
+        Designed first (#661): the computer restarts after a caller read its
+        row, so the caller's PID is dead while the row records a live one.
+        Failure modes: the row is demoted to ERROR, its new PID is cleared,
+        or the caller gets its stale row back. The end-to-end test covers the
+        SQLite inventory; this covers the SDK's default in-memory one.
+        """
+        smol_vm.state.create_vm(sample_config)
+        old = smol_vm.state.update_vm(sample_config.vm_id, status=VMState.RUNNING, pid=99999)
+        smol_vm.state.update_vm(sample_config.vm_id, status=VMState.RUNNING, pid=12345)
+        with patch.object(smol_vm, "_is_process_running", side_effect=lambda pid: pid == 12345):
+            result = smol_vm.refresh_status(old)
+        assert result.status == VMState.RUNNING
+        assert result.pid == 12345
+        stored = smol_vm.state.get_vm(sample_config.vm_id)
+        assert stored.status == VMState.RUNNING
+        assert stored.pid == 12345
 
     def test_stopped_not_touched(self, smol_vm: CelestoManager, sample_config: VMConfig) -> None:
         vm_info = _info(sample_config, VMState.STOPPED, pid=None)
