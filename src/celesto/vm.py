@@ -149,6 +149,7 @@ _MIB = 1024 * 1024
 LIBKRUN_GUEST_IP = "192.168.127.2"
 LIBKRUN_GATEWAY_IP = "192.168.127.1"
 _QEMU_VSOCK_CID_RE = re.compile(r"vhost-vsock-(?:pci|device),guest-cid=(\d+)")
+_QEMU_APPARMOR_PROFILE_ENV = "CELESTO_QEMU_APPARMOR_PROFILE"
 
 
 @dataclass(frozen=True)
@@ -3713,9 +3714,10 @@ class CelestoManager:
             raise CelestoError(f"qemu-system binary is missing; {_qemu_install_hint()}")
 
         boot_args = self._resolve_boot_args(vm_info)
+        host_system = platform.system()
         platform_spec = get_guest_platform(
             vm_info.config.guest_os,
-            host_system=platform.system(),
+            host_system=host_system,
             arch=platform.machine(),
         )
 
@@ -3731,6 +3733,25 @@ class CelestoManager:
             root_node_name=root_node_name,
         )
 
+        # The Linux pool sets this in the host service, outside guest configuration.
+        # Keep the QEMU process on the same PID so QMP, stop and the watchdog
+        # continue to use the existing lifecycle. aa-exec replaces itself.
+        environment = None
+        if profile := os.environ.get(_QEMU_APPARMOR_PROFILE_ENV):
+            if host_system != "Linux":
+                raise CelestoError("QEMU AppArmor confinement requires Linux.")
+            cmd = [
+                "/usr/bin/aa-exec",
+                "-p",
+                profile,
+                "--",
+                *cmd,
+                "-sandbox",
+                "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
+            ]
+            # Do not inherit service secrets or loader overrides from the agent.
+            environment = {"PATH": os.defpath, "LANG": "C.UTF-8"}
+
         logger.debug("Starting QEMU: %s", " ".join(cmd))
 
         log_file = _open_runtime_log(log_path, ssh_host_key=ssh_host_key)
@@ -3742,6 +3763,7 @@ class CelestoManager:
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
+                env=environment,
             )
         except Exception:
             log_file.close()

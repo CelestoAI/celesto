@@ -112,10 +112,13 @@ class FakeRustChannel(RustHttpVsockChannel):
                 header_bytes = b"".join(
                     f"{name}: {value}\r\n".encode() for name, value in headers.items()
                 )
+                if headers.get("Transfer-Encoding") == "chunked":
+                    payload = f"{len(payload):x}\r\n".encode() + payload + b"\r\n0\r\n\r\n"
+                elif "Content-Length" not in headers:
+                    header_bytes += f"Content-Length: {len(payload)}\r\n".encode()
                 guest.sendall(
                     f"HTTP/1.1 {status} {status_text}\r\n".encode()
                     + header_bytes
-                    + f"Content-Length: {len(payload)}\r\n".encode()
                     + b"Connection: close\r\n\r\n"
                     + payload
                 )
@@ -125,8 +128,9 @@ class FakeRustChannel(RustHttpVsockChannel):
 
 
 class FakeTerminalChannel(FakeRustChannel):
-    def __init__(self, handlers: list[Handler]) -> None:
+    def __init__(self, handlers: list[Handler], *, output_frame: bytes | None = None) -> None:
         super().__init__(handlers)
+        self.output_frame = output_frame
         self.terminal_requests: list[dict[str, Any]] = []
         self.terminal_stdin: list[bytes] = []
 
@@ -146,6 +150,9 @@ class FakeTerminalChannel(FakeRustChannel):
                 frame_type, payload = _read_terminal_frame(guest)
                 assert frame_type == 1
                 self.terminal_stdin.append(payload)
+                if self.output_frame is not None:
+                    guest.sendall(self.output_frame)
+                    return
                 guest.sendall(_pack_terminal_frame(101, b"ok\r\n"))
                 guest.sendall(_pack_terminal_frame(102, json.dumps({"exit_code": 7}).encode()))
 
@@ -359,6 +366,28 @@ def test_run_maps_command_result() -> None:
     assert result.stdout == "ok"
 
 
+@pytest.mark.parametrize("framing", ["declared", "chunked"])
+def test_capabilities_response_is_bounded_before_json_parse(framing: str) -> None:
+    limit = 1024 * 1024
+    if framing == "declared":
+        response = (200, {"protocol_version": 2}, {"Content-Length": str(limit + 1)})
+    else:
+        response = (200, b" " * limit + b"{}", {"Transfer-Encoding": "chunked"})
+    channel = FakeRustChannel([lambda method, path, body: response])
+
+    with pytest.raises(CelestoError, match="exceeded 1048576 bytes"):
+        _ = channel.capabilities
+
+
+def test_run_accepts_the_json_envelope_for_one_mib_of_guest_output() -> None:
+    output = "\0" * (1024 * 1024)
+    channel = FakeRustChannel(
+        [lambda method, path, body: {"ok": True, "exit_code": 0, "stdout": output}]
+    )
+
+    assert channel.run("printf output").stdout == output
+
+
 def test_run_stream_parses_guest_sse_events() -> None:
     def _handler(method: str, path: str, body: bytes):
         assert method == "POST"
@@ -418,8 +447,9 @@ def test_run_serializes_float_timeout_as_integer_seconds() -> None:
     assert result.exit_code == 0
 
 
-def test_attach_terminal_streams_stdin_stdout_and_exit(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize("oversized_frame", [False, True])
+def test_attach_terminal_streams_output_within_host_limit(
+    monkeypatch: pytest.MonkeyPatch, oversized_frame: bool
 ) -> None:
     read_fd, write_fd = os.pipe()
     os.write(write_fd, b"exit\n")
@@ -440,8 +470,18 @@ def test_attach_terminal_streams_stdin_stdout_and_exit(
     monkeypatch.setattr("celesto.comm.rust_http_vsock_channel.sys.stdout", output)
     monkeypatch.setenv("TERM", "xterm-test")
 
-    channel = FakeTerminalChannel([_capabilities({"terminal": True})])
+    advertised_limit = 1024 * 1024 + 1
+    output_frame = bytes([101]) + advertised_limit.to_bytes(4, "big") if oversized_frame else None
+    channel = FakeTerminalChannel(
+        [_capabilities({"terminal": True}, limits={"terminal_frame_bytes": advertised_limit})],
+        output_frame=output_frame,
+    )
     try:
+        if oversized_frame:
+            with pytest.raises(CelestoError, match="Terminal response exceeded 1048576 bytes"):
+                channel.attach_terminal()
+            assert output.getvalue() == b""
+            return
         exit_code = channel.attach_terminal()
     finally:
         os.close(read_fd)
@@ -690,6 +730,28 @@ def test_raw_file_download_rejects_declared_size_over_cap(tmp_path: Path) -> Non
 
     with pytest.raises(CelestoError, match="exceeded 4 bytes"):
         channel.get_file("/tmp/source.txt", destination)
+
+
+def test_guest_cannot_raise_host_file_receive_ceiling(tmp_path: Path) -> None:
+    destination = tmp_path / "download.txt"
+    larger_than_host_limit = 256 * 1024 * 1024 + 1
+    channel = FakeRustChannel(
+        [
+            _capabilities(
+                {"file_raw": True},
+                limits={"max_stream_size_bytes": larger_than_host_limit},
+            ),
+            lambda method, path, body: (
+                200,
+                b"payload",
+                {"x-celesto-file-size": str(larger_than_host_limit)},
+            ),
+        ]
+    )
+
+    with pytest.raises(CelestoError, match="exceeded 268435456 bytes"):
+        channel.get_file("/tmp/source.txt", destination)
+    assert not destination.exists()
 
 
 def test_get_file_honors_a_lower_caller_receive_limit(tmp_path: Path) -> None:

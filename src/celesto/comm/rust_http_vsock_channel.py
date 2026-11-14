@@ -57,6 +57,8 @@ CELESTO_TERMINAL_PORT = 1025
 _READY_FAST_POLL_WINDOW = 1.0
 _READY_FAST_POLL_INTERVAL = 0.02
 _DEFAULT_MAX_AGENT_RESPONSE_BYTES = 1024 * 1024
+# A 1 MiB Cloud command result can expand up to sixfold when JSON-escaped.
+_MAX_EXEC_JSON_RESPONSE_BYTES = 8 * 1024 * 1024
 _DEFAULT_MAX_STREAM_SIZE_BYTES = 256 * 1024 * 1024
 _DEFAULT_MAX_TAR_SIZE_BYTES = 512 * 1024 * 1024
 _DEFAULT_MAX_TERMINAL_FRAME_BYTES = 1024 * 1024
@@ -620,39 +622,26 @@ class RustHttpVsockChannel:
         body: bytes | None = None,
         content_type: str | None = None,
         timeout: float | None = None,
+        max_bytes: int = _DEFAULT_MAX_AGENT_RESPONSE_BYTES,
     ) -> dict[str, Any]:
         if payload is not None and body is not None:
             raise ValueError("provide payload or body, not both")
-        request_body = b"" if payload is None and body is None else body
         if payload is not None:
-            request_body = json.dumps(payload).encode("utf-8")
-        headers = {"Accept": "application/json", "Connection": "close"}
-        if payload is not None:
-            headers["Content-Type"] = "application/json"
-        elif content_type is not None:
-            headers["Content-Type"] = content_type
-        timeout_seconds = float(timeout if timeout is not None else self.connect_timeout)
-        conn = _SocketHTTPConnection(
-            self._open,
-            timeout=timeout_seconds,
+            body = json.dumps(payload).encode("utf-8")
+            content_type = "application/json"
+        _, data = self._request_bytes(
+            method,
+            path,
+            body or b"",
+            accept="application/json",
+            content_type=content_type,
+            max_bytes=max_bytes,
+            timeout=timeout,
         )
-        try:
-            conn.request(method, path, body=request_body, headers=headers)
-            resp = conn.getresponse()
-            data = resp.read()
-            if resp.status >= 400:
-                detail = data.decode("utf-8", errors="replace")
-                raise CelestoError(f"guest agent HTTP {resp.status} for {method} {path}: {detail}")
-            decoded = json.loads(data.decode("utf-8"))
-            if not isinstance(decoded, dict):
-                raise CelestoError("guest agent returned a non-object JSON response")
-            return decoded
-        except TimeoutError as exc:
-            raise OperationTimeoutError(
-                f"guest agent request: {method} {path}", timeout_seconds
-            ) from exc
-        finally:
-            conn.close()
+        decoded = json.loads(data.decode("utf-8"))
+        if not isinstance(decoded, dict):
+            raise CelestoError("guest agent returned a non-object JSON response")
+        return decoded
 
     def _request_bytes(
         self,
@@ -660,11 +649,14 @@ class RustHttpVsockChannel:
         path: str,
         body: bytes = b"",
         *,
+        accept: str | None = None,
         content_type: str | None = None,
-        max_bytes: int | None = _DEFAULT_MAX_AGENT_RESPONSE_BYTES,
+        max_bytes: int = _DEFAULT_MAX_AGENT_RESPONSE_BYTES,
         timeout: float | None = None,
     ) -> tuple[http.client.HTTPResponse, bytes]:
         headers = {"Connection": "close"}
+        if accept:
+            headers["Accept"] = accept
         if content_type:
             headers["Content-Type"] = content_type
         timeout_seconds = float(timeout if timeout is not None else self.connect_timeout)
@@ -674,8 +666,9 @@ class RustHttpVsockChannel:
         )
         try:
             conn.request(method, path, body=body, headers=headers)
-            resp = conn.getresponse()
-            if max_bytes is not None:
+            with conn.getresponse() as resp:
+                if resp.status >= 400:
+                    max_bytes = min(max_bytes, _DEFAULT_MAX_AGENT_RESPONSE_BYTES)
                 for header in ("Content-Length", "x-celesto-file-size"):
                     value = resp.getheader(header)
                     if value is None:
@@ -695,12 +688,14 @@ class RustHttpVsockChannel:
                     raise CelestoError(
                         f"guest agent response for {method} {path} exceeded {max_bytes} bytes"
                     )
-            else:
-                data = resp.read()
-            if resp.status >= 400:
-                detail = data.decode("utf-8", errors="replace")
-                raise CelestoError(f"guest agent HTTP {resp.status} for {method} {path}: {detail}")
-            return resp, data
+                if resp.length:
+                    raise http.client.IncompleteRead(data, resp.length)
+                if resp.status >= 400:
+                    detail = data.decode("utf-8", errors="replace")
+                    raise CelestoError(
+                        f"guest agent HTTP {resp.status} for {method} {path}: {detail}"
+                    )
+                return resp, data
         except TimeoutError as exc:
             raise OperationTimeoutError(
                 f"guest agent request: {method} {path}", timeout_seconds
@@ -738,7 +733,7 @@ class RustHttpVsockChannel:
             limit = int(value)
         except (TypeError, ValueError):
             return default
-        return limit if limit > 0 else default
+        return min(limit, default) if limit > 0 else default
 
     def run(
         self,
@@ -756,6 +751,7 @@ class RustHttpVsockChannel:
             "/exec",
             {"command": command, "shell": shell, "timeout_seconds": timeout_seconds},
             timeout=float(timeout_seconds + self.connect_timeout),
+            max_bytes=_MAX_EXEC_JSON_RESPONSE_BYTES,
         )
         if resp.get("timed_out"):
             raise OperationTimeoutError(f"vsock run: {command}", timeout_seconds)
