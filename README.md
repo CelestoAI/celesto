@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="https://ik.imagekit.io/gradsflow/celestoai/oss/celesto-oss-banner_tHGcFZh4Ea.png" alt="Celesto AI" />
-
 # Celesto
 
 ### Secure, persistent computers for AI agents
