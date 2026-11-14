@@ -313,9 +313,27 @@ class QemuRuntimeAdapter(RuntimeAdapter):
                     swtpm_sidecar.stop()
             raise
 
-    def stop(self, vm_info: VMInfo, *, timeout: float) -> None:
-        """Stop a QEMU VM process and any swtpm sidecar it owns."""
-        if vm_info.pid and self._context.is_process_running(vm_info.pid):
+    def stop(self, vm_info: VMInfo, *, timeout: float, graceful: bool = True) -> None:
+        """Stop a QEMU VM process and any swtpm sidecar it owns.
+
+        Args:
+            vm_info: The VM to stop.
+            timeout: Seconds to wait for QEMU to exit after SIGTERM before it
+                is killed. The wait after the kill is at most 5 seconds.
+            graceful: When True (the default), send SIGTERM first. QEMU then
+                writes every disk's cached data to the host before it exits,
+                which can take many seconds on a busy host. When False, kill
+                QEMU at once and skip that work. Pass False only when every
+                file QEMU writes is deleted right after; otherwise recent disk
+                writes can be lost.
+
+        Raises:
+            CelestoError: If QEMU is still running after the kill.
+        """
+        # Skipping this block leaves only the kill below. That path still
+        # waits for QEMU to exit and raises if it does not, so callers can
+        # free the VM's resources as soon as stop() returns.
+        if graceful and vm_info.pid and self._context.is_process_running(vm_info.pid):
             try:
                 os.kill(vm_info.pid, signal.SIGTERM)
                 self._context.wait_for_process(vm_info.pid, timeout)
@@ -1724,9 +1742,9 @@ class QemuRuntimeAdapter(RuntimeAdapter):
             self.start, vm_info, log_path=log_path, boot_timeout=boot_timeout
         )
 
-    async def async_stop(self, vm_info: VMInfo, *, timeout: float) -> None:
+    async def async_stop(self, vm_info: VMInfo, *, timeout: float, graceful: bool = True) -> None:
         """Async version of :meth:`stop`."""
-        await asyncio.to_thread(self.stop, vm_info, timeout=timeout)
+        await asyncio.to_thread(self.stop, vm_info, timeout=timeout, graceful=graceful)
 
     def _wait_for_runtime(self, process: Any, control_socket_path: Path, timeout: float) -> None:
         """Wait for QEMU to expose its QMP socket or fail fast if it exits."""
