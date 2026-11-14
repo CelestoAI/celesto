@@ -1,0 +1,82 @@
+name: Pi extension
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["pi-v*"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the checked Pi package to npm
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pi
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: pi/package-lock.json
+      - run: npm ci
+      - run: npm run check
+        env:
+          PI_TEST_ARTIFACT_DIR: ${{ github.workspace }}/pi/test-artifacts
+      - name: Pack and smoke-test the actual Pi artifact
+        run: |
+          archive="$(npm pack --silent --ignore-scripts)"
+          mkdir package-smoke
+          tar -xzf "$archive" -C package-smoke
+          PI_TEST_EXTENSION_PATH="$PWD/package-smoke/package/dist/index.js" PI_TEST_ARTIFACT_DIR="$PWD/test-artifacts" ./node_modules/.bin/tsx --test tests/cloud-compatibility.test.ts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pi-package
+          path: |
+            pi/celestoai-pi-*.tgz
+            pi/test-artifacts/
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/pi-v') || (github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main')
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        working-directory: pi
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@^11.5.1
+      - run: npm ci
+      - name: Verify release version
+        if: startsWith(github.ref, 'refs/tags/pi-v')
+        run: test "$GITHUB_REF_NAME" = "pi-v$(node -p 'require("./package.json").version')"
+      - name: Check whether this version is already published
+        id: version
+        run: |
+          if npm view "@celestoai/pi@$(node -p 'require("./package.json").version')" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - run: npm publish --access public
+        if: steps.version.outputs.exists != 'true'
