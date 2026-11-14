@@ -43,7 +43,7 @@ from typing import Any
 from celesto._streaming import iter_bounded_lines, iter_sse_data, parse_command_event
 from celesto._terminal_env import guest_terminal_type
 from celesto.comm.base import CommChannelKind, ShellMode
-from celesto.exceptions import CelestoError, OperationTimeoutError
+from celesto.exceptions import CelestoError, GuestResponseTooLargeError, OperationTimeoutError
 from celesto.types import CommandEvent, CommandExitEvent, CommandResult
 
 logger = logging.getLogger(__name__)
@@ -680,14 +680,10 @@ class RustHttpVsockChannel:
                         path=path,
                     )
                     if declared_size > max_bytes:
-                        raise CelestoError(
-                            f"guest agent response for {method} {path} exceeded {max_bytes} bytes"
-                        )
+                        raise GuestResponseTooLargeError(method, path, resp.status, max_bytes)
                 data = resp.read(max_bytes + 1)
                 if len(data) > max_bytes:
-                    raise CelestoError(
-                        f"guest agent response for {method} {path} exceeded {max_bytes} bytes"
-                    )
+                    raise GuestResponseTooLargeError(method, path, resp.status, max_bytes)
                 if resp.length:
                     raise http.client.IncompleteRead(data, resp.length)
                 if resp.status >= 400:

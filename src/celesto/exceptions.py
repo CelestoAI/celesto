@@ -313,6 +313,17 @@ class OperationTimeoutError(CelestoError):
         self.timeout_seconds = timeout_seconds
 
 
+class GuestResponseTooLargeError(CelestoError):
+    """The guest returned an HTTP response that exceeds the host's byte limit."""
+
+    def __init__(self, method: str, path: str, status_code: int, limit_bytes: int) -> None:
+        super().__init__(f"guest agent response for {method} {path} exceeded {limit_bytes} bytes")
+        self.method = method
+        self.path = path
+        self.status_code = status_code
+        self.limit_bytes = limit_bytes
+
+
 class CommandExecutionUnavailableError(CelestoError):
     """Raised when command execution is not available for a VM profile."""
 
