@@ -1,3 +1,5 @@
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -11,6 +13,49 @@ def test_package_release_accepts_standard_and_namespaced_version_tags() -> None:
     assert '- "celesto-v*.*.*"' in workflow
     assert 'expected_tags = (f"v{version}", f"celesto-v{version}")' in workflow
     assert "if tag not in expected_tags:" in workflow
+
+
+def test_package_release_checks_built_filenames_before_upload(tmp_path: Path) -> None:
+    workflow = (_WORKFLOWS / "publish.yml").read_text(encoding="utf-8")
+    build_step = workflow.index("      - name: Build package")
+    filename_check = workflow.index("python3 scripts/ci/check_release_distributions.py")
+    upload_step = workflow.index("      - uses: pypa/gh-action-pypi-publish@")
+    assert build_step < filename_check < upload_step
+
+    script = _WORKFLOWS.parents[1] / "scripts" / "ci" / "check_release_distributions.py"
+    for declared_version, built_version, expected_success in (
+        ("0.1.15.a0", "0.1.15a0", False),
+        ("0.1.15a0", "0.1.15a0", True),
+    ):
+        release_dir = tmp_path / declared_version
+        dist = release_dir / "dist"
+        dist.mkdir(parents=True)
+        (release_dir / "pyproject.toml").write_text(
+            f'[project]\nname = "celesto"\nversion = "{declared_version}"\n'
+        )
+        (dist / f"celesto-{built_version}-py3-none-any.whl").write_bytes(b"wheel")
+        (dist / f"celesto-{built_version}.tar.gz").write_bytes(b"source")
+        (dist / ".gitignore").write_text("*\n")
+
+        result = subprocess.run(
+            [sys.executable, str(script)],
+            cwd=release_dir,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert (result.returncode == 0) is expected_success
+        if not expected_success:
+            assert "0.1.15.a0" in result.stderr
+            assert "0.1.15a0" in result.stderr
+
+
+def test_package_smoke_checks_built_filenames_before_install() -> None:
+    workflow = (_WORKFLOWS / "pytest.yml").read_text(encoding="utf-8")
+    build_step = workflow.index("      - name: Build release artifacts")
+    filename_check = workflow.index("python3 scripts/ci/check_release_distributions.py")
+    install_step = workflow.index("      - name: Smoke test built wheels")
+    assert build_step < filename_check < install_step
 
 
 def test_dashboard_release_accepts_standard_and_namespaced_version_tags() -> None:
