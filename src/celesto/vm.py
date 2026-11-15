@@ -445,6 +445,8 @@ class CelestoManager:
         socket_dir: Path | None = None,
         backend: str | None = None,
         state_manager: StateManagerProtocol | None = None,
+        *,
+        _qemu_apparmor_profile: str | None = None,
     ) -> None:
         """Initialize the Celesto manager.
 
@@ -461,6 +463,7 @@ class CelestoManager:
         self.data_dir = resolve_data_dir(data_dir)
         self.socket_dir = socket_dir or DEFAULT_SOCKET_DIR
         self.backend = resolve_backend(backend)
+        self._qemu_apparmor_profile = _qemu_apparmor_profile
         self.disk_dir = self.data_dir / "disks"
         self.snapshot_dir = self.data_dir / "snapshots"
         self.disk_dir.mkdir(parents=True, exist_ok=True)
@@ -3713,9 +3716,13 @@ class CelestoManager:
             raise CelestoError(f"qemu-system binary is missing; {_qemu_install_hint()}")
 
         boot_args = self._resolve_boot_args(vm_info)
+        host_system = platform.system()
+        profile = self._qemu_apparmor_profile
+        if profile and host_system != "Linux":
+            raise CelestoError("QEMU AppArmor confinement requires Linux.")
         platform_spec = get_guest_platform(
             vm_info.config.guest_os,
-            host_system=platform.system(),
+            host_system=host_system,
             arch=platform.machine(),
         )
 
@@ -3729,7 +3736,25 @@ class CelestoManager:
             swtpm_socket=swtpm_socket,
             start_paused=start_paused,
             root_node_name=root_node_name,
+            allow_egress_relay=not profile,
         )
+
+        # The Linux pool sets this in the host service, outside guest configuration.
+        # Keep the QEMU process on the same PID so QMP, stop and the watchdog
+        # continue to use the existing lifecycle. aa-exec replaces itself.
+        environment = None
+        if profile:
+            cmd = [
+                "/usr/bin/aa-exec",
+                "-p",
+                profile,
+                "--",
+                *cmd,
+                "-sandbox",
+                "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
+            ]
+            # Do not inherit service secrets or loader overrides from the agent.
+            environment = {"PATH": os.defpath, "LANG": "C.UTF-8"}
 
         logger.debug("Starting QEMU: %s", " ".join(cmd))
 
@@ -3742,6 +3767,7 @@ class CelestoManager:
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
+                env=environment,
             )
         except Exception:
             log_file.close()

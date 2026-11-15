@@ -136,6 +136,7 @@ def build_qemu_argv(
     start_paused: bool = False,
     root_node_name: str = QEMU_ROOT_NODE_NAME,
     host_system: str | None = None,
+    allow_egress_relay: bool = True,
 ) -> list[str]:
     """Build the ``qemu-system-*`` argv for *vm_info*.
 
@@ -164,6 +165,7 @@ def build_qemu_argv(
         root_node_name: QEMU block graph node name for the primary disk.
         host_system: Override of ``platform.system()`` for testing. When
             ``None`` (the default), the live host system is used.
+        allow_egress_relay: Whether QEMU may start a public browsing relay.
 
     Returns:
         The argv list. No side effects — caller is responsible for
@@ -253,6 +255,10 @@ def build_qemu_argv(
                 f"run 'celesto sandbox delete {vm_info.vm_id}' and create it again."
             )
         if proxy_host_port is not None:
+            if not allow_egress_relay:
+                raise CelestoError(
+                    "Cloud pool QEMU confinement cannot run the standalone public browsing relay."
+                )
             relay = Path(__file__).resolve().parents[1] / "host" / "_public_egress_relay.py"
             relay_command = shlex.join([sys.executable, "-I", str(relay), str(proxy_host_port)])
             netdev_options.extend(
