@@ -160,9 +160,14 @@ def _process_alive(pid: int) -> bool:
     return True
 
 
-def _file_open_by_any_process(path: Path) -> bool | None:
+def _file_open_by_any_process(
+    path: Path,
+    *,
+    use_lsof: bool = True,
+    proc_root: Path = Path("/proc"),
+) -> bool | None:
     """Return whether any process holds *path* open, or None if unknown."""
-    lsof = which("lsof")
+    lsof = which("lsof") if use_lsof else None
     if lsof is not None:
         try:
             result = subprocess.run(
@@ -179,20 +184,34 @@ def _file_open_by_any_process(path: Path) -> bool | None:
         if result.returncode == 1 and not result.stdout.strip():
             return False
         return None
-    proc = Path("/proc")
-    if not proc.is_dir():
+    if not proc_root.is_dir():
         return None
-    target = os.path.realpath(path)
-    for fd_dir in proc.glob("[0-9]*/fd"):
+    try:
+        target = os.path.realpath(path)
+        # A runtime is started by the script that created the disk, so it
+        # runs as the disk's owner. Other users' processes cannot be it.
+        disk_owner = os.stat(path).st_uid
+        pid_dirs = [entry for entry in proc_root.iterdir() if entry.name.isdigit()]
+    except OSError:
+        return None
+    incomplete = False
+    for pid_dir in pid_dirs:
         try:
-            entries = list(fd_dir.iterdir())
+            if os.stat(pid_dir).st_uid != disk_owner:
+                continue
+            entries = list((pid_dir / "fd").iterdir())
+        except (FileNotFoundError, ProcessLookupError):
+            continue  # the process exited mid-scan
         except OSError:
+            incomplete = True
             continue
         for entry in entries:
-            with suppress(OSError):
+            try:
                 if os.path.realpath(entry) == target:
                     return True
-    return False
+            except OSError:
+                incomplete = True
+    return None if incomplete else False
 
 
 # Backend-specific defaults
@@ -4513,18 +4532,31 @@ class CelestoManager:
         }
         # No suppress: a create that cannot record its ownership must roll
         # back, or another script could adopt the disk from the stale record.
-        self._disk_owner_path(managed_disk).write_text(json.dumps(record))
+        self._publish_disk_owner(managed_disk, json.dumps(record).encode())
 
     def _restore_disk_owner(self, managed_disk: Path | None, previous: bytes | None) -> None:
         """Put back the owner record a failed create overwrote."""
         if managed_disk is None:
             return
-        owner_path = self._disk_owner_path(managed_disk)
         with suppress(OSError):
             if previous is None or not managed_disk.exists():
-                owner_path.unlink(missing_ok=True)
+                self._disk_owner_path(managed_disk).unlink(missing_ok=True)
             else:
-                owner_path.write_bytes(previous)
+                self._publish_disk_owner(managed_disk, previous)
+
+    def _publish_disk_owner(self, managed_disk: Path, content: bytes) -> None:
+        """Replace the owner record in one step.
+
+        Prune reads it without the create lock, so it must never see a
+        half-written record and mistake a kept disk for a leftover.
+        """
+        owner_path = self._disk_owner_path(managed_disk)
+        temporary = owner_path.with_name(f"{owner_path.name}.tmp-{uuid4().hex}")
+        try:
+            temporary.write_bytes(content)
+            os.replace(temporary, owner_path)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def _kept_by_crashed_script(self, managed_disk: Path) -> dict[str, Any] | None:
         """Return the owner record if it marks this disk as kept by an SDK script.
