@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as api from "./api";
+import { exportAsMarkdown, exportAsJson } from "./ExportConversation";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { TurnTrace } from "./TurnTrace";
 import type { TraceSnapshot } from "./trace";
@@ -222,6 +223,8 @@ export function App() {
   }
 };
 
+  const handleExportMarkdown = () => { if (conversation) { exportAsMarkdown(conversation, traces?.turns ?? []); } };
+  const handleExportJson = () => { if (conversation) { exportAsJson(conversation, traces?.turns ?? []); } };
   const submit = async (value = text) => {
     if (!conversation || !value.trim()) return;
     if (!canSubmit || stopRequestRef.current) {
@@ -411,7 +414,7 @@ const canSubmit =
     const attemptProvider = modelAccess!.providers.find((provider) => provider.id === authAttempt?.providerId);
     const attemptActive = authAttempt && !["succeeded", "expired", "cancelled", "failed"].includes(authAttempt.state);
     return <main className="app-shell setup-shell">
-      <header className="topbar"><div className="brand"><span className="brandmark">M</span><span>OpenMuse</span><span className="preview">PREVIEW</span></div><div className="setup-nav">{conversation?.modelAccessState === "ready" && <button className="quiet" onClick={() => setShowModelSetup(false)}>← Back to conversation</button>}<span className="setup-security">Credentials stay on this computer</span></div></header>
+      <header className="topbar"><div className="brand"><span className="brandmark">M</span><span>OpenMuse</span><span className="preview">PREVIEW</span></div><div className="setup-nav">{conversation?.modelAccessState === "ready" && <button className="quiet" onClick={() => setShowModelSetup(false)}>← Back to conversation</button>}<span className="setup-security">Credentials stay on this computer</span>{conversation?.messages.length ? <div className="chat-menu-exports setup-exports"><button onClick={handleExportMarkdown}>Export as Markdown</button><button onClick={handleExportJson}>Export as JSON</button></div> : null}</div></header>
       <section className="setup-page">
         <div className="setup-intro"><div className="eyebrow">Model access</div><h1>{conversation?.modelAccessState === "ready" ? "Model settings" : conversation ? "Reconnect to continue" : "Choose how OpenMuse thinks"}</h1><p>{conversation?.modelAccessState === "ready" ? `This conversation uses ${conversation.modelId}. You can switch its model or disconnect a saved credential.` : conversation ? `This conversation uses ${conversation.modelId}. Connect its provider again to keep going.` : "Connect a supported provider, then choose the model for this conversation."}</p></div>
         {error && <div className="error setup-error">{error}</div>}
@@ -520,7 +523,7 @@ const canSubmit =
     <header className="topbar">
       <div className="brand"><span className="brandmark">M</span><span>OpenMuse</span><span className="preview">PREVIEW</span></div>
       <div className="top-actions">
-        <details className="chat-menu" ref={chatMenuRef}><summary>Chats</summary><div className="chat-menu-popover"><button className="new-chat" disabled={!canChangeConversation || conversationPending} onClick={() => void newConversation()}>+ New chat</button><div className="chat-list">{conversationList.conversations.map((item) => <button className={item.id === conversation?.id ? "active" : ""} disabled={!canChangeConversation || conversationPending} key={item.id} onClick={() => void activateConversation(item.id)}><span>{item.title}</span><small>{item.modelId}</small></button>)}</div><button className="reset-chat" disabled={!canChangeConversation || conversationPending} onClick={() => void resetConversation()}>Reset conversation</button></div></details>
+        <details className="chat-menu" ref={chatMenuRef}><summary>Chats</summary><div className="chat-menu-popover"><button className="new-chat" disabled={!canChangeConversation || conversationPending} onClick={() => void newConversation()}>+ New chat</button><div className="chat-list">{conversationList.conversations.map((item) => <button className={item.id === conversation?.id ? "active" : ""} disabled={!canChangeConversation || conversationPending} key={item.id} onClick={() => void activateConversation(item.id)}><span>{item.title}</span><small>{item.modelId}</small></button>)}</div>{conversation?.messages.length ? <div className="chat-menu-exports"><button onClick={handleExportMarkdown}>Export as Markdown</button><button onClick={handleExportJson}>Export as JSON</button></div> : null}<button className="reset-chat" disabled={!canChangeConversation || conversationPending} onClick={() => void resetConversation()}>Reset conversation</button></div></details>
         {modelAccess && conversation && <button className="quiet" disabled={conversationPending || !commandAvailable("change_model")} onClick={() => setShowModelSetup(true)}>Model: {conversation.modelId}</button>}<span className={`status-dot ${busy ? "working" : ""}`}></span><span>{status}</span>{conversation && commandAvailable("pause_task") && <button className="quiet danger" disabled={conversationPending || stopPending} onClick={() => void stopSession()}>Stop task</button>}{conversation && commandAvailable("stop") && <button className="quiet danger" disabled={conversationPending || stopPending || activity === "stopping"} onClick={() => void api.stopConversation(conversation.id)}>Stop</button>}
       </div>
     </header>
