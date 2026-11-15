@@ -339,7 +339,7 @@ class TestVMInit:
             )
 
         message = str(exc_info.value)
-        assert "Ubuntu needs at least 4096 MiB for this computer" in message
+        assert "Ubuntu needs at least 4096 MiB for computer 'project spacex; rm -rf'" in message
         assert (
             "celesto computer create --name 'project spacex; rm -rf' --os ubuntu "
             "--backend qemu --disk-size 4096" in message
@@ -564,7 +564,7 @@ class TestVMInit:
         mock_builder_cls: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """Named auto-config keeps the caller's name and adds a random ID."""
+        """Named auto-config should keep the caller-supplied VM name."""
         kernel = tmp_path / "auto-kernel"
         rootfs = tmp_path / "auto-rootfs.ext4"
         private_key = tmp_path / "id_ed25519"
@@ -584,8 +584,7 @@ class TestVMInit:
             preset_name="ubuntu",
         )
 
-        assert config.name == "project-spacex"
-        assert config.vm_id.startswith("sbx-") and config.vm_id != "project-spacex"
+        assert config.vm_id == "project-spacex"
         assert config.preset == "ubuntu"
         assert ssh_key_path == str(private_key)
         assert config.guest_managed_networking is True

@@ -275,7 +275,7 @@ class GuestFlushPolicy(str, Enum):
 
 
 def _generate_vm_id() -> str:
-    """Generate a random VM identifier compatible with VMConfig validation."""
+    """Generate a unique VM identifier such as ``sbx-volta-k3x9p2``."""
     return generate_sandbox_id()
 
 
@@ -679,11 +679,7 @@ class VMConfig(BaseModel):
     Attributes:
         vm_id: Optional unique identifier (lowercase alphanumeric with hyphens).
             It keys the computer's disk, logs, sockets and saved state. If
-            omitted, Celesto generates a random one such as ``sbx-3f9a2c1b7d4e``.
-        name: Optional friendly name such as ``sbx-einstein``. Names must be
-            unique within one inventory; commands accept either the name or the
-            ID. When omitted, the inventory picks a free scientist-style name
-            when the computer is created.
+            omitted, Celesto generates a unique one such as ``sbx-volta-k3x9p2``.
         preset: Canonical name of the preset that created this sandbox, or
             ``None`` when it was created without a preset or predates tracking.
         vcpu_count: Number of virtual CPUs (1-32).
@@ -760,7 +756,6 @@ class VMConfig(BaseModel):
     """
 
     vm_id: str = Field(default_factory=_generate_vm_id, pattern=_IDENTIFIER_PATTERN)
-    name: str | None = Field(default=None, pattern=_IDENTIFIER_PATTERN)
     preset: str | None = None
     vcpu_count: Annotated[int, Field(ge=1, le=32)] = 2
     memory: Annotated[int, Field(ge=128, le=32768)] = 512
@@ -802,13 +797,8 @@ class VMConfig(BaseModel):
         annotation: one would replace VMConfig's serialization schema.
         """
         data = handler(self)
-        if isinstance(data, dict):
-            if self.qemu_root_disk is None:
-                data.pop("qemu_root_disk", None)
-            # Inventories keep the name in its own column; leaving an unset
-            # name out keeps saved configs loadable by older releases.
-            if self.name is None:
-                data.pop("name", None)
+        if self.qemu_root_disk is None and isinstance(data, dict):
+            data.pop("qemu_root_disk", None)
         return data
 
     @property
@@ -1237,11 +1227,6 @@ class VMInfo(BaseModel):
     display: DesktopEndpoint | None = None
 
     model_config = {"frozen": True}
-
-    @property
-    def name(self) -> str:
-        """Friendly name; computers saved before names existed use their ID."""
-        return self.config.name or self.vm_id
 
 
 class SnapshotArtifacts(BaseModel):

@@ -106,7 +106,6 @@ def _cli_vm_from_id(vm_id: str, **kwargs: Any) -> FacadeVM:
 class VmRow(TypedDict):
     """Machine-readable data for a listed VM."""
 
-    id: str
     name: str
     preset: str | None
     status: str
@@ -133,7 +132,6 @@ class ListPayload(TypedDict):
 class CreateVmPayload(TypedDict):
     """Machine-readable VM details for ``celesto sandbox create``."""
 
-    id: str
     name: str
     status: str
     os: str
@@ -156,7 +154,6 @@ class InfoVmPayload(TypedDict):
     :attr:`VMConfig.memory`).
     """
 
-    id: str
     name: str
     status: str
     os: str | None
@@ -426,8 +423,7 @@ def _vm_rows(vms: Sequence[VMInfo]) -> list[VmRow]:
         ip_address = network.guest_ip if network else None
         rows.append(
             {
-                "id": vm.vm_id,
-                "name": vm.name,
+                "name": vm.vm_id,
                 "preset": vm.config.preset,
                 "status": vm.status.value,
                 "pid": vm.pid,
@@ -443,7 +439,6 @@ def _render_list(rows: list[VmRow]) -> None:
     """Render the human-facing VM list."""
     table = Table(title="Celesto Computers")
     table.add_column("Name")
-    table.add_column("ID")
     table.add_column("Status")
     table.add_column("PID", justify="right")
     for row in rows:
@@ -452,7 +447,6 @@ def _render_list(rows: list[VmRow]) -> None:
             name = f"⚠ {name}"
         values: list[str | Text] = [
             name,
-            str(row["id"]),
         ]
         values.extend(
             [
@@ -779,8 +773,7 @@ def _info_payload(vm: VMInfo, *, live_data: dict[str, object] | None = None) -> 
     ip_address = network.guest_ip if network else None
 
     vm_payload = InfoVmPayload(
-        id=vm.vm_id,
-        name=vm.name,
+        name=vm.vm_id,
         status=vm.status.value,
         os=str(os_value) if os_value else None,
         backend=config.backend or "auto",
@@ -815,7 +808,6 @@ def _render_info_result(data: InfoPayload) -> None:
     details.add_column("Field")
     details.add_column("Value")
     details.add_row("Name", str(vm_data["name"]))
-    details.add_row("ID", str(vm_data["id"]))
     details.add_row(
         "Status",
         Text(str(vm_data["status"]), style=status_style(str(vm_data["status"]))),
@@ -892,7 +884,6 @@ def _render_create_result(data: CreatePayload) -> None:
     details.add_column("Field")
     details.add_column("Value")
     details.add_row("Name", str(vm_data["name"]))
-    details.add_row("ID", str(vm_data["id"]))
     details.add_row(
         "Status",
         Text(str(vm_data["status"]), style=status_style(str(vm_data["status"]))),
@@ -1384,8 +1375,7 @@ def _run_create(args: SimpleNamespace) -> int:
         is_bridge = network is not None and getattr(network, "mode", "nat") == "bridge"
         data: CreatePayload = {
             "vm": {
-                "id": vm.vm_id,
-                "name": vm.name,
+                "name": vm.vm_id,
                 "status": (
                     vm.info.status.value
                     if isinstance(vm.info.status, VMState)
@@ -1395,7 +1385,7 @@ def _run_create(args: SimpleNamespace) -> int:
                 "started_at": datetime.now(UTC).isoformat(),
             },
             "next": {
-                "shell_command": (None if is_macos else f"celesto computer shell {vm.name}"),
+                "shell_command": (None if is_macos else f"celesto computer shell {vm.vm_id}"),
                 "ssh_command": (
                     None if is_bridge or is_macos else f"celesto computer ssh {vm.vm_id}"
                 ),

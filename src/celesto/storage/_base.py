@@ -17,13 +17,10 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Collection
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from celesto._naming import generate_sandbox_name, name_prefix_for_id
-from celesto.exceptions import VMAlreadyExistsError
 from celesto.types import (
     BrowserSessionInfo,
     BrowserSessionState,
@@ -92,32 +89,6 @@ def now_iso() -> str:
 def vm_config_from_json(raw: str) -> VMConfig:
     """Deserialize VM config while trusting persisted filesystem paths."""
     return VMConfig.model_validate_json(raw, context={"validate_paths": False})
-
-
-def claim_vm_name(config: VMConfig, *, names: Collection[str], ids: Collection[str]) -> VMConfig:
-    """Return *config* with a name no other computer uses as its name or ID.
-
-    Call this inside the inventory's write lock so two creates cannot claim the
-    same name. A missing name is filled with a free scientist-style name. A
-    requested name, or a new ID, that clashes with another computer is refused,
-    so every reference a command accepts points at exactly one computer.
-    """
-    if config.vm_id in ids:
-        raise VMAlreadyExistsError(config.vm_id)
-    if config.vm_id in names:
-        raise VMAlreadyExistsError(config.vm_id)
-    if config.name is None:
-        taken = {*names, *ids, config.vm_id}
-        name = generate_sandbox_name(taken, prefix=name_prefix_for_id(config.vm_id))
-        return config.model_copy(update={"name": name})
-    if config.name in names or (config.name != config.vm_id and config.name in ids):
-        raise VMAlreadyExistsError(config.name)
-    return config
-
-
-def vm_config_to_json(config: VMConfig) -> str:
-    """Serialize VM config for storage; the name lives in its own column."""
-    return config.model_dump_json(exclude={"name"})
 
 
 def snapshot_info_from_row(row: Any) -> SnapshotInfo:

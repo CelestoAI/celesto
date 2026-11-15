@@ -8,7 +8,7 @@
 
 ### Fixed
 
-- Stop computers created at the same time from sharing a disk. Each computer now gets a random ID, such as `sbx-3f9a2c1b7d4e`, that names its disk, logs and saved state, plus a friendly name, such as `sbx-einstein`, that is unique among your computers. Commands accept either one. Computers created by earlier releases keep their name as both their ID and their name.
+- Stop computers created at the same time from sharing a disk. A computer created without a name now gets a unique one with a random ending, such as `sbx-volta-k3x9p2`. Earlier, names came from a short list of scientists, so two computers could get the same name and the same disk.
 - Stop sandbox creates failing with "database is locked" when many start at once on a busy disk. Celesto's saved VM data now uses SQLite write-ahead logging, so reads no longer wait for writes and commits no longer wait on several disk flushes each.
 
 ## 0.1.14 — 2026-11-14

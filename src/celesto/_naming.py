@@ -14,11 +14,9 @@
 
 """Sandbox IDs and friendly auto-names.
 
-Every sandbox has two labels:
-
-* an **ID** such as ``sbx-3f9a2c1b7d4e``, drawn from 48 random bits, that keys
-  its disk, logs, sockets and inventory row; and
-* a friendly **name** such as ``sbx-einstein`` for people to type.
+A sandbox's ID is also its name: it keys the disk, logs, sockets and inventory
+row. When the caller gives none, :func:`generate_sandbox_id` returns a readable,
+random one such as ``sbx-volta-k3x9p2``.
 
 When a user runs ``celesto sandbox create`` without a name we pick a scientist's last
 name. If that name is already taken we append a city for disambiguation
@@ -29,31 +27,11 @@ guarantee uniqueness when the scientist+city space is exhausted.
 from __future__ import annotations
 
 import random
-import re
 import secrets
-from collections.abc import Collection
+import string
 from uuid import uuid4
 
 SANDBOX_PREFIX = "sbx"
-
-_ID_RANDOM_BYTES = 6
-_GENERATED_ID = re.compile(r"^(?P<prefix>[a-z0-9][a-z0-9_-]*)-[0-9a-f]{12}$")
-
-
-def generate_sandbox_id(prefix: str = SANDBOX_PREFIX) -> str:
-    """Return a new random sandbox ID like ``sbx-3f9a2c1b7d4e``.
-
-    The 48 random bits come from :mod:`secrets`, so IDs created at the same
-    moment from many threads or processes do not collide in practice.
-    """
-    return f"{prefix}-{secrets.token_hex(_ID_RANDOM_BYTES)}"
-
-
-def name_prefix_for_id(vm_id: str) -> str:
-    """Return the name prefix to pair with *vm_id* (``sbx`` unless it was generated)."""
-    match = _GENERATED_ID.match(vm_id)
-    return match.group("prefix") if match else SANDBOX_PREFIX
-
 
 SCIENTISTS: tuple[str, ...] = (
     "einstein",
@@ -153,7 +131,7 @@ CITIES: tuple[str, ...] = (
 
 
 def generate_sandbox_name(
-    existing: Collection[str] | None = None,
+    existing: set[str] | frozenset[str] | None = None,
     *,
     prefix: str = SANDBOX_PREFIX,
     rng: random.Random | None = None,
@@ -191,3 +169,20 @@ def generate_sandbox_name(
                 return qualified
 
     return f"{prefix}-{picker.choice(SCIENTISTS)}-{uuid4().hex[:6]}"
+
+
+_ID_SUFFIX_ALPHABET = string.ascii_lowercase + string.digits
+ID_SUFFIX_LENGTH = 6
+
+
+def generate_sandbox_id(prefix: str = SANDBOX_PREFIX) -> str:
+    """Return a new sandbox ID like ``sbx-volta-k3x9p2``.
+
+    The scientist keeps the ID easy to read and say; the six random letters
+    and digits from :mod:`secrets` keep it unique. Together they give about
+    37 bits, so IDs created at the same moment from many threads or processes
+    that share no inventory do not collide in practice.
+    """
+    scientist = secrets.choice(SCIENTISTS)
+    suffix = "".join(secrets.choice(_ID_SUFFIX_ALPHABET) for _ in range(ID_SUFFIX_LENGTH))
+    return f"{prefix}-{scientist}-{suffix}"

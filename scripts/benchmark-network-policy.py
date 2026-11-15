@@ -102,7 +102,7 @@ def main() -> None:
         parser.error("url must use http or https")
     import shlex
 
-    # Releases before random computer IDs used a small name pool as the ID, so
+    # Releases before random-suffix IDs named computers from a small pool, so
     # parallel creates could share a disk. Give those releases unique names.
     if hasattr(_facade, "generate_sandbox_name"):
         _facade.generate_sandbox_name = lambda _existing, prefix="sbx": (

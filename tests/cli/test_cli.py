@@ -62,12 +62,10 @@ def _make_vm_info(
     pid: int | None = 12345,
     preset: str | None = None,
     workspace_mounts: list[WorkspaceMount] | None = None,
-    name: str | None = None,
 ) -> MagicMock:
     """Build a lightweight VMInfo-like mock for list tests."""
     vm = MagicMock()
     vm.vm_id = vm_id
-    vm.name = name or vm_id
     vm.status = status
     vm.pid = pid
     vm.config.preset = preset
@@ -763,7 +761,6 @@ class TestCliCreate:
 
         vm = MagicMock()
         vm.vm_id = "vm-a1b2c3d4"
-        vm.name = "vm-a1b2c3d4"
         vm.info.config.backend = "qemu"
         vm.info.network = MagicMock(spec=NetworkConfig)
         vm.info.network.guest_ip = "172.16.0.2"
@@ -825,7 +822,6 @@ class TestCliCreate:
 
         vm = MagicMock()
         vm.vm_id = "project-spacex"
-        vm.name = "project-spacex"
         vm.info.config.backend = "qemu"
         vm.info.network = MagicMock(spec=NetworkConfig)
         vm.info.network.guest_ip = "172.16.0.2"
@@ -905,7 +901,6 @@ class TestCliCreate:
 
         vm = MagicMock()
         vm.vm_id = "project-spacex"
-        vm.name = "project-spacex"
         vm.info.config.backend = "qemu"
         vm.info.network = MagicMock(spec=NetworkConfig)
         vm.info.network.guest_ip = "172.16.0.2"
@@ -944,7 +939,6 @@ class TestCliCreate:
 
         vm = MagicMock()
         vm.vm_id = "computer"
-        vm.name = "computer"
         vm.info.config.backend = "qemu"
         vm.info.network = MagicMock(spec=NetworkConfig)
         vm.info.network.guest_ip = "172.16.0.2"
@@ -995,7 +989,6 @@ class TestCliCreate:
 
         vm = MagicMock()
         vm.vm_id = "project-spacex"
-        vm.name = "project-spacex"
         vm.info.config.backend = "qemu"
         vm.info.network = MagicMock(spec=NetworkConfig)
         vm.info.network.guest_ip = "172.16.0.2"
@@ -1028,7 +1021,6 @@ class TestCliCreate:
         config = MagicMock(vm_id="bridge-demo")
         mock_build_auto_config.return_value = (config, "/tmp/id_ed25519")
         vm = MagicMock(vm_id="bridge-demo")
-        vm.name = "bridge-demo"
         vm.info.status = VMState.RUNNING
         vm.info.network = MagicMock(spec=NetworkConfig)
         vm.info.network.mode = "bridge"
@@ -1088,7 +1080,6 @@ class TestCliCreate:
 
         vm = MagicMock()
         vm.vm_id = "project-spacex"
-        vm.name = "project-spacex"
         vm.info.config.backend = "qemu"
         vm.info.network = MagicMock(spec=NetworkConfig)
         vm.info.network.guest_ip = "172.16.0.2"
@@ -1144,7 +1135,6 @@ class TestCliCreate:
         mock_build_auto_config.return_value = (MagicMock(vm_id="vm"), "/tmp/id_ed25519")
         vm = MagicMock()
         vm.vm_id = "vm"
-        vm.name = "vm"
         vm.info.config.backend = "firecracker"
         vm.info.network = MagicMock(spec=NetworkConfig)
         vm.info.network.guest_ip = "172.16.0.2"
@@ -1379,7 +1369,6 @@ class TestCliCreateWindows:
 
         vm = MagicMock()
         vm.vm_id = "win-vm-1"
-        vm.name = "win-vm-1"
         vm.info.config.backend = "qemu"
         vm.info.network = MagicMock(spec=NetworkConfig)
         vm.info.network.guest_ip = "10.0.2.15"
@@ -1639,7 +1628,6 @@ class TestCliStop:
         """`celesto sandbox stop` should stop an existing VM and report the result."""
         vm = MagicMock()
         vm.vm_id = "vm001"
-        vm.name = "vm001"
         mock_vm_cls.from_id.return_value = vm
 
         ret = main(["sandbox", "stop", "vm001", "--timeout", "7"])
@@ -1661,7 +1649,6 @@ class TestCliStop:
         """`celesto sandbox stop --json` should emit the shared envelope."""
         vm = MagicMock()
         vm.vm_id = "vm001"
-        vm.name = "vm001"
         mock_vm_cls.from_id.return_value = vm
 
         ret = main(["sandbox", "stop", "vm001", "--json"])
@@ -1700,7 +1687,6 @@ class TestCliPauseResume:
         """`celesto sandbox pause` should pause an existing VM and report the result."""
         vm = MagicMock()
         vm.vm_id = "vm001"
-        vm.name = "vm001"
         mock_vm_cls.from_id.return_value = vm
 
         ret = main(["sandbox", "pause", "vm001"])
@@ -1722,7 +1708,6 @@ class TestCliPauseResume:
         """`celesto sandbox resume --json` should emit the shared envelope."""
         vm = MagicMock()
         vm.vm_id = "vm001"
-        vm.name = "vm001"
         mock_vm_cls.from_id.return_value = vm
 
         ret = main(["sandbox", "resume", "vm001", "--json"])
@@ -1747,7 +1732,6 @@ class TestCliVmStart:
         """`celesto sandbox start` should start a stopped VM and report the result."""
         vm = MagicMock()
         vm.vm_id = "vm001"
-        vm.name = "vm001"
         mock_vm_cls.from_id.return_value = vm
 
         ret = main(["sandbox", "start", "vm001"])
@@ -1769,7 +1753,6 @@ class TestCliVmStart:
         """`celesto sandbox start --json` should emit the shared envelope."""
         vm = MagicMock()
         vm.vm_id = "vm001"
-        vm.name = "vm001"
         mock_vm_cls.from_id.return_value = vm
 
         ret = main(["sandbox", "start", "vm001", "--json"])
@@ -1789,7 +1772,6 @@ class TestCliVmStart:
         """`celesto sandbox start --boot-timeout` should forward the value to the facade."""
         vm = MagicMock()
         vm.vm_id = "vm001"
-        vm.name = "vm001"
         mock_vm_cls.from_id.return_value = vm
 
         ret = main(["sandbox", "start", "vm001", "--boot-timeout", "75"])
@@ -1899,7 +1881,6 @@ class TestCliSnapshot:
 
         vm = MagicMock()
         vm.vm_id = "vm001"
-        vm.name = "vm001"
         vm.status = VMState.PAUSED
         vm.info = _make_vm_info("vm001", VMState.PAUSED, "172.16.0.2", 2200, 999)
         mock_vm_cls.from_snapshot.return_value = vm
@@ -2219,7 +2200,6 @@ class TestCliShell:
     ) -> None:
         vm = MagicMock()
         vm.vm_id = "vm001"
-        vm.name = "vm001"
         vm.status = VMState.ERROR
         mock_vm_cls.from_id.return_value = vm
 
@@ -3396,7 +3376,6 @@ class TestCliList:
         }
         assert payload["data"]["vms"] == [
             {
-                "id": "vm-abc123",
                 "name": "vm-abc123",
                 "preset": None,
                 "status": "running",
@@ -3569,7 +3548,6 @@ class TestCliInfo:
     ) -> MagicMock:
         vm = MagicMock()
         vm.vm_id = vm_id
-        vm.name = vm_id
         vm.status = status
         vm.config.backend = backend
         vm.config.vcpu_count = vcpus
@@ -3705,7 +3683,6 @@ class TestCliInfo:
         assert payload["command"] == "sandbox.info"
         assert payload["ok"] is True
         assert payload["data"]["vm"] == {
-            "id": "sbx-pauling",
             "name": "sbx-pauling",
             "status": "stopped",
             "os": "alpine",
@@ -4324,7 +4301,6 @@ class TestCliExec:
     def _setup_vm(self, mock_vm_cls: MagicMock) -> MagicMock:
         vm = MagicMock()
         vm.vm_id = "vm001"
-        vm.name = "vm001"
         vm.status = VMState.RUNNING
         mock_vm_cls.from_id.return_value = vm
         return vm
@@ -4549,7 +4525,6 @@ class TestCliLogs:
     def _setup_vm(self, mock_vm_cls: MagicMock, data_dir: Path) -> MagicMock:
         vm = MagicMock()
         vm.vm_id = "vm001"
-        vm.name = "vm001"
         vm.data_dir = data_dir
         mock_vm_cls.from_id.return_value = vm
         return vm

@@ -27,6 +27,7 @@ from celesto.exceptions import (
     NetworkError,
     SnapshotAlreadyExistsError,
     SnapshotNotFoundError,
+    VMAlreadyExistsError,
     VMNotFoundError,
 )
 from celesto.storage._base import (
@@ -36,7 +37,6 @@ from celesto.storage._base import (
     SSH_PORT_START,
     VSOCK_CID_END,
     VSOCK_CID_START,
-    claim_vm_name,
     ip_to_pool_index,
     pool_index_to_ip,
 )
@@ -100,23 +100,11 @@ class MemoryStateManager:
 
     def create_vm(self, config: VMConfig) -> VMInfo:
         with self._lock:
-            config = claim_vm_name(
-                config,
-                names={info.name for info in self._vms.values()},
-                ids=self._vms.keys(),
-            )
+            if config.vm_id in self._vms:
+                raise VMAlreadyExistsError(config.vm_id)
             info = VMInfo(vm_id=config.vm_id, status=VMState.CREATED, config=config)
             self._vms[config.vm_id] = info
             return info
-
-    def resolve_vm_id(self, ref: str) -> str:
-        with self._lock:
-            if ref in self._vms:
-                return ref
-            for vm_id, info in self._vms.items():
-                if info.name == ref:
-                    return vm_id
-        raise VMNotFoundError(ref)
 
     def get_vm(self, vm_id: str) -> VMInfo:
         with self._lock:
@@ -145,7 +133,7 @@ class MemoryStateManager:
             if status is not None:
                 updates["status"] = status
             if config is not None:
-                updates["config"] = config.model_copy(update={"name": current.name})
+                updates["config"] = config
             if network is not None:
                 updates["network"] = network
             if pid is not None:
