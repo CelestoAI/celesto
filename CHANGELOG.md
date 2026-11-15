@@ -10,6 +10,17 @@
 
 - Stop sandbox creates failing with "database is locked" when many start at once on a busy disk. Celesto's saved VM data now uses SQLite write-ahead logging, so reads no longer wait for writes and commits no longer wait on several disk flushes each.
 
+## 0.1.14 — 2026-11-14
+
+### Security
+
+- Enforce size limits on guest agent replies before parsing them, including command output, file transfers, and terminal data.
+- Add opt-in AppArmor and seccomp confinement for QEMU in the Celesto Cloud pool. Confined QEMU processes inherit only the environment variables they need.
+
+### Fixed
+
+- Align cloud computer creation with the current API. The CLI and Python SDK support named sizes, template selection, and a choice of internet policy.
+
 ## 0.1.13 — 2026-11-06
 
 ### Security
