@@ -156,3 +156,61 @@ def test_parallel_cli_creates_share_one_inventory_safely(
         for vm in vms:
             vm.delete()
         state.close()
+
+
+def test_same_name_in_two_sdk_processes_never_shares_a_disk(
+    tmp_path: Path, boot_image: BootImage
+) -> None:
+    # Two SDK scripts each keep their own in-memory inventory, so neither can
+    # see the other's computer. Only the disk on the shared data directory
+    # shows the name is taken, and the second create must refuse to reuse it.
+    data_dir = tmp_path / "data"
+    first = _create(boot_image, data_dir, vm_id="shared-name")
+    disk = data_dir / "disks" / "shared-name.qcow2"
+    try:
+        assert first.info.config.rootfs_path == disk
+        before = disk.stat()
+
+        with pytest.raises(VMAlreadyExistsError) as excinfo:
+            _create(boot_image, data_dir, vm_id="shared-name")
+
+        message = str(excinfo.value)
+        report = {
+            "first": {"id": first.vm_id, "disk": str(disk)},
+            "second_error": message,
+            "disk_untouched": disk.stat().st_mtime_ns == before.st_mtime_ns,
+        }
+        (tmp_path / "same-name-report.json").write_text(json.dumps(report, indent=2) + "\n")
+
+        assert message == (
+            "A computer named 'shared-name' already exists; choose another name or run "
+            "'celesto computer delete shared-name'."
+        )
+        assert disk.exists()
+        assert disk.stat().st_mtime_ns == before.st_mtime_ns
+        assert _qcow2_backing(disk) == str(boot_image.rootfs_path)
+    finally:
+        first.delete()
+    assert not disk.exists()
+
+
+def test_disk_kept_on_purpose_is_reused_by_a_new_sdk_process(
+    tmp_path: Path, boot_image: BootImage
+) -> None:
+    # A disk kept with retain_disk_on_delete belongs to no computer, so a later
+    # script that asks for the same name picks it up again.
+    data_dir = tmp_path / "data"
+    first = _create(boot_image, data_dir, vm_id="kept-name")
+    # The SDK has no keyword for this yet; set it the way the CLI stores it.
+    state = first._sdk.state
+    config = state.get_vm("kept-name").config
+    state.update_vm("kept-name", config=config.model_copy(update={"retain_disk_on_delete": True}))
+    disk = data_dir / "disks" / "kept-name.qcow2"
+    first.delete()
+    assert disk.exists()
+
+    second = _create(boot_image, data_dir, vm_id="kept-name")
+    try:
+        assert second.info.config.rootfs_path == disk
+    finally:
+        second.delete()

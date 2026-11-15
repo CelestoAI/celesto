@@ -179,6 +179,7 @@ class TestCelestoCreate:
         retained_disk = smol_vm.data_dir / "disks" / "vm001.ext4"
         retained_disk.parent.mkdir(parents=True, exist_ok=True)
         retained_disk.write_text("retained")
+        smol_vm._mark_disk_retained(retained_disk)
         mock_network = MagicMock()
         mock_network.host_ip = "172.16.0.1"
         mock_network.generate_mac.return_value = "AA:FC:00:00:00:01"
@@ -818,6 +819,7 @@ class TestCelestoDiskLifecycle:
         retained_disk = smol_vm.data_dir / "disks" / "vm001.ext4"
         retained_disk.parent.mkdir(parents=True, exist_ok=True)
         retained_disk.write_bytes(b"\0" * (1024 * 1024))
+        smol_vm._mark_disk_retained(retained_disk)
         config = sample_config.model_copy(update={"disk_size_mib": 3})
 
         with (
@@ -838,6 +840,7 @@ class TestCelestoDiskLifecycle:
         retained_disk = smol_vm.data_dir / "disks" / "vm001.ext4"
         retained_disk.parent.mkdir(parents=True, exist_ok=True)
         retained_disk.write_bytes(b"\0" * (1024 * 1024))
+        smol_vm._mark_disk_retained(retained_disk)
         config = sample_config.model_copy(update={"disk_size_mib": 2, "grow_filesystem": True})
 
         with (

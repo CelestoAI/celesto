@@ -2350,6 +2350,11 @@ class CelestoManager:
                 managed_disk_path is not None
                 and self._retained_marker_path(managed_disk_path).exists()
             )
+            if managed_disk_existed and not managed_disk_was_saved:
+                # An unmarked disk still belongs to a computer, possibly one
+                # tracked only in another SDK process's in-memory inventory.
+                # Only a disk kept on purpose may be picked up again.
+                raise VMAlreadyExistsError(effective_config.vm_id)
             firmware_state = self.data_dir / "firmware" / effective_config.vm_id
             firmware_existed = firmware_state.exists()
             macos_bundle = (
@@ -4671,6 +4676,11 @@ class CelestoManager:
                 managed_disk_path is not None
                 and self._retained_marker_path(managed_disk_path).exists()
             )
+            if managed_disk_existed and not managed_disk_was_saved:
+                # An unmarked disk still belongs to a computer, possibly one
+                # tracked only in another SDK process's in-memory inventory.
+                # Only a disk kept on purpose may be picked up again.
+                raise VMAlreadyExistsError(effective_config.vm_id)
             firmware_state = self.data_dir / "firmware" / effective_config.vm_id
             firmware_existed = firmware_state.exists()
             macos_bundle = (
