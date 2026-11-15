@@ -23,6 +23,7 @@ import pytest
 
 from celesto.exceptions import CelestoError
 from celesto.types import VMConfig, VMState
+from tests.lifecycle_decision import use_real_start_decision
 
 # ---------------------------------------------------------------------------
 # async_run_command
@@ -263,6 +264,7 @@ def _paused_sdk(
     """Patch the SDK so a new ``Celesto`` starts in the given status."""
     mock_sdk = MagicMock()
     mock_sdk.create.return_value = MagicMock(vm_id=config.vm_id, status=status, config=config)
+    use_real_start_decision(mock_sdk)
     monkeypatch.setattr("celesto.facade.CelestoManager", MagicMock(return_value=mock_sdk))
     return mock_sdk
 
@@ -306,6 +308,7 @@ class TestAsyncCelestoFacade:
                 network=None,
             )
         )
+        use_real_start_decision(mock_sdk)
         mock_sdk_cls.return_value = mock_sdk
 
         vm = Celesto(config)
@@ -542,6 +545,7 @@ class TestAsyncCelestoFacade:
             return_value=MagicMock(vm_id="vm-ctx", status=VMState.STOPPED, config=config)
         )
         mock_sdk.async_delete = AsyncMock()
+        use_real_start_decision(mock_sdk)
         mock_sdk_cls.return_value = mock_sdk
 
         async with Celesto(config) as vm:

@@ -152,6 +152,31 @@ class MemoryStateManager:
             self._vms[vm_id] = updated
             return updated
 
+    def set_vm_status_if_pid(
+        self,
+        vm_id: str,
+        pid: int | None,
+        status: VMState,
+        *,
+        clear_pid: bool = False,
+    ) -> tuple[VMInfo, bool]:
+        """Set a running or paused computer's status only if its row still records *pid*.
+
+        A caller acting on an older read must not overwrite a stop, restart
+        or newer runtime that happened since. Returns the current row and
+        whether it was changed.
+        """
+        with self._lock:
+            current = self.get_vm(vm_id)
+            if current.pid != pid or current.status not in (VMState.RUNNING, VMState.PAUSED):
+                return current, False
+            updates: dict[str, object] = {"status": status}
+            if clear_pid:
+                updates["pid"] = None
+            updated = current.model_copy(update=updates)
+            self._vms[vm_id] = updated
+            return updated, True
+
     def delete_vm(self, vm_id: str) -> None:
         with self._lock:
             if vm_id not in self._vms:
