@@ -142,6 +142,23 @@ DEFAULT_SOCKET_DIR = Path("/tmp")
 # Marks a per-VM disk that outlives its VM row on purpose, so the reclaim
 # sweep can tell a deliberately kept disk from a leaked one.
 RETAINED_DISK_MARKER_SUFFIX = ".retained"
+DISK_OWNER_RECORD_SUFFIX = ".owner"
+
+
+def _process_alive(pid: int) -> bool:
+    """Return whether *pid* may still be running; this process counts as alive."""
+    if pid <= 0:
+        return False
+    if pid == os.getpid():
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
+
 
 # Backend-specific defaults
 QEMU_GUEST_IP = "10.0.2.15"
@@ -2350,11 +2367,16 @@ class CelestoManager:
                 managed_disk_path is not None
                 and self._retained_marker_path(managed_disk_path).exists()
             )
-            if managed_disk_existed and not managed_disk_was_saved:
+            if (
+                managed_disk_existed
+                and not managed_disk_was_saved
+                and not self._disk_owner_gone_and_kept(managed_disk_path)
+            ):
                 # An unmarked disk still belongs to a computer, possibly one
                 # tracked only in another SDK process's in-memory inventory.
                 # Only a disk kept on purpose may be picked up again.
                 raise VMAlreadyExistsError(effective_config.vm_id)
+            previous_owner = self._read_disk_owner_bytes(managed_disk_path)
             firmware_state = self.data_dir / "firmware" / effective_config.vm_id
             firmware_existed = firmware_state.exists()
             macos_bundle = (
@@ -2389,6 +2411,7 @@ class CelestoManager:
                 # mutate a retained managed disk without a VM row.
                 self.state.create_vm(effective_config)
                 vm_record_created = True
+                self._write_disk_owner(managed_disk_path, effective_config)
                 # A row owns this disk again, so it is no longer a kept
                 # leftover. Only now: a create that fails after reusing a
                 # saved disk has to leave it marked as saved.
@@ -2411,6 +2434,7 @@ class CelestoManager:
                     existed_before=managed_disk_existed,
                 )
                 self._restore_retained_marker(managed_disk_path, managed_disk_was_saved)
+                self._restore_disk_owner(managed_disk_path, previous_owner)
                 self._cleanup_unpersisted_firmware(
                     effective_config.vm_id,
                     existed_before=firmware_existed,
@@ -2571,6 +2595,7 @@ class CelestoManager:
                 preserve_managed_disk=managed_disk_existed,
             )
             self._restore_retained_marker(managed_disk_path, managed_disk_was_saved)
+            self._restore_disk_owner(managed_disk_path, previous_owner)
             # Delete the VM record that was created
             with suppress(Exception):
                 self.state.delete_vm(effective_config.vm_id)
@@ -4423,6 +4448,76 @@ class CelestoManager:
             return
         self._mark_disk_retained(managed_disk)
 
+    @staticmethod
+    def _disk_owner_path(managed_disk: Path) -> Path:
+        """Return the record naming the computer that owns this disk."""
+        return managed_disk.with_name(f"{managed_disk.name}{DISK_OWNER_RECORD_SUFFIX}")
+
+    def _read_disk_owner_bytes(self, managed_disk: Path | None) -> bytes | None:
+        """Return the raw owner record, so a failed create can put it back."""
+        if managed_disk is None:
+            return None
+        try:
+            return self._disk_owner_path(managed_disk).read_bytes()
+        except OSError:
+            return None
+
+    def _write_disk_owner(self, managed_disk: Path | None, config: VMConfig) -> None:
+        """Record which process owns this disk, durably and across processes.
+
+        An SDK script keeps its inventory in memory, so after it dies only this
+        record says whether the disk was meant to outlive it.
+        """
+        if managed_disk is None:
+            return
+        record = {
+            "vm_id": config.vm_id,
+            "pid": os.getpid(),
+            "keep": bool(config.retain_disk_on_delete),
+            "in_memory_inventory": isinstance(self.state, MemoryStateManager),
+        }
+        with suppress(OSError):
+            self._disk_owner_path(managed_disk).write_text(json.dumps(record))
+
+    def _restore_disk_owner(self, managed_disk: Path | None, previous: bytes | None) -> None:
+        """Put back the owner record a failed create overwrote."""
+        if managed_disk is None:
+            return
+        owner_path = self._disk_owner_path(managed_disk)
+        with suppress(OSError):
+            if previous is None or not managed_disk.exists():
+                owner_path.unlink(missing_ok=True)
+            else:
+                owner_path.write_bytes(previous)
+
+    def _disk_owner_gone_and_kept(self, managed_disk: Path | None) -> bool:
+        """Return whether an unmarked disk may be adopted by a new create.
+
+        True only for a disk kept on purpose by an SDK script whose inventory
+        lived in memory, when that script's process has exited and no running
+        process still uses the disk. A shared inventory keeps its own row, so
+        its disks are never adopted this way.
+        """
+        if managed_disk is None:
+            return False
+        try:
+            record = json.loads(self._disk_owner_path(managed_disk).read_text())
+        except (OSError, ValueError):
+            return False
+        if not isinstance(record, dict):
+            return False
+        pid = record.get("pid")
+        if (
+            record.get("vm_id") != managed_disk.name.rsplit(".", 1)[0]
+            or record.get("keep") is not True
+            or record.get("in_memory_inventory") is not True
+            or not isinstance(pid, int)
+            or _process_alive(pid)
+        ):
+            return False
+        process_args = self._running_process_args()
+        return process_args is not None and not self._path_in_use(managed_disk, process_args)
+
     def _clear_retained_marker(self, managed_disk: Path) -> None:
         """Drop the retention marker once a VM row owns this disk again."""
         with suppress(OSError):
@@ -4676,11 +4771,16 @@ class CelestoManager:
                 managed_disk_path is not None
                 and self._retained_marker_path(managed_disk_path).exists()
             )
-            if managed_disk_existed and not managed_disk_was_saved:
+            if (
+                managed_disk_existed
+                and not managed_disk_was_saved
+                and not await asyncio.to_thread(self._disk_owner_gone_and_kept, managed_disk_path)
+            ):
                 # An unmarked disk still belongs to a computer, possibly one
                 # tracked only in another SDK process's in-memory inventory.
                 # Only a disk kept on purpose may be picked up again.
                 raise VMAlreadyExistsError(effective_config.vm_id)
+            previous_owner = self._read_disk_owner_bytes(managed_disk_path)
             firmware_state = self.data_dir / "firmware" / effective_config.vm_id
             firmware_existed = firmware_state.exists()
             macos_bundle = (
@@ -4714,6 +4814,7 @@ class CelestoManager:
 
                 self.state.create_vm(effective_config)
                 vm_record_created = True
+                self._write_disk_owner(managed_disk_path, effective_config)
                 # See create(): clear the mark only once a row owns the disk.
                 if managed_disk_path is not None:
                     self._clear_retained_marker(managed_disk_path)
@@ -4742,6 +4843,7 @@ class CelestoManager:
                     existed_before=managed_disk_existed,
                 )
                 self._restore_retained_marker(managed_disk_path, managed_disk_was_saved)
+                self._restore_disk_owner(managed_disk_path, previous_owner)
                 self._cleanup_unpersisted_firmware(
                     effective_config.vm_id,
                     existed_before=firmware_existed,
@@ -4875,6 +4977,7 @@ class CelestoManager:
                 preserve_managed_disk=managed_disk_existed,
             )
             self._restore_retained_marker(managed_disk_path, managed_disk_was_saved)
+            self._restore_disk_owner(managed_disk_path, previous_owner)
             with suppress(Exception):
                 self.state.delete_vm(effective_config.vm_id)
             raise

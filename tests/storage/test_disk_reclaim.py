@@ -312,7 +312,11 @@ class TestLeftoverSweep:
 
         found = {(item.vm_id, item.path.name) for item in manager.find_leftover_artifacts()}
 
-        assert found == {("sbx-disk", "sbx-disk.ext4"), ("sbx-disk", "sbx-disk.log")}
+        assert found == {
+            ("sbx-disk", "sbx-disk.ext4"),
+            ("sbx-disk", "sbx-disk.ext4.owner"),
+            ("sbx-disk", "sbx-disk.log"),
+        }
 
     def test_skips_saved_disks_unless_asked(
         self,
@@ -332,6 +336,7 @@ class TestLeftoverSweep:
 
         assert {item.path.name for item in removed} == {
             "sbx-disk.ext4",
+            "sbx-disk.ext4.owner",
             "sbx-disk.ext4.retained",
         }
         assert not disk.exists()
@@ -347,7 +352,7 @@ class TestLeftoverSweep:
 
         planned = manager.prune_leftover_artifacts(dry_run=True)
 
-        assert [item.path.name for item in planned] == ["sbx-disk.ext4"]
+        assert [item.path.name for item in planned] == ["sbx-disk.ext4", "sbx-disk.ext4.owner"]
         assert _disk(manager).exists()
 
     def test_skips_a_disk_a_running_process_is_using(

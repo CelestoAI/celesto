@@ -27,6 +27,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -214,3 +215,88 @@ def test_disk_kept_on_purpose_is_reused_by_a_new_sdk_process(
         assert second.info.config.rootfs_path == disk
     finally:
         second.delete()
+
+
+_CRASHING_SDK_SCRIPT = """
+import os, sys
+from pathlib import Path
+from celesto import facade
+from celesto.facade import Celesto
+from celesto.images.boot import BootImage, DirectKernelBoot
+
+base, kernel, data_dir, name, keep = sys.argv[1:6]
+image = BootImage(
+    name="identity-test",
+    rootfs_path=Path(base),
+    rootfs_format="qcow2",
+    kernel_path=Path(kernel),
+    boot=DirectKernelBoot(quiet=False),
+)
+# Persistent browser profiles set retain_disk_on_delete when they create the
+# computer; the SDK has no keyword for it, so set it on the way in.
+create = facade.CelestoManager.create
+def create_kept(self, config):
+    return create(self, config.model_copy(update={"retain_disk_on_delete": keep == "keep"}))
+facade.CelestoManager.create = create_kept
+Celesto.from_image(
+    image,
+    backend="qemu",
+    network="slirp",
+    data_dir=Path(data_dir),
+    socket_dir=Path(data_dir) / "sockets",
+    vm_id=name,
+)
+os._exit(0)  # exit without delete, like a killed script
+"""
+
+
+def _create_in_crashing_process(
+    boot_image: BootImage, data_dir: Path, name: str, *, keep: bool
+) -> None:
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            _CRASHING_SDK_SCRIPT,
+            str(boot_image.rootfs_path),
+            str(boot_image.kernel_path),
+            str(data_dir),
+            name,
+            "keep" if keep else "no-keep",
+        ],
+        check=True,
+    )
+
+
+def test_kept_disk_reopens_after_its_sdk_process_crashed(
+    tmp_path: Path, boot_image: BootImage
+) -> None:
+    # A persistent browser profile keeps its disk under a stable name. If the
+    # script that owned it died without cleaning up, the next run must still
+    # get the same disk back.
+    data_dir = tmp_path / "data"
+    _create_in_crashing_process(boot_image, data_dir, "profile-name", keep=True)
+    disk = data_dir / "disks" / "profile-name.qcow2"
+    assert disk.exists()
+
+    reopened = _create(boot_image, data_dir, vm_id="profile-name")
+    try:
+        assert reopened.info.config.rootfs_path == disk
+        # While this script owns it, nobody else may take it.
+        with pytest.raises(VMAlreadyExistsError, match="profile-name"):
+            _create(boot_image, data_dir, vm_id="profile-name")
+    finally:
+        reopened.delete()
+    (tmp_path / "crashed-profile-report.json").write_text(
+        json.dumps({"id": "profile-name", "disk": str(disk), "reopened": True}, indent=2) + "\n"
+    )
+
+
+def test_unkept_disk_from_crashed_sdk_process_is_not_adopted(
+    tmp_path: Path, boot_image: BootImage
+) -> None:
+    data_dir = tmp_path / "data"
+    _create_in_crashing_process(boot_image, data_dir, "left-behind", keep=False)
+
+    with pytest.raises(VMAlreadyExistsError, match="celesto computer delete left-behind"):
+        _create(boot_image, data_dir, vm_id="left-behind")
