@@ -165,13 +165,18 @@ def _file_open_by_any_process(
     *,
     use_lsof: bool = True,
     proc_root: Path = Path("/proc"),
+    runtime_uids: set[int] | None = None,
 ) -> bool | None:
-    """Return whether any process holds *path* open, or None if unknown."""
+    """Return whether any process holds *path* open, or None if unknown.
+
+    *runtime_uids* are the users whose processes may hold the disk; by
+    default, the disk's owner.
+    """
     lsof = which("lsof") if use_lsof else None
     if lsof is not None:
         try:
             result = subprocess.run(
-                [str(lsof), "-t", "--", str(path)],
+                [str(lsof), "-t", "-w", "--", str(path)],
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -181,23 +186,25 @@ def _file_open_by_any_process(
             return None
         if result.returncode == 0 and result.stdout.strip():
             return True
-        if result.returncode == 1 and not result.stdout.strip():
+        # Exit 1 also covers errors such as a failed stat; only a silent one
+        # means nobody has the file open.
+        if result.returncode == 1 and not result.stdout.strip() and not result.stderr.strip():
             return False
         return None
     if not proc_root.is_dir():
         return None
     try:
         target = os.path.realpath(path)
-        # A runtime is started by the script that created the disk, so it
-        # runs as the disk's owner. Other users' processes cannot be it.
-        disk_owner = os.stat(path).st_uid
+        # A runtime runs as the user of the script that started it. Other
+        # users' processes cannot be it, and non-root users cannot read them.
+        uids = runtime_uids if runtime_uids is not None else {os.stat(path).st_uid}
         pid_dirs = [entry for entry in proc_root.iterdir() if entry.name.isdigit()]
     except OSError:
         return None
     incomplete = False
     for pid_dir in pid_dirs:
         try:
-            if os.stat(pid_dir).st_uid != disk_owner:
+            if os.stat(pid_dir).st_uid not in uids:
                 continue
             entries = list((pid_dir / "fd").iterdir())
         except (FileNotFoundError, ProcessLookupError):
@@ -206,11 +213,17 @@ def _file_open_by_any_process(
             incomplete = True
             continue
         for entry in entries:
+            # readlink, not realpath: realpath hides a failed lookup and would
+            # report an unreadable descriptor as a different file.
             try:
-                if os.path.realpath(entry) == target:
-                    return True
+                link = os.readlink(entry)
+            except FileNotFoundError:
+                continue  # the descriptor closed mid-scan
             except OSError:
                 incomplete = True
+                continue
+            if link in (target, str(path)):
+                return True
     return None if incomplete else False
 
 
@@ -3379,6 +3392,7 @@ class CelestoManager:
         existing_disk_sidecars: list[Path] = []
         created_managed_placeholder = False
         launch = None
+        previous_owner = self._read_disk_owner_bytes(managed_disk_path)
 
         try:
             managed_disk_path.parent.mkdir(parents=True, exist_ok=True)
@@ -3397,6 +3411,9 @@ class CelestoManager:
             if existing_vm is None:
                 self.state.create_vm(persisted_vm_config)
                 created_vm_record = True
+            # This computer owns the disk now; a stale record from an exited
+            # script would let another create adopt it once it is stopped.
+            self._write_disk_owner(managed_disk_path, persisted_vm_config)
             bridge_restore = effective_snapshot.network_config.mode == "bridge"
             tap_restore = self._uses_host_tap_networking(
                 persisted_vm_config, effective_snapshot.backend
@@ -3522,6 +3539,7 @@ class CelestoManager:
                     if managed_disk_path.exists():
                         managed_disk_path.unlink()
                     os.replace(existing_disk_backup_path, managed_disk_path)
+            self._restore_disk_owner(managed_disk_path, previous_owner)
             raise
 
     def delete_snapshot(self, snapshot_id: str) -> None:
@@ -4527,6 +4545,8 @@ class CelestoManager:
         record = {
             "vm_id": config.vm_id,
             "pid": os.getpid(),
+            # The runtime this script starts runs as this user.
+            "uid": os.geteuid(),
             "keep": bool(config.retain_disk_on_delete),
             "in_memory_inventory": isinstance(self.state, MemoryStateManager),
         }
@@ -4598,7 +4618,10 @@ class CelestoManager:
             return False
         # Firecracker and libkrun never name the disk in their arguments, so
         # also ask which processes hold the file open.
-        return _file_open_by_any_process(managed_disk) is False
+        runtime_uids = {managed_disk.stat().st_uid}
+        if isinstance(record.get("uid"), int):
+            runtime_uids.add(record["uid"])
+        return _file_open_by_any_process(managed_disk, runtime_uids=runtime_uids) is False
 
     def _clear_retained_marker(self, managed_disk: Path) -> None:
         """Drop the retention marker once a VM row owns this disk again."""
