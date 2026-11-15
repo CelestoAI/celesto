@@ -12,7 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Friendly auto-names for sandboxes (e.g. ``sbx-einstein``).
+"""Sandbox IDs and friendly auto-names.
+
+A sandbox's ID is also its name: it keys the disk, logs, sockets and inventory
+row. When the caller gives none, :func:`generate_sandbox_id` returns a readable,
+random one such as ``sbx-volta-k3x9p2``.
 
 When a user runs ``celesto sandbox create`` without a name we pick a scientist's last
 name. If that name is already taken we append a city for disambiguation
@@ -23,6 +27,8 @@ guarantee uniqueness when the scientist+city space is exhausted.
 from __future__ import annotations
 
 import random
+import secrets
+import string
 from uuid import uuid4
 
 SANDBOX_PREFIX = "sbx"
@@ -163,3 +169,20 @@ def generate_sandbox_name(
                 return qualified
 
     return f"{prefix}-{picker.choice(SCIENTISTS)}-{uuid4().hex[:6]}"
+
+
+_ID_SUFFIX_ALPHABET = string.ascii_lowercase + string.digits
+ID_SUFFIX_LENGTH = 6
+
+
+def generate_sandbox_id(prefix: str = SANDBOX_PREFIX) -> str:
+    """Return a new sandbox ID like ``sbx-volta-k3x9p2``.
+
+    The scientist keeps the ID easy to read and say; the six random letters
+    and digits from :mod:`secrets` keep it unique. Together they give about
+    37 bits, so IDs created at the same moment from many threads or processes
+    that share no inventory do not collide in practice.
+    """
+    scientist = secrets.choice(SCIENTISTS)
+    suffix = "".join(secrets.choice(_ID_SUFFIX_ALPHABET) for _ in range(ID_SUFFIX_LENGTH))
+    return f"{prefix}-{scientist}-{suffix}"

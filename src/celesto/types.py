@@ -34,7 +34,7 @@ from pydantic import (
     model_validator,
 )
 
-from celesto._naming import generate_sandbox_name
+from celesto._naming import generate_sandbox_id
 
 
 @dataclass(frozen=True)
@@ -275,8 +275,8 @@ class GuestFlushPolicy(str, Enum):
 
 
 def _generate_vm_id() -> str:
-    """Generate a VM identifier compatible with VMConfig validation."""
-    return generate_sandbox_name()
+    """Generate a unique VM identifier such as ``sbx-volta-k3x9p2``."""
+    return generate_sandbox_id()
 
 
 def _generate_browser_session_id() -> str:
@@ -678,7 +678,8 @@ class VMConfig(BaseModel):
 
     Attributes:
         vm_id: Optional unique identifier (lowercase alphanumeric with hyphens).
-            If omitted, Celesto auto-generates one.
+            It keys the computer's disk, logs, sockets and saved state. If
+            omitted, Celesto generates a unique one such as ``sbx-volta-k3x9p2``.
         preset: Canonical name of the preset that created this sandbox, or
             ``None`` when it was created without a preset or predates tracking.
         vcpu_count: Number of virtual CPUs (1-32).

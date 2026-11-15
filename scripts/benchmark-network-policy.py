@@ -102,10 +102,12 @@ def main() -> None:
         parser.error("url must use http or https")
     import shlex
 
-    # Baseline auto-naming chooses from a small human-name pool without checking
-    # the shared inventory. Avoid name collisions in this load test without
-    # changing the create/start path or production code, on BOTH versions.
-    _facade.generate_sandbox_name = lambda _existing, prefix="sbx": f"{prefix}-{uuid4().hex[:16]}"
+    # Releases before random-suffix IDs named computers from a small pool, so
+    # parallel creates could share a disk. Give those releases unique names.
+    if hasattr(_facade, "generate_sandbox_name"):
+        _facade.generate_sandbox_name = lambda _existing, prefix="sbx": (
+            f"{prefix}-{uuid4().hex[:16]}"
+        )
     inventory = MemoryStateManager(args.data_dir)
     template = json.loads(args.vm_config.read_text()) if args.vm_config else None
     if template and template.get("backend") != "qemu":

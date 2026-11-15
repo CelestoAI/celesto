@@ -48,7 +48,7 @@ from urllib.parse import urlparse
 from pydantic import TypeAdapter
 from pydantic import ValidationError as PydanticValidationError
 
-from celesto._naming import generate_sandbox_name
+from celesto._naming import generate_sandbox_id
 from celesto._network_policy import parse_network_policy, validate_network_policy_options
 from celesto._telemetry import begin_local_use, observe_sdk_operation, record_success
 from celesto._terminal_env import guest_terminal_type
@@ -242,12 +242,16 @@ def _path_size_mib(path: Path) -> int:
 
 
 def _resolve_vm_name(vm_name: str | None, *, prefix: str = "sbx") -> str:
-    """Return the supplied name or generate one without consulting host inventory."""
+    """Return the supplied name or a new unique one such as ``sbx-volta-k3x9p2``.
+
+    The name is the computer's ID: it keys the disk, logs, sockets and saved
+    state. SDK computers often have no shared inventory to check, so generated
+    names carry a random suffix; two computers created at the same moment must
+    never share a disk.
+    """
     if vm_name is not None:
         return vm_name
-    # Generated names include enough entropy that SDK construction should not
-    # need a machine-wide database read merely to choose a friendly name.
-    return generate_sandbox_name(set(), prefix=prefix)
+    return generate_sandbox_id(prefix)
 
 
 def _resolve_auto_config_public_key(ssh_key_path: str | None) -> tuple[str, Path]:

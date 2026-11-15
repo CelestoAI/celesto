@@ -3985,7 +3985,7 @@ def test_from_image_qemu_policy_errors_name_recovery(
     from celesto import ValidationError
 
     monkeypatch.setattr("celesto._network_policy.sys.platform", host)
-    monkeypatch.setattr("celesto.facade.generate_sandbox_name", lambda *a, **k: "sbx-generated")
+    monkeypatch.setattr("celesto.facade.generate_sandbox_id", lambda *a, **k: "sbx-generated")
     image = MagicMock(
         backend=None, boot_mode="direct_kernel", rootfs_format="raw-ext4", initrd_path=None
     )

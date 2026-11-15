@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 import celesto
+from celesto._naming import generate_sandbox_id
 
 
 def test_benchmark_supports_pre_rebrand_baseline(monkeypatch):
@@ -75,9 +76,6 @@ def test_slirp_benchmark_retries_only_bind_conflicts(monkeypatch, tmp_path, bind
     globals_ = module["main"].__globals__
     ports = iter(range(18080, 18100))
     created, deleted = [], []
-    monkeypatch.setattr(
-        celesto.facade, "generate_sandbox_name", celesto.facade.generate_sandbox_name
-    )
 
     class Sandbox:
         def __init__(self, **kwargs):
@@ -177,15 +175,11 @@ def test_benchmark_batches_restore_and_preserves_errors(monkeypatch, tmp_path, f
     restore_signature = inspect.signature(celesto.Celesto.from_snapshot)
     events = []
     snapshots = {}
-    # Keep the benchmark's temporary naming override local to this test.
-    monkeypatch.setattr(
-        celesto.facade, "generate_sandbox_name", celesto.facade.generate_sandbox_name
-    )
 
     class Sandbox:
         def __init__(self, **kwargs):
             signature.bind(**kwargs)
-            self.name = celesto.facade.generate_sandbox_name(set())
+            self.name = generate_sandbox_id()
             self.inventory = kwargs["state_manager"]
             self.deleted = False
             self._sdk = SimpleNamespace(delete_snapshot=lambda key: snapshots.pop(key))
