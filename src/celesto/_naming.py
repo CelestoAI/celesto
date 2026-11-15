@@ -12,24 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Sandbox IDs and friendly auto-names.
+"""Sandbox IDs.
 
 A sandbox's ID is also its name: it keys the disk, logs, sockets and inventory
 row. When the caller gives none, :func:`generate_sandbox_id` returns a readable,
 random one such as ``sbx-volta-k3x9p2``.
-
-When a user runs ``celesto sandbox create`` without a name we pick a scientist's last
-name. If that name is already taken we append a city for disambiguation
-(``sbx-tesla-london``). A short hex suffix is used as a final fallback to
-guarantee uniqueness when the scientist+city space is exhausted.
 """
 
 from __future__ import annotations
 
-import random
 import secrets
 import string
-from uuid import uuid4
 
 SANDBOX_PREFIX = "sbx"
 
@@ -86,93 +79,11 @@ SCIENTISTS: tuple[str, ...] = (
     "fibonacci",
 )
 
-CITIES: tuple[str, ...] = (
-    "london",
-    "paris",
-    "tokyo",
-    "berlin",
-    "madrid",
-    "rome",
-    "vienna",
-    "oslo",
-    "lisbon",
-    "dublin",
-    "athens",
-    "cairo",
-    "mumbai",
-    "delhi",
-    "beijing",
-    "seoul",
-    "sydney",
-    "toronto",
-    "boston",
-    "chicago",
-    "denver",
-    "austin",
-    "miami",
-    "dallas",
-    "seattle",
-    "portland",
-    "brussels",
-    "prague",
-    "warsaw",
-    "helsinki",
-    "stockholm",
-    "amsterdam",
-    "geneva",
-    "kyoto",
-    "bangkok",
-    "jakarta",
-    "bogota",
-    "lima",
-    "montreal",
-    "vancouver",
-)
-
-
-def generate_sandbox_name(
-    existing: set[str] | frozenset[str] | None = None,
-    *,
-    prefix: str = SANDBOX_PREFIX,
-    rng: random.Random | None = None,
-) -> str:
-    """Return a friendly sandbox name like ``sbx-einstein`` or ``sbx-tesla-london``.
-
-    Args:
-        existing: Names that are already in use. The returned name is guaranteed
-            to be absent from this set. When ``None``, no collision check is
-            performed (callers without state-manager access can still get a
-            scientist-style name and rely on the storage layer to reject
-            duplicates).
-        prefix: Namespace prefix for the generated name. Defaults to ``"sbx"``.
-            Callers can pass their own namespace to group sandboxes visually.
-        rng: Optional ``random.Random`` for deterministic tests.
-
-    Strategy:
-        1. Try a bare ``{prefix}-{scientist}`` for a few random picks.
-        2. On collision, append a random city: ``{prefix}-{scientist}-{city}``.
-        3. If everything collides (vanishingly unlikely), fall back to a hex
-           suffix that guarantees uniqueness.
-    """
-    taken = existing or frozenset()
-    picker = rng or random
-
-    for _ in range(len(SCIENTISTS)):
-        scientist = picker.choice(SCIENTISTS)
-        bare = f"{prefix}-{scientist}"
-        if bare not in taken:
-            return bare
-        for _ in range(len(CITIES)):
-            city = picker.choice(CITIES)
-            qualified = f"{prefix}-{scientist}-{city}"
-            if qualified not in taken:
-                return qualified
-
-    return f"{prefix}-{picker.choice(SCIENTISTS)}-{uuid4().hex[:6]}"
-
-
 _ID_SUFFIX_ALPHABET = string.ascii_lowercase + string.digits
 ID_SUFFIX_LENGTH = 6
+# Sandbox IDs may be up to 64 characters. Leave room for "-", the longest
+# scientist, "-" and the suffix so every random pick fits.
+MAX_PREFIX_LENGTH = 64 - (1 + max(map(len, SCIENTISTS)) + 1 + ID_SUFFIX_LENGTH)
 
 
 def generate_sandbox_id(prefix: str = SANDBOX_PREFIX) -> str:
@@ -183,6 +94,10 @@ def generate_sandbox_id(prefix: str = SANDBOX_PREFIX) -> str:
     37 bits, so IDs created at the same moment from many threads or processes
     that share no inventory do not collide in practice.
     """
+    if len(prefix) > MAX_PREFIX_LENGTH:
+        raise ValueError(
+            f"Name prefix {prefix!r} is too long. Use at most {MAX_PREFIX_LENGTH} characters."
+        )
     scientist = secrets.choice(SCIENTISTS)
     suffix = "".join(secrets.choice(_ID_SUFFIX_ALPHABET) for _ in range(ID_SUFFIX_LENGTH))
     return f"{prefix}-{scientist}-{suffix}"
