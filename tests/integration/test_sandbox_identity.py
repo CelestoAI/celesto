@@ -122,7 +122,7 @@ def test_parallel_sdk_creates_get_unique_ids_and_disks(
             vm.delete()
 
 
-def test_parallel_cli_creates_share_one_inventory_safely(
+def test_parallel_creates_sharing_one_cli_inventory_get_unique_ids(
     tmp_path: Path,
     boot_image: BootImage,
     monkeypatch: pytest.MonkeyPatch,
