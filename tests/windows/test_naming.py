@@ -12,71 +12,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for the friendly sandbox name generator."""
+"""Tests for the sandbox ID generator."""
 
 from __future__ import annotations
 
-import random
 import re
 
-from celesto._naming import CITIES, SCIENTISTS, generate_sandbox_name
+import pytest
+
+from celesto._naming import MAX_PREFIX_LENGTH, SCIENTISTS, generate_sandbox_id
 from celesto.types import _IDENTIFIER_PATTERN
 
 
-def test_bare_scientist_when_nothing_taken() -> None:
-    name = generate_sandbox_name(set())
-    assert name.startswith("sbx-")
-    scientist = name.removeprefix("sbx-")
+def test_custom_prefix_keeps_scientist_and_suffix() -> None:
+    sandbox_id = generate_sandbox_id(prefix="agent")
+    prefix, scientist, suffix = sandbox_id.split("-")
+    assert prefix == "agent"
     assert scientist in SCIENTISTS
+    assert re.fullmatch(r"[a-z0-9]{6}", suffix)
 
 
-def test_appends_city_when_scientist_taken() -> None:
-    """If every bare scientist name is taken, fall through to scientist-city."""
-    taken = {f"sbx-{s}" for s in SCIENTISTS}
-    name = generate_sandbox_name(taken, rng=random.Random(0))
-
-    assert name not in taken
-    assert name.startswith("sbx-")
-    parts = name.removeprefix("sbx-").split("-")
-    assert len(parts) == 2
-    scientist, city = parts
-    assert scientist in SCIENTISTS
-    assert city in CITIES
+def test_longest_allowed_prefix_always_passes_vm_id_validation() -> None:
+    # Every scientist must fit, or creation would fail only on some random picks.
+    prefix = "a" * MAX_PREFIX_LENGTH
+    for scientist in SCIENTISTS:
+        assert re.fullmatch(_IDENTIFIER_PATTERN, f"{prefix}-{scientist}-abc123")
 
 
-def test_returned_name_passes_vm_id_validation() -> None:
-    """Generated names must satisfy the VMConfig identifier pattern."""
-    for _ in range(20):
-        name = generate_sandbox_name()
-        assert re.fullmatch(_IDENTIFIER_PATTERN, name), name
-
-
-def test_custom_prefix() -> None:
-    """A caller-supplied prefix replaces the default ``sbx`` in generated names."""
-    name = generate_sandbox_name(set(), prefix="agent")
-    assert name.startswith("agent-")
-    scientist = name.removeprefix("agent-")
-    assert scientist in SCIENTISTS
-
-
-def test_custom_prefix_with_collision() -> None:
-    taken = {f"agent-{s}" for s in SCIENTISTS}
-    name = generate_sandbox_name(taken, prefix="agent", rng=random.Random(0))
-
-    assert name.startswith("agent-")
-    parts = name.removeprefix("agent-").split("-")
-    assert len(parts) == 2
-    assert parts[0] in SCIENTISTS
-    assert parts[1] in CITIES
-
-
-def test_falls_back_to_hex_when_space_exhausted() -> None:
-    """Final fallback guarantees uniqueness even if scientists+cities collide."""
-    taken = {f"sbx-{s}" for s in SCIENTISTS}
-    taken |= {f"sbx-{s}-{c}" for s in SCIENTISTS for c in CITIES}
-
-    name = generate_sandbox_name(taken)
-
-    assert name not in taken
-    assert name.startswith("sbx-")
-    assert re.fullmatch(_IDENTIFIER_PATTERN, name)
+def test_too_long_prefix_fails_every_time_with_clear_message() -> None:
+    with pytest.raises(ValueError, match=f"at most {MAX_PREFIX_LENGTH} characters"):
+        generate_sandbox_id(prefix="a" * (MAX_PREFIX_LENGTH + 1))
