@@ -24,7 +24,15 @@ from typing import Annotated, Any, Literal, Protocol, TypedDict
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    SerializerFunctionWrapHandler,
+    ValidationInfo,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from celesto._naming import generate_sandbox_name
 
@@ -632,6 +640,39 @@ class NetworkAttachmentConfig(BaseModel):
     model_config = {"frozen": True}
 
 
+class QemuRootDiskOptions(BaseModel):
+    """QEMU tuning for a VM's root disk, meant for disposable VMs such as CI runners.
+
+    Attributes:
+        bus: ``"mmio"`` (default) keeps the root disk on virtio-mmio.
+            ``"pci"`` attaches it as ``virtio-blk-pci`` with one queue per
+            vCPU and turns on the microvm PCIe bus; the root disk enumerates
+            first so it stays ``/dev/vda``. Applies to the Linux x86_64
+            ``microvm`` machine only; other machines keep their own wiring.
+        iothread: Run the root disk's I/O in its own QEMU iothread instead of
+            the main loop. Applies to the Linux x86_64 ``microvm`` machine only.
+        cache: QEMU ``cache=`` mode for the root drive. ``"unsafe"`` ignores
+            guest flushes, so a host crash can lose acknowledged writes; use it
+            only for disks that are thrown away with the VM.
+        aio: QEMU ``aio=`` engine for the root drive. ``"native"`` needs
+            ``cache="none"`` or ``cache="directsync"`` (O_DIRECT).
+    """
+
+    bus: Literal["mmio", "pci"] = "mmio"
+    iothread: bool = False
+    cache: Literal["writeback", "writethrough", "none", "directsync", "unsafe"] = "writeback"
+    aio: Literal["threads", "native", "io_uring"] = "threads"
+
+    @model_validator(mode="after")
+    def _check_native_aio_uses_direct_io(self) -> "QemuRootDiskOptions":
+        """Reject aio=native without O_DIRECT, which QEMU refuses at launch."""
+        if self.aio == "native" and self.cache not in {"none", "directsync"}:
+            raise ValueError('aio=native needs cache="none" or cache="directsync"')
+        return self
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+
 class VMConfig(BaseModel):
     """Configuration for creating a microVM.
 
@@ -681,6 +722,10 @@ class VMConfig(BaseModel):
             machine elsewhere, ``"q35"`` forces the compatibility machine, and
             ``"microvm"`` opts into microvm where supported. Ignored by
             non-QEMU backends.
+        qemu_root_disk: Optional QEMU root disk tuning (bus, iothread, cache,
+            aio). ``None`` (default) keeps QEMU's defaults. Saved configs omit
+            the field while it is ``None``, so older Celesto versions can still
+            load them. Ignored by non-QEMU backends.
         disk_mode: Disk lifecycle mode:
             - ``"isolated"`` (default): clone rootfs per VM for sandbox isolation.
             - ``"shared"``: boot directly from ``rootfs_path``.
@@ -726,6 +771,7 @@ class VMConfig(BaseModel):
     backend: str | None = None
     qemu_network: Literal["slirp", "tap"] = "slirp"
     qemu_machine: QemuMachine = "auto"
+    qemu_root_disk: QemuRootDiskOptions | None = None
     disk_mode: Literal["isolated", "shared"] = "isolated"
     disk_size_mib: Annotated[int, Field(ge=1)] | None = None
     grow_filesystem: bool = False
@@ -740,6 +786,19 @@ class VMConfig(BaseModel):
     ssh_public_key: str | None = None
     guest_managed_networking: bool = False
     network_attachment: NetworkAttachmentConfig = Field(default_factory=NetworkAttachmentConfig)
+
+    @model_serializer(mode="wrap")
+    def _omit_unset_qemu_root_disk(self, handler: SerializerFunctionWrapHandler):  # type: ignore[no-untyped-def]
+        """Leave ``qemu_root_disk`` out of saved configs while it is unset.
+
+        VMConfig forbids unknown fields, so a config saved with this key could
+        not be loaded by a Celesto release from before it existed. No return
+        annotation: one would replace VMConfig's serialization schema.
+        """
+        data = handler(self)
+        if self.qemu_root_disk is None and isinstance(data, dict):
+            data.pop("qemu_root_disk", None)
+        return data
 
     @property
     def effective_rootfs_format(self) -> RootfsFormat:

@@ -55,6 +55,9 @@ _Q35_AHCI_PORTS = 6
 
 _QEMU_MACHINE_ENV = "CELESTO_QEMU_MACHINE"
 _QEMU_MICROVM_MACHINE = "microvm,accel=kvm,acpi=on,pcie=off,pic=off,pit=off,rtc=on"
+# microvm with its PCIe bus on, for a root disk on virtio-blk-pci. The other
+# microvm devices (NIC, vsock, 9p) stay on virtio-mmio.
+_QEMU_MICROVM_PCIE_MACHINE = "microvm,accel=kvm,acpi=on,pcie=on,pic=off,pit=off,rtc=on"
 _QEMU_MACHINE_VALUES: set[QemuMachine] = {"auto", "q35", "microvm"}
 
 
@@ -234,6 +237,19 @@ def build_qemu_argv(
         f"file={_qemu_value(vm_info.config.rootfs_path)},if=none,format={disk_format},"
         f"id={root_drive_id},node-name={root_node_name}"
     )
+    root_disk = vm_info.config.qemu_root_disk
+    if root_disk is not None:
+        # Only non-default values are written, so QEMU's defaults stay implicit.
+        if root_disk.cache != "writeback":
+            drive_arg += f",cache={root_disk.cache}"
+        if root_disk.aio != "threads":
+            drive_arg += f",aio={root_disk.aio}"
+    root_disk_on_pci = use_qemu_microvm and root_disk is not None and root_disk.bus == "pci"
+    root_iothread_id = (
+        f"{root_node_name}-iothread"
+        if use_qemu_microvm and root_disk is not None and root_disk.iothread
+        else None
+    )
     if tap_mode:
         # Attach to the pre-created host TAP. script=no/downscript=no: the host
         # side (link up, IP, routes, NAT) is owned by NetworkManager, not QEMU.
@@ -409,19 +425,32 @@ def build_qemu_argv(
             ]
         )
     elif use_qemu_microvm:
-        cmd.extend(["-machine", _QEMU_MICROVM_MACHINE, "-cpu", "host"])
-        for drive_id in extra_drive_ids:
-            cmd.extend(["-device", f"virtio-blk-device,drive={drive_id}"])
+        machine = _QEMU_MICROVM_PCIE_MACHINE if root_disk_on_pci else _QEMU_MICROVM_MACHINE
+        cmd.extend(["-machine", machine, "-cpu", "host"])
+        iothread_opt = ""
+        if root_iothread_id is not None:
+            cmd.extend(["-object", f"iothread,id={root_iothread_id}"])
+            iothread_opt = f",iothread={root_iothread_id}"
+        if root_disk_on_pci:
+            # PCI devices enumerate in slot order, so adding the root disk
+            # first keeps it at /dev/vda ahead of any extra drives.
+            cmd.extend(
+                [
+                    "-device",
+                    f"virtio-blk-pci,drive={root_drive_id},"
+                    f"num-queues={vm_info.config.vcpu_count}{iothread_opt}",
+                ]
+            )
+            for drive_id in extra_drive_ids:
+                cmd.extend(["-device", f"virtio-blk-pci,drive={drive_id}"])
+        else:
+            for drive_id in extra_drive_ids:
+                cmd.extend(["-device", f"virtio-blk-device,drive={drive_id}"])
         for fsdev_id, tag in workspace_fsdev_ids:
             cmd.extend(["-device", f"virtio-9p-device,fsdev={fsdev_id},mount_tag={tag}"])
-        cmd.extend(
-            [
-                "-device",
-                f"virtio-net-device,netdev=net0,mac={guest_mac}",
-                "-device",
-                f"virtio-blk-device,drive={root_drive_id}",
-            ]
-        )
+        cmd.extend(["-device", f"virtio-net-device,netdev=net0,mac={guest_mac}"])
+        if not root_disk_on_pci:
+            cmd.extend(["-device", f"virtio-blk-device,drive={root_drive_id}{iothread_opt}"])
     else:
         # See accel comment on the aarch64 branch above. Without
         # accel=kvm on Linux, QEMU runs TCG and Ubuntu cloud-init blows

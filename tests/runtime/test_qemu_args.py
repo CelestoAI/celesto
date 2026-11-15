@@ -34,6 +34,7 @@ from celesto.types import (
     NetworkConfig,
     PortForwardConfig,
     QemuMachine,
+    QemuRootDiskOptions,
     VMConfig,
     VMInfo,
     VMState,
@@ -795,3 +796,108 @@ def test_workspace_comma_stays_inside_export_path(tmp_path: Path) -> None:
 
     qmp = argv[argv.index("-qmp") + 1]
     assert "control,,server=off.sock,server=on" in qmp
+
+
+# ── Root disk tuning (disposable CI VMs) ──────────────────────────────
+# Failure modes these guard against:
+# 1. Default configs gain cache=/aio=/iothread options, changing every
+#    existing VM's disk behavior.
+# 2. The PCI root disk enumerates after an extra drive and stops being
+#    /dev/vda, so root=/dev/vda boots the wrong disk.
+# 3. microvm keeps pcie=off, so the virtio-blk-pci device has no bus.
+# 4. Tuning leaks onto extra drives or onto the NIC, vsock, or 9p devices.
+# 5. aio=native is accepted without O_DIRECT and QEMU refuses to start.
+# 6. Saved configs gain a key that older Celesto releases reject on load.
+
+
+def _with_root_disk(vm_info: VMInfo, root_disk: QemuRootDiskOptions, **update: object) -> VMInfo:
+    data = vm_info.config.model_dump()
+    data.update(update, qemu_root_disk=root_disk)
+    return vm_info.model_copy(update={"config": VMConfig.model_validate(data)})
+
+
+def test_microvm_default_root_drive_has_no_disk_tuning(tmp_path: Path) -> None:
+    vm_info = _qemu_vm_info(tmp_path)
+    cmd = build_qemu_argv(
+        vm_info,
+        qemu_bin=Path("/usr/bin/qemu-system-x86_64"),
+        boot_args=vm_info.config.boot_args,
+        platform_spec=_LINUX_SPEC,
+        host_system="Linux",
+    )
+
+    drive_arg = cmd[cmd.index("-drive") + 1]
+    assert drive_arg.endswith(",id=rootdisk0-drive,node-name=rootdisk0")
+    assert "-object" not in cmd
+    assert "virtio-blk-device,drive=rootdisk0-drive" in cmd
+
+
+def test_microvm_pci_root_disk_enumerates_first_with_iothread(tmp_path: Path) -> None:
+    vm_info = _with_vsock(_qemu_vm_info(tmp_path))
+    extra_drive = tmp_path / "extra.raw"
+    extra_drive.touch()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    vm_info = _with_root_disk(
+        vm_info,
+        QemuRootDiskOptions(bus="pci", iothread=True, cache="unsafe", aio="io_uring"),
+        vcpu_count=4,
+        extra_drives=[extra_drive],
+        workspace_mounts=[WorkspaceMount(host_path=workspace, mount_tag="ws0")],
+    )
+
+    cmd = build_qemu_argv(
+        vm_info,
+        qemu_bin=Path("/usr/bin/qemu-system-x86_64"),
+        boot_args=vm_info.config.boot_args,
+        platform_spec=_LINUX_SPEC,
+        host_system="Linux",
+    )
+
+    assert cmd[cmd.index("-machine") + 1] == (
+        "microvm,accel=kvm,acpi=on,pcie=on,pic=off,pit=off,rtc=on"
+    )
+    drive_args = [cmd[i + 1] for i, token in enumerate(cmd) if token == "-drive"]
+    assert drive_args[0].endswith(",node-name=rootdisk0,cache=unsafe,aio=io_uring")
+    assert drive_args[1].endswith(",id=extra0-drive,node-name=extra0")
+    object_index = cmd.index("-object")
+    assert cmd[object_index + 1] == "iothread,id=rootdisk0-iothread"
+
+    device_args = [cmd[i + 1] for i, token in enumerate(cmd) if token == "-device"]
+    root_device = "virtio-blk-pci,drive=rootdisk0-drive,num-queues=4,iothread=rootdisk0-iothread"
+    assert device_args.index(root_device) < device_args.index("virtio-blk-pci,drive=extra0-drive")
+    assert object_index < cmd.index(root_device)
+    assert not any(arg.startswith("virtio-blk-device,") for arg in device_args)
+    assert "virtio-net-device,netdev=net0,mac=52:54:00:12:34:56" in device_args
+    assert "virtio-9p-device,fsdev=fsdev-ws0,mount_tag=ws0" in device_args
+    assert "vhost-vsock-device,guest-cid=42" in device_args
+
+
+def test_microvm_mmio_root_disk_accepts_iothread(tmp_path: Path) -> None:
+    vm_info = _with_root_disk(_qemu_vm_info(tmp_path), QemuRootDiskOptions(iothread=True))
+    cmd = build_qemu_argv(
+        vm_info,
+        qemu_bin=Path("/usr/bin/qemu-system-x86_64"),
+        boot_args=vm_info.config.boot_args,
+        platform_spec=_LINUX_SPEC,
+        host_system="Linux",
+    )
+
+    assert cmd[cmd.index("-machine") + 1].startswith("microvm,accel=kvm,acpi=on,pcie=off,")
+    assert "virtio-blk-device,drive=rootdisk0-drive,iothread=rootdisk0-iothread" in cmd
+
+
+def test_native_disk_aio_requires_direct_io() -> None:
+    with pytest.raises(ValueError, match="aio=native"):
+        QemuRootDiskOptions(aio="native")
+    assert QemuRootDiskOptions(aio="native", cache="none").aio == "native"
+
+
+def test_saved_config_omits_unset_root_disk_tuning(tmp_path: Path) -> None:
+    config = _qemu_vm_info(tmp_path).config
+    assert "qemu_root_disk" not in config.model_dump_json()
+    assert "qemu_root_disk" not in config.model_dump()
+
+    tuned = config.model_copy(update={"qemu_root_disk": QemuRootDiskOptions(bus="pci")})
+    restored = VMConfig.model_validate_json(tuned.model_dump_json())
+    assert restored.qemu_root_disk == QemuRootDiskOptions(bus="pci")
