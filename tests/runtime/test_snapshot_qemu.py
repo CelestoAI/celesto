@@ -856,6 +856,92 @@ def test_restore_qemu_snapshot_preserves_existing_managed_disk_on_failure(
     assert qemu_smol_vm.get("vm001").status == VMState.ERROR
 
 
+def test_restore_qemu_snapshot_keyboard_interrupt_restores_existing_disk(
+    qemu_smol_vm: CelestoManager,
+    qemu_config: VMConfig,
+) -> None:
+    """Ctrl-C during the disk copy must leave the original disk at the managed path."""
+    _create_qemu_vm(qemu_smol_vm, qemu_config)
+    managed_disk = qemu_smol_vm.data_dir / "disks" / "vm001.qcow2"
+    managed_disk.write_text("original-managed-qcow2")
+    vm_info = qemu_smol_vm.get("vm001")
+    assert vm_info.network is not None
+
+    snapshot_dir = qemu_smol_vm.snapshot_dir / "snap-interrupt"
+    snapshot_dir.mkdir(parents=True)
+    snapshot = SnapshotInfo(
+        snapshot_id="snap-interrupt",
+        vm_id="vm001",
+        backend="qemu",
+        artifacts=SnapshotArtifacts(disk_path=snapshot_dir / "disk.qcow2"),
+        vm_config=vm_info.config,
+        network_config=vm_info.network,
+        created_at=datetime.now(UTC),
+    )
+    snapshot.artifacts.disk_path.write_text("snapshotted-qcow2")
+    qemu_smol_vm.state.create_snapshot(snapshot)
+
+    def interrupt_restore(request: Any) -> None:
+        """Leave a partial staging copy behind, then simulate Ctrl-C."""
+        request.managed_disk_path.write_text("partial-restore")
+        raise KeyboardInterrupt
+
+    with (
+        patch.object(QemuRuntimeAdapter, "restore_snapshot", side_effect=interrupt_restore),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        qemu_smol_vm.restore_snapshot("snap-interrupt")
+
+    assert managed_disk.read_text() == "original-managed-qcow2"
+    assert not list(managed_disk.parent.glob("*.backup-*"))
+    assert not list(managed_disk.parent.glob("*.restore-*"))
+    assert qemu_smol_vm.get("vm001").status == VMState.ERROR
+    assert qemu_smol_vm.get_snapshot("snap-interrupt").restored is False
+
+
+def test_restore_qemu_snapshot_keyboard_interrupt_removes_new_vm_placeholder(
+    qemu_smol_vm: CelestoManager,
+    qemu_config: VMConfig,
+) -> None:
+    """Ctrl-C during a restore that creates the VM must leave no disk or row behind."""
+    snapshot_dir = qemu_smol_vm.snapshot_dir / "snap-interrupt-new"
+    snapshot_dir.mkdir(parents=True)
+    snapshot = SnapshotInfo(
+        snapshot_id="snap-interrupt-new",
+        vm_id="vm001",
+        backend="qemu",
+        artifacts=SnapshotArtifacts(disk_path=snapshot_dir / "disk.qcow2"),
+        vm_config=qemu_config,
+        network_config=NetworkConfig(
+            guest_ip="10.0.2.15",
+            tap_device="qemu-user",
+            guest_mac="52:54:00:5d:00:04",
+            ssh_host_port=2205,
+        ),
+        created_at=datetime.now(UTC),
+    )
+    snapshot.artifacts.disk_path.write_text("snapshotted-qcow2")
+    qemu_smol_vm.state.create_snapshot(snapshot)
+
+    def interrupt_restore(request: Any) -> None:
+        request.managed_disk_path.write_text("partial-restore")
+        raise KeyboardInterrupt
+
+    with (
+        patch.object(QemuRuntimeAdapter, "restore_snapshot", side_effect=interrupt_restore),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        qemu_smol_vm.restore_snapshot("snap-interrupt-new")
+
+    managed_disk = qemu_smol_vm.data_dir / "disks" / "vm001.qcow2"
+    assert not managed_disk.exists()
+    assert not list(managed_disk.parent.glob("*.backup-*"))
+    assert not list(managed_disk.parent.glob("*.restore-*"))
+    with pytest.raises(VMNotFoundError):
+        qemu_smol_vm.state.get_vm("vm001")
+    assert qemu_smol_vm.state.get_ssh_port("vm001") is None
+
+
 def test_restore_qemu_snapshot_removes_replaced_disk_sidecars(
     qemu_smol_vm: CelestoManager,
     qemu_config: VMConfig,
