@@ -141,7 +141,7 @@ jobs:
           uv build --package celesto --out-dir dist
 
       - name: Verify built distribution filenames
-        run: python3 tests/check_release_distributions.py
+        run: python3 tests/scripts/check_release_distributions.py
 
       - name: Smoke test built wheels
         run: |

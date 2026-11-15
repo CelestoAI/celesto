@@ -18,11 +18,11 @@ def test_package_release_accepts_standard_and_namespaced_version_tags() -> None:
 def test_package_release_checks_built_filenames_before_upload(tmp_path: Path) -> None:
     workflow = (_WORKFLOWS / "publish.yml").read_text(encoding="utf-8")
     build_step = workflow.index("      - name: Build package")
-    filename_check = workflow.index("python3 tests/check_release_distributions.py")
+    filename_check = workflow.index("python3 tests/scripts/check_release_distributions.py")
     upload_step = workflow.index("      - uses: pypa/gh-action-pypi-publish@")
     assert build_step < filename_check < upload_step
 
-    script = _WORKFLOWS.parents[1] / "tests" / "check_release_distributions.py"
+    script = _WORKFLOWS.parents[1] / "tests" / "scripts" / "check_release_distributions.py"
     for declared_version, built_version, expected_success in (
         ("0.1.15.a1", "0.1.15a1", False),
         ("0.1.15a1", "0.1.15a1", True),
@@ -53,7 +53,7 @@ def test_package_release_checks_built_filenames_before_upload(tmp_path: Path) ->
 def test_package_smoke_checks_built_filenames_before_install() -> None:
     workflow = (_WORKFLOWS / "pytest.yml").read_text(encoding="utf-8")
     build_step = workflow.index("      - name: Build release artifacts")
-    filename_check = workflow.index("python3 tests/check_release_distributions.py")
+    filename_check = workflow.index("python3 tests/scripts/check_release_distributions.py")
     install_step = workflow.index("      - name: Smoke test built wheels")
     assert build_step < filename_check < install_step
 
