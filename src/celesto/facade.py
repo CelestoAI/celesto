@@ -48,7 +48,7 @@ from urllib.parse import urlparse
 from pydantic import TypeAdapter
 from pydantic import ValidationError as PydanticValidationError
 
-from celesto._naming import generate_sandbox_name
+from celesto._naming import generate_sandbox_id
 from celesto._network_policy import parse_network_policy, validate_network_policy_options
 from celesto._telemetry import begin_local_use, observe_sdk_operation, record_success
 from celesto._terminal_env import guest_terminal_type
@@ -241,13 +241,15 @@ def _path_size_mib(path: Path) -> int:
     return (path.stat().st_size + (1024 * 1024) - 1) // (1024 * 1024)
 
 
-def _resolve_vm_name(vm_name: str | None, *, prefix: str = "sbx") -> str:
-    """Return the supplied name or generate one without consulting host inventory."""
-    if vm_name is not None:
-        return vm_name
-    # Generated names include enough entropy that SDK construction should not
-    # need a machine-wide database read merely to choose a friendly name.
-    return generate_sandbox_name(set(), prefix=prefix)
+def _resolve_vm_identity(vm_name: str | None, *, prefix: str = "sbx") -> tuple[str, str | None]:
+    """Return a new random computer ID and the requested friendly name.
+
+    The ID keys the disk, logs, sockets and inventory row, so it must never
+    repeat, even across threads and processes that share no inventory. The
+    name is only a label: when it is ``None`` the inventory picks a free one
+    while it records the computer.
+    """
+    return generate_sandbox_id(prefix), vm_name
 
 
 def _resolve_auto_config_public_key(ssh_key_path: str | None) -> tuple[str, Path]:
@@ -460,14 +462,15 @@ def _build_local_image_config(
         private_key, _ = ensure_ssh_key()
         ssh_key_path = str(private_key)
 
-    resolved_vm_name = _resolve_vm_name(vm_name, prefix=name_prefix)
+    resolved_vm_id, resolved_vm_name = _resolve_vm_identity(vm_name, prefix=name_prefix)
 
     # Memory defaults follow the deep-dive recommendation: 4 GiB for
     # Windows 11 (it runs at 2 GiB minimum but Edge + Defender want more).
     default_mem_mib = _AUTO_CONFIG_DEFAULT_MEM_SIZE_MIB.get(GuestOS.WINDOWS, 4096)
 
     config = VMConfig(
-        vm_id=resolved_vm_name,
+        vm_id=resolved_vm_id,
+        name=resolved_vm_name,
         vcpu_count=4,
         memory=memory if memory is not None else default_mem_mib,
         guest_os=GuestOS.WINDOWS,
@@ -492,7 +495,7 @@ def _build_local_image_config(
     )
     logger.info(
         "Configured Windows VM from local image: %s (image=%s)",
-        resolved_vm_name,
+        resolved_vm_id,
         local_path,
     )
     return config, ssh_key_path
@@ -571,9 +574,10 @@ def _build_s3_image_config(
                 )
             extra_drives.append(seed_path)
 
-    resolved_vm_name = _resolve_vm_name(vm_name, prefix=name_prefix)
+    resolved_vm_id, resolved_vm_name = _resolve_vm_identity(vm_name, prefix=name_prefix)
     config = VMConfig(
-        vm_id=resolved_vm_name,
+        vm_id=resolved_vm_id,
+        name=resolved_vm_name,
         vcpu_count=1,
         memory=memory or 512,
         kernel_path=local_image.kernel_path,
@@ -587,7 +591,7 @@ def _build_s3_image_config(
     )
     logger.info(
         "Configured VM from S3 image: %s (image=%s, backend=%s)",
-        resolved_vm_name,
+        resolved_vm_id,
         manifest.name,
         resolved_backend,
     )
@@ -634,7 +638,7 @@ def _build_auto_config(
         from celesto.macos.images import MacOSImageManager
         from celesto.vm import resolve_data_dir
 
-        resolved_vm_name = _resolve_vm_name(vm_name, prefix=name_prefix)
+        resolved_vm_id, resolved_vm_name = _resolve_vm_identity(vm_name, prefix=name_prefix)
         resolved_data_dir = data_dir or resolve_data_dir()
         image_manager = MacOSImageManager()
         manifest = image_manager.get()
@@ -644,12 +648,13 @@ def _build_auto_config(
                 "memory setting and create the computer again."
             )
         machine = image_manager.machine_config(
-            resolved_vm_name,
+            resolved_vm_id,
             data_dir=resolved_data_dir,
             clipboard=clipboard,
         )
         config = VMConfig(
-            vm_id=resolved_vm_name,
+            vm_id=resolved_vm_id,
+            name=resolved_vm_name,
             preset=preset_name,
             vcpu_count=manifest.cpu_count,
             memory=manifest.memory_mib,
@@ -659,7 +664,7 @@ def _build_auto_config(
             macos_machine=machine,
             ssh_capable=False,
         )
-        logger.info("Auto-configured VM: %s (os=macos, backend=vz)", resolved_vm_name)
+        logger.info("Auto-configured VM: %s (os=macos, backend=vz)", resolved_vm_id)
         return config, None
     resolved_ssh_key_path, public_key_path = _resolve_auto_config_public_key(ssh_key_path)
     public_key_value = public_key_path.read_text().strip()
@@ -688,7 +693,7 @@ def _build_auto_config(
         }
         vmm = vmm_by_backend[resolved_backend]
         arch = to_published_arch(platform.machine())
-        resolved_vm_name = _resolve_vm_name(vm_name, prefix=name_prefix)
+        resolved_vm_id, resolved_vm_name = _resolve_vm_identity(vm_name, prefix=name_prefix)
         local_image = ensure_published_image(
             "ubuntu",
             arch,
@@ -701,11 +706,12 @@ def _build_auto_config(
         if disk_size_mib is None:
             resolved_disk_size_mib = required_disk_size_mib
         elif resolved_disk_size_mib < required_disk_size_mib:
-            quoted_vm_name = shlex.quote(resolved_vm_name)
+            name_option = (
+                f" --name {shlex.quote(resolved_vm_name)}" if resolved_vm_name is not None else ""
+            )
             raise ValueError(
-                f"Ubuntu needs at least {required_disk_size_mib} MiB for computer "
-                f"'{resolved_vm_name}'; "
-                f"recreate it with: celesto computer create --name {quoted_vm_name} --os ubuntu "
+                f"Ubuntu needs at least {required_disk_size_mib} MiB for this computer; "
+                f"recreate it with: celesto computer create{name_option} --os ubuntu "
                 f"--backend {resolved_backend} --disk-size {required_disk_size_mib}."
             )
         should_grow_filesystem = (
@@ -718,7 +724,8 @@ def _build_auto_config(
             platform.machine(),
         )
         config = VMConfig(
-            vm_id=resolved_vm_name,
+            vm_id=resolved_vm_id,
+            name=resolved_vm_name,
             preset=preset_name,
             vcpu_count=1,
             memory=resolved_memory,
@@ -736,7 +743,7 @@ def _build_auto_config(
         )
         logger.info(
             "Auto-configured VM: %s (os=ubuntu, backend=%s, source=published-bare-ubuntu)",
-            resolved_vm_name,
+            resolved_vm_id,
             resolved_backend,
         )
         return config, resolved_ssh_key_path
@@ -771,9 +778,10 @@ def _build_auto_config(
         kernel_url=base_kernel_url,
     )
 
-    resolved_vm_name = _resolve_vm_name(vm_name, prefix=name_prefix)
+    resolved_vm_id, resolved_vm_name = _resolve_vm_identity(vm_name, prefix=name_prefix)
     config = VMConfig(
-        vm_id=resolved_vm_name,
+        vm_id=resolved_vm_id,
+        name=resolved_vm_name,
         preset=preset_name,
         vcpu_count=1,
         memory=resolved_memory,
@@ -787,7 +795,7 @@ def _build_auto_config(
     )
     logger.info(
         "Auto-configured VM: %s (os=%s, backend=%s)",
-        resolved_vm_name,
+        resolved_vm_id,
         resolved_os.value,
         resolved_backend,
     )
@@ -1275,8 +1283,9 @@ class Celesto:
             # Reconnect to an existing VM
             assert vm_id is not None
             self._sdk = CelestoManager.from_id(vm_id, **sdk_kwargs)
-            self._info = self._sdk.get(vm_id)
-            self._vm_id = vm_id
+            # Accept the friendly name as well as the ID.
+            self._info = self._sdk.get(self._sdk.state.resolve_vm_id(vm_id))
+            self._vm_id = self._info.vm_id
             self._owns_vm = False
 
         self._control_channel: CommChannel | None = None
@@ -1564,10 +1573,10 @@ class Celesto:
         comm_channel: CommChannelKind | None = None,
         state_manager: StateManagerProtocol | None = None,
     ) -> Celesto:
-        """Reconnect through an explicitly supplied inventory by ID.
+        """Reconnect through an explicitly supplied inventory by ID or name.
 
         Args:
-            vm_id: VM identifier.
+            vm_id: Computer ID or friendly name.
             data_dir: Override the default data directory.
             socket_dir: Override the default socket directory.
             backend: Runtime backend override (``firecracker``, ``qemu``, or ``auto``).
@@ -1604,6 +1613,7 @@ class Celesto:
         image: BootImage,
         *,
         vm_id: str | None = None,
+        name: str | None = None,
         name_prefix: str = "sbx",
         data_dir: Path | None = None,
         socket_dir: Path | None = None,
@@ -1635,7 +1645,11 @@ class Celesto:
         per-VM runtime settings and delegates disk isolation/network setup to
         the normal Celesto lifecycle.
         """
-        resolved_vm_id = _resolve_vm_name(vm_id, prefix=name_prefix)
+        # An explicit vm_id stays the ID (and, unless *name* is given, the
+        # name too). Otherwise the ID is random so parallel creates never share
+        # a disk, and the inventory picks a free friendly name.
+        resolved_vm_id = vm_id if vm_id is not None else generate_sandbox_id(name_prefix)
+        resolved_name = name if name is not None or vm_id is None else vm_id
         if internet_settings is not None:
             internet_settings = parse_network_policy(internet_settings)
             validate_network_policy_options(
@@ -1672,6 +1686,7 @@ class Celesto:
 
         config = VMConfig(
             vm_id=resolved_vm_id,
+            name=resolved_name,
             vcpu_count=vcpus,
             memory=memory_mb,
             guest_os=_normalize_guest_os(guest_os),
@@ -2974,8 +2989,13 @@ class Celesto:
 
     @property
     def vm_id(self) -> str:
-        """The VM identifier."""
+        """The unique computer ID that keys its disk, logs and saved state."""
         return self._vm_id
+
+    @property
+    def name(self) -> str:
+        """The computer's friendly name; commands accept it in place of the ID."""
+        return self._info.name
 
     @property
     def info(self) -> VMInfo:

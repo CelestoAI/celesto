@@ -152,7 +152,7 @@ def complete_sandbox_names(
     incomplete: str,
 ) -> list[Any]:
     """Complete a sandbox-name argument with the user's existing sandboxes."""
-    return _complete_from_state(lambda state: [vm.vm_id for vm in state.list_vms()], incomplete)
+    return _complete_from_state(lambda state: [vm.name for vm in state.list_vms()], incomplete)
 
 
 def complete_browser_session_names(

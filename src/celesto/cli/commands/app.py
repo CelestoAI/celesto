@@ -75,7 +75,34 @@ def _before_command(*, json_output: bool = False, skip_update_notice: bool = Fal
 
 
 def _ns(**values: Any) -> SimpleNamespace:
+    # Local commands accept a computer's friendly name or its ID; handlers
+    # work with IDs, which key every disk, log and inventory row.
+    if values.get("provider") != "cloud":
+        for key in ("vm_id", "computer_id"):
+            if isinstance(values.get(key), str):
+                values[key] = _local_computer_id(values[key])
     return SimpleNamespace(**values)
+
+
+def _local_computer_id(ref: str) -> str:
+    """Return the ID of the local computer named *ref*, or *ref* unchanged.
+
+    Unknown references pass through so each command reports them in its own
+    words and output format.
+    """
+    from celesto.cli.service import CLIService
+
+    try:
+        state = CLIService().state_manager()
+    except Exception:
+        return ref
+    try:
+        vm_id = state.resolve_vm_id(ref)
+    except Exception:
+        return ref
+    finally:
+        state.close()
+    return vm_id if isinstance(vm_id, str) else ref
 
 
 def _computer_range(minimum: int, maximum: int, example: int) -> Any:
@@ -728,7 +755,7 @@ def sandbox_info(vm_id: str, provider: str, json_output: bool) -> Any:
             _ns(computer_action="get", computer_id=vm_id, provider="cloud", json=json_output)
         )
     return _handlers()._run_info(
-        vm_id=vm_id,
+        vm_id=_local_computer_id(vm_id),
         json_output=json_output,
         command_name="sandbox.info",
     )
@@ -1046,7 +1073,7 @@ def sandbox_delete(
             command_name="sandbox.delete",
         )
     return run_delete(
-        vm_ids=list(vm_ids),
+        vm_ids=[_local_computer_id(ref) for ref in vm_ids],
         dry_run=dry_run,
         json_output=json_output,
         command_name="sandbox.delete",

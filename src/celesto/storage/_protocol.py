@@ -58,6 +58,14 @@ class StateManagerProtocol(Protocol):
     def get_vm(self, vm_id: str) -> VMInfo:
         pass
 
+    def resolve_vm_id(self, ref: str) -> str:
+        """Return the ID of the computer whose ID or friendly name is *ref*.
+
+        Raises:
+            VMNotFoundError: If no computer has that ID or name.
+        """
+        pass
+
     def update_vm(
         self,
         vm_id: str,

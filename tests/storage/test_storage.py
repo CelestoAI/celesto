@@ -120,7 +120,8 @@ class TestStateManagerVMOperations:
 
         assert vm_info.vm_id == "vm001"
         assert vm_info.status == VMState.CREATED
-        assert vm_info.config == sample_config
+        assert vm_info.config.name is not None
+        assert vm_info.config.model_copy(update={"name": None}) == sample_config
 
     def test_create_duplicate_vm_raises(
         self, state_manager: StateManager, sample_config: VMConfig

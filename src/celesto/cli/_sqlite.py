@@ -36,7 +36,6 @@ from celesto.exceptions import (
     NetworkError,
     SnapshotAlreadyExistsError,
     SnapshotNotFoundError,
-    VMAlreadyExistsError,
     VMNotFoundError,
 )
 from celesto.storage._base import (
@@ -47,10 +46,12 @@ from celesto.storage._base import (
     VSOCK_CID_END,
     VSOCK_CID_START,
     browser_session_info_from_row,
+    claim_vm_name,
     now_iso,
     pool_index_to_ip,
     snapshot_info_from_row,
     vm_config_from_json,
+    vm_config_to_json,
 )
 from celesto.types import (
     BrowserSessionConfig,
@@ -205,6 +206,7 @@ class SQLiteStateManager:
                 """
                 CREATE TABLE IF NOT EXISTS vms (
                     id TEXT PRIMARY KEY,
+                    name TEXT,
                     status TEXT NOT NULL,
                     config TEXT NOT NULL,
                     network TEXT,
@@ -308,6 +310,12 @@ class SQLiteStateManager:
             vm_columns = {row["name"] for row in conn.execute("PRAGMA table_info(vms)").fetchall()}
             if "display" not in vm_columns:
                 conn.execute("ALTER TABLE vms ADD COLUMN display TEXT")
+            if "name" not in vm_columns:
+                # Older inventories keyed each computer by its name, so that
+                # name stays both its ID and its friendly name.
+                conn.execute("ALTER TABLE vms ADD COLUMN name TEXT")
+                conn.execute("UPDATE vms SET name = id WHERE name IS NULL")
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_vms_name ON vms(name)")
             snapshot_columns = {
                 row["name"] for row in conn.execute("PRAGMA table_info(snapshots)").fetchall()
             }
@@ -347,19 +355,31 @@ class SQLiteStateManager:
         now = now_iso()
 
         with self._get_connection(exclusive=True) as conn:
-            existing = conn.execute("SELECT id FROM vms WHERE id = ?", (config.vm_id,)).fetchone()
-            if existing:
-                raise VMAlreadyExistsError(config.vm_id)
+            # The write lock is held from here to commit, so the name chosen
+            # below cannot be claimed by a concurrent create.
+            rows = conn.execute("SELECT id, name FROM vms").fetchall()
+            config = claim_vm_name(
+                config,
+                names={row["name"] for row in rows if row["name"]},
+                ids={row["id"] for row in rows},
+            )
 
             conn.execute(
                 """
-                INSERT INTO vms (id, status, config, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO vms (id, name, status, config, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (config.vm_id, VMState.CREATED.value, config.model_dump_json(), now, now),
+                (
+                    config.vm_id,
+                    config.name,
+                    VMState.CREATED.value,
+                    vm_config_to_json(config),
+                    now,
+                    now,
+                ),
             )
 
-        logger.info("Created VM record: %s", config.vm_id)
+        logger.info("Created VM record: %s (name=%s)", config.vm_id, config.name)
         return VMInfo(vm_id=config.vm_id, status=VMState.CREATED, config=config)
 
     def get_vm(self, vm_id: str) -> VMInfo:
@@ -371,8 +391,25 @@ class SQLiteStateManager:
 
         if not row:
             raise VMNotFoundError(vm_id)
+        return self._vm_info_from_row(row)
 
+    def resolve_vm_id(self, ref: str) -> str:
+        """Return the ID of the computer whose ID or name is *ref*."""
+        if not ref:
+            raise ValueError("computer reference cannot be empty")
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT id FROM vms WHERE id = ? UNION ALL SELECT id FROM vms WHERE name = ?",
+                (ref, ref),
+            ).fetchone()
+        if not row:
+            raise VMNotFoundError(ref)
+        return str(row["id"])
+
+    @staticmethod
+    def _vm_info_from_row(row: sqlite3.Row) -> VMInfo:
         config = vm_config_from_json(row["config"])
+        config = config.model_copy(update={"name": row["name"] or row["id"]})
         network = NetworkConfig.model_validate_json(row["network"]) if row["network"] else None
         control_socket_path = Path(row["socket_path"]) if row["socket_path"] else None
         display = DesktopEndpoint.model_validate_json(row["display"]) if row["display"] else None
@@ -419,7 +456,7 @@ class SQLiteStateManager:
                 params.append(status.value)
             if config is not None:
                 updates.append("config = ?")
-                params.append(config.model_dump_json())
+                params.append(vm_config_to_json(config))
             if network is not None:
                 updates.append("network = ?")
                 params.append(network.model_dump_json())
@@ -468,26 +505,7 @@ class SQLiteStateManager:
             else:
                 rows = conn.execute("SELECT * FROM vms ORDER BY created_at").fetchall()
 
-        result = []
-        for row in rows:
-            config = vm_config_from_json(row["config"])
-            network = NetworkConfig.model_validate_json(row["network"]) if row["network"] else None
-            control_socket_path = Path(row["socket_path"]) if row["socket_path"] else None
-            display = (
-                DesktopEndpoint.model_validate_json(row["display"]) if row["display"] else None
-            )
-            result.append(
-                VMInfo(
-                    vm_id=row["id"],
-                    status=VMState(row["status"]),
-                    config=config,
-                    network=network,
-                    pid=row["pid"],
-                    control_socket_path=control_socket_path,
-                    display=display,
-                )
-            )
-        return result
+        return [self._vm_info_from_row(row) for row in rows]
 
     # ------------------------------------------------------------------
     # IP allocation
@@ -874,7 +892,7 @@ class SQLiteStateManager:
                     str(info.artifacts.disk_path),
                     info.backend,
                     info.artifacts.model_dump_json(),
-                    info.vm_config.model_dump_json(),
+                    vm_config_to_json(info.vm_config),
                     info.network_config.model_dump_json(),
                     info.created_at.isoformat(),
                     info.snapshot_type.value,

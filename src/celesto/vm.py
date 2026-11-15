@@ -530,7 +530,7 @@ class CelestoManager:
         Useful for attaching to an existing VM from a different process.
 
         Args:
-            vm_id: The VM identifier to look up.
+            vm_id: The computer ID or friendly name to look up.
             **kwargs: Forwarded to :meth:`__init__` (e.g. ``data_dir``).
 
         Returns:
@@ -540,7 +540,7 @@ class CelestoManager:
             VMNotFoundError: If no VM with this ID exists.
         """
         sdk = cls(**kwargs)
-        sdk.state.get_vm(vm_id)  # raises VMNotFoundError if absent
+        sdk.state.resolve_vm_id(vm_id)  # raises VMNotFoundError if absent
         return sdk
 
     def __enter__(self) -> CelestoManager:
@@ -2382,7 +2382,8 @@ class CelestoManager:
                 # concurrent same-ID create cannot resize the same disk first.
                 # Resize/grow after persistence so a persistence failure cannot
                 # mutate a retained managed disk without a VM row.
-                self.state.create_vm(effective_config)
+                # The inventory fills in a free friendly name when none was given.
+                effective_config = self.state.create_vm(effective_config).config
                 vm_record_created = True
                 # A row owns this disk again, so it is no longer a kept
                 # leftover. Only now: a create that fails after reusing a
@@ -3207,7 +3208,10 @@ class CelestoManager:
                         },
                     )
 
-        if existing_vm is not None and existing_vm.config != snapshot.vm_config:
+        # Snapshots do not record the friendly name, so compare everything else.
+        if existing_vm is not None and existing_vm.config.model_copy(
+            update={"name": None}
+        ) != snapshot.vm_config.model_copy(update={"name": None}):
             raise CelestoError(
                 "Snapshot restore requires the original computer identity and config",
                 {"snapshot_id": snapshot_id, "vm_id": restore_vm_id},
@@ -4702,7 +4706,8 @@ class CelestoManager:
                     effective_config.disk_mode,
                 )
 
-                self.state.create_vm(effective_config)
+                # The inventory fills in a free friendly name when none was given.
+                effective_config = self.state.create_vm(effective_config).config
                 vm_record_created = True
                 # See create(): clear the mark only once a row owns the disk.
                 if managed_disk_path is not None:

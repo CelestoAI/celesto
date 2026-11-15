@@ -683,6 +683,7 @@ class TestCliMountFlag:
             None,
         )
         mock_celesto_cls.return_value.vm_id = "vm-mnt"
+        mock_celesto_cls.return_value.name = "vm-mnt"
         mock_celesto_cls.return_value.info.status = VMState.RUNNING
 
         ret = main(["sandbox", "create", "--mount", str(tmp_path / "project"), "--json"])
@@ -718,6 +719,7 @@ class TestCliMountFlag:
             None,
         )
         mock_celesto_cls.return_value.vm_id = "vm-mnt"
+        mock_celesto_cls.return_value.name = "vm-mnt"
         mock_celesto_cls.return_value.info.status = VMState.RUNNING
 
         ret = main(
