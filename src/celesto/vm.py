@@ -160,6 +160,41 @@ def _process_alive(pid: int) -> bool:
     return True
 
 
+def _file_open_by_any_process(path: Path) -> bool | None:
+    """Return whether any process holds *path* open, or None if unknown."""
+    lsof = which("lsof")
+    if lsof is not None:
+        try:
+            result = subprocess.run(
+                [str(lsof), "-t", "--", str(path)],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if result.returncode == 0 and result.stdout.strip():
+            return True
+        if result.returncode == 1 and not result.stdout.strip():
+            return False
+        return None
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return None
+    target = os.path.realpath(path)
+    for fd_dir in proc.glob("[0-9]*/fd"):
+        try:
+            entries = list(fd_dir.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
+            with suppress(OSError):
+                if os.path.realpath(entry) == target:
+                    return True
+    return False
+
+
 # Backend-specific defaults
 QEMU_GUEST_IP = "10.0.2.15"
 _MIB = 1024 * 1024
@@ -4476,8 +4511,9 @@ class CelestoManager:
             "keep": bool(config.retain_disk_on_delete),
             "in_memory_inventory": isinstance(self.state, MemoryStateManager),
         }
-        with suppress(OSError):
-            self._disk_owner_path(managed_disk).write_text(json.dumps(record))
+        # No suppress: a create that cannot record its ownership must roll
+        # back, or another script could adopt the disk from the stale record.
+        self._disk_owner_path(managed_disk).write_text(json.dumps(record))
 
     def _restore_disk_owner(self, managed_disk: Path | None, previous: bytes | None) -> None:
         """Put back the owner record a failed create overwrote."""
@@ -4490,33 +4526,47 @@ class CelestoManager:
             else:
                 owner_path.write_bytes(previous)
 
+    def _kept_by_crashed_script(self, managed_disk: Path) -> dict[str, Any] | None:
+        """Return the owner record if it marks this disk as kept by an SDK script.
+
+        An SDK script keeps its inventory in memory and only writes the
+        ``.retained`` marker on a clean delete, so after a crash this record is
+        the only sign that the user asked to keep the disk.
+        """
+        try:
+            record = json.loads(self._disk_owner_path(managed_disk).read_text())
+        except (OSError, ValueError):
+            return None
+        if (
+            not isinstance(record, dict)
+            or record.get("vm_id") != managed_disk.name.rsplit(".", 1)[0]
+            or record.get("keep") is not True
+            or record.get("in_memory_inventory") is not True
+            or not isinstance(record.get("pid"), int)
+        ):
+            return None
+        return record
+
     def _disk_owner_gone_and_kept(self, managed_disk: Path | None) -> bool:
         """Return whether an unmarked disk may be adopted by a new create.
 
         True only for a disk kept on purpose by an SDK script whose inventory
         lived in memory, when that script's process has exited and no running
         process still uses the disk. A shared inventory keeps its own row, so
-        its disks are never adopted this way.
+        its disks are never adopted this way. The script's exit alone does not
+        free the disk: its runtime can outlive it.
         """
         if managed_disk is None:
             return False
-        try:
-            record = json.loads(self._disk_owner_path(managed_disk).read_text())
-        except (OSError, ValueError):
-            return False
-        if not isinstance(record, dict):
-            return False
-        pid = record.get("pid")
-        if (
-            record.get("vm_id") != managed_disk.name.rsplit(".", 1)[0]
-            or record.get("keep") is not True
-            or record.get("in_memory_inventory") is not True
-            or not isinstance(pid, int)
-            or _process_alive(pid)
-        ):
+        record = self._kept_by_crashed_script(managed_disk)
+        if record is None or _process_alive(record["pid"]):
             return False
         process_args = self._running_process_args()
-        return process_args is not None and not self._path_in_use(managed_disk, process_args)
+        if process_args is None or self._path_in_use(managed_disk, process_args):
+            return False
+        # Firecracker and libkrun never name the disk in their arguments, so
+        # also ask which processes hold the file open.
+        return _file_open_by_any_process(managed_disk) is False
 
     def _clear_retained_marker(self, managed_disk: Path) -> None:
         """Drop the retention marker once a VM row owns this disk again."""
@@ -4574,7 +4624,10 @@ class CelestoManager:
                 # memory, so the disk of a live VM can look unreferenced here.
                 logger.debug("Skipping in-use disk %s", managed_disk)
                 continue
-            retained = self._retained_marker_path(managed_disk).exists()
+            retained = (
+                self._retained_marker_path(managed_disk).exists()
+                or self._kept_by_crashed_script(managed_disk) is not None
+            )
             for path in (managed_disk, *self._managed_disk_companions(managed_disk)):
                 leftovers.append(
                     LeftoverArtifact(

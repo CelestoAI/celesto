@@ -40,6 +40,7 @@ from celesto.cli.service import CLIService
 from celesto.exceptions import VMAlreadyExistsError
 from celesto.facade import Celesto
 from celesto.images.boot import BootImage, DirectKernelBoot
+from celesto.vm import CelestoManager
 
 PARALLEL = 20
 GENERATED_ID = re.compile(rf"^sbx-({'|'.join(SCIENTISTS)})-[a-z0-9]{{6}}$")
@@ -297,6 +298,86 @@ def test_unkept_disk_from_crashed_sdk_process_is_not_adopted(
 ) -> None:
     data_dir = tmp_path / "data"
     _create_in_crashing_process(boot_image, data_dir, "left-behind", keep=False)
+    disk = data_dir / "disks" / "left-behind.qcow2"
 
-    with pytest.raises(VMAlreadyExistsError, match="celesto computer delete left-behind"):
+    with pytest.raises(VMAlreadyExistsError, match="celesto computer delete left-behind") as exc:
         _create(boot_image, data_dir, vm_id="left-behind")
+
+    assert disk.exists()
+    (tmp_path / "unkept-crash-report.json").write_text(
+        json.dumps({"id": "left-behind", "disk": str(disk), "rejected": str(exc.value)}, indent=2)
+        + "\n"
+    )
+
+
+# Holds a file open while its command line names only the process itself,
+# like Firecracker and libkrun, whose arguments never mention the disk.
+_HOLD_OPEN_SCRIPT = """
+import sys, time
+handle = open(sys.stdin.readline().strip(), "rb")
+print("ready", flush=True)
+time.sleep(60)
+"""
+
+
+def test_kept_disk_still_open_in_a_runtime_is_not_adopted(
+    tmp_path: Path, boot_image: BootImage
+) -> None:
+    # The script that owned the disk died, but the computer's runtime outlived
+    # it and still has the disk open. Taking the disk now would share it.
+    data_dir = tmp_path / "data"
+    _create_in_crashing_process(boot_image, data_dir, "still-running", keep=True)
+    disk = data_dir / "disks" / "still-running.qcow2"
+
+    holder = subprocess.Popen(
+        [sys.executable, "-c", _HOLD_OPEN_SCRIPT],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert holder.stdin is not None and holder.stdout is not None
+        holder.stdin.write(f"{disk}\n")
+        holder.stdin.flush()
+        assert holder.stdout.readline().strip() == "ready"
+
+        with pytest.raises(VMAlreadyExistsError, match="still-running") as exc:
+            _create(boot_image, data_dir, vm_id="still-running")
+    finally:
+        holder.kill()
+        holder.wait()
+
+    reopened = _create(boot_image, data_dir, vm_id="still-running")
+    reopened.delete()
+    (tmp_path / "open-disk-report.json").write_text(
+        json.dumps(
+            {
+                "id": "still-running",
+                "disk": str(disk),
+                "rejected_while_open": str(exc.value),
+                "reopened_after_runtime_exit": True,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+
+
+def test_default_prune_keeps_disk_of_crashed_script(tmp_path: Path, boot_image: BootImage) -> None:
+    # A kept disk whose script died is still a disk the user asked to keep.
+    data_dir = tmp_path / "data"
+    _create_in_crashing_process(boot_image, data_dir, "kept-after-crash", keep=True)
+    disk = data_dir / "disks" / "kept-after-crash.qcow2"
+    manager = CelestoManager(data_dir=data_dir, socket_dir=data_dir / "sockets")
+
+    removed = manager.prune_leftover_artifacts()
+    assert all(item.path != disk for item in removed)
+    assert disk.exists()
+
+    removed = manager.prune_leftover_artifacts(include_retained=True)
+    assert disk in {item.path for item in removed}
+    assert not disk.exists()
+    (tmp_path / "prune-report.json").write_text(
+        json.dumps({"id": "kept-after-crash", "disk": str(disk), "kept_by_default": True}, indent=2)
+        + "\n"
+    )
