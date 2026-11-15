@@ -149,7 +149,6 @@ _MIB = 1024 * 1024
 LIBKRUN_GUEST_IP = "192.168.127.2"
 LIBKRUN_GATEWAY_IP = "192.168.127.1"
 _QEMU_VSOCK_CID_RE = re.compile(r"vhost-vsock-(?:pci|device),guest-cid=(\d+)")
-_QEMU_APPARMOR_PROFILE_ENV = "CELESTO_QEMU_APPARMOR_PROFILE"
 
 
 @dataclass(frozen=True)
@@ -446,6 +445,8 @@ class CelestoManager:
         socket_dir: Path | None = None,
         backend: str | None = None,
         state_manager: StateManagerProtocol | None = None,
+        *,
+        _qemu_apparmor_profile: str | None = None,
     ) -> None:
         """Initialize the Celesto manager.
 
@@ -462,6 +463,7 @@ class CelestoManager:
         self.data_dir = resolve_data_dir(data_dir)
         self.socket_dir = socket_dir or DEFAULT_SOCKET_DIR
         self.backend = resolve_backend(backend)
+        self._qemu_apparmor_profile = _qemu_apparmor_profile
         self.disk_dir = self.data_dir / "disks"
         self.snapshot_dir = self.data_dir / "snapshots"
         self.disk_dir.mkdir(parents=True, exist_ok=True)
@@ -3715,7 +3717,7 @@ class CelestoManager:
 
         boot_args = self._resolve_boot_args(vm_info)
         host_system = platform.system()
-        profile = os.environ.get(_QEMU_APPARMOR_PROFILE_ENV)
+        profile = self._qemu_apparmor_profile
         if profile and host_system != "Linux":
             raise CelestoError("QEMU AppArmor confinement requires Linux.")
         platform_spec = get_guest_platform(

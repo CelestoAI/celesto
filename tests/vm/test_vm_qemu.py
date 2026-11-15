@@ -311,10 +311,9 @@ def test_start_qemu_uses_distinct_block_backend_and_node_names(
 def test_qemu_apparmor_launch_preserves_supported_networking(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, network_mode: str, profile: str | None
 ) -> None:
-    if profile is None:
-        monkeypatch.delenv("CELESTO_QEMU_APPARMOR_PROFILE", raising=False)
-    else:
-        monkeypatch.setenv("CELESTO_QEMU_APPARMOR_PROFILE", profile)
+    # Service environment alone must not change standalone SDK launches.
+    monkeypatch.setenv("CELESTO_QEMU_APPARMOR_PROFILE", "celesto-test-qemu")
+    monkeypatch.setenv("CELESTO_POOL_QEMU_APPARMOR_PROFILE", "celesto-test-qemu")
     internet = (
         InternetSettings(mode="restricted", allowed_cidrs=["192.0.2.0/24"])
         if network_mode == "tap"
@@ -333,7 +332,10 @@ def test_qemu_apparmor_launch_preserves_supported_networking(
         network = network.model_copy(update={"egress_proxy_host_port": 43128})
     info = info.model_copy(update={"config": config, "network": network})
     sdk = CelestoManager(
-        data_dir=tmp_path / "data", socket_dir=tmp_path / "sockets", backend="qemu"
+        data_dir=tmp_path / "data",
+        socket_dir=tmp_path / "sockets",
+        backend="qemu",
+        _qemu_apparmor_profile=profile,
     )
     with (
         patch.object(sdk, "_find_qemu_binary", return_value=Path("/usr/bin/qemu-system-x86_64")),
@@ -342,7 +344,7 @@ def test_qemu_apparmor_launch_preserves_supported_networking(
         patch("celesto.vm.subprocess.Popen") as popen,
     ):
         if profile and network_mode == "public":
-            with pytest.raises(CelestoError, match="requires TAP networking for public browsing"):
+            with pytest.raises(CelestoError, match="standalone public browsing relay"):
                 sdk._start_qemu(info, tmp_path / "vm-qemu.log")
             popen.assert_not_called()
             return

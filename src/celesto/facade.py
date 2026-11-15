@@ -1078,6 +1078,7 @@ class Celesto:
         callbacks: list[Callback] | None = None,
         state_manager: StateManagerProtocol | None = None,
         on_download: Callable[[str, int, int | None], None] | None = None,
+        _qemu_apparmor_profile: str | None = None,
     ) -> None:
         ssh_host_key_alias = validate_host_key_alias(ssh_host_key_alias)
         if internet_settings is not None:
@@ -1256,6 +1257,8 @@ class Celesto:
             sdk_kwargs["backend"] = backend
         if state_manager is not None:
             sdk_kwargs["state_manager"] = state_manager
+        if _qemu_apparmor_profile is not None:
+            sdk_kwargs["_qemu_apparmor_profile"] = _qemu_apparmor_profile
 
         # Record the channel preference on the config so create() can reserve a
         # vsock CID and wire the device before boot. Covers both an explicit

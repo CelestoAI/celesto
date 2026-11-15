@@ -257,7 +257,7 @@ def build_qemu_argv(
         if proxy_host_port is not None:
             if not allow_egress_relay:
                 raise CelestoError(
-                    "QEMU AppArmor confinement requires TAP networking for public browsing."
+                    "Cloud pool QEMU confinement cannot run the standalone public browsing relay."
                 )
             relay = Path(__file__).resolve().parents[1] / "host" / "_public_egress_relay.py"
             relay_command = shlex.join([sys.executable, "-I", str(relay), str(proxy_host_port)])
