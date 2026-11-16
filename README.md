@@ -2,7 +2,7 @@
 
 # Celesto
 
-### Secure, persistent computers for AI agents
+### Sandboxes for coding agents, CI runners, and RL training
 
 [![CodeQL](https://github.com/CelestoAI/celesto/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/CelestoAI/celesto/actions/workflows/github-code-scanning/codeql)
 [![Run Tests](https://github.com/CelestoAI/celesto/actions/workflows/pytest.yml/badge.svg)](https://github.com/CelestoAI/celesto/actions/workflows/pytest.yml)
