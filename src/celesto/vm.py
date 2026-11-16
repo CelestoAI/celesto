@@ -29,7 +29,7 @@ import os
 import platform
 import pwd
 import re
-import select
+import selectors
 import shlex
 import shutil
 import signal
@@ -479,9 +479,10 @@ def _start_bounded_console(
         )
         os.close(ready_write)
         ready_write = -1
-        readable, _, _ = select.select([ready_read], [], [], 5.0)
-        if not readable or os.read(ready_read, 1) != b"1":
-            raise CelestoError("The bounded QEMU console could not start.")
+        with selectors.DefaultSelector() as readiness:
+            readiness.register(ready_read, selectors.EVENT_READ)
+            if not readiness.select(5.0) or os.read(ready_read, 1) != b"1":
+                raise CelestoError("The bounded QEMU console could not start.")
         return relay
     except BaseException:
         if relay is not None:
