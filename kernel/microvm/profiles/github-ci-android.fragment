@@ -1,0 +1,8 @@
+# Android emulator hosting is opt-in. KVM must be built in: these images have
+# neither loadable kernel modules nor an initrd. Initial qualification is Intel.
+CONFIG_XFS_FS=y
+CONFIG_VIRTUALIZATION=y
+CONFIG_KVM=y
+CONFIG_KVM_INTEL=y
+# AMD requires a separately qualified guest kernel profile.
+# CONFIG_KVM_AMD is not set

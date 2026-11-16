@@ -1,7 +1,7 @@
 # Celesto microvm Kernel
 
 Celesto builds separate guest kernels for ordinary sandboxes and GitHub CI.
-Both use the same pinned Linux source, common configuration, and architecture
+All profiles use the same pinned Linux source, common configuration, and architecture
 configuration. GitHub CI adds an XFS overlay for filesystem-intensive workloads. Builds need
 Python 3 in addition to the compiler and kernel build dependencies; arm64 uses
 it to generate DRM register headers.
@@ -11,10 +11,17 @@ linux.version + linux.sha256
   config.fragment + config.<arch>.fragment
     profiles/sandbox.fragment       -> vmlinux-<arch>.{elf,image,config}
     profiles/github-ci.fragment     -> vmlinux-github-ci-<arch>.{elf,image,config}
+    profiles/github-ci-android.fragment -> vmlinux-github-ci-android-amd64.{elf,image,config}
 ```
 
 The sandbox profile keeps XFS disabled. The CI overlay enables it as a built-in
 driver; neither profile requires kernel modules or an initrd in production.
+The opt-in Android profile also builds Intel KVM hosting into the guest kernel;
+AMD and arm64 are excluded from that profile. Its release catalog remains empty
+until real build receipts supply reviewed digests. Build it locally with
+`CELESTO_KERNEL_PROFILE=github-ci-android CELESTO_ARCH_OVERRIDE=amd64`.
+A fragment check does not establish nested emulator acceleration or safety.
+
 Each build produces an ELF for Firecracker and an Image/bzImage for QEMU.
 
 Build a specific profile and architecture on Linux:

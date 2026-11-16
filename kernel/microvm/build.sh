@@ -126,6 +126,9 @@ PROFILE="${CELESTO_KERNEL_PROFILE:-sandbox}"
 case "$PROFILE" in
     sandbox) ASSET="vmlinux-$CELESTO_ARCH" ;;
     github-ci) ASSET="vmlinux-github-ci-$CELESTO_ARCH" ;;
+    github-ci-android)
+        [ "$CELESTO_ARCH" = amd64 ] || { echo 'Android CI requires amd64' >&2; exit 2; }
+        ASSET="vmlinux-github-ci-android-$CELESTO_ARCH" ;;
     *) echo "unknown kernel profile: $PROFILE" >&2; exit 2 ;;
 esac
 WORK_DIR="${WORK_DIR:-$(mktemp -d)}/$PROFILE-$CELESTO_ARCH"

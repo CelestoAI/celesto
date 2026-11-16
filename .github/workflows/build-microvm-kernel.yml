@@ -12,7 +12,7 @@
 #   vmlinux-<arch>.image    — boot wrapper (bzImage / Image), for QEMU
 #   vmlinux-<arch>.config   — resolved .config (debugging aid)
 #
-# Both workload profiles share the pinned source and baseline fragments.
+# All workload profiles share the pinned source and baseline fragments.
 
 name: Build microvm Kernel
 
@@ -53,16 +53,18 @@ jobs:
       fail-fast: false
       matrix:
         arch: [amd64, arm64]
-        profile: [sandbox, github-ci]
+        profile: [sandbox, github-ci, github-ci-android]
         exclude:
           - arch: arm64
             profile: github-ci
+          - arch: arm64
+            profile: github-ci-android
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     timeout-minutes: 60
     env:
       ARCH: ${{ matrix.arch }}
       PROFILE: ${{ matrix.profile }}
-      ASSET: vmlinux-${{ matrix.profile == 'github-ci' && 'github-ci-' || '' }}${{ matrix.arch }}
+      ASSET: vmlinux-${{ matrix.profile != 'sandbox' && format('{0}-', matrix.profile) || '' }}${{ matrix.arch }}
 
     steps:
       - name: Check out repository
@@ -169,7 +171,7 @@ jobs:
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import ast, os
           arch = os.environ["ARCH"]
-          table = "CI_KERNELS" if os.environ["PROFILE"] == "github-ci" else "BASE_KERNELS"
+          table = {"sandbox": "BASE_KERNELS", "github-ci": "CI_KERNELS", "github-ci-android": "ANDROID_CI_KERNELS"}[os.environ["PROFILE"]]
           src = open("src/celesto/images/published.py").read()
           tree = ast.parse(src)
 

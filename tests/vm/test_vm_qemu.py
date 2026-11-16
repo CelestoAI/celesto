@@ -827,3 +827,53 @@ def test_delete_qemu_retains_isolated_disk_when_enabled(tmp_path: Path) -> None:
     sdk.delete("vm-qemu3")
 
     assert disk_path.exists()
+
+
+def test_per_vm_launch_only_inherits_owned_tap_and_closes_parent_handle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    info = _qemu_vm_info(tmp_path)
+    assert info.network is not None
+    info = info.model_copy(
+        update={
+            "config": info.config.model_copy(update={"qemu_network": "tap"}),
+            "network": info.network.model_copy(update={"tap_device": "tap42"}),
+        }
+    )
+    sdk = CelestoManager(
+        data_dir=tmp_path / "data",
+        socket_dir=tmp_path / "sockets",
+        backend="qemu",
+        _qemu_apparmor_profile="celesto-pool-qemu",
+        _qemu_per_vm_confinement=True,
+        _qemu_cgroup_root=tmp_path / "cgroups",
+        _qemu_deadline_epoch=4000000000.0,
+    )
+    tap_fd, other_fd = os.pipe()
+    monkeypatch.setenv("CELESTO_POOL_TOKEN", "must-not-inherit")
+    try:
+        with (
+            patch.object(
+                sdk, "_find_qemu_binary", return_value=Path("/usr/bin/qemu-system-x86_64")
+            ),
+            patch("celesto.vm.platform.system", return_value="Linux"),
+            patch("celesto.vm.platform.machine", return_value="x86_64"),
+            patch("celesto.vm.open_qemu_tap", return_value=tap_fd),
+            patch("celesto.vm.subprocess.Popen") as popen,
+        ):
+            sdk._start_qemu(info, tmp_path / "vm.log")
+        argv = popen.call_args.args[0]
+        assert argv[argv.index("-p") + 1] == "celesto-pool-qemu-vm-qemu"
+        assert "_qemu_launch.py" in argv[2]
+        assert argv[argv.index("-netdev") + 1] == f"tap,id=net0,fd={tap_fd}"
+        assert popen.call_args.kwargs["pass_fds"] == (tap_fd,)
+        assert popen.call_args.kwargs["close_fds"] is True
+        assert popen.call_args.kwargs["env"] == {"PATH": os.defpath, "LANG": "C.UTF-8"}
+        assert "spawn=deny" in argv[argv.index("-sandbox") + 1]
+        with pytest.raises(OSError):
+            os.fstat(tap_fd)
+        os.fstat(other_fd)
+    finally:
+        os.close(other_fd)

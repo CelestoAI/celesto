@@ -932,6 +932,7 @@ class TestBaseKernels:
             cases: list[tuple[KernelProfile, bytes]] = [
                 ("sandbox", b"old"),
                 ("github-ci", b"ci"),
+                ("github-ci-android", b"android"),
                 ("sandbox", b"new"),
             ]
             for profile, content in cases:
@@ -950,8 +951,8 @@ class TestBaseKernels:
                         cache_dir=tmp_path / "cache",
                     )
                 )
-            assert len(set(paths)) == 3
-            assert [path.read_bytes() for path in paths] == [b"old", b"ci", b"new"]
+            assert len(set(paths)) == 4
+            assert [path.read_bytes() for path in paths] == [b"old", b"ci", b"android", b"new"]
             # A corrupt candidate cannot silently reuse a prior profile/release.
             bad = entry.model_copy(update={f"{fmt}_sha256": "0" * 64})
             with pytest.raises(ImageError, match="mismatch"):
@@ -962,7 +963,7 @@ class TestBaseKernels:
                     registry={"amd64": bad},
                     cache_dir=tmp_path / "cache",
                 )
-            assert [path.read_bytes() for path in paths] == [b"old", b"ci", b"new"]
+            assert [path.read_bytes() for path in paths] == [b"old", b"ci", b"android", b"new"]
         finally:
             server.shutdown()
             server.server_close()
@@ -994,6 +995,17 @@ class TestBaseKernels:
                 )
         assert paths[0] != paths[1]
         assert [path.read_bytes() for path in paths] == [b"old-kernel", b"new-kernel"]
+
+    def test_android_kernel_without_release_receipt_cannot_use_standard_kernel(
+        self, tmp_path: Path
+    ) -> None:
+        with patch("celesto.images.manager.requests.get") as download:
+            with pytest.raises(ImageError, match="No base kernel registered"):
+                ensure_base_kernel(
+                    "amd64", "image", profile="github-ci-android", cache_dir=tmp_path
+                )
+            download.assert_not_called()
+        assert not list(tmp_path.iterdir())
 
     def test_unknown_kernel_profile_fails_closed(self, tmp_path: Path) -> None:
         with pytest.raises(ImageError, match="profile"):
