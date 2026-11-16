@@ -61,6 +61,7 @@ from celesto.exceptions import (
 from celesto.host._public_egress_session import PublicEgressSession
 from celesto.host.manager import HostCapability, HostManager
 from celesto.host.network import NetworkManager, check_network_prerequisites, resolve_domains_to_ips
+from celesto.runtime._qemu_console import MIN_CONSOLE_LIMIT_BYTES
 from celesto.runtime._qemu_tap import open_qemu_tap
 from celesto.runtime.backends import (
     BACKEND_FIRECRACKER,
@@ -444,7 +445,9 @@ def _start_bounded_console(
     group: Path | None = None,
     deadline_epoch: float | None = None,
 ) -> subprocess.Popen[bytes]:
-    """Join the VM budget before starting its detached console writer."""
+    """Join the VM budget, then await the detached writer on a high-FD-safe pipe."""
+    if type(limit) is not int or limit < MIN_CONSOLE_LIMIT_BYTES:
+        raise CelestoError("QEMU console retention must be at least 8 MiB.")
     ready_read, ready_write = os.pipe()
     relay = None
     try:
@@ -633,9 +636,10 @@ class CelestoManager:
         self._qemu_log_limit_bytes = _qemu_log_limit_bytes
         self._qemu_console_relays: dict[str, subprocess.Popen[bytes]] = {}
         if _qemu_log_limit_bytes is not None and (
-            type(_qemu_log_limit_bytes) is not int or _qemu_log_limit_bytes < 1024
+            type(_qemu_log_limit_bytes) is not int
+            or _qemu_log_limit_bytes < MIN_CONSOLE_LIMIT_BYTES
         ):
-            raise CelestoError("QEMU console retention must be at least 1024 bytes.")
+            raise CelestoError("QEMU console retention must be at least 8 MiB.")
         if _qemu_per_vm_confinement and not _qemu_apparmor_profile:
             raise CelestoError("Per-computer QEMU confinement requires an AppArmor profile.")
         if _qemu_deadline_epoch is not None and not _qemu_cgroup_root:

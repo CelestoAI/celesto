@@ -3,7 +3,7 @@
 Failure cases designed before implementation: unbounded console growth, losing
 recent diagnostics on rollover, inheriting an agent credential, stopping when
 the pool agent exits, and retaining a writer after QEMU EOF. These fixtures use
-small byte limits; they do not qualify hostile-load control-plane headroom.
+small supported limits; they do not qualify hostile-load control-plane headroom.
 
 Repair regression contracts: a prepared resource group must be joined before
 readiness/guest output, denied join must not start a writer, and a failed QEMU
@@ -19,7 +19,9 @@ from pathlib import Path
 
 import pytest
 
-RELAY = Path(__file__).resolve().parents[2] / "src/celesto/runtime/_qemu_console.py"
+from celesto.runtime import _qemu_console
+
+RELAY = Path(_qemu_console.__file__)
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Android host launcher is Linux-only")
@@ -77,14 +79,14 @@ runpy.run_path(shim, run_name='__main__')
         if not join_allowed:
             with pytest.raises(runtime.CelestoError, match="console could not start"):
                 runtime._start_bounded_console(
-                    log, 4096, group=group, deadline_epoch=time.time() + 60
+                    log, 8 * 1024**2, group=group, deadline_epoch=time.time() + 60
                 )
             assert not receipt.exists()
             assert log_path.read_bytes() == b""
             return
         try:
             relay = runtime._start_bounded_console(
-                log, 4096, group=group, deadline_epoch=time.time() + 60
+                log, 8 * 1024**2, group=group, deadline_epoch=time.time() + 60
             )
             assert int(receipt.read_text()) == relay.pid
             assert int(members.read_text()) == relay.pid
@@ -105,7 +107,7 @@ runpy.run_path(shim, run_name='__main__')
 @pytest.mark.skipif(sys.platform != "linux", reason="Android host launcher is Linux-only")
 def test_console_is_bounded_retains_recent_output_and_survives_agent_exit(tmp_path: Path) -> None:
     log = tmp_path / "console.log"
-    limit = 4096
+    limit = 8 * 1024**2
     fd = os.open(log, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600)
     read_fd, write_fd = os.pipe()
     parent = r"""
@@ -137,7 +139,7 @@ print(p.pid, flush=True)
         # The parent has exited before any console bytes arrive.
         os.kill(relay_pid, 0)
         for index in range(32):
-            os.write(write_fd, bytes([65 + index % 26]) * 2048)
+            os.write(write_fd, bytes([65 + index % 26]) * (512 * 1024))
             assert log.stat().st_size <= limit
         sentinel = b"\nlatest diagnostic after parent exit\n"
         os.write(write_fd, sentinel)
