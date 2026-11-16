@@ -437,20 +437,38 @@ def _open_runtime_log(
         raise
 
 
-def _start_bounded_console(log_file: TextIO, limit: int) -> subprocess.Popen[bytes]:
-    """Start a detached, bounded writer before giving its pipe to QEMU."""
+def _start_bounded_console(
+    log_file: TextIO,
+    limit: int,
+    *,
+    group: Path | None = None,
+    deadline_epoch: float | None = None,
+) -> subprocess.Popen[bytes]:
+    """Join the VM budget before starting its detached console writer."""
     ready_read, ready_write = os.pipe()
     relay = None
     try:
-        relay = subprocess.Popen(
-            [
+        runtime = Path(__file__).resolve().parent / "runtime"
+        command = [
+            sys.executable,
+            "-I",
+            str(runtime / "_qemu_console.py"),
+            str(log_file.fileno()),
+            str(limit),
+            str(ready_write),
+        ]
+        if group is not None:
+            command = [
                 sys.executable,
                 "-I",
-                str(Path(__file__).resolve().parent / "runtime" / "_qemu_console.py"),
-                str(log_file.fileno()),
-                str(limit),
-                str(ready_write),
-            ],
+                str(runtime / "_qemu_launch.py"),
+                str(group),
+                str(deadline_epoch) if deadline_epoch is not None else "none",
+                "--",
+                *command,
+            ]
+        relay = subprocess.Popen(
+            command,
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -469,8 +487,12 @@ def _start_bounded_console(log_file: TextIO, limit: int) -> subprocess.Popen[byt
         if relay is not None:
             if relay.stdin is not None:
                 relay.stdin.close()
-            relay.terminate()
-            with suppress(subprocess.TimeoutExpired):
+            if relay.poll() is None:
+                relay.terminate()
+            try:
+                relay.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                relay.kill()
                 relay.wait(timeout=1)
         raise
     finally:
@@ -3942,8 +3964,12 @@ class CelestoManager:
                 # Do not inherit service secrets or loader overrides from the agent.
                 environment = {"PATH": os.defpath, "LANG": "C.UTF-8"}
 
-            if self._qemu_cgroup_root is not None:
-                group = self._qemu_cgroup_root / vm_info.vm_id
+            group = (
+                self._qemu_cgroup_root / vm_info.vm_id
+                if self._qemu_cgroup_root is not None
+                else None
+            )
+            if group is not None:
                 shim = Path(__file__).resolve().parent / "runtime" / "_qemu_launch.py"
                 cmd = [
                     sys.executable,
@@ -3967,7 +3993,12 @@ class CelestoManager:
             console_relay = None
             try:
                 if self._qemu_log_limit_bytes is not None:
-                    console_relay = _start_bounded_console(log_file, self._qemu_log_limit_bytes)
+                    console_relay = _start_bounded_console(
+                        log_file,
+                        self._qemu_log_limit_bytes,
+                        group=group,
+                        deadline_epoch=self._qemu_deadline_epoch,
+                    )
                 process = subprocess.Popen(
                     cmd,
                     stdin=subprocess.DEVNULL,
@@ -3980,6 +4011,16 @@ class CelestoManager:
                 )
             except BaseException:
                 log_file.close()
+                if console_relay is not None:
+                    if console_relay.stdin is not None:
+                        console_relay.stdin.close()
+                    if console_relay.poll() is None:
+                        console_relay.terminate()
+                    try:
+                        console_relay.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        console_relay.kill()
+                        console_relay.wait(timeout=1)
                 raise
             finally:
                 if console_relay is not None and console_relay.stdin is not None:

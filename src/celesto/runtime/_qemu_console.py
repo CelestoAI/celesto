@@ -2,8 +2,9 @@
 
 The pool launches this stdlib-only relay with an already validated private log
 descriptor and a clean environment. It survives agent restart and exits on EOF;
-it never opens paths or interprets customer log content. Its bounded memory and
-CPU run against the separate host control reserve, outside the QEMU cgroup.
+it never opens paths or interprets customer log content. On isolated pool VMs,
+the launch shim joins the same VM cgroup before this code executes, so relay
+CPU, memory, tasks and log I/O share the existing per-VM resource ceilings.
 """
 
 from __future__ import annotations
