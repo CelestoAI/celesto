@@ -11,7 +11,9 @@ spawn must not leave its joined console alive. The helper transport below is
 simulated; process identity, exec, inherited descriptors and EOF are real.
 """
 
+import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -22,6 +24,56 @@ import pytest
 from celesto.runtime import _qemu_console
 
 RELAY = Path(_qemu_console.__file__)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Android host launcher is Linux-only")
+def test_old_relay_cannot_overwrite_a_reconnected_managers_new_boot(tmp_path: Path) -> None:
+    """Reconnect loses relay handles; delayed old pipe bytes must not corrupt a new boot.
+
+    Designed before repair: stop a real ready relay, queue bytes and EOF as if
+    QEMU stopped, reconstruct the actual manager, then start a new console log.
+    Resume the old writer and verify the new boot remains intact. No VM, helper
+    transport or production test seam is required; existing identity tests own
+    symlink/hardlink and foreign-owner refusal.
+    """
+    import celesto.vm as runtime
+
+    path = tmp_path / "console.log"
+    relay = None
+    with runtime._open_runtime_log(path, read_write=True) as old:
+        try:
+            relay = runtime._start_bounded_console(old, 8 * 1024**2)
+            os.kill(relay.pid, signal.SIGSTOP)
+            os.waitpid(relay.pid, os.WUNTRACED)
+            assert relay.stdin is not None
+            relay.stdin.write(b"STALE_OUTPUT\n")
+            relay.stdin.close()
+            manager = runtime.CelestoManager(data_dir=tmp_path / "reconnected")
+            assert not manager._qemu_console_relays
+            manager._close_runtime_log("vm-reconnected", "qemu")
+            with runtime._open_runtime_log(path, read_write=True) as current:
+                current.write("NEW_BOOT_CONTENT\n")
+                current.flush()
+                before = path.read_bytes()
+                os.kill(relay.pid, signal.SIGCONT)
+                assert relay.wait(timeout=5) == 0
+                after = path.read_bytes()
+            (tmp_path / "reconnected-console-receipt.json").write_text(
+                json.dumps(
+                    {
+                        "before": before.decode(),
+                        "after": after.decode(),
+                        "old_relay_exited": True,
+                        "real_relay_and_manager": True,
+                    }
+                )
+            )
+            assert before == after == b"NEW_BOOT_CONTENT\n"
+        finally:
+            if relay is not None and relay.poll() is None:
+                os.kill(relay.pid, signal.SIGCONT)
+                relay.kill()
+                relay.wait(timeout=5)
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Android host launcher is Linux-only")

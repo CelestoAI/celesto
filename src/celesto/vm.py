@@ -37,6 +37,7 @@ import socket
 import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections.abc import AsyncIterator, Iterator
@@ -418,10 +419,26 @@ def _open_runtime_log(
                 f"Console file '{path}' cannot be used safely; run "
                 f"'celesto computer delete {path.stem}' before recreating the computer."
             )
-        # A previous boot may have created a group-writable log. Validate the
-        # retained descriptor before changing its mode or discarding its data.
-        os.fchmod(descriptor, 0o600)
-        os.ftruncate(descriptor, 0)
+        if read_write:
+            # A reattached manager cannot wait on another process's detached
+            # relay. Give each bounded-console boot a fresh inode so late old
+            # pipe bytes cannot overwrite the next boot's diagnostics. Validate
+            # the retained file above before replacing its pathname.
+            fresh, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+            try:
+                os.fchmod(fresh, 0o600)
+                os.replace(temporary, path)
+            except BaseException:
+                os.close(fresh)
+                Path(temporary).unlink(missing_ok=True)
+                raise
+            os.close(descriptor)
+            descriptor = fresh
+        else:
+            # A previous boot may have created a group-writable log. Validate
+            # its descriptor before changing its mode or discarding its data.
+            os.fchmod(descriptor, 0o600)
+            os.ftruncate(descriptor, 0)
     except BaseException:
         os.close(descriptor)
         raise
@@ -626,15 +643,8 @@ class CelestoManager:
             state_manager: Optional inventory supplied by CLI integrations. SDK
                 callers default to process-local state with no database.
         """
-        self.data_dir = resolve_data_dir(data_dir)
-        self.socket_dir = socket_dir or DEFAULT_SOCKET_DIR
-        self.backend = resolve_backend(backend)
-        self._qemu_apparmor_profile = _qemu_apparmor_profile
-        self._qemu_per_vm_confinement = _qemu_per_vm_confinement
-        self._qemu_cgroup_root = _qemu_cgroup_root
-        self._qemu_deadline_epoch = _qemu_deadline_epoch
-        self._qemu_log_limit_bytes = _qemu_log_limit_bytes
-        self._qemu_console_relays: dict[str, subprocess.Popen[bytes]] = {}
+        # Reject invalid launch controls before backend discovery can allocate
+        # pipes or spawn capability probes, or data-directory setup writes files.
         if _qemu_log_limit_bytes is not None and (
             type(_qemu_log_limit_bytes) is not int
             or _qemu_log_limit_bytes < MIN_CONSOLE_LIMIT_BYTES
@@ -644,6 +654,15 @@ class CelestoManager:
             raise CelestoError("Per-computer QEMU confinement requires an AppArmor profile.")
         if _qemu_deadline_epoch is not None and not _qemu_cgroup_root:
             raise CelestoError("A QEMU lifetime requires a prepared resource group.")
+        self.data_dir = resolve_data_dir(data_dir)
+        self.socket_dir = socket_dir or DEFAULT_SOCKET_DIR
+        self.backend = resolve_backend(backend)
+        self._qemu_apparmor_profile = _qemu_apparmor_profile
+        self._qemu_per_vm_confinement = _qemu_per_vm_confinement
+        self._qemu_cgroup_root = _qemu_cgroup_root
+        self._qemu_deadline_epoch = _qemu_deadline_epoch
+        self._qemu_log_limit_bytes = _qemu_log_limit_bytes
+        self._qemu_console_relays: dict[str, subprocess.Popen[bytes]] = {}
         self.disk_dir = self.data_dir / "disks"
         self.snapshot_dir = self.data_dir / "snapshots"
         self.disk_dir.mkdir(parents=True, exist_ok=True)

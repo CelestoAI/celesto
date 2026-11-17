@@ -22,6 +22,30 @@ until real build receipts supply reviewed digests. Build it locally with
 `CELESTO_KERNEL_PROFILE=github-ci-android CELESTO_ARCH_OVERRIDE=amd64`.
 A fragment check does not establish nested emulator acceleration or safety.
 
+The pool's bounded QEMU console uses a new private log inode for each boot.
+This prevents a delayed relay from an earlier manager process from overwriting
+the next boot's diagnostics after reconnect. Existing file ownership, regular
+file, single-link and no-symlink checks still run before replacement. The relay
+and QEMU keep sharing the VM's existing resource and lifetime limits.
+
+The Android profile enables transparent huge pages with the `madvise` default.
+This lets the stock emulator request large RAM mappings without customer
+`-qemu -mem-path` arguments or a reserved guest huge-page pool. It does not
+increase the guest's booked RAM or change the ordinary sandbox/CI kernels.
+Release qualification must boot this exact kernel, record the emulator's actual
+RAM mappings and KVM page sizes, and pass fresh-AVD instrumentation through both
+the standard Action and direct emulator flows. Merely enabling THP does not
+prove that every emulator mapping received large pages or meets a boot target.
+
+For Linux 7.3, the Android profile applies the pinned x86 execmem Kconfig patch
+in `patches/`. Upstream selects executable-memory ROX only with strict module
+permissions; this module-free profile instead needs it with strict kernel
+permissions too. The fragment requires the resolved ROX symbol, so a missing
+patch fails configuration verification. Strict RWX, debug W+X checking and CPU
+mitigations stay enabled. Qualification must boot the resulting artifact and
+require a passing W+X check; compilation alone is insufficient. Other profiles
+do not apply this Android-scoped patch. A Linux version change requires review.
+
 Each build produces an ELF for Firecracker and an Image/bzImage for QEMU.
 
 Build a specific profile and architecture on Linux:

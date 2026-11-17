@@ -4,5 +4,11 @@ CONFIG_XFS_FS=y
 CONFIG_VIRTUALIZATION=y
 CONFIG_KVM=y
 CONFIG_KVM_INTEL=y
+# Let the unmodified Android emulator request large anonymous RAM mappings.
+# Ordinary guest profiles retain their existing memory policy and configuration.
+CONFIG_TRANSPARENT_HUGEPAGE=y
+CONFIG_TRANSPARENT_HUGEPAGE_MADVISE=y
+# Required even without modules: built-in executable allocations must use ROX.
+CONFIG_ARCH_HAS_EXECMEM_ROX=y
 # AMD requires a separately qualified guest kernel profile.
 # CONFIG_KVM_AMD is not set

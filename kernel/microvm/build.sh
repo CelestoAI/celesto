@@ -166,6 +166,22 @@ fi
 
 cd "$SRC_DIR"
 
+# Linux 7.3 otherwise ties executable-memory ROX to loadable-module hardening.
+# The Android kernel has no modules, but built-in mitigation thunks still need
+# writable-or-executable transitions. Keep all mitigations and strict RWX on.
+if [ "$PROFILE" = github-ci-android ]; then
+    [ "$LINUX_VERSION" = 7.3 ] || { echo 'Review the Android execmem hardening patch for this Linux version' >&2; exit 1; }
+    execmem_patch="$SCRIPT_DIR/patches/linux-7.3-x86-execmem-rox.patch"
+    if patch --dry-run --batch --forward --fuzz=0 -p1 < "$execmem_patch" >/dev/null 2>&1; then
+        patch --batch --forward --fuzz=0 -p1 < "$execmem_patch"
+    elif patch --dry-run --batch --reverse --fuzz=0 -p1 < "$execmem_patch" >/dev/null 2>&1; then
+        echo '==> Android execmem hardening patch already applied'
+    else
+        echo 'Android execmem patch does not match the pinned kernel source' >&2
+        exit 1
+    fi
+fi
+
 # 3. Apply baseline defconfig + our fragments (common + per-arch).
 echo "==> Generating .config (baseline=$DEFCONFIG + common + $CELESTO_ARCH fragments)"
 "$MAKE_BIN" ARCH="$KARCH" "$DEFCONFIG" >/dev/null

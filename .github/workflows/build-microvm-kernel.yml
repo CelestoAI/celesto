@@ -93,7 +93,7 @@ jobs:
           # produces the same kernel byte-for-byte (modulo nondeterminism
           # we'd want to track separately if it bites).
           path: kernel-out
-          key: linux-kernel-${{ matrix.profile }}-${{ matrix.arch }}-${{ hashFiles('kernel/microvm/linux.version', 'kernel/microvm/linux.sha256', 'kernel/microvm/config.fragment', 'kernel/microvm/config.amd64.fragment', 'kernel/microvm/config.arm64.fragment', 'kernel/microvm/build.sh', 'kernel/microvm/profiles/*.fragment') }}
+          key: linux-kernel-${{ matrix.profile }}-${{ matrix.arch }}-${{ hashFiles('kernel/microvm/linux.version', 'kernel/microvm/linux.sha256', 'kernel/microvm/config.fragment', 'kernel/microvm/config.amd64.fragment', 'kernel/microvm/config.arm64.fragment', 'kernel/microvm/build.sh', 'kernel/microvm/profiles/*.fragment', 'kernel/microvm/patches/**') }}
 
       - name: Build kernel
         if: steps.cache.outputs.cache-hit != 'true'
