@@ -81,7 +81,13 @@ def main() -> None:
             raise ValueError("maximum runner lifetime expired")
         os.execv(command[0], command)
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
-        print(f"QEMU launch refused: {exc}", file=sys.stderr)
+        detail = str(exc)
+        if isinstance(exc, subprocess.CalledProcessError) and exc.stderr:
+            # The helper's fixed command can refuse with an actionable reason;
+            # preserve only its bounded diagnostic tail across the exec shim.
+            reason = exc.stderr[-4096:].decode("utf-8", errors="replace")
+            detail += ": " + " ".join(reason.split())
+        print(f"QEMU launch refused: {detail}", file=sys.stderr)
         raise SystemExit(1) from None
 
 

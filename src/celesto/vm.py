@@ -467,6 +467,24 @@ def _start_bounded_console(
         raise CelestoError("QEMU console retention must be at least 8 MiB.")
     ready_read, ready_write = os.pipe()
     relay = None
+    error_tail = bytearray()
+
+    def drain_errors() -> bool:
+        if relay is None or relay.stderr is None:
+            return True
+        # Bound each drain as well as retention: a failed child must never
+        # extend cleanup by leaving another writer on its diagnostic pipe.
+        for _ in range(16):
+            try:
+                chunk = os.read(relay.stderr.fileno(), 4096)
+            except BlockingIOError:
+                return False
+            if not chunk:
+                return True
+            error_tail.extend(chunk)
+            del error_tail[:-4096]
+        return False
+
     try:
         runtime = Path(__file__).resolve().parent / "runtime"
         command = [
@@ -491,7 +509,7 @@ def _start_bounded_console(
             command,
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             start_new_session=True,
             close_fds=True,
             pass_fds=(log_file.fileno(), ready_write),
@@ -499,12 +517,26 @@ def _start_bounded_console(
         )
         os.close(ready_write)
         ready_write = -1
+        assert relay.stderr is not None
+        os.set_blocking(relay.stderr.fileno(), False)
+        deadline = time.monotonic() + 5.0
         with selectors.DefaultSelector() as readiness:
             readiness.register(ready_read, selectors.EVENT_READ)
-            if not readiness.select(5.0) or os.read(ready_read, 1) != b"1":
-                raise CelestoError("The bounded QEMU console could not start.")
-        return relay
-    except BaseException:
+            readiness.register(relay.stderr, selectors.EVENT_READ)
+            while True:
+                events = readiness.select(max(0.0, deadline - time.monotonic()))
+                if not events or time.monotonic() >= deadline:
+                    raise CelestoError("The bounded QEMU console could not start.")
+                for key, _ in events:
+                    if key.fd == ready_read:
+                        if os.read(ready_read, 1) != b"1":
+                            raise CelestoError("The bounded QEMU console could not start.")
+                        return relay
+                    # EOF remains readable; unregister it rather than spin
+                    # while the child still holds the readiness writer.
+                    if drain_errors():
+                        readiness.unregister(relay.stderr)
+    except BaseException as exc:
         if relay is not None:
             if relay.stdin is not None:
                 relay.stdin.close()
@@ -515,8 +547,14 @@ def _start_bounded_console(
             except subprocess.TimeoutExpired:
                 relay.kill()
                 relay.wait(timeout=1)
+            drain_errors()
+        if isinstance(exc, CelestoError) and error_tail:
+            detail = " ".join(error_tail.decode("utf-8", errors="replace").split())
+            raise CelestoError(f"The bounded QEMU console could not start. {detail}") from exc
         raise
     finally:
+        if relay is not None and relay.stderr is not None:
+            relay.stderr.close()
         os.close(ready_read)
         if ready_write >= 0:
             os.close(ready_write)
