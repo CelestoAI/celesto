@@ -33,7 +33,7 @@ These docs use one word for each idea. See the [glossary](GLOSSARY.md) for what 
 
 [Explore OpenMuse →](https://github.com/CelestoAI/open-muse)
 
-> OpenMuse is a preview. Clone its repository to run it locally.
+> OpenMuse is a preview and now lives in its own repository. Local setup is not available yet: it needs a Celesto TypeScript package that is not published.
 
 ## Quickstart
 
