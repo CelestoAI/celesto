@@ -426,6 +426,11 @@ def _open_runtime_log(
             # the retained file above before replacing its pathname.
             fresh, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
             try:
+                # Root preserves the validated sudo user's owner/group. An
+                # ordinary owner keeps the fresh inode's normal group: their
+                # old group may no longer be one they can assign.
+                if os.geteuid() == 0:
+                    os.fchown(fresh, info.st_uid, info.st_gid)
                 os.fchmod(fresh, 0o600)
                 os.replace(temporary, path)
             except BaseException:
@@ -833,6 +838,16 @@ class CelestoManager:
                 f"Celesto could not finish closing; run {recovery}.",
                 [error for _vm_id, error in failures],
             )
+        for vm_id, relay in list(self._qemu_console_relays.items()):
+            if relay.poll() is None:
+                # Detached VMs keep writing after manager close. Transfer only
+                # the wait/reap responsibility; retain neither manager nor log.
+                threading.Thread(
+                    target=relay.wait,
+                    name=f"celesto-console-{vm_id}",
+                    daemon=True,
+                ).start()
+            self._qemu_console_relays.pop(vm_id, None)
         for fh in self._log_files.values():
             with suppress(Exception):
                 fh.close()
