@@ -24,9 +24,11 @@ for profile in sandbox github-ci; do
     truncate -s 512M "$proof/$profile.xfs"
     mkfs.xfs -f -m reflink=1 "$proof/$profile.xfs" > "$proof/$profile.xfs-format.log" 2>&1
     for phase in write read; do
+        # kvm.enable_virt_at_load=0 matches the pool agent's boot args, so the
+        # nested-VM check covers KVM turning on VMX/SVM at the first VM create.
         timeout 360 "$qemu" -machine "$machine,accel=tcg" -cpu max -m 3072 -smp 2 \
             -nographic -no-reboot -kernel "$kernels/$asset" \
-            -append "console=$console panic=1 root=/dev/vda rw init=/init celesto_profile=$profile celesto_phase=$phase celesto_expected_kernel=$version" \
+            -append "console=$console panic=1 root=/dev/vda rw init=/init kvm.enable_virt_at_load=0 celesto_profile=$profile celesto_phase=$phase celesto_expected_kernel=$version" \
             -drive "file=$proof/$profile-rootfs.ext4,format=raw,if=virtio" \
             -drive "file=$proof/$profile.ext4,format=raw,if=virtio" \
             -drive "file=$proof/$profile.xfs,format=raw,if=virtio" \
@@ -49,7 +51,8 @@ for profile in ("sandbox", "github-ci"):
     receipt["profiles"][profile] = {
         "sha256": hashlib.sha256(asset.read_bytes()).hexdigest(), "bytes": asset.stat().st_size,
         "checks": ["namespaces", "ext4-restart", "docker-overlay-storage", "docker-cgroups", "docker-bridge-dns"]
-                  + (["xfs-mount-reflink"] if profile == "github-ci" else ["xfs-absent"]),
+                  + (["xfs-mount-reflink"] if profile == "github-ci" else ["xfs-absent"])
+                  + (["kvm-nested-vm"] if arch == "amd64" else []),
         "console_logs": [f"{profile}-{phase}.console.log" for phase in ("write", "read")],
     }
 (proof / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
