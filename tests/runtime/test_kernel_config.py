@@ -84,3 +84,25 @@ def test_microvm_kernel_supports_user_installed_docker() -> None:
     }
     missing = required - symbols
     assert required <= symbols, f"missing symbols: {missing}"
+
+
+PROFILES_DIR = REPO_ROOT / "kernel" / "microvm" / "profiles"
+ARCH_FRAGMENTS = sorted((REPO_ROOT / "kernel" / "microvm").glob("config.*.fragment"))
+THP_SYMBOLS = {"CONFIG_TRANSPARENT_HUGEPAGE", "CONFIG_TRANSPARENT_HUGEPAGE_ALWAYS"}
+
+
+def test_github_ci_kernel_enables_transparent_huge_pages_always() -> None:
+    """CI builds run faster with THP on by default (fewer page faults)."""
+    symbols = _enabled_symbols(PROFILES_DIR / "github-ci.fragment")
+
+    missing = THP_SYMBOLS - symbols
+    assert not missing, f"missing symbols: {missing}"
+
+
+def test_sandbox_kernel_keeps_transparent_huge_pages_off() -> None:
+    """Sandboxes keep 4 KiB pages: THP stays out of every shared fragment."""
+    sandbox_inputs = [COMMON_FRAGMENT, *ARCH_FRAGMENTS, PROFILES_DIR / "sandbox.fragment"]
+    symbols = set().union(*(_enabled_symbols(fragment) for fragment in sandbox_inputs))
+
+    unexpected = THP_SYMBOLS & symbols
+    assert not unexpected, f"unexpected symbols: {unexpected}"
