@@ -1,2 +1,8 @@
 # GitHub CI inherits the sandbox baseline and adds XFS filesystem support.
 CONFIG_XFS_FS=y
+
+# Transparent Huge Pages for CI only. Sandboxes keep 4 KiB pages.
+# Defrag stays at the kernel default (madvise), so programs never stall on
+# memory compaction.
+CONFIG_TRANSPARENT_HUGEPAGE=y           # why: rustc and other CI builds take ~58% fewer page faults
+CONFIG_TRANSPARENT_HUGEPAGE_ALWAYS=y    # why: rustc does not madvise; "always" measured -4.5% Intel / -7.8% AMD build time
