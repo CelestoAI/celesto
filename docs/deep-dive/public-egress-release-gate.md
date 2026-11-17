@@ -4,7 +4,7 @@ This checklist records the broader release target for public-only internet acces
 
 ## Current boundary
 
-The source API exposes `mode="public"` in Python and `{ mode: "public" }` in TypeScript for QEMU/slirp. It starts an owned proxy, blocks direct outbound access, and verifies Chromium's proxy arguments. OpenMuse selects this mode explicitly. Firecracker, QEMU TAP, and cloud public browsing remain unsupported and are rejected.
+The source API exposes `mode="public"` in Python and `{ mode: "public" }` in TypeScript for QEMU/slirp. It starts an owned proxy, blocks direct outbound access, and verifies Chromium's proxy arguments. Firecracker, QEMU TAP, and cloud public browsing remain unsupported and are rejected.
 
 The checklist below retains the planned evidence for a broader release. Do not expand backend support or publish replacement images until the applicable real-guest and artifact gates pass. A failed or unavailable proxy must stop the session from gaining internet access, without falling back to open networking. See the [security remediation release requirements](security-scan-2026-10.md#compatibility-and-release-gates) for this source-only change.
 
@@ -70,6 +70,6 @@ Only after sections 1 through 4 pass:
 - Extend the existing public-mode API to the additional backend only when that backend passes the full matrix.
 - Update the server schema, OpenAPI output, generated clients, persistence compatibility, and capability negotiation together.
 - Make unsupported images return one short error that says how to install a compatible image.
-- Keep OpenMuse's explicit public-mode request. Never substitute open, off, or restricted mode when public mode is unavailable.
+- Never substitute open, off, or restricted mode when public mode is unavailable.
 
 Keep the real-backend jobs gated or manually dispatched where the required virtualization is unavailable in ordinary pull-request CI. Their passing artifacts are still mandatory evidence for an image release and broader backend support.

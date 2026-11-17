@@ -130,7 +130,6 @@ celerybeat.pid
 # Environments
 .env
 open-muse/.env.local
-examples/open-muse-research/.env.local
 .venv
 env/
 venv/

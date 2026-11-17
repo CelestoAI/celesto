@@ -210,7 +210,7 @@ provider adapters, tests, and documentation all share the same Python SDK contra
 
 - Browser/display APIs: separate roadmap capability with different protocols.
 - File operations: unrelated to terminal transport.
-- TypeScript and OpenMuse: intentionally follow the established Python API later.
+- TypeScript: intentionally follow the established Python API later.
 - Automatic reconnection: risks replaying input and hiding session state; callers
   reauthorize explicitly with `terminal_id`.
 - Async terminal API: the current public `Computer` API is synchronous.

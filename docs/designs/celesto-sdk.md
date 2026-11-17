@@ -50,7 +50,7 @@ executable alias. The separate TypeScript package retains its public names.
 - Reuse the existing on-disk CLI inventory so computers remain inspectable and persistent computers can be reconnected after process exit.
 - Rename the advanced Python interfaces to `Celesto`, `CelestoManager`, and `CelestoError`.
 - Add the `celesto` executable while retaining `celesto` for the existing TypeScript bridge. Preserve runtime protocol messages, native dependencies, guest image contents, data paths, and environment variables.
-- Backend changes, OpenAPI generation, cloud integration, TypeScript/OpenMuse migration, and retirement of the separate SDK repository are later work.
+- Backend changes, OpenAPI generation, cloud integration, TypeScript migration, and retirement of the separate SDK repository are later work.
 
 The following sections retain the longer-term proposal as context, not first-release requirements.
 
@@ -58,7 +58,7 @@ The following sections retain the longer-term proposal as context, not first-rel
 
 - Rename the product and SDK to Celesto. Make a clean API break without a deprecated Celesto compatibility package.
 - This repository becomes the home of the `celesto` Python package. Use `CelestoAI/sdk` as a migration source and retire it after the replacement ships; repository deletion is not part of this work.
-- Focus this release on Python. Defer TypeScript and OpenMuse migration to a later release.
+- Focus this release on Python. Defer TypeScript migration to a later release.
 - Generate the cloud HTTP client from the backend's OpenAPI description, and build the handwritten public SDK above it.
 - Design the public API afresh. Existing implementations can be reused, but their public names and lifecycle rules are not constraints.
 - Use `from celesto import Computer` as the primary entry point.
@@ -125,7 +125,6 @@ A remote self-hosted service is distinct from `local=True`, which means this mac
 
 - `src/celesto/facade.py` implements Python VM construction and command execution.
 - `ts/src/index.ts` exposes client-owned local sandbox, browser, and computer collections.
-- `open-muse/server/computer-provider.ts` already adapts local and cloud computers, but local reconnect is absent and deletion behavior differs.
 - `pyproject.toml` publishes `celesto` and requires native `celesto-core` dependencies.
 
 These are reusable implementation inputs, not evidence that the new contract already works.
@@ -169,7 +168,7 @@ References: [backend](https://github.com/CelestoAI/backend), [existing Python wr
 1. Export and validate the backend's public computer OpenAPI artifact. Trial the pinned generator on the actual schema. Inspect the cloud service's creation, execution, expiry, reconnection, and deletion contracts; define common result/error types and expiry defaults.
 1. Implement the new Python `Computer` object and shared contract tests against both providers. Reuse local runtime internals where appropriate. Add any required supervisor/service work for expiry and persistence.
 1. Rename Python imports, CLI entry points, user-facing documentation, examples, and release metadata. Keep CLI noun-verb organization under `celesto`. Inventory native packages, guest binaries, image artifacts, environment variables, installation paths, and saved state separately; do not blindly rewrite published asset names or discard existing disks.
-1. Defer TypeScript and OpenMuse changes. Preserve the versioned OpenAPI artifact for a later TypeScript generator and facade; resource behavior must eventually agree across languages.
+1. Defer TypeScript changes. Preserve the versioned OpenAPI artifact for a later TypeScript generator and facade; resource behavior must eventually agree across languages.
 1. Update build/release workflows and publish verified packages through the existing package and GitHub release channels. No publication or release tagging is authorized by this design document. For image/guest-agent changes, complete the repository's image build, smoke, manifest, and SHA-pin checklist before tagging the package.
 
 No compatibility package is planned. Publish migration instructions explaining new imports, commands, defaults, and how existing local resources can be inspected or removed. A clean API break does not authorize deleting user data.
