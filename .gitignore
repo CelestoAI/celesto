@@ -227,7 +227,8 @@ TODOS.md
 *.iso
 .gstack/
 
-# OpenMuse local conversation checkpoint
-open-muse/.open-muse/
 
 .kernel-build
+
+# Retired OpenMuse directory (moved to CelestoAI/open-muse); keeps leftover local credentials and chats out of commits
+open-muse/.open-muse/
