@@ -29,6 +29,7 @@ Celesto gives an AI agent a disposable computer for running code, using a browse
 
 - [Architecture](contributing/architecture.md) — find the part of the codebase that owns a behavior.
 - [Guest kernels](../kernel/microvm/README.md) — build and qualify the sandbox and GitHub CI kernel profiles.
+- [Android CI kernel release](guides/android-ci-kernel-release.md) — build candidate artifacts, preserve qualification evidence, and coordinate SDK/backend release gates.
 - [Python SDK design and status](designs/celesto-sdk.md) — review the public `Computer` contract, implemented capabilities, and deferred work.
 - [Local-first provider design](designs/local-first-providers.md) — review provider selection, lifecycle ownership, and implementation verification.
 - [Public-egress release gate](deep-dive/public-egress-release-gate.md) — track the broader backend release target and remaining validation beyond current QEMU-only source support.

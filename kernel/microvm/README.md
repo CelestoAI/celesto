@@ -16,11 +16,21 @@ linux.version + linux.sha256
 
 The sandbox profile keeps XFS disabled. The CI overlay enables it as a built-in
 driver; neither profile requires kernel modules or an initrd in production.
-The opt-in Android profile also builds Intel KVM hosting into the guest kernel;
-AMD and arm64 are excluded from that profile. Its release catalog remains empty
-until real build receipts supply reviewed digests. Build it locally with
-`CELESTO_KERNEL_PROFILE=github-ci-android CELESTO_ARCH_OVERRIDE=amd64`.
+The opt-in Android profile also builds Intel KVM hosting into the guest kernel.
+KVM is Linux's hardware virtualization interface; Android uses it inside the
+runner VM to accelerate the emulator. AMD and arm64 are excluded from this
+profile. Its release catalog remains empty until real build receipts supply
+reviewed digests. From the repository root on Linux, build it with:
+
+```sh
+CELESTO_KERNEL_PROFILE=github-ci-android CELESTO_ARCH_OVERRIDE=amd64 \
+  OUT_DIR=/tmp/android-kernel-out bash kernel/microvm/build.sh
+```
+
 A fragment check does not establish nested emulator acceleration or safety.
+Follow the [Android CI kernel release runbook](../../docs/guides/android-ci-kernel-release.md)
+for prerequisites, artifact identity, draft uploads, outstanding release blockers,
+SDK pins and the separate backend handoff.
 
 The pool's bounded QEMU console uses a new private log inode for each boot.
 This prevents a delayed relay from an earlier manager process from overwriting
@@ -28,7 +38,8 @@ the next boot's diagnostics after reconnect. Existing file ownership, regular
 file, single-link and no-symlink checks still run before replacement. The relay
 and QEMU keep sharing the VM's existing resource and lifetime limits.
 
-The Android profile enables transparent huge pages with the `madvise` default.
+The Android profile enables transparent huge pages (THP), which let Linux use
+larger memory pages, with the `madvise` default. Programs can request those pages.
 This lets the stock emulator request large RAM mappings without customer
 `-qemu -mem-path` arguments or a reserved guest huge-page pool. It does not
 increase the guest's booked RAM or change the ordinary sandbox/CI kernels.
@@ -38,13 +49,15 @@ the standard Action and direct emulator flows. Merely enabling THP does not
 prove that every emulator mapping received large pages or meets a boot target.
 
 For Linux 7.3, the Android profile applies the pinned x86 execmem Kconfig patch
-in `patches/`. Upstream selects executable-memory ROX only with strict module
-permissions; this module-free profile instead needs it with strict kernel
-permissions too. The fragment requires the resolved ROX symbol, so a missing
+in `patches/`. ROX means read-only and executable memory; strict RWX permissions
+keep writable memory separate from executable memory. Upstream selects ROX only
+with strict module permissions; this module-free profile instead needs it with
+strict kernel permissions too. The fragment requires the resolved ROX symbol, so a missing
 patch fails configuration verification. Strict RWX, debug W+X checking and CPU
-mitigations stay enabled. Qualification must boot the resulting artifact and
-require a passing W+X check; compilation alone is insufficient. Other profiles
-do not apply this Android-scoped patch. A Linux version change requires review.
+mitigations stay enabled. W+X means writable and executable at the same time.
+Qualification must boot the resulting artifact and require a passing W+X check;
+compilation alone is insufficient. Other profiles do not apply this Android-scoped
+patch. A Linux version change requires review.
 
 Each build produces an ELF for Firecracker and an Image/bzImage for QEMU.
 
@@ -67,6 +80,11 @@ Kernel releases use `KERNELS_RELEASE_TAG`, independently of rootfs releases at
 retain their existing `ARM_KERNELS_RELEASE_TAG`. Pin the actual SHA-256
 for every profile, architecture, and format after building and qualification;
 changing a release tag does not waive checksum verification.
+
+The tag override does not populate the empty Android catalog. For Android-only
+adoption, keep the shared tag and ordinary URLs/digests unchanged and add reviewed
+Android-specific URLs and hashes as described in the
+[release runbook](../../docs/guides/android-ci-kernel-release.md#4-pin-accepted-android-artifacts-and-release-a-new-sdk).
 
 Runtime caches include the complete kernel digest in the filename. Existing
 saved VM configurations keep their original kernel path across an upgrade.
@@ -104,6 +122,11 @@ bash kernel/microvm/smoke/reject-ci-as-sandbox.sh \
 The negative-control receipt requires both rejection for the expected reason
 and removal of a deliberately planted stale success receipt. Applications should also qualify guest-agent integration and networking in
 their own environments before adopting a new kernel.
+
+This smoke script covers sandbox and ordinary GitHub CI using software CPU
+emulation. It does not exercise the Android artifact, nested acceleration or
+installed host confinement. Android qualification has its own
+[release gates](../../docs/guides/android-ci-kernel-release.md#3-download-and-qualify-exact-candidate-bytes).
 
 ## Why this exists
 
