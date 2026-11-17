@@ -24,16 +24,16 @@ These docs use one word for each idea. See the [glossary](GLOSSARY.md) for what 
 ## Built with Celesto: OpenMuse
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="./open-muse/banner-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="./open-muse/banner-light.png">
-  <img alt="OpenMuse chatting with a user while operating a website in an isolated Celesto desktop" src="./open-muse/banner-light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/CelestoAI/open-muse/main/banner-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/CelestoAI/open-muse/main/banner-light.png">
+  <img alt="OpenMuse chatting with a user while operating a website in an isolated Celesto desktop" src="https://raw.githubusercontent.com/CelestoAI/open-muse/main/banner-light.png">
 </picture>
 
 **OpenMuse is our open-source computer coworker, built end to end on Celesto.** It browses public websites in its own disposable Linux desktop while you watch, approve clicks and form changes, or take control.
 
-[Explore OpenMuse →](./open-muse/README.md)
+[Explore OpenMuse →](https://github.com/CelestoAI/open-muse)
 
-> OpenMuse is a preview. Clone this repository to run it locally.
+> OpenMuse is a preview. Clone its repository to run it locally.
 
 ## Quickstart
 
