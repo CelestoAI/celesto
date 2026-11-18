@@ -21,7 +21,7 @@ crate-type = ["cdylib", "rlib"]
 extension-module = ["pyo3/extension-module"]
 
 [dependencies]
-pyo3 = "0.28"
+pyo3 = "0.29"
 libc = "0.2"
 thiserror = "2"
 pyo3-log = "0.13"
