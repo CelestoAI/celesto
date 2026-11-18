@@ -80,7 +80,7 @@ changing a release tag does not waive checksum verification.
 The tag override does not populate the empty Android catalog. For Android-only
 adoption, keep the shared tag and ordinary URLs/digests unchanged and add reviewed
 Android-specific URLs and hashes as described in the
-[release runbook](../../docs/guides/android-ci-kernel-release.md#4-pin-accepted-android-artifacts-and-release-a-new-sdk).
+[release runbook](../../docs/guides/android-ci-kernel-release.md#publication-and-release-boundaries).
 
 Runtime caches include the complete kernel digest in the filename. Existing
 saved VM configurations keep their original kernel path across an upgrade.
@@ -122,7 +122,7 @@ their own environments before adopting a new kernel.
 This smoke script covers sandbox and ordinary GitHub CI using software CPU
 emulation. It does not exercise the Android artifact, nested acceleration or
 installed host confinement. Android qualification has its own
-[release gates](../../docs/guides/android-ci-kernel-release.md#3-download-and-qualify-exact-candidate-bytes).
+[release gates](../../docs/guides/android-ci-kernel-release.md#build-an-isolated-candidate).
 
 ## Why this exists
 
