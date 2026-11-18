@@ -29,6 +29,7 @@ import os
 import platform
 import pwd
 import re
+import selectors
 import shlex
 import shutil
 import signal
@@ -36,6 +37,7 @@ import socket
 import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections.abc import AsyncIterator, Iterator
@@ -60,6 +62,8 @@ from celesto.exceptions import (
 from celesto.host._public_egress_session import PublicEgressSession
 from celesto.host.manager import HostCapability, HostManager
 from celesto.host.network import NetworkManager, check_network_prerequisites, resolve_domains_to_ips
+from celesto.runtime._qemu_console import MIN_CONSOLE_LIMIT_BYTES
+from celesto.runtime._qemu_tap import open_qemu_tap
 from celesto.runtime.backends import (
     BACKEND_FIRECRACKER,
     BACKEND_LIBKRUN,
@@ -391,10 +395,18 @@ def _is_usable_dir(path: Path) -> bool:
     return os.access(path, os.W_OK | os.X_OK)
 
 
-def _open_runtime_log(path: Path, *, ssh_host_key: str | None = None) -> TextIO:
+def _open_runtime_log(
+    path: Path, *, ssh_host_key: str | None = None, read_write: bool = False
+) -> TextIO:
     """Start a private console without following or truncating an unsafe file."""
     descriptor = os.open(
-        path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, 0o600
+        path,
+        (os.O_RDWR if read_write else os.O_WRONLY)
+        | os.O_CREAT
+        | os.O_NOFOLLOW
+        | os.O_CLOEXEC
+        | os.O_NONBLOCK,
+        0o600,
     )
     try:
         info = os.fstat(descriptor)
@@ -407,14 +419,35 @@ def _open_runtime_log(path: Path, *, ssh_host_key: str | None = None) -> TextIO:
                 f"Console file '{path}' cannot be used safely; run "
                 f"'celesto computer delete {path.stem}' before recreating the computer."
             )
-        # A previous boot may have created a group-writable log. Validate the
-        # retained descriptor before changing its mode or discarding its data.
-        os.fchmod(descriptor, 0o600)
-        os.ftruncate(descriptor, 0)
+        if read_write:
+            # A reattached manager cannot wait on another process's detached
+            # relay. Give each bounded-console boot a fresh inode so late old
+            # pipe bytes cannot overwrite the next boot's diagnostics. Validate
+            # the retained file above before replacing its pathname.
+            fresh, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+            try:
+                # Root preserves the validated sudo user's owner/group. An
+                # ordinary owner keeps the fresh inode's normal group: their
+                # old group may no longer be one they can assign.
+                if os.geteuid() == 0:
+                    os.fchown(fresh, info.st_uid, info.st_gid)
+                os.fchmod(fresh, 0o600)
+                os.replace(temporary, path)
+            except BaseException:
+                os.close(fresh)
+                Path(temporary).unlink(missing_ok=True)
+                raise
+            os.close(descriptor)
+            descriptor = fresh
+        else:
+            # A previous boot may have created a group-writable log. Validate
+            # its descriptor before changing its mode or discarding its data.
+            os.fchmod(descriptor, 0o600)
+            os.ftruncate(descriptor, 0)
     except BaseException:
         os.close(descriptor)
         raise
-    handle = os.fdopen(descriptor, "w")
+    handle = os.fdopen(descriptor, "w+" if read_write else "w")
     try:
         if ssh_host_key is not None:
             # A memory restore resumes past init. Provision its saved, verified
@@ -425,6 +458,111 @@ def _open_runtime_log(path: Path, *, ssh_host_key: str | None = None) -> TextIO:
     except BaseException:
         handle.close()
         raise
+
+
+def _start_bounded_console(
+    log_file: TextIO,
+    limit: int,
+    *,
+    group: Path | None = None,
+    deadline_epoch: float | None = None,
+) -> subprocess.Popen[bytes]:
+    """Join the VM budget, then await the detached writer on a high-FD-safe pipe."""
+    if type(limit) is not int or limit < MIN_CONSOLE_LIMIT_BYTES:
+        raise CelestoError("QEMU console retention must be at least 8 MiB.")
+    ready_read, ready_write = os.pipe()
+    relay = None
+    error_tail = bytearray()
+
+    def drain_errors() -> bool:
+        if relay is None or relay.stderr is None:
+            return True
+        # Bound each drain as well as retention: a failed child must never
+        # extend cleanup by leaving another writer on its diagnostic pipe.
+        for _ in range(16):
+            try:
+                chunk = os.read(relay.stderr.fileno(), 4096)
+            except BlockingIOError:
+                return False
+            if not chunk:
+                return True
+            error_tail.extend(chunk)
+            del error_tail[:-4096]
+        return False
+
+    try:
+        runtime = Path(__file__).resolve().parent / "runtime"
+        command = [
+            sys.executable,
+            "-I",
+            str(runtime / "_qemu_console.py"),
+            str(log_file.fileno()),
+            str(limit),
+            str(ready_write),
+        ]
+        if group is not None:
+            command = [
+                sys.executable,
+                "-I",
+                str(runtime / "_qemu_launch.py"),
+                str(group),
+                str(deadline_epoch) if deadline_epoch is not None else "none",
+                "--",
+                *command,
+            ]
+        relay = subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+            close_fds=True,
+            pass_fds=(log_file.fileno(), ready_write),
+            env={"PATH": os.defpath, "LANG": "C.UTF-8"},
+        )
+        os.close(ready_write)
+        ready_write = -1
+        assert relay.stderr is not None
+        os.set_blocking(relay.stderr.fileno(), False)
+        deadline = time.monotonic() + 5.0
+        with selectors.DefaultSelector() as readiness:
+            readiness.register(ready_read, selectors.EVENT_READ)
+            readiness.register(relay.stderr, selectors.EVENT_READ)
+            while True:
+                events = readiness.select(max(0.0, deadline - time.monotonic()))
+                if not events or time.monotonic() >= deadline:
+                    raise CelestoError("The bounded QEMU console could not start.")
+                for key, _ in events:
+                    if key.fd == ready_read:
+                        if os.read(ready_read, 1) != b"1":
+                            raise CelestoError("The bounded QEMU console could not start.")
+                        return relay
+                    # EOF remains readable; unregister it rather than spin
+                    # while the child still holds the readiness writer.
+                    if drain_errors():
+                        readiness.unregister(relay.stderr)
+    except BaseException as exc:
+        if relay is not None:
+            if relay.stdin is not None:
+                relay.stdin.close()
+            if relay.poll() is None:
+                relay.terminate()
+            try:
+                relay.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                relay.kill()
+                relay.wait(timeout=1)
+            drain_errors()
+        if isinstance(exc, CelestoError) and error_tail:
+            detail = " ".join(error_tail.decode("utf-8", errors="replace").split())
+            raise CelestoError(f"The bounded QEMU console could not start. {detail}") from exc
+        raise
+    finally:
+        if relay is not None and relay.stderr is not None:
+            relay.stderr.close()
+        os.close(ready_read)
+        if ready_write >= 0:
+            os.close(ready_write)
 
 
 def _candidate_data_dirs() -> list[Path]:
@@ -531,6 +669,10 @@ class CelestoManager:
         state_manager: StateManagerProtocol | None = None,
         *,
         _qemu_apparmor_profile: str | None = None,
+        _qemu_per_vm_confinement: bool = False,
+        _qemu_cgroup_root: Path | None = None,
+        _qemu_deadline_epoch: float | None = None,
+        _qemu_log_limit_bytes: int | None = None,
     ) -> None:
         """Initialize the Celesto manager.
 
@@ -544,10 +686,26 @@ class CelestoManager:
             state_manager: Optional inventory supplied by CLI integrations. SDK
                 callers default to process-local state with no database.
         """
+        # Reject invalid launch controls before backend discovery can allocate
+        # pipes or spawn capability probes, or data-directory setup writes files.
+        if _qemu_log_limit_bytes is not None and (
+            type(_qemu_log_limit_bytes) is not int
+            or _qemu_log_limit_bytes < MIN_CONSOLE_LIMIT_BYTES
+        ):
+            raise CelestoError("QEMU console retention must be at least 8 MiB.")
+        if _qemu_per_vm_confinement and not _qemu_apparmor_profile:
+            raise CelestoError("Per-computer QEMU confinement requires an AppArmor profile.")
+        if _qemu_deadline_epoch is not None and not _qemu_cgroup_root:
+            raise CelestoError("A QEMU lifetime requires a prepared resource group.")
         self.data_dir = resolve_data_dir(data_dir)
         self.socket_dir = socket_dir or DEFAULT_SOCKET_DIR
         self.backend = resolve_backend(backend)
         self._qemu_apparmor_profile = _qemu_apparmor_profile
+        self._qemu_per_vm_confinement = _qemu_per_vm_confinement
+        self._qemu_cgroup_root = _qemu_cgroup_root
+        self._qemu_deadline_epoch = _qemu_deadline_epoch
+        self._qemu_log_limit_bytes = _qemu_log_limit_bytes
+        self._qemu_console_relays: dict[str, subprocess.Popen[bytes]] = {}
         self.disk_dir = self.data_dir / "disks"
         self.snapshot_dir = self.data_dir / "snapshots"
         self.disk_dir.mkdir(parents=True, exist_ok=True)
@@ -680,6 +838,16 @@ class CelestoManager:
                 f"Celesto could not finish closing; run {recovery}.",
                 [error for _vm_id, error in failures],
             )
+        for vm_id, relay in list(self._qemu_console_relays.items()):
+            if relay.poll() is None:
+                # Detached VMs keep writing after manager close. Transfer only
+                # the wait/reap responsibility; retain neither manager nor log.
+                threading.Thread(
+                    target=relay.wait,
+                    name=f"celesto-console-{vm_id}",
+                    daemon=True,
+                ).start()
+            self._qemu_console_relays.pop(vm_id, None)
         for fh in self._log_files.values():
             with suppress(Exception):
                 fh.close()
@@ -3828,54 +3996,120 @@ class CelestoManager:
             arch=platform.machine(),
         )
 
-        cmd = build_qemu_argv(
-            vm_info,
-            qemu_bin=qemu_bin,
-            boot_args=boot_args,
-            platform_spec=platform_spec,
-            control_socket_path=control_socket_path,
-            firmware_vars_path=firmware_vars_path,
-            swtpm_socket=swtpm_socket,
-            start_paused=start_paused,
-            root_node_name=root_node_name,
-            allow_egress_relay=not profile,
-        )
-
-        # The Linux pool sets this in the host service, outside guest configuration.
-        # Keep the QEMU process on the same PID so QMP, stop and the watchdog
-        # continue to use the existing lifecycle. aa-exec replaces itself.
-        environment = None
-        if profile:
-            cmd = [
-                "/usr/bin/aa-exec",
-                "-p",
-                profile,
-                "--",
-                *cmd,
-                "-sandbox",
-                "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
-            ]
-            # Do not inherit service secrets or loader overrides from the agent.
-            environment = {"PATH": os.defpath, "LANG": "C.UTF-8"}
-
-        logger.debug("Starting QEMU: %s", " ".join(cmd))
-
-        log_file = _open_runtime_log(log_path, ssh_host_key=ssh_host_key)
+        tap_fd = None
+        if self._qemu_per_vm_confinement:
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", vm_info.vm_id):
+                raise CelestoError("Invalid QEMU computer identity.")
+            if not profile or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", profile):
+                raise CelestoError("Invalid QEMU confinement profile identity.")
+            if vm_info.network is None or not (
+                vm_info.config.qemu_network == "tap" or vm_info.network.mode == "bridge"
+            ):
+                raise CelestoError("Per-computer QEMU confinement requires an owned TAP interface.")
+            profile = f"{profile}-{vm_info.vm_id}"
+            tap_fd = open_qemu_tap(vm_info.network.tap_device)
 
         try:
-            process = subprocess.Popen(
-                cmd,
-                stdin=subprocess.DEVNULL,
-                stdout=log_file,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-                env=environment,
+            cmd = build_qemu_argv(
+                vm_info,
+                qemu_bin=qemu_bin,
+                boot_args=boot_args,
+                platform_spec=platform_spec,
+                control_socket_path=control_socket_path,
+                firmware_vars_path=firmware_vars_path,
+                swtpm_socket=swtpm_socket,
+                start_paused=start_paused,
+                root_node_name=root_node_name,
+                allow_egress_relay=not profile,
+                tap_fd=tap_fd,
             )
-        except Exception:
-            log_file.close()
-            raise
+
+            # The Linux pool sets this in the host service, outside guest configuration.
+            # Keep the QEMU process on the same PID so QMP, stop and the watchdog
+            # continue to use the existing lifecycle. aa-exec replaces itself.
+            environment = None
+            if profile:
+                cmd = [
+                    "/usr/bin/aa-exec",
+                    "-p",
+                    profile,
+                    "--",
+                    *cmd,
+                    "-sandbox",
+                    "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
+                ]
+                # Do not inherit service secrets or loader overrides from the agent.
+                environment = {"PATH": os.defpath, "LANG": "C.UTF-8"}
+
+            group = (
+                self._qemu_cgroup_root / vm_info.vm_id
+                if self._qemu_cgroup_root is not None
+                else None
+            )
+            if group is not None:
+                shim = Path(__file__).resolve().parent / "runtime" / "_qemu_launch.py"
+                cmd = [
+                    sys.executable,
+                    "-I",
+                    str(shim),
+                    str(group),
+                    str(self._qemu_deadline_epoch)
+                    if self._qemu_deadline_epoch is not None
+                    else "none",
+                    "--",
+                    *cmd,
+                ]
+
+            logger.debug("Starting QEMU: %s", " ".join(cmd))
+
+            log_file = _open_runtime_log(
+                log_path,
+                ssh_host_key=ssh_host_key,
+                read_write=self._qemu_log_limit_bytes is not None,
+            )
+            console_relay = None
+            try:
+                if self._qemu_log_limit_bytes is not None:
+                    console_relay = _start_bounded_console(
+                        log_file,
+                        self._qemu_log_limit_bytes,
+                        group=group,
+                        deadline_epoch=self._qemu_deadline_epoch,
+                    )
+                process = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=console_relay.stdin if console_relay is not None else log_file,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                    env=environment,
+                    close_fds=True,
+                    pass_fds=(tap_fd,) if tap_fd is not None else (),
+                )
+            except BaseException:
+                log_file.close()
+                if console_relay is not None:
+                    if console_relay.stdin is not None:
+                        console_relay.stdin.close()
+                    if console_relay.poll() is None:
+                        console_relay.terminate()
+                    try:
+                        console_relay.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        console_relay.kill()
+                        console_relay.wait(timeout=1)
+                raise
+            finally:
+                if console_relay is not None and console_relay.stdin is not None:
+                    console_relay.stdin.close()
+
+        finally:
+            if tap_fd is not None:
+                os.close(tap_fd)
 
         key = f"qemu:{vm_info.vm_id}"
+        if console_relay is not None:
+            self._qemu_console_relays[vm_info.vm_id] = console_relay
         self._log_files[key] = log_file
         self._process_handles[process.pid] = process
         if vm_info.vm_id in self._public_egress:
@@ -4159,6 +4393,15 @@ class CelestoManager:
             keys.append(f"qemu:{vm_id}")
         elif backend == BACKEND_LIBKRUN:
             keys.append(f"libkrun:{vm_id}")
+
+        if backend == BACKEND_QEMU:
+            relay = self._qemu_console_relays.get(vm_id)
+            if relay is not None:
+                try:
+                    relay.wait(timeout=5)
+                except subprocess.TimeoutExpired as exc:
+                    raise CelestoError(f"Console cleanup is still pending for '{vm_id}'.") from exc
+                self._qemu_console_relays.pop(vm_id, None)
 
         for key in keys:
             fh = self._log_files.pop(key, None)

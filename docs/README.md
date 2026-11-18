@@ -30,6 +30,7 @@ Celesto gives an AI agent a disposable computer for running code, using a browse
 - [Python SDK design and status](designs/celesto-sdk.md) — review the public `Computer` contract, implemented capabilities, and deferred work.
 - [Local-first provider design](designs/local-first-providers.md) — review provider selection, lifecycle ownership, and implementation verification.
 - [Public-egress release gate](deep-dive/public-egress-release-gate.md) — track the broader backend release target and remaining validation beyond current QEMU-only source support.
+- [Optional QEMU launch controls](deep-dive/qemu-launch-security.md) — review the prepared pool contract, default SDK behavior, and console ownership checks.
 - [October 2026 security scan remediation](deep-dive/security-scan-2026-10.md) — trace the 35 findings to source changes and release requirements.
 - [macOS runtime spike](contributing/macos-spike.md) — see verified behavior and release blockers for the desktop preview.
 - [Native core](contributing/native-core.md) — work on the optional Rust acceleration package.

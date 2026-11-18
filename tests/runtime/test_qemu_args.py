@@ -901,3 +901,29 @@ def test_saved_config_omits_unset_root_disk_tuning(tmp_path: Path) -> None:
     tuned = config.model_copy(update={"qemu_root_disk": QemuRootDiskOptions(bus="pci")})
     restored = VMConfig.model_validate_json(tuned.model_dump_json())
     assert restored.qemu_root_disk == QemuRootDiskOptions(bus="pci")
+
+
+def test_inherited_tap_descriptor_cannot_fall_back_to_interface_name(tmp_path: Path) -> None:
+    info = _qemu_vm_info(tmp_path)
+    info = info.model_copy(
+        update={"config": info.config.model_copy(update={"qemu_network": "tap"})}
+    )
+    argv = build_qemu_argv(
+        info,
+        qemu_bin=Path("/usr/bin/qemu-system-x86_64"),
+        boot_args=info.config.boot_args,
+        platform_spec=_LINUX_SPEC,
+        host_system="Linux",
+        tap_fd=17,
+    )
+    assert argv[argv.index("-netdev") + 1] == "tap,id=net0,fd=17"
+    assert "microvm" in argv[argv.index("-machine") + 1]
+    with pytest.raises(CelestoError, match="descriptor"):
+        build_qemu_argv(
+            _qemu_vm_info(tmp_path),
+            qemu_bin=Path("/usr/bin/qemu-system-x86_64"),
+            boot_args=info.config.boot_args,
+            platform_spec=_LINUX_SPEC,
+            host_system="Linux",
+            tap_fd=17,
+        )
