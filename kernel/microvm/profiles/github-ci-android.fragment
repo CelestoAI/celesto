@@ -1,12 +1,11 @@
-# Android emulator hosting is opt-in. KVM must be built in: these images have
+# Android inherits github-ci.fragment. KVM must be built in: these images have
 # neither loadable kernel modules nor an initrd. Initial qualification is Intel.
-CONFIG_XFS_FS=y
 CONFIG_VIRTUALIZATION=y
 CONFIG_KVM=y
 CONFIG_KVM_INTEL=y
-# Let the unmodified Android emulator request large anonymous RAM mappings.
-# Ordinary guest profiles retain their existing memory policy and configuration.
-CONFIG_TRANSPARENT_HUGEPAGE=y
+# Inherit THP support from CI, but let the emulator request large RAM mappings
+# selectively. Explicitly override the parent's mutually exclusive default.
+# CONFIG_TRANSPARENT_HUGEPAGE_ALWAYS is not set
 CONFIG_TRANSPARENT_HUGEPAGE_MADVISE=y
 # Required even without modules: built-in executable allocations must use ROX.
 CONFIG_ARCH_HAS_EXECMEM_ROX=y

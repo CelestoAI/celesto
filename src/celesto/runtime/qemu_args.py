@@ -140,7 +140,6 @@ def build_qemu_argv(
     root_node_name: str = QEMU_ROOT_NODE_NAME,
     host_system: str | None = None,
     allow_egress_relay: bool = True,
-    tap_fd: int | None = None,
 ) -> list[str]:
     """Build the ``qemu-system-*`` argv for *vm_info*.
 
@@ -170,7 +169,6 @@ def build_qemu_argv(
         host_system: Override of ``platform.system()`` for testing. When
             ``None`` (the default), the live host system is used.
         allow_egress_relay: Whether QEMU may start a public browsing relay.
-        tap_fd: Already opened owned TAP, supplied only by the trusted launcher.
 
     Returns:
         The argv list. No side effects — caller is responsible for
@@ -255,15 +253,8 @@ def build_qemu_argv(
     if tap_mode:
         # Attach to the pre-created host TAP. script=no/downscript=no: the host
         # side (link up, IP, routes, NAT) is owned by NetworkManager, not QEMU.
-        if tap_fd is not None:
-            if type(tap_fd) is not int or tap_fd < 3:
-                raise CelestoError("Invalid QEMU network descriptor.")
-            netdev_arg = f"tap,id=net0,fd={tap_fd}"
-        else:
-            netdev_arg = f"tap,id=net0,ifname={vm_info.network.tap_device},script=no,downscript=no"
+        netdev_arg = f"tap,id=net0,ifname={vm_info.network.tap_device},script=no,downscript=no"
     else:
-        if tap_fd is not None:
-            raise CelestoError("A QEMU network descriptor requires TAP networking.")
         hostfwd_rules = []
         if vm_info.network.ssh_host_port is not None:
             hostfwd_rules.append(f"hostfwd=tcp:127.0.0.1:{vm_info.network.ssh_host_port}-:22")

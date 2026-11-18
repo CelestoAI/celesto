@@ -15,10 +15,8 @@ from pathlib import Path
 
 import paramiko
 
-from celesto.runtime._qemu_console import BOOT_IDENTITY_WINDOW_BYTES
-
 _MARKER = "CELESTO_SSH_HOST_KEY "
-_MAX_BOOT_LOG_BYTES = BOOT_IDENTITY_WINDOW_BYTES
+_MAX_BOOT_LOG_BYTES = 4 * 1024 * 1024
 _DIRECTORY_FLAGS = os.O_RDONLY | sum(
     getattr(os, flag, 0) for flag in ("O_DIRECTORY", "O_NOFOLLOW", "O_CLOEXEC")
 )
@@ -82,7 +80,7 @@ def _parse_key(line: str) -> str | None:
         entry = paramiko.hostkeys.HostKeyEntry.from_line(line)
         if entry is not None and entry.key is not None:
             return f"{entry.key.get_name()} {entry.key.get_base64()}"
-    except (ValueError, paramiko.SSHException, paramiko.hostkeys.InvalidHostKey):
+    except (ValueError, paramiko.SSHException):
         pass
     return None
 

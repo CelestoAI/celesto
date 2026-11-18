@@ -11,12 +11,14 @@ linux.version + linux.sha256
   config.fragment + config.<arch>.fragment
     profiles/sandbox.fragment       -> vmlinux-<arch>.{elf,image,config}
     profiles/github-ci.fragment     -> vmlinux-github-ci-<arch>.{elf,image,config}
-    profiles/github-ci-android.fragment -> vmlinux-github-ci-android-amd64.{elf,image,config}
+    profiles/github-ci.fragment + profiles/github-ci-android.fragment
+                                   -> vmlinux-github-ci-android-amd64.{elf,image,config}
 ```
 
 The sandbox profile keeps XFS disabled. The CI overlay enables it as a built-in
 driver; neither profile requires kernel modules or an initrd in production.
-The opt-in Android profile also builds Intel KVM hosting into the guest kernel.
+The opt-in Android profile inherits the CI profile, then builds Intel KVM hosting
+into the guest kernel and overrides only its Android-specific settings.
 KVM is Linux's hardware virtualization interface; Android uses it inside the
 runner VM to accelerate the emulator. AMD and arm64 are excluded from this
 profile. Its release catalog remains empty until real build receipts supply
@@ -32,14 +34,8 @@ Follow the [Android CI kernel release runbook](../../docs/guides/android-ci-kern
 for prerequisites, artifact identity, draft uploads, outstanding release blockers,
 SDK pins and the separate backend handoff.
 
-The pool's bounded QEMU console uses a new private log inode for each boot.
-This prevents a delayed relay from an earlier manager process from overwriting
-the next boot's diagnostics after reconnect. Existing file ownership, regular
-file, single-link and no-symlink checks still run before replacement. The relay
-and QEMU keep sharing the VM's existing resource and lifetime limits.
-
-The Android profile enables transparent huge pages (THP), which let Linux use
-larger memory pages, with the `madvise` default. Programs can request those pages.
+The Android profile inherits transparent huge page (THP) support from CI and
+changes the default from `always` to `madvise`. Programs can request larger pages.
 This lets the stock emulator request large RAM mappings without customer
 `-qemu -mem-path` arguments or a reserved guest huge-page pool. It does not
 increase the guest's booked RAM or change the ordinary sandbox/CI kernels.

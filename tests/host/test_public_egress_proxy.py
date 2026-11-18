@@ -87,10 +87,9 @@ def test_connect_tunnels_to_the_pinned_address() -> None:
         socket.create_connection((proxy.endpoint.host, proxy.endpoint.port)) as client,
     ):
         client.sendall(b"CONNECT public.test:443 HTTP/1.1\r\nHost: public.test:443\r\n\r\nhello")
-        # TCP can coalesce the CONNECT response and the first tunneled bytes.
-        response = _recv_until(client, b"\r\n\r\nworld")
+        response = _recv_until(client, b"\r\n\r\n")
         assert response.startswith(b"HTTP/1.1 200")
-        assert response.partition(b"\r\n\r\n")[2] == b"world"
+        assert client.recv(5) == b"world"
 
     connector.join()
     assert received == b"hello"
