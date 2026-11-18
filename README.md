@@ -9,7 +9,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-orange.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-orange.svg)](https://www.python.org/downloads/)
 
-[OpenMuse](#built-with-celesto-openmuse) · [Quickstart](#quickstart) · [Python API](#use-the-python-api) · [Agents and automation](#agents-and-automation) · [Runtimes](#choose-a-runtime) · [Examples](#examples) · [Docs](https://docs.celesto.ai) · [Discord](https://discord.gg/KNb5UkrAmm)
+[Quickstart](#quickstart) · [Python API](#use-the-python-api) · [Agents and automation](#agents-and-automation) · [Runtimes](#choose-a-runtime) · [Examples](#examples) · [Docs](https://docs.celesto.ai) · [Discord](https://discord.gg/KNb5UkrAmm)
 
 </div>
 
@@ -20,20 +20,6 @@ Celesto gives an AI agent its own computer for running code, browsing the web, a
 Each computer is a lightweight virtual machine, starts in about 500 ms, and can keep files and state between sessions. Because the agent runs in a separate computer instead of a process on your machine, Celesto provides a stronger boundary for untrusted code.
 
 These docs use one word for each idea. See the [glossary](GLOSSARY.md) for what "computer", "desktop", and "browser session" mean, or browse the [documentation index](docs/README.md) for guides.
-
-## Built with Celesto: OpenMuse
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/CelestoAI/open-muse/main/banner-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/CelestoAI/open-muse/main/banner-light.png">
-  <img alt="OpenMuse chatting with a user while operating a website in an isolated Celesto desktop" src="https://raw.githubusercontent.com/CelestoAI/open-muse/main/banner-light.png">
-</picture>
-
-**OpenMuse is our open-source computer coworker, built end to end on Celesto.** It browses public websites in its own disposable Linux desktop while you watch, approve clicks and form changes, or take control.
-
-[Explore OpenMuse →](https://github.com/CelestoAI/open-muse)
-
-> OpenMuse is a preview and now lives in its own repository. Local setup is not available yet: it needs a Celesto TypeScript package that is not published.
 
 ## Quickstart
 

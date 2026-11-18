@@ -28,7 +28,7 @@ Collected SSH command output is limited to 8 MiB. Use streaming output or write 
 
 Use `internet_settings={"mode": "public"}` with QEMU's default slirp network on Linux or macOS. This permits HTTP and HTTPS through a destination-checking proxy while blocking direct outbound connections. Private, loopback, link-local and other non-public destinations are rejected, including destinations discovered through DNS.
 
-Chromium receives the proxy configuration automatically. Other applications must explicitly use the proxy at `http://10.0.2.100:3128`. This mode does not support shared folders, extra configured port forwards, or snapshot creation or restore. OpenMuse selects it for local browsing and rejects cloud browsing until the cloud provider offers the same guarantee. See [networking](guides/networking.md).
+Chromium receives the proxy configuration automatically. Other applications must explicitly use the proxy at `http://10.0.2.100:3128`. This mode does not support shared folders, extra configured port forwards, or snapshot creation or restore. See [networking](guides/networking.md).
 
 Established HTTPS and WebSocket streams can stay quiet for up to ten minutes before Celesto closes them. Connection attempts have a ten-second socket timeout; request headers, bodies, and ordinary HTTP responses keep a thirty-second socket timeout. The relay buffers at most 64 KiB in each direction.
 
