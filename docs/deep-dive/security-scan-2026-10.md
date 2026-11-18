@@ -10,7 +10,7 @@ The table describes source changes. Release-dependent fixes do not protect previ
 
 | Row | Severity | Finding ID | Remediation |
 | --- | --- | --- | --- |
-| 1 | low | `f2a5f8a6-3e4a-4fab-be89-560db7615126` | Public-only QEMU egress for OpenMuse; unsupported providers fail closed. |
+| 1 | low | `f2a5f8a6-3e4a-4fab-be89-560db7615126` | Public-only QEMU egress; unsupported providers fail closed. |
 | 2 | medium | `e3ecff32-3818-49cb-b6a7-72555f0ac535` | Validate sandbox identifiers before inventory lookup and cleanup; confine firmware cleanup. |
 | 3 | medium | `e2138b9f-e753-4bb0-8551-e9db08bf976f` | Replace model-provided host shell commands with structured browser actions. |
 | 4 | medium | `df56d8de-13ba-423b-a323-1326efe93328` | Escape commas in QEMU path options, including workspace exports and control sockets. |
@@ -50,7 +50,7 @@ The table describes source changes. Release-dependent fixes do not protect previ
 
 Regressions were designed before implementation. Focused checks exercised actual SSH handshakes, bounded compressed-image import, guest archive directory replacement, terminal-process cleanup, browser redirects and redaction, and script execution with separate Linux user identities. Browser and display capabilities were exercised against real Chromium and noVNC in a disposable Linux container. Platform-specific native and guest tests were run on Linux ARM64 as well as macOS where supported.
 
-The PR records the final commands and counts. Local investigation logs and repeatable probes are kept under the ignored `artifacts/security-scan/` directory; they are not installed product files. Regression tests in `tests/`, `guest-agent/`, `celesto-core/` and `open-muse/test/security/` provide the maintained checks.
+The PR records the final commands and counts. Local investigation logs and repeatable probes are kept under the ignored `artifacts/security-scan/` directory; they are not installed product files. Regression tests in `tests/`, `guest-agent/` and `celesto-core/` provide the maintained checks.
 
 The QCOW2 validation follows the [QEMU format specification](https://www.qemu.org/docs/master/interop/qcow2.html); path-option escaping follows [QEMU invocation syntax](https://qemu-project.gitlab.io/qemu/system/invocation.html).
 

@@ -177,7 +177,7 @@ The desktop should feel plain and trustworthy. Do not imitate a branded consumer
 
 `computer.display.viewerUrl` opens noVNC in a browser. `computer.display.vncUrl` connects a VNC client or a computer-use agent directly. The live display must survive viewer refreshes and temporary websocket disconnects without restarting the computer or losing application state.
 
-Celesto itself does not arbitrate human-versus-agent input in the first release. The SDK exposes one display. Applications such as OpenMuse retain responsibility for their control lease, input shield, and takeover workflow.
+Celesto itself does not arbitrate human-versus-agent input in the first release. The SDK exposes one display. Applications built on Celesto retain responsibility for their control lease, input shield, and takeover workflow.
 
 ### Ready, error, and deleted states
 
@@ -607,7 +607,6 @@ A missing panel, unmapped Chromium window, permission mismatch, or partial endpo
 
 ### Milestone 5: integration and release
 
-- Update OpenMuse to create `linux-desktop` through `computers.create()` while retaining its existing control broker.
 - Add a minimal standalone TypeScript example that opens the viewer and uses CDP, exec, and files.
 - Add `ComputerTemplate` image metadata and the `linux-desktop-<arch>-rootfs.ext4.zst` assets to `src/celesto/images/published.py`, `src/celesto/images/builder.py`, `.github/workflows/build-published-images.yml`, and `.github/workflows/smoke-published-images.yml`.
 - Resolve the published image by template and architecture by default. Source checkouts may use an explicit developer-only local-build flag; production calls never silently invoke Docker.
@@ -718,7 +717,7 @@ CI should use deterministic local pages. It must not sign into or mutate real we
 - Persistent desktop or browser profiles.
 - Audio, camera, GPU acceleration, USB passthrough, printing, and multi-monitor displays.
 - VS Code, office suites, full GNOME/KDE/XFCE, or arbitrary user-selected desktop packages.
-- A core Celesto human/agent control broker. OpenMuse continues to own that policy.
+- A core Celesto human/agent control broker. Applications continue to own that policy.
 - Background desktop-process health events and automatic recovery after readiness.
 - Claims that every website permits automation.
 

@@ -130,7 +130,6 @@ celerybeat.pid
 # Environments
 .env
 open-muse/.env.local
-examples/open-muse-research/.env.local
 .venv
 env/
 venv/
@@ -232,3 +231,5 @@ TODOS.md
 
 # Retired OpenMuse directory (moved to CelestoAI/open-muse); keeps leftover local credentials and chats out of commits
 open-muse/.open-muse/
+# Retired OpenMuse Research example (moved to CelestoAI/open-muse); keeps a leftover .env.local API key and node_modules out of commits
+examples/open-muse-research/

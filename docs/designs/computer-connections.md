@@ -214,7 +214,7 @@ A second VNC process adds CPU/memory overhead when displaying the same desktop; 
 ## NOT in scope
 
 - M1 file transfer, M3 published ports/terminals, M4 server-enforced computer expiry: separate milestones; M2 connection expiry is not resource expiry.
-- TypeScript/OpenMuse migration, optional dependency splitting, CLI redesign or changing existing default images.
+- TypeScript migration, optional dependency splitting, CLI redesign or changing existing default images.
 - Browser action wrappers, automatic Playwright ownership, hosted viewer UI, local multi-user authentication, or transparent action replay.
 - Publishing a package or tagging a release. The bundled helper supports existing desktop images; future image releases must follow the repository's build, smoke, manifest, and SHA-pin checklist.
 
