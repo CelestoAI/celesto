@@ -78,4 +78,4 @@ with TemporaryDirectory() as directory:
         print(restored.run("echo restored").stdout)
 ```
 
-Restore inherits the saved network policy. Reconnecting by `vm_id` also requires the original inventory and cannot change the policy. Use the CLI's persistent inventory for workflows that must continue across processes.
+Restore inherits the network policy saved with the snapshot. Reconnect by `vm_id` using the original inventory and data directory. Use the CLI's persistent inventory for workflows that must continue across processes. To tighten outbound access on a running Firecracker computer, see [runtime network policy](networking.md#tighten-access-while-a-computer-is-running).

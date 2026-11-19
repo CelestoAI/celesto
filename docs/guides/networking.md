@@ -153,6 +153,30 @@ On the tested QEMU 11.0.0/macOS HVF setup, use disk snapshots: full-memory resto
 
 Off and restricted modes do not add dynamic domain rules, DNS services, proxies, helper computers, or per-command policy checks. Their policy work happens during network setup and lifecycle reconciliation. Production rollout requires the separate [QEMU validation gates](../deep-dive/qemu-network-policy-validation.md).
 
+## Tighten access while a computer is running
+
+Start a Linux Firecracker computer with private networking and vsock when setup needs internet access and the application should run with less access. Once setup finishes, call `update_network_policy()` to change from `open` to `off` or `restricted`.
+
+```python
+from celesto import Celesto
+
+with Celesto(
+    backend="firecracker",
+    comm_channel="vsock",
+    internet_settings={"mode": "open"},
+) as computer:
+    # Install dependencies and prepare the application here.
+    active = computer.update_network_policy({"mode": "off"})
+    assert active.mode == "off"
+    # Run the prepared application with outbound access disabled.
+```
+
+The call returns the active `InternetSettings` after the host firewall commits the change. From that point, packets to removed destinations are dropped even on connections that were already open. Commands already running continue, and commands and file transfers over vsock remain available. To narrow a restricted policy, pass a subset of its IPv4 ranges or switch to `off`. Increasing access requires a new computer.
+
+If the firewall rejects the change, the previous settings stay in effect and the call raises an error. If the result cannot be confirmed after a timeout, retry with the same settings before starting work that requires the tighter policy. A competing lifecycle operation or network repair can return a busy error. Retry after the active call finishes.
+
+The computer keeps its policy across reconnect, restart, and pause/resume. A snapshot captures the policy active in the inventory at the time of capture and restores with that policy. Use the same inventory and data directory when reconnecting.
+
 ## Legacy domain lists
 
 Existing callers can continue to use domain lists on supported private networking:
@@ -170,7 +194,7 @@ Legacy domain lists require Firecracker private networking or QEMU with `VMConfi
 
 ## Validate settings and handle errors
 
-Use the exported settings class for editor suggestions. Lists are accepted as input; stored collections are immutable tuples. Saved JSON still uses arrays, including when loading older settings. Create a new computer to change its policy.
+Use the exported settings class for editor suggestions. Lists are accepted as input; stored collections are immutable tuples. Saved JSON still uses arrays, including when loading older settings.
 
 ```python
 from celesto import InternetSettings

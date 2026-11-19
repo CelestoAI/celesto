@@ -41,6 +41,7 @@ import time
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager, suppress
 from dataclasses import dataclass
+from ipaddress import IPv4Network
 from pathlib import Path
 from typing import Any, Literal, TextIO, cast
 from uuid import uuid4
@@ -54,6 +55,7 @@ from celesto.exceptions import (
     NetworkError,
     SnapshotAlreadyExistsError,
     SnapshotNotFoundError,
+    ValidationError,
     VMAlreadyExistsError,
     VMNotFoundError,
 )
@@ -92,6 +94,7 @@ from celesto.storage import (
 from celesto.storage._base import VSOCK_CID_END, VSOCK_CID_START
 from celesto.types import (
     GuestOS,
+    InternetSettings,
     NetworkConfig,
     RootfsFormat,
     SnapshotCapturePolicy,
@@ -864,7 +867,9 @@ class CelestoManager:
             return
         raise VMAlreadyExistsError(vm_id)
 
-    def _acquire_operation_lock(self, lock_name: str) -> tuple[Any | None, TextIO | None]:
+    def _acquire_operation_lock(
+        self, lock_name: str, *, blocking: bool = True
+    ) -> tuple[Any | None, TextIO | None]:
         """Acquire one named cross-process operation lock."""
         try:
             import fcntl
@@ -875,8 +880,13 @@ class CelestoManager:
 
         lock_dir = self.data_dir / "locks"
         lock_dir.mkdir(parents=True, exist_ok=True)
-        lock_file = (lock_dir / lock_name).open("w")
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        lock_file = (lock_dir / lock_name).open("a")
+        flags = fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB
+        try:
+            fcntl.flock(lock_file.fileno(), flags)
+        except BaseException:
+            lock_file.close()
+            raise
         return fcntl, lock_file
 
     def _acquire_vm_create_lock(self, vm_id: str) -> tuple[Any | None, TextIO | None]:
@@ -1936,25 +1946,27 @@ class CelestoManager:
 
     @contextmanager
     def _vm_operation_guard(self, vm_id: str, action: str) -> Iterator[None]:
-        """Keep one caller per manager responsible for a VM's lifecycle."""
+        """Claim a VM's lifecycle across managers using the same data directory."""
+        _validate_cleanup_id(vm_id)
+        busy = f"Computer '{vm_id}' is busy; retry {action} after its current operation finishes."
         with self._vm_operation_lock:
-            if self._closed:
+            if self._closed or self._close_requested:
                 raise CelestoError(
-                    f"This session is closed; create a new session, then run "
-                    f"'celesto computer {action} {vm_id}'."
-                )
-            if self._close_requested:
-                raise CelestoError(
-                    f"This session is closing; retry with 'celesto computer {action} {vm_id}'."
+                    f"This session is closing or closed; reconnect to computer '{vm_id}' "
+                    f"and retry {action}."
                 )
             if vm_id in self._active_vm_operations:
-                raise CelestoError(
-                    f"Computer '{vm_id}' is busy; wait for that call to finish "
-                    f"before retrying 'celesto computer {action} {vm_id}'."
-                )
+                raise CelestoError(busy, {"vm_id": vm_id})
             self._active_vm_operations.add(vm_id)
         try:
-            yield
+            try:
+                lock = self._acquire_operation_lock(f"{vm_id}.lifecycle.lock", blocking=False)
+            except BlockingIOError:
+                raise CelestoError(busy, {"vm_id": vm_id}) from None
+            try:
+                yield
+            finally:
+                self._release_vm_create_lock(lock)
         finally:
             with self._vm_operation_lock:
                 self._active_vm_operations.remove(vm_id)
@@ -2001,8 +2013,90 @@ class CelestoManager:
         else:
             await self.network.async_setup_nat(tap_device, allow_outbound=False)
 
+    def update_network_policy(
+        self, vm_id: str, policy: InternetSettings | dict[str, Any]
+    ) -> VMInfo:
+        """Tighten a running Firecracker VM's policy as one host firewall transaction."""
+        settings = parse_network_policy(policy)
+        if settings.mode not in {"off", "restricted"}:
+            raise ValidationError("Set mode='off' or mode='restricted' to tighten outbound access.")
+
+        with self._vm_operation_guard(vm_id, "update_network_policy()"):
+            vm_info = self.state.get_vm(vm_id)
+            if vm_info.status != VMState.RUNNING:
+                raise CelestoError(
+                    f"Computer '{vm_id}' must be running to update outbound access; "
+                    f"run 'celesto computer start {vm_id}' and retry."
+                )
+
+            config = vm_info.config
+            network = vm_info.network
+            backend = self._backend_for_vm(vm_info)
+            if (
+                backend != BACKEND_FIRECRACKER
+                or network is None
+                or network.mode != "nat"
+                or network.ssh_host_port is not None
+                or config.vsock is None
+                or self._resolve_control_channel_for_config(config, backend).kind != "vsock"
+            ):
+                raise ValidationError(
+                    f"Computer '{vm_id}' cannot change outbound access while running; "
+                    f"create a Linux Firecracker computer using private networking and vsock."
+                )
+
+            updated_config = config.model_copy(update={"internet_settings": settings})
+            self._validate_network_policy(updated_config, backend)
+            previous = config.internet_settings
+            if previous is not None and not previous.is_allow_all_domains:
+                if previous.mode not in {"off", "restricted"}:
+                    raise ValidationError(
+                        f"Computer '{vm_id}' uses a legacy or public policy; create a computer "
+                        "with mode='open' to change outbound access while running."
+                    )
+                previous_ranges = tuple(IPv4Network(cidr) for cidr in previous.allowed_cidrs)
+                if any(
+                    not any(IPv4Network(cidr).subnet_of(allowed) for allowed in previous_ranges)
+                    for cidr in settings.allowed_cidrs
+                ):
+                    raise ValidationError(
+                        f"Computer '{vm_id}' cannot broaden outbound access while running; "
+                        "use a subset of its current ranges, or set mode='off'."
+                    )
+            if not self.network.tap_exists(network.tap_device):
+                raise NetworkError(
+                    f"Computer '{vm_id}' lost its network connection; "
+                    f"run 'celesto computer delete {vm_id}' and create it again."
+                )
+
+            # Stage the tighter policy first so interruption after the kernel
+            # commits cannot leave a broader policy for a subsequent repair.
+            updated = self.state.update_vm(vm_id, config=updated_config)
+            try:
+                self.network.apply_network_policy(network.tap_device, list(settings.allowed_cidrs))
+            except Exception as install_error:
+                if isinstance(install_error.__cause__, subprocess.TimeoutExpired):
+                    # A timeout cannot tell us whether the kernel committed.
+                    raise NetworkError(
+                        f"Could not confirm outbound access for computer '{vm_id}'; "
+                        "retry update_network_policy() with the same settings."
+                    ) from install_error
+                try:
+                    self.state.update_vm(vm_id, config=config)
+                except Exception as rollback_error:
+                    raise ExceptionGroup(
+                        f"Could not update or restore outbound settings for computer '{vm_id}'",
+                        [install_error, rollback_error],
+                    ) from None
+                raise
+            return updated
+
     def ensure_network_connectivity(self, vm_info: VMInfo) -> None:
-        """Ensure host-side TAP connectivity exists for network-backed operations."""
+        """Repair host-side connectivity using current inventory, never a cached policy."""
+        with self._vm_operation_guard(vm_info.vm_id, "network repair"):
+            self._ensure_network_connectivity_claimed(self.state.get_vm(vm_info.vm_id))
+
+    def _ensure_network_connectivity_claimed(self, vm_info: VMInfo) -> None:
         if vm_info.network is None:
             return
 
@@ -2720,7 +2814,7 @@ class CelestoManager:
             vm_info.config.internet_settings is not None
             and vm_info.config.internet_settings.has_explicit_restrictions
         ):
-            self.ensure_network_connectivity(vm_info)
+            self._ensure_network_connectivity_claimed(vm_info)
 
         if backend == BACKEND_VZ:
             self._enforce_macos_concurrency_limit(vm_id)
@@ -2831,7 +2925,10 @@ class CelestoManager:
         """Pause a running VM."""
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
+        with self._vm_operation_guard(vm_id, "pause"):
+            return self._pause_claimed(vm_id)
 
+    def _pause_claimed(self, vm_id: str) -> VMInfo:
         vm_info = self.state.get_vm(vm_id)
 
         if vm_info.status != VMState.RUNNING:
@@ -2848,7 +2945,10 @@ class CelestoManager:
         """Resume a paused VM."""
         if not vm_id:
             raise ValueError("vm_id cannot be empty")
+        with self._vm_operation_guard(vm_id, "resume"):
+            return self._resume_claimed(vm_id)
 
+    def _resume_claimed(self, vm_id: str) -> VMInfo:
         vm_info = self.state.get_vm(vm_id)
 
         if vm_info.status != VMState.PAUSED:
@@ -2859,7 +2959,7 @@ class CelestoManager:
             vm_info.config.internet_settings is not None
             and vm_info.config.internet_settings.has_explicit_restrictions
         ):
-            self.ensure_network_connectivity(vm_info)
+            self._ensure_network_connectivity_claimed(vm_info)
         try:
             self._runtime_adapter_for_vm(vm_info).resume(vm_info)
         except Exception:
@@ -2989,7 +3089,10 @@ class CelestoManager:
 
         snapshot_id = snapshot_id or f"snap-{vm_id}-{int(time.time())}"
         snapshot_root = self._snapshot_root_for_id(snapshot_id)
-        with self._snapshot_operation_locks(vm_id, snapshot_id):
+        with (
+            self._vm_operation_guard(vm_id, "snapshot capture"),
+            self._snapshot_operation_locks(vm_id, snapshot_id),
+        ):
             return self._create_snapshot_locked(
                 vm_id=vm_id,
                 snapshot_id=snapshot_id,
@@ -3276,7 +3379,22 @@ class CelestoManager:
         if not snapshot_id:
             raise ValueError("snapshot_id cannot be empty")
 
-        snapshot = self.get_snapshot(snapshot_id)
+        vm_id = self.get_snapshot(snapshot_id).vm_id
+        with (
+            self._vm_operation_guard(vm_id, "snapshot restore"),
+            self._snapshot_operation_locks(vm_id, snapshot_id),
+        ):
+            snapshot = self.get_snapshot(snapshot_id)
+            if snapshot.vm_id != vm_id:
+                raise CelestoError(
+                    f"Snapshot '{snapshot_id}' changed during restore; retry loading it."
+                )
+            return self._restore_snapshot_claimed(snapshot, resume_vm=resume_vm, force=force)
+
+    def _restore_snapshot_claimed(
+        self, snapshot: SnapshotInfo, *, resume_vm: bool, force: bool
+    ) -> VMInfo:
+        snapshot_id = snapshot.snapshot_id
         if (
             snapshot.vm_config.internet_settings is not None
             and snapshot.vm_config.internet_settings.mode == "public"
@@ -3343,8 +3461,7 @@ class CelestoManager:
                 )
 
         if existing_vm is not None and existing_vm.status in (VMState.RUNNING, VMState.PAUSED):
-            self.stop(restore_vm_id)
-            existing_vm = self.state.get_vm(restore_vm_id)
+            existing_vm = self._stop_claimed(restore_vm_id, timeout=10.0)
 
         managed_disk_path = self._instance_disk_path(
             restore_vm_id,
@@ -5125,7 +5242,20 @@ class CelestoManager:
             vm_info.config.internet_settings is not None
             and vm_info.config.internet_settings.has_explicit_restrictions
         ):
-            await asyncio.to_thread(self.ensure_network_connectivity, vm_info)
+            # Keep the lifecycle claim until the worker has finished writing
+            # rules, even if this caller cancels the start.
+            repair = asyncio.create_task(
+                asyncio.to_thread(self._ensure_network_connectivity_claimed, vm_info)
+            )
+            repair_cancelled = False
+            while not repair.done():
+                try:
+                    await asyncio.shield(repair)
+                except asyncio.CancelledError:
+                    repair_cancelled = True
+            repair.result()
+            if repair_cancelled:
+                raise asyncio.CancelledError
 
         if backend == BACKEND_VZ:
             self._enforce_macos_concurrency_limit(vm_id)

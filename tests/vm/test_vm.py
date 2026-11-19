@@ -2012,6 +2012,47 @@ class TestResolveBootArgs:
 
 
 class TestExplicitPolicyLifecycle:
+    def test_runtime_policy_rollback_and_repair(self, smol_vm, sample_config, monkeypatch):
+        """An install failure, a competing manager, and a stale repair must keep policy safe."""
+        monkeypatch.setattr("celesto.vm.sys.platform", "linux")
+        monkeypatch.setattr("celesto.comm.select.platform.system", lambda: "Linux")
+        network = _attach_mock_network(smol_vm)
+        config = sample_config.model_copy(update={"comm_channel": "vsock"})
+        info = smol_vm.create(config)
+        stale = smol_vm.state.update_vm(info.vm_id, status=VMState.RUNNING)
+        other = CelestoManager(
+            data_dir=smol_vm.data_dir, backend="firecracker", state_manager=smol_vm.state
+        )
+        other_network = _attach_mock_network(other)
+        settings = {"mode": "restricted", "allowed_cidrs": ["203.0.113.0/24"]}
+
+        def reject(*args, **kwargs):
+            with pytest.raises(CelestoError, match="busy"):
+                other.ensure_network_connectivity(stale)
+            raise CelestoError("policy install failed")
+
+        network.apply_network_policy.side_effect = reject
+        with pytest.raises(CelestoError, match="policy install failed"):
+            smol_vm.update_network_policy(info.vm_id, settings)
+        assert smol_vm.get(info.vm_id).config.internet_settings is None
+        other_network.apply_network_policy.assert_not_called()
+
+        network.apply_network_policy.side_effect = None
+        updated = smol_vm.update_network_policy(info.vm_id, settings)
+        assert updated.config.internet_settings == InternetSettings.model_validate(settings)
+        other.ensure_network_connectivity(stale)
+        other_network.apply_network_policy.assert_called_once_with(
+            info.network.tap_device, ["203.0.113.0/24"]
+        )
+        with pytest.raises(CelestoError, match="broaden"):
+            other.update_network_policy(
+                info.vm_id, {"mode": "restricted", "allowed_cidrs": ["203.0.112.0/23"]}
+            )
+        tighter = {"mode": "restricted", "allowed_cidrs": ["203.0.113.5"]}
+        assert other.update_network_policy(
+            info.vm_id, tighter
+        ).config.internet_settings == InternetSettings.model_validate(tighter)
+
     @pytest.mark.parametrize("incompatible", ["ssh", "mount", "forward"])
     def test_incompatible_options_fail_before_allocating(
         self, smol_vm, sample_config, monkeypatch, tmp_path, incompatible

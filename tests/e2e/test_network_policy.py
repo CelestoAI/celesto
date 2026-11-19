@@ -97,12 +97,16 @@ Server(("0.0.0.0", 18080), Handler).serve_forever()
                 privileged(binary, "-w", "-I", "FORWARD", direction, host_if, "-j", "ACCEPT")
                 forwarding_rules.append((binary, direction))
         privileged("sysctl", "-w", f"net.ipv6.conf.{host_if}.forwarding=1")
+        privileged("sysctl", "-w", f"net.ipv6.conf.{host_if}.disable_ipv6=0")
         privileged("ip", "-6", "addr", "add", "fd00:534d:1::1/64", "dev", host_if, "nodad")
         for address in (allowed, denied):
             privileged("ip", "-n", ns, "addr", "add", f"{address}/24", "dev", peer_if)
         privileged("ip", "-n", ns, "addr", "add", "169.254.111.222/32", "dev", peer_if)
         privileged("ip", "route", "add", "169.254.111.222/32", "dev", host_if)
         privileged("ip", "-n", ns, "link", "set", peer_if, "up")
+        privileged(
+            "ip", "netns", "exec", ns, "sysctl", "-w", f"net.ipv6.conf.{peer_if}.disable_ipv6=0"
+        )
         privileged(
             "ip", "-n", ns, "-6", "addr", "add", "fd00:534d:1::2/64", "dev", peer_if, "nodad"
         )
@@ -236,6 +240,10 @@ except (OSError,AssertionError): sys.exit(1)
         privileged("ip", "-n", ns, "addr", "add", f"{guest}/30", "dev", peer)
         privileged("ip", "-n", ns, "link", "set", peer, "up")
         privileged("ip", "-n", ns, "route", "add", "default", "via", local)
+        privileged("sysctl", "-w", f"net.ipv6.conf.{tap}.disable_ipv6=0")
+        privileged(
+            "ip", "netns", "exec", ns, "sysctl", "-w", f"net.ipv6.conf.{peer}.disable_ipv6=0"
+        )
         privileged("ip", "-6", "addr", "add", "fd00:534d:2::1/64", "dev", tap, "nodad")
         privileged("ip", "-n", ns, "-6", "addr", "add", "fd00:534d:2::2/64", "dev", peer, "nodad")
         privileged("ip", "-n", ns, "-6", "route", "add", "default", "via", "fd00:534d:2::1")
@@ -393,7 +401,7 @@ except (OSError,AssertionError): sys.exit(1)
 
 
 @pytest.mark.parametrize("mode", ["off", "restricted"])
-def test_firecracker_policy_lifecycle(policy_lab, request, tmp_path, mode):
+def test_firecracker_policy_lifecycle(policy_lab, request, tmp_path, monkeypatch, mode):
     if selected_backend(request.config) == "qemu":
         pytest.skip("Explicit policy currently ships on Firecracker only")
     require_backend_available("firecracker", request.config, sandbox_name="network-policy")
@@ -401,18 +409,54 @@ def test_firecracker_policy_lifecycle(policy_lab, request, tmp_path, mode):
     settings = {"mode": mode}
     if mode == "restricted":
         settings["allowed_cidrs"] = [allowed]
-    inventory = MemoryStateManager(tmp_path / "inventory")
+    data_dir = tmp_path / "runtime"
+    inventory = MemoryStateManager(data_dir)
     sandbox = Celesto(
         backend="firecracker",
         os="alpine",
         comm_channel="vsock",
-        internet_settings=settings,
+        internet_settings={"mode": "open"},
+        data_dir=data_dir,
         state_manager=inventory,
     )
     restored = None
     snapshot = None
     try:
         sandbox.start(boot_timeout=BOOT_TIMEOUT)
+        stale_handle = Celesto.from_id(sandbox.vm_id, data_dir=data_dir, state_manager=inventory)
+        open_probe = f"wget -T 1 -qO- http://{denied}:18080/vm-open"
+        assert sandbox.run(open_probe).stdout == "policy-ok"
+
+        apply_script = NetworkManager._run_nft_script
+
+        def reject_policy(self, script):
+            if "celesto_policy_" in script:
+                script += "\ninvalid nft syntax\n"
+            return apply_script(self, script)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(NetworkManager, "_run_nft_script", reject_policy)
+            with pytest.raises(CelestoError):
+                sandbox.update_network_policy(settings)
+        assert inventory.get_vm(sandbox.vm_id).config.internet_settings.mode == "open"
+        assert sandbox.run(open_probe).stdout == "policy-ok"
+
+        def check_lifecycle_conflict(self, script):
+            if "celesto_policy_" in script:
+                with pytest.raises(CelestoError, match="busy"):
+                    stale_handle.pause()
+                with pytest.raises(CelestoError, match="busy"):
+                    stale_handle._sdk.ensure_network_connectivity(stale_handle.info)
+            return apply_script(self, script)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(NetworkManager, "_run_nft_script", check_lifecycle_conflict)
+            effective = sandbox.update_network_policy(settings)
+        assert effective.mode == mode
+        assert inventory.get_vm(sandbox.vm_id).config.internet_settings == effective
+        stale_handle._sdk.ensure_network_connectivity(stale_handle.info)
+        with pytest.raises(CelestoError):
+            stale_handle.update_network_policy({"mode": "open"})
         payload = tmp_path / "payload"
         payload.write_bytes(b"network-off-file-transfer")
         sandbox.upload_file(str(payload), "/tmp/policy-payload")
@@ -431,18 +475,29 @@ def test_firecracker_policy_lifecycle(policy_lab, request, tmp_path, mode):
                 vm.run(f"wget -T 1 -qO- http://{denied}:18080/vm-denied", timeout=5).exit_code != 0
             )
 
+        check(stale_handle)
+        stale_handle.close()
+        sandbox.pause()
+        sandbox.resume()
         check(sandbox)
         sandbox.stop()
         sandbox.start(boot_timeout=BOOT_TIMEOUT)
         check(sandbox)
         snapshot = sandbox.snapshot(snapshot_type=SnapshotType.DISK)
+        assert snapshot.vm_config.internet_settings == effective
         sandbox.stop()
         sandbox.delete()
         restored = Celesto.from_snapshot(
-            snapshot.snapshot_id, backend="firecracker", resume_vm=True, state_manager=inventory
+            snapshot.snapshot_id,
+            backend="firecracker",
+            resume_vm=True,
+            data_dir=data_dir,
+            state_manager=inventory,
         )
         check(restored)
-        assert '"/vm-denied"' not in log.read_text()
+        requests = log.read_text()
+        assert '"/vm-open"' in requests
+        assert '"/vm-denied"' not in requests
     finally:
         target = restored or sandbox
         with suppress(Exception):

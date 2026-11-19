@@ -1885,6 +1885,24 @@ class Celesto:
         logger.info("VM %s stopped", self._vm_id)
         return self
 
+    def update_network_policy(self, policy: InternetSettings | dict[str, Any]) -> InternetSettings:
+        """Tighten outbound access on a running Linux Firecracker computer.
+
+        Private networking and vsock control are required. Set mode to
+        ``off`` or ``restricted`` with IPv4 CIDRs. Returns the active policy
+        once the host firewall commits. Subsequent packets on existing flows
+        to destinations no longer allowed are also dropped.
+        """
+        if self._resolve_channel().kind != "vsock":
+            raise ValidationError(
+                f"Computer '{self._vm_id}' uses SSH for commands; "
+                "use a Firecracker computer with comm_channel='vsock' to update outbound access."
+            )
+        self._info = self._sdk.update_network_policy(self._vm_id, policy)
+        settings = self._info.config.internet_settings
+        assert settings is not None
+        return settings
+
     def pause(self) -> Celesto:
         """Pause the VM."""
         self._cleanup_local_forwards()
