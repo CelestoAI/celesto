@@ -46,6 +46,13 @@ INVENTORY_ROWS = [
     {"sku": "SKU-GRN-021", "name": "Green Widget", "on_hand": "17", "warehouse": "ORD"},
 ]
 
+# Map each URL report name to a fixed filename prefix and its rows, so response
+# headers never echo text taken from the request path.
+REPORTS = {
+    "orders": ("orders", ORDERS_ROWS),
+    "inventory": ("inventory", INVENTORY_ROWS),
+}
+
 
 def _default_report_date() -> str:
     return (date.today() - timedelta(days=1)).isoformat()
@@ -262,16 +269,14 @@ class PortalHandler(BaseHTTPRequestHandler):
 
     def _send_download(self, report_name: str, query: dict[str, list[str]]) -> None:
         report_date = _safe_report_date(query.get("date", [_default_report_date()])[0])
-        if report_name == "orders":
-            rows = ORDERS_ROWS
-        elif report_name == "inventory":
-            rows = INVENTORY_ROWS
-        else:
+        report = REPORTS.get(report_name)
+        if report is None:
             self.send_error(HTTPStatus.NOT_FOUND, "Unknown report")
             return
+        filename_prefix, rows = report
 
         content = _csv_bytes(rows, report_date)
-        filename = f"{report_name}_{report_date}.csv"
+        filename = f"{filename_prefix}_{report_date}.csv"
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/csv; charset=utf-8")
         self.send_header("Content-Disposition", f'attachment; filename="{filename}"')

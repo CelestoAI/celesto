@@ -127,7 +127,7 @@ fn create_once(name: &str, owner_uid: u32) -> Result<(), NetlinkError> {
         return Err(NetlinkError::Other(msg));
     }
 
-    log::debug!("TAP {} created (owner UID {})", name, owner_uid);
+    log::debug!("TAP {} created", name);
     Ok(())
 }
 
