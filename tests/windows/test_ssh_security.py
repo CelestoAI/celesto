@@ -1,5 +1,6 @@
 """Real SSH handshake and streaming regressions; no guest VM is required."""
 
+import json
 import os
 import socket
 import subprocess
@@ -32,7 +33,10 @@ from celesto.vm import CelestoManager
 
 @contextmanager
 def ssh_peer(
-    tmp_path: Path, *, flood: bool | Literal["slow"] = False
+    tmp_path: Path,
+    *,
+    flood: bool | Literal["slow"] = False,
+    sftp: type[paramiko.SFTPServerInterface] | None = None,
 ) -> Iterator[tuple[int, Path, list[str]]]:
     key = paramiko.RSAKey.generate(1024)
     listener = socket.socket()
@@ -91,6 +95,8 @@ def ssh_peer(
                 transport = paramiko.Transport(sock)
                 transports.append(transport)
                 transport.add_server_key(key)
+                if sftp is not None:
+                    transport.set_subsystem_handler("sftp", paramiko.SFTPServer, sftp)
                 peer = Peer()
                 transport.start_server(server=peer)
                 channel = transport.accept(5)
@@ -116,6 +122,156 @@ def ssh_peer(
         for transport in transports:
             transport.close()
         thread.join(6)
+
+
+class DownloadPeer(paramiko.SFTPServerInterface):
+    """Synthetic guest files served over the real SSH/SFTP protocol."""
+
+    def stat(self, path: str) -> paramiko.SFTPAttributes | int:
+        if path == "/missing":
+            return paramiko.SFTP_NO_SUCH_FILE
+        attrs = paramiko.SFTPAttributes()
+        if path != "/unknown-size":
+            attrs.st_size = 4 if path == "/growing" else len(self.content(path))
+        return attrs
+
+    @staticmethod
+    def content(path: str) -> bytes:
+        if path == "/interrupted":
+            return b"x" * 65536
+        return b"fresh"
+
+    def open(
+        self, path: str, flags: int, attr: paramiko.SFTPAttributes
+    ) -> paramiko.SFTPHandle | int:
+        if path == "/missing":
+            return paramiko.SFTP_NO_SUCH_FILE
+        content = self.content(path)
+
+        class File(paramiko.SFTPHandle):
+            def read(self, offset: int, length: int) -> bytes | int:
+                if path == "/interrupted" and offset >= 32768:
+                    return paramiko.SFTP_FAILURE
+                return content[offset : offset + length]
+
+        return File(flags)
+
+
+@pytest.mark.parametrize("kind", ["new", "existing", "symlink"])
+@pytest.mark.parametrize(
+    ("remote", "limit"),
+    [
+        ("/fresh", 4),
+        ("/unknown-size", 4),
+        ("/missing", 4),
+        ("/missing", None),
+        ("/growing", 4),
+        ("/interrupted", 100000),
+        ("/interrupted", None),
+    ],
+)
+def test_failed_sftp_download_preserves_destination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str, remote: str, limit: int | None
+) -> None:
+    """Remote rejection, growth and interruption must never delete saved data.
+
+    No VM is required: actual host-key verification, SFTP, byte limiting and
+    destination I/O run. The guest alone provides deliberate protocol failures.
+    """
+    directory = tmp_path / "downloads"
+    directory.mkdir()
+    destination = directory / "saved.bin"
+    target = directory / "target.bin" if kind == "symlink" else destination
+    if kind != "new":
+        target.write_bytes(b"previous download")
+    if kind == "symlink":
+        destination.symlink_to(target.name)
+    expected_names = sorted(path.name for path in directory.iterdir())
+    with ssh_peer(tmp_path, sftp=DownloadPeer) as (port, known, _):
+        monkeypatch.setenv("CELESTO_SSH_KNOWN_HOSTS", str(known))
+        client = SSHClient("127.0.0.1", port=port, password="synthetic-test-password")
+        try:
+            with pytest.raises(CelestoError):
+                client.get_file(remote, destination, max_bytes=limit)
+        finally:
+            client.close()
+    remaining = sorted(path.name for path in directory.iterdir())
+    saved = destination.read_bytes() if destination.exists() else None
+    (tmp_path / "sftp-download.json").write_text(
+        json.dumps(
+            {
+                "remote": remote,
+                "limit": limit,
+                "kind": kind,
+                "remaining": remaining,
+                "saved": saved.decode() if saved is not None else None,
+            }
+        )
+    )
+    assert saved == (None if kind == "new" else b"previous download")
+    assert remaining == expected_names
+    if kind == "symlink":
+        assert destination.is_symlink()
+        assert target.read_bytes() == b"previous download"
+
+
+@pytest.mark.parametrize("limit", [None, 5])
+@pytest.mark.parametrize("kind", ["new", "existing", "symlink", "hardlink", "locked-directory"])
+def test_successful_sftp_download_preserves_destination_semantics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, limit: int | None, kind: str
+) -> None:
+    directory = tmp_path / "downloads"
+    directory.mkdir()
+    destination = directory / "saved.bin"
+    target = directory / "target.bin" if kind == "symlink" else destination
+    if kind != "new":
+        target.write_bytes(b"previous download")
+        target.chmod(0o640)
+    if kind == "symlink":
+        destination.symlink_to(target.name)
+    if kind == "hardlink":
+        (directory / "linked.bin").hardlink_to(destination)
+    before = target.stat() if kind != "new" else None
+    expected_names = sorted(path.name for path in directory.iterdir()) + (
+        [destination.name] if kind == "new" else []
+    )
+    with ssh_peer(tmp_path, sftp=DownloadPeer) as (port, known, _):
+        monkeypatch.setenv("CELESTO_SSH_KNOWN_HOSTS", str(known))
+        client = SSHClient("127.0.0.1", port=port, password="synthetic-test-password")
+        try:
+            if kind == "locked-directory":
+                directory.chmod(0o550)
+            assert client.get_file("/fresh", destination, max_bytes=limit) == destination
+        finally:
+            directory.chmod(0o750)
+            client.close()
+    (tmp_path / "sftp-download-success.json").write_text(
+        json.dumps(
+            {
+                "kind": kind,
+                "limit": limit,
+                "saved": destination.read_text(),
+                "mode": oct(target.stat().st_mode & 0o777),
+                "symlink": destination.is_symlink(),
+                "remaining": sorted(path.name for path in directory.iterdir()),
+            }
+        )
+    )
+    assert destination.read_bytes() == b"fresh"
+    assert sorted(path.name for path in directory.iterdir()) == expected_names
+    if kind != "new":
+        assert target.stat().st_mode & 0o777 == 0o640
+        after = target.stat()
+        assert (after.st_ino, after.st_uid, after.st_gid) == (
+            before.st_ino,
+            before.st_uid,
+            before.st_gid,
+        )
+    if kind == "symlink":
+        assert destination.is_symlink()
+        assert target.read_bytes() == b"fresh"
+    if kind == "hardlink":
+        assert (directory / "linked.bin").read_bytes() == b"fresh"
 
 
 @pytest.mark.parametrize("known_hosts_source", ["empty", "missing", "directory"])
