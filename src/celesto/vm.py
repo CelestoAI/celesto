@@ -5147,24 +5147,19 @@ class CelestoManager:
         try:
             vm_info = self._prepare_public_egress(vm_info)
             cancelled = False
-            if vm_id in self._public_egress:
-                # QEMU startup runs in a worker thread. Cancellation must not
-                # abandon that thread and release its still-running guest's proxy.
-                launch_task = asyncio.create_task(
-                    adapter.async_start(vm_info, log_path=log_path, boot_timeout=boot_timeout)
-                )
-                while True:
-                    try:
-                        launch = await asyncio.shield(launch_task)
-                        break
-                    except asyncio.CancelledError:
-                        if launch_task.cancelled():
-                            raise
-                        cancelled = True
-            else:
-                launch = await adapter.async_start(
-                    vm_info, log_path=log_path, boot_timeout=boot_timeout
-                )
+            # Runtime startup can outlive cancellation of its caller. Keep the
+            # operation claim until its result is recorded and cleanup finishes.
+            launch_task = asyncio.create_task(
+                adapter.async_start(vm_info, log_path=log_path, boot_timeout=boot_timeout)
+            )
+            while True:
+                try:
+                    launch = await asyncio.shield(launch_task)
+                    break
+                except asyncio.CancelledError:
+                    if launch_task.cancelled():
+                        raise
+                    cancelled = True
             if vm_id in self._public_egress:
                 self._unrecorded_public_launches[vm_id] = vm_info.model_copy(
                     update={
@@ -5181,17 +5176,6 @@ class CelestoManager:
                 control_socket_path=launch.control_socket_path,
                 display=launch.display,
             )
-            if cancelled:
-                await self._async_stop_claimed(vm_id, 10.0)
-                raise asyncio.CancelledError
-            self._unrecorded_public_launches.pop(vm_id, None)
-            logger.info(
-                "VM started (async): %s (backend=%s, PID: %d)",
-                vm_id,
-                backend,
-                launch.pid,
-            )
-            return vm_info
         except Exception as e:
             logger.error("Failed to start VM %s: %s", vm_id, e)
             pending = self._unrecorded_public_launches.get(vm_id)
@@ -5208,6 +5192,26 @@ class CelestoManager:
             )
             self._close_runtime_log(vm_id, backend, vm_info.control_socket_path)
             raise
+
+        if cancelled:
+            # A failed stop must retain the recorded PID so cleanup can be retried.
+            stop_task = asyncio.create_task(self._async_stop_claimed(vm_id, 10.0))
+            while True:
+                try:
+                    await asyncio.shield(stop_task)
+                    break
+                except asyncio.CancelledError:
+                    if stop_task.cancelled():
+                        raise
+            raise asyncio.CancelledError
+        self._unrecorded_public_launches.pop(vm_id, None)
+        logger.info(
+            "VM started (async): %s (backend=%s, PID: %d)",
+            vm_id,
+            backend,
+            launch.pid,
+        )
+        return vm_info
 
     async def async_stop(self, vm_id: str, timeout: float = 10.0) -> VMInfo:
         """Async version of :meth:`stop`."""
