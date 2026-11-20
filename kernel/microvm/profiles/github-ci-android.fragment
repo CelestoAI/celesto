@@ -1,0 +1,12 @@
+# Android inherits github-ci.fragment. KVM must be built in: these images have
+# neither loadable kernel modules nor an initrd. Qualify each CPU vendor separately.
+CONFIG_VIRTUALIZATION=y
+CONFIG_KVM=y
+CONFIG_KVM_INTEL=y
+CONFIG_KVM_AMD=y
+# Inherit THP support from CI, but let the emulator request large RAM mappings
+# selectively. Explicitly override the parent's mutually exclusive default.
+# CONFIG_TRANSPARENT_HUGEPAGE_ALWAYS is not set
+CONFIG_TRANSPARENT_HUGEPAGE_MADVISE=y
+# Required even without modules: built-in executable allocations must use ROX.
+CONFIG_ARCH_HAS_EXECMEM_ROX=y

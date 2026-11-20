@@ -180,7 +180,7 @@ def _release_asset_url(preset: Preset, arch: Arch, suffix: str, os: Os = "ubuntu
 KERNELS_RELEASE_TAG = "kernels-2026.11.18.0"
 # ARM sandbox kernels have an independently qualified Linux 7.3 release.
 ARM_KERNELS_RELEASE_TAG = "kernels-arm64-2026.10.29.0"
-KernelProfile = Literal["sandbox", "github-ci"]
+KernelProfile = Literal["sandbox", "github-ci", "github-ci-android"]
 
 
 def _release_kernel_url(arch: Arch, fmt: KernelFormat, profile: KernelProfile = "sandbox") -> str:
@@ -198,7 +198,7 @@ def _release_kernel_url(arch: Arch, fmt: KernelFormat, profile: KernelProfile = 
     return (
         f"https://github.com/CelestoAI/Celesto/releases/download/"
         f"{tag}/"
-        f"vmlinux-{'github-ci-' if profile == 'github-ci' else ''}{arch}.{fmt}"
+        f"vmlinux-{profile + '-' if profile != 'sandbox' else ''}{arch}.{fmt}"
     )
 
 
@@ -238,6 +238,11 @@ CI_KERNELS: dict[Arch, BaseKernel] = {
         image_sha256="8bd8f1d4d360ecbd7a8cd956e026706fef766c4f911746409ab47ed4d4532ff7",
     ),
 }
+
+
+# Populated only from the resolved build's verified release receipts. An empty
+# catalog intentionally prevents an Android image from using an ordinary kernel.
+ANDROID_CI_KERNELS: dict[Arch, BaseKernel] = {}
 
 
 def _kernel_format_for_vmm(vmm: Vmm) -> KernelFormat:
@@ -586,11 +591,14 @@ def ensure_base_kernel(
         ImageError: If no base kernel is registered for ``arch``, or if
             download / SHA verification fails.
     """
-    if profile not in {"sandbox", "github-ci"}:
+    if profile not in {"sandbox", "github-ci", "github-ci-android"}:
         raise ImageError(f"Unknown kernel profile '{profile}'.")
-    catalog = (
-        (BASE_KERNELS if profile == "sandbox" else CI_KERNELS) if registry is None else registry
-    )
+    catalogs = {
+        "sandbox": BASE_KERNELS,
+        "github-ci": CI_KERNELS,
+        "github-ci-android": ANDROID_CI_KERNELS,
+    }
+    catalog = catalogs[profile] if registry is None else registry
     entry = catalog.get(arch)
     if entry is None:
         available = ", ".join(sorted(catalog)) or "(none)"

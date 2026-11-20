@@ -12,7 +12,9 @@
 #   vmlinux-<arch>.image    — boot wrapper (bzImage / Image), for QEMU
 #   vmlinux-<arch>.config   — resolved .config (debugging aid)
 #
-# Both workload profiles share the pinned source and baseline fragments.
+# All workload profiles share the pinned source and baseline fragments.
+# Android builds do not upload automatically. Their candidate uploads require
+# an explicit workflow dispatch and a draft release tag, pending qualification.
 
 name: Build microvm Kernel
 
@@ -23,7 +25,8 @@ on:
         description: >-
           Release tag to upload to (e.g. kernels-2026.10.28.0). Created as a
           draft if missing. Leave empty to use KERNELS_RELEASE_TAG from
-          published.py.
+          published.py. Android uploads require an explicit tag and a draft
+          target; otherwise the Android build runs without uploading.
         type: string
         default: ""
       force_overwrite:
@@ -53,16 +56,18 @@ jobs:
       fail-fast: false
       matrix:
         arch: [amd64, arm64]
-        profile: [sandbox, github-ci]
+        profile: [sandbox, github-ci, github-ci-android]
         exclude:
           - arch: arm64
             profile: github-ci
+          - arch: arm64
+            profile: github-ci-android
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     timeout-minutes: 60
     env:
       ARCH: ${{ matrix.arch }}
       PROFILE: ${{ matrix.profile }}
-      ASSET: vmlinux-${{ matrix.profile == 'github-ci' && 'github-ci-' || '' }}${{ matrix.arch }}
+      ASSET: vmlinux-${{ matrix.profile != 'sandbox' && format('{0}-', matrix.profile) || '' }}${{ matrix.arch }}
 
     steps:
       - name: Check out repository
@@ -88,7 +93,7 @@ jobs:
           # produces the same kernel byte-for-byte (modulo nondeterminism
           # we'd want to track separately if it bites).
           path: kernel-out
-          key: linux-kernel-${{ matrix.profile }}-${{ matrix.arch }}-${{ hashFiles('kernel/microvm/linux.version', 'kernel/microvm/linux.sha256', 'kernel/microvm/config.fragment', 'kernel/microvm/config.amd64.fragment', 'kernel/microvm/config.arm64.fragment', 'kernel/microvm/build.sh', 'kernel/microvm/profiles/*.fragment') }}
+          key: linux-kernel-${{ matrix.profile }}-${{ matrix.arch }}-${{ hashFiles('kernel/microvm/linux.version', 'kernel/microvm/linux.sha256', 'kernel/microvm/config.fragment', 'kernel/microvm/config.amd64.fragment', 'kernel/microvm/config.arm64.fragment', 'kernel/microvm/build.sh', 'kernel/microvm/profiles/*.fragment', 'kernel/microvm/patches/**') }}
 
       - name: Build kernel
         if: steps.cache.outputs.cache-hit != 'true'
@@ -169,7 +174,7 @@ jobs:
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import ast, os
           arch = os.environ["ARCH"]
-          table = "CI_KERNELS" if os.environ["PROFILE"] == "github-ci" else "BASE_KERNELS"
+          table = {"sandbox": "BASE_KERNELS", "github-ci": "CI_KERNELS", "github-ci-android": "ANDROID_CI_KERNELS"}[os.environ["PROFILE"]]
           src = open("src/celesto/images/published.py").read()
           tree = ast.parse(src)
 
@@ -210,12 +215,24 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.release.outputs.tag }}
           ARCH: ${{ matrix.arch }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.release_tag }}
           FORCE_OVERWRITE: ${{ inputs.force_overwrite }}
           ELF_SHA: ${{ steps.sha.outputs.elf_sha }}
           IMAGE_SHA: ${{ steps.sha.outputs.image_sha }}
           PINNED_ELF_SHA: ${{ steps.pinned.outputs.elf_sha }}
           PINNED_IMAGE_SHA: ${{ steps.pinned.outputs.image_sha }}
         run: |
+          # Android qualification is incomplete. Never append candidate bytes
+          # to the installed CLI's published release on a push or an implicit
+          # dispatch. Keep building/sanity-checking without contacting Releases.
+          if [ "$PROFILE" = "github-ci-android" ]; then
+            if [ "${EVENT_NAME:-}" != "workflow_dispatch" ] || [ -z "${INPUT_TAG:-}" ]; then
+              echo "Android kernel publication skipped: an explicit workflow dispatch to a reviewed draft release_tag is required."
+              echo "publication_skipped=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
           # Idempotent draft create. Race between matrix cells handled the
           # same way as build-published-images.yml.
           if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
@@ -226,9 +243,10 @@ jobs:
               --notes "Auto-generated draft release for Celesto published images. Verify SHA-256 sums and content before publishing." \
               || echo "Draft already exists (race with another matrix cell), continuing."
           fi
-          # Published assets are pinned by installed clients. Only drafts may
-          # be rebaked, even when force_overwrite was explicitly requested.
-          if [ "${FORCE_OVERWRITE:-false}" = "true" ]; then
+          # Android candidates may only be uploaded to drafts, including when
+          # the filenames do not exist yet. Ordinary published assets remain
+          # pinned: only drafts may be rebaked when force_overwrite is set.
+          if [ "$PROFILE" = "github-ci-android" ] || [ "${FORCE_OVERWRITE:-false}" = "true" ]; then
             is_draft=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')
             if [ "$is_draft" != "true" ]; then
               echo "Published kernel releases are immutable; choose a new draft release_tag." >&2
@@ -303,6 +321,7 @@ jobs:
           IMAGE_SIZE: ${{ steps.sha.outputs.image_size }}
           CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
           DRIFT_DETECTED: ${{ steps.upload.outputs.drift_detected }}
+          PUBLICATION_SKIPPED: ${{ steps.upload.outputs.publication_skipped }}
           FORCE_OVERWRITE: ${{ inputs.force_overwrite }}
         run: |
           if [ "${FORCE_OVERWRITE:-false}" = "true" ]; then
@@ -316,7 +335,11 @@ jobs:
           {
             echo "## microvm kernel build: \`${PROFILE}/${ARCH}\`"
             echo ""
-            echo "Target release: [\`${TAG}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${TAG}). ${existing_assets_note}"
+            if [ "${PUBLICATION_SKIPPED:-false}" = "true" ]; then
+              echo "Publication skipped: Android candidate uploads require an explicit workflow dispatch to a reviewed draft release_tag."
+            else
+              echo "Target release: [\`${TAG}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${TAG}). ${existing_assets_note}"
+            fi
             echo ""
             echo "| Artifact | Size | SHA-256 |"
             echo "| --- | --- | --- |"

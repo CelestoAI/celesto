@@ -38,7 +38,7 @@ def ensure_base_kernel_for_backend(
     backend: str | None = None,
     arch: KernelArch | str = "host",
     *,
-    profile: Literal["sandbox", "github-ci"] = "sandbox",
+    profile: Literal["sandbox", "github-ci", "github-ci-android"] = "sandbox",
     cache_dir: Path | None = None,
 ) -> Path:
     """Return the SHA-verified Celesto base kernel for a backend and arch.
