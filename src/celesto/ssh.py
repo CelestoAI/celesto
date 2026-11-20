@@ -27,8 +27,10 @@ import math
 import os
 import re
 import shlex
+import shutil
 import socket
 import stat
+import tempfile
 import time
 from collections.abc import Callable, Generator
 from contextlib import suppress
@@ -376,7 +378,7 @@ class SSHClient:
         *,
         max_bytes: int | None = None,
     ) -> Path:
-        """Download a file from the guest VM using SFTP."""
+        """Download with SFTP, preserving the destination until transfer succeeds."""
         if not remote_path:
             raise ValueError("remote_path cannot be empty")
         if max_bytes is not None and max_bytes < 1:
@@ -386,34 +388,41 @@ class SSHClient:
         destination.parent.mkdir(parents=True, exist_ok=True)
 
         client = self._ensure_connected()
-        sftp = client.open_sftp()
         try:
-            if max_bytes is None:
-                sftp.get(remote_path, str(destination))
-            else:
-                size = sftp.stat(remote_path).st_size
-                if size is None:
-                    raise CelestoError(
-                        f"Guest file '{remote_path}' size is unavailable; retry the download."
-                    )
-                if size > max_bytes:
-                    raise CelestoError(f"Guest file '{remote_path}' exceeded {max_bytes} bytes.")
+            with tempfile.TemporaryFile() as staged:
+                sftp = client.open_sftp()
+                try:
+                    if max_bytes is None:
+                        sftp.getfo(remote_path, staged)
+                    else:
+                        size = sftp.stat(remote_path).st_size
+                        if size is None:
+                            raise CelestoError(
+                                f"Guest file '{remote_path}' size is unavailable; "
+                                "retry the download."
+                            )
+                        if size > max_bytes:
+                            raise CelestoError(
+                                f"Guest file '{remote_path}' exceeded {max_bytes} bytes."
+                            )
+                        sftp.getfo(
+                            remote_path,
+                            # Reject growth before writing beyond the byte budget.
+                            cast(BinaryIO, _LimitedWriter(staged, max_bytes, remote_path)),
+                            prefetch=False,
+                        )
+                finally:
+                    sftp.close()
+
+                staged.seek(0)
+                # Write through to preserve permissions and links. The final
+                # local write is not atomic, but remote failures leave it untouched.
                 with destination.open("wb") as handle:
-                    sftp.getfo(
-                        remote_path,
-                        # Paramiko's getfo only calls write; the adapter enforces
-                        # the byte budget before passing data to the real file.
-                        cast(BinaryIO, _LimitedWriter(handle, max_bytes, remote_path)),
-                        prefetch=False,
-                    )
+                    shutil.copyfileobj(staged, handle)
         except CelestoError:
-            destination.unlink(missing_ok=True)
             raise
         except Exception as e:
-            destination.unlink(missing_ok=True)
             raise CelestoError(f"Failed to download guest file '{remote_path}': {e}") from e
-        finally:
-            sftp.close()
 
         return destination
 

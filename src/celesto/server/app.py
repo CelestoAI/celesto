@@ -434,13 +434,14 @@ def create_app(*, auth_token: str | None = None) -> FastAPI:
                 temporary.unlink(missing_ok=True)
         return Response(status_code=204)
 
-    async def read_vm_file(
+    def read_vm_file(
         vm: Celesto,
         *,
         resource_kind: str,
         resource_id: str,
         path: str,
     ) -> Response:
+        # Own the whole file lifecycle in one worker, even if its request is canceled.
         if not PurePosixPath(path).is_absolute():
             raise _sdk_error(
                 400,
@@ -450,8 +451,7 @@ def create_app(*, auth_token: str | None = None) -> FastAPI:
             )
         temporary: Path | None = None
         try:
-            size_result = await asyncio.to_thread(
-                vm.run,
+            size_result = vm.run(
                 f"stat -c %s -- {shlex.quote(path)}",
                 30,
                 "raw",
@@ -473,8 +473,7 @@ def create_app(*, auth_token: str | None = None) -> FastAPI:
                 prefix="celesto-sdk-download-", delete=False
             ) as handle:
                 temporary = Path(handle.name)
-            await asyncio.to_thread(
-                vm.download_file,
+            vm.download_file(
                 path,
                 temporary,
                 max_bytes=_MAX_FILE_BYTES,
@@ -1022,7 +1021,8 @@ def create_app(*, auth_token: str | None = None) -> FastAPI:
     )
     async def read_browser_file(session_id: str, path: str) -> Response:
         browser = resolve_browser(session_id)
-        return await read_vm_file(
+        return await asyncio.to_thread(
+            read_vm_file,
             browser.vm,
             resource_kind="browser session",
             resource_id=session_id,
@@ -1214,7 +1214,8 @@ def create_app(*, auth_token: str | None = None) -> FastAPI:
     )
     async def read_file(sandbox_id: str, path: str) -> Response:
         vm = resolve(sandbox_id)
-        return await read_vm_file(
+        return await asyncio.to_thread(
+            read_vm_file,
             vm,
             resource_kind="sandbox",
             resource_id=sandbox_id,
