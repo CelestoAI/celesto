@@ -14,7 +14,7 @@ Linux defaults → common → architecture → github-ci → github-ci-android
 ```
 
 The ordinary CI profile supplies XFS and transparent huge page (THP) support.
-Android adds built-in Intel KVM and changes THP's default from `always` to
+Android adds built-in Intel and AMD KVM and changes THP's default from `always` to
 `madvise`, allowing programs to request larger pages selectively. The child
 explicitly disables the inherited `always` choice. The build verifies the final
 value of each setting using this same order.
@@ -25,8 +25,11 @@ disabled. Strict memory permissions and CPU mitigations remain enabled. Review
 the patch when upgrading Linux. This kernel-local repair has no dependency on
 the separate host-confinement helper.
 
-The current profile is Intel x86_64 only. AMD support, other Android system
-images and smaller-machine recommendations require their own validation.
+The profile targets x86_64 with both vendor drivers built in. The existing Linux
+QEMU launch uses `-cpu host`, so no SDK runtime change is needed to expose the
+matching host's CPU features. Acceleration still requires nested virtualization
+on that host. Building AMD support does not qualify AMD hardware; other Android
+system images and smaller-machine recommendations also need their own validation.
 
 ## Check the SDK independently
 
@@ -66,6 +69,13 @@ configuration files. Review the resolved configuration and test the exact
 artifact for nested acceleration, actual memory mappings and kernel memory
 permissions. A configuration check or successful compilation is not that proof.
 
+Qualify the exact new artifact separately on Intel and AMD hardware. On AMD,
+record the host's `kvm_amd` nested setting, the runner VM's `AuthenticAMD` vendor
+and `svm` CPU flag, usable `/dev/kvm`, nested vCPU execution, emulator acceleration
+and fresh-AVD instrumentation. Repeat the existing Intel checks with the same
+artifact to catch regressions. Intel boot evidence does not validate AMD's KVM
+driver. Keep production admission closed until the required evidence is reviewed.
+
 Existing explicit kernel-path support permits isolated candidate testing before
 publication. Real hardware testing and infrastructure changes require separate
 authorization. Do not replace the ordinary CI kernel to try an Android candidate.
@@ -90,7 +100,7 @@ pins together. A merged SDK branch, draft kernel upload and installed backend
 release are separate milestones. The backend's current signed runtime bundle
 must consume the matching SDK version; do not manually replace its environment.
 
-For image preparation and the remaining AMD, runtime-download and qualification
+For image preparation and the remaining hardware, runtime-download and qualification
 work, see [backend PR #1310](https://github.com/CelestoAI/backend/pull/1310).
 Production admission remains closed during this separation. The pre-existing SDK
 asynchronous-start cancellation finding is separate and is not repaired by moving

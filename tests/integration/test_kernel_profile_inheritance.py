@@ -98,6 +98,7 @@ def test_kernel_build_inherits_ci_before_android_overrides(tmp_path: Path, profi
     if profile == "github-ci-android":
         assert "CONFIG_KVM=y" in resolved
         assert "CONFIG_KVM_INTEL=y" in resolved
+        assert "CONFIG_KVM_AMD=y" in resolved
         assert "CONFIG_XFS_FS=y" in resolved
         assert "CONFIG_TRANSPARENT_HUGEPAGE=y" in resolved
         assert "CONFIG_TRANSPARENT_HUGEPAGE_MADVISE=y" in resolved

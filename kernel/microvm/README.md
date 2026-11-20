@@ -17,12 +17,13 @@ linux.version + linux.sha256
 
 The sandbox profile keeps XFS disabled. The CI overlay enables it as a built-in
 driver; neither profile requires kernel modules or an initrd in production.
-The opt-in Android profile inherits the CI profile, then builds Intel KVM hosting
+The opt-in Android profile inherits the CI profile, then builds Intel and AMD KVM hosting
 into the guest kernel and overrides only its Android-specific settings.
 KVM is Linux's hardware virtualization interface; Android uses it inside the
-runner VM to accelerate the emulator. AMD and arm64 are excluded from this
-profile. Its release catalog remains empty until real build receipts supply
-reviewed digests. From the repository root on Linux, build it with:
+runner VM to accelerate the emulator. This profile targets x86_64; arm64 is excluded.
+Each CPU vendor requires its own hardware qualification. Its release catalog remains
+empty until real build receipts supply reviewed digests. From the repository root
+on Linux, build it with:
 
 ```sh
 CELESTO_KERNEL_PROFILE=github-ci-android CELESTO_ARCH_OVERRIDE=amd64 \
