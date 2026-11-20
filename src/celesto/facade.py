@@ -1083,6 +1083,10 @@ class Celesto:
         state_manager: StateManagerProtocol | None = None,
         on_download: Callable[[str, int, int | None], None] | None = None,
         _qemu_apparmor_profile: str | None = None,
+        _qemu_per_vm_confinement: bool = False,
+        _qemu_cgroup_root: Path | None = None,
+        _qemu_deadline_epoch: float | None = None,
+        _qemu_log_limit_bytes: int | None = None,
     ) -> None:
         ssh_host_key_alias = validate_host_key_alias(ssh_host_key_alias)
         if internet_settings is not None:
@@ -1263,6 +1267,14 @@ class Celesto:
             sdk_kwargs["state_manager"] = state_manager
         if _qemu_apparmor_profile is not None:
             sdk_kwargs["_qemu_apparmor_profile"] = _qemu_apparmor_profile
+        if _qemu_per_vm_confinement:
+            sdk_kwargs["_qemu_per_vm_confinement"] = True
+        if _qemu_cgroup_root is not None:
+            sdk_kwargs["_qemu_cgroup_root"] = _qemu_cgroup_root
+        if _qemu_deadline_epoch is not None:
+            sdk_kwargs["_qemu_deadline_epoch"] = _qemu_deadline_epoch
+        if _qemu_log_limit_bytes is not None:
+            sdk_kwargs["_qemu_log_limit_bytes"] = _qemu_log_limit_bytes
 
         # Record the channel preference on the config so create() can reserve a
         # vsock CID and wire the device before boot. Covers both an explicit
