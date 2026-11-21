@@ -371,8 +371,27 @@ class TestDoctorQemu:
 
         assert check.status == "warn"
         assert check.detail == (
-            "QEMU did not report its version within 15 seconds. Run 'celesto doctor' again."
+            "QEMU did not report its version within 15 seconds, even after a "
+            "retry. Run 'celesto doctor' again."
         )
+        # The probe is retried once before the warning, with a longer window.
+        assert [call.kwargs["timeout"] for call in mock_run.call_args_list] == [15, 45]
+
+    @patch("celesto.host.doctor.subprocess.run")
+    def test_qemu_version_probe_retries_a_slow_first_launch(self, mock_run: MagicMock) -> None:
+        """A first launch that overruns the probe is retried, not reported."""
+        from celesto.host.doctor import _check_qemu_version
+
+        mock_run.side_effect = [
+            subprocess.TimeoutExpired("qemu-system-aarch64", 15),
+            MagicMock(stdout="QEMU emulator version 8.2.0", stderr=""),
+        ]
+
+        check = _check_qemu_version(Path("/opt/homebrew/bin/qemu-system-aarch64"))
+
+        assert check.status == "pass"
+        assert "8.2.0" in check.detail
+        assert [call.kwargs["timeout"] for call in mock_run.call_args_list] == [15, 45]
 
     @patch("celesto.host.doctor.platform.system", return_value="Linux")
     @patch("celesto.host.doctor.subprocess.run")

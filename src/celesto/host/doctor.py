@@ -47,9 +47,13 @@ from celesto.utils import run_command, which
 DoctorStatus = Literal["pass", "warn", "fail"]
 
 # The first launch of a Homebrew QEMU binary on macOS can spend several
-# seconds in Gatekeeper and dynamic-library validation.  A five-second probe
+# seconds in Gatekeeper and dynamic-library validation.  A single short probe
 # can therefore fail even though QEMU is installed and usable.
 _QEMU_PROBE_TIMEOUT_SECONDS = 15
+# A first launch that overran the first probe is usually still loading: the
+# retry gives it a longer window instead of telling the user to run the same
+# check again. Only a probe that times out twice is reported.
+_QEMU_PROBE_RETRY_TIMEOUT_SECONDS = 45
 
 
 @dataclass(frozen=True)
@@ -116,28 +120,38 @@ def _find_qemu_binary() -> tuple[str, Path] | None:
 
 def _check_qemu_version(qemu_path: Path) -> DoctorCheck:
     """Check that the selected QEMU binary supports snapshot QMP APIs."""
-    try:
-        result = subprocess.run(
-            [str(qemu_path), "--version"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=_QEMU_PROBE_TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired:
+    result = None
+    for timeout in (_QEMU_PROBE_TIMEOUT_SECONDS, _QEMU_PROBE_RETRY_TIMEOUT_SECONDS):
+        try:
+            result = subprocess.run(
+                [str(qemu_path), "--version"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=timeout,
+            )
+            break
+        except subprocess.TimeoutExpired:
+            # The first launch of a freshly installed binary can be slow enough
+            # to overrun the probe while it is still loading. `subprocess.run`
+            # kills the timed-out child, so the retry starts clean.
+            continue
+        except (FileNotFoundError, OSError) as exc:
+            return DoctorCheck(
+                name="qemu-version",
+                status="warn",
+                detail=f"could not probe QEMU version: {exc}",
+            )
+
+    if result is None:
         return DoctorCheck(
             name="qemu-version",
             status="warn",
             detail=(
                 "QEMU did not report its version within "
-                f"{_QEMU_PROBE_TIMEOUT_SECONDS} seconds. Run 'celesto doctor' again."
+                f"{_QEMU_PROBE_TIMEOUT_SECONDS} seconds, even after a retry. "
+                "Run 'celesto doctor' again."
             ),
-        )
-    except (FileNotFoundError, OSError) as exc:
-        return DoctorCheck(
-            name="qemu-version",
-            status="warn",
-            detail=f"could not probe QEMU version: {exc}",
         )
 
     match = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", f"{result.stdout}\n{result.stderr}")
