@@ -47,9 +47,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypedDict
 
+from rich.text import Text
+
 from celesto import __version__
 from celesto.cli.image import (
     _IMAGE_DIR_NAME_RE,
+    _NAME_DISPLAY_LIMIT,
     _brief_error,
     _entry_kind,
     _expand_custom_entries,
@@ -59,7 +62,7 @@ from celesto.cli.image import (
     _resolve_entries,
     _valid_entry_name,
 )
-from celesto.cli.output import console_stdout, emit_success
+from celesto.cli.output import console_stdout, display_safe, emit_success, literal_text
 from celesto.cli.prune import _format_bytes, _total_size
 from celesto.images.manager import resolve_image_dir
 from celesto.images.published import DECOMPRESSED_ROOTFS_SIDECAR_SUFFIX
@@ -144,6 +147,23 @@ def _valid_relative_file_path(path: str) -> bool:
     return all(segment not in {"", ".", ".."} for segment in path.split("/"))
 
 
+def _saved_member_paths(entry: Path, excluded: set[str]) -> list[str]:
+    """Relative paths of the regular files `celesto image save` would archive.
+
+    Mirrors the archive loop's filters: links, non-files, excluded cache
+    artifacts and dot-prefixed names are left out.
+    """
+    paths: list[str] = []
+    for f in sorted(entry.rglob("*")):
+        if f.is_symlink() or not f.is_file():
+            continue
+        rel = f.relative_to(entry).as_posix()
+        if rel in excluded or any(seg.startswith(".") for seg in rel.split("/")):
+            continue
+        paths.append(rel)
+    return paths
+
+
 def _remove_existing_entry(path: Path) -> None:
     """Remove a cache entry in whatever form it exists (dir, link, file)."""
     if path.is_symlink() or path.is_file():
@@ -172,24 +192,31 @@ def run_image_save(
     if not _valid_entry_name(requested):
         return _fail(
             command_name,
-            f"'{name}' is not a cached image name.",
+            f"'{display_safe(name)}' is not a cached image name.",
             json_output=json_output,
             code="invalid_input",
             recovery="Run 'celesto image list' to see cached images.",
             exit_code=2,
         )
     if out_path.is_dir():
+        example = out_path / (requested.replace("/", "-") + ".tar")
         return _fail(
             command_name,
-            f"'{out_path}' is a folder; -o needs a file name.",
+            f"'{display_safe(str(out_path))}' is a folder; -o needs a file name.",
             json_output=json_output,
             code="invalid_input",
-            recovery=f"Retry with a file path, e.g. 'celesto image save {requested} "
-            f"-o {shlex.quote(str(out_path / (requested.replace('/', '-') + '.tar')))}'.",
+            recovery="Retry with a file path, e.g. 'celesto image save "
+            f"{shlex.quote(display_safe(requested))} -o "
+            f"{shlex.quote(display_safe(str(example)))}'.",
             exit_code=2,
         )
 
-    retry_command = f"celesto image save {requested} -o {shlex.quote(str(out_path))}"
+    # Both values are shown in error hints: keep control characters out of them,
+    # and shell-quote them so the hint is safe to paste.
+    retry_command = (
+        f"celesto image save {shlex.quote(display_safe(requested))} -o "
+        f"{shlex.quote(display_safe(str(out_path)))}"
+    )
     try:
         matches = _expand_custom_entries(_resolve_entries(requested, root), root)
     except ValueError as exc:
@@ -212,19 +239,24 @@ def run_image_save(
     if not matches:
         return _fail(
             command_name,
-            f"No cached image named '{requested}'.",
+            f"No cached image named '{display_safe(requested)}'.",
             json_output=json_output,
             recovery="Run 'celesto image list' to see cached images.",
         )
     if len(matches) > 1:
-        options = ", ".join(sorted(m.relative_to(root).as_posix() for m in matches))
+        # Folder names come from disk and loaded archives: keep control
+        # characters out of the message and the pasteable hint.
+        names = sorted(
+            display_safe(m.relative_to(root).as_posix(), limit=_NAME_DISPLAY_LIMIT) for m in matches
+        )
         return _fail(
             command_name,
-            f"'{requested}' matches more than one cached image. Pick one of: {options}.",
+            f"'{display_safe(requested, limit=_NAME_DISPLAY_LIMIT)}' matches more than one "
+            f"cached image. Pick one of: {', '.join(names)}.",
             json_output=json_output,
             code="invalid_input",
             recovery=f"Retry with the full name, e.g. 'celesto image save "
-            f"{options.split(', ')[0]} -o {shlex.quote(str(out_path))}'.",
+            f"{shlex.quote(names[0])} -o {shlex.quote(display_safe(str(out_path)))}'.",
             exit_code=2,
         )
 
@@ -248,6 +280,32 @@ def run_image_save(
     # installed .zst digest; it never travels. The decompressed rootfs is
     # regenerated too whenever the wire file is present.
     excluded = {_DECOMPRESSED_ROOTFS, _ROOTFS_SIDECAR} if zst_present else {_ROOTFS_SIDECAR}
+
+    # Load refuses names with control characters, so refuse to save them too.
+    if not archive_name.isprintable():
+        return _fail(
+            command_name,
+            f"'{display_safe(archive_name)}' has control characters in its name, so "
+            "'celesto image load' would reject the archive.",
+            json_output=json_output,
+            code="invalid_input",
+            recovery=f"Rename the folder '{display_safe(str(entry))}' and retry.",
+            exit_code=2,
+        )
+    unprintable = next(
+        (rel for rel in _saved_member_paths(entry, excluded) if not rel.isprintable()), None
+    )
+    if unprintable is not None:
+        return _fail(
+            command_name,
+            f"'{display_safe(archive_name)}' has a file with control characters in its "
+            "name, so 'celesto image load' would reject the archive.",
+            json_output=json_output,
+            code="invalid_input",
+            recovery=f"Rename '{display_safe(unprintable)}' in '{display_safe(str(entry))}' "
+            "and retry.",
+            exit_code=2,
+        )
 
     warnings: list[str] = []
     files_meta: list[dict[str, Any]] = []
@@ -364,7 +422,7 @@ def run_image_save(
             partial_archive.unlink(missing_ok=True)
         return _fail(
             command_name,
-            f"Could not write '{out_path}': {_brief_error(exc)}",
+            f"Could not write '{display_safe(str(out_path))}': {_brief_error(exc)}",
             json_output=json_output,
             recovery=f"Free up disk space or fix permissions, then retry '{retry_command}'.",
         )
@@ -394,12 +452,16 @@ def run_image_save(
         return emit_success(command_name, payload)
     console = console_stdout()
     console.print(
-        f"Saved [bold]{archive_name}[/bold] to {out_path} "
-        f"({_format_bytes(payload['archive_size_bytes'])}). Load it on another "
-        f"machine with 'celesto image load -i {shlex.quote(str(out_path))}'."
+        Text.assemble(
+            "Saved ",
+            (display_safe(archive_name), "bold"),
+            f" to {display_safe(str(out_path))} "
+            f"({_format_bytes(payload['archive_size_bytes'])}). Load it on another "
+            f"machine with 'celesto image load -i {shlex.quote(display_safe(str(out_path)))}'.",
+        )
     )
     for warning in warnings:
-        console.print(f"[yellow]{warning}[/yellow]")
+        console.print(literal_text(warning, style="yellow"))
     return 0
 
 
@@ -422,7 +484,11 @@ def run_image_load(
 
     root = resolve_image_dir(image_dir)
     in_path = Path(input_file)
-    quoted_input = shlex.quote(str(input_file))
+    # The path is typed by the user, but it is echoed in every error below:
+    # keep control characters out of what reaches the terminal.
+    shown_input = display_safe(str(in_path))
+    shown_input_name = shlex.quote(display_safe(in_path.name))
+    quoted_input = shlex.quote(display_safe(str(input_file)))
     not_an_archive = "Check that the file was created by 'celesto image save' and is not corrupted."
 
     def bad_archive(
@@ -432,7 +498,7 @@ def run_image_load(
     ) -> int:
         return _fail(
             command_name,
-            message or f"'{in_path}' is not a Celesto image archive.",
+            message or f"'{shown_input}' is not a Celesto image archive.",
             json_output=json_output,
             code="invalid_input",
             recovery=recovery or not_an_archive,
@@ -451,7 +517,7 @@ def run_image_load(
     except (OSError, tarfile.TarError) as exc:
         return _fail(
             command_name,
-            f"Could not open '{in_path}': {_brief_error(exc)}",
+            f"Could not open '{shown_input}': {_brief_error(exc)}",
             json_output=json_output,
             code="invalid_input",
             recovery=not_an_archive,
@@ -479,7 +545,7 @@ def run_image_load(
             manifest_file = tar.extractfile(manifest_members[0])
             manifest = json.load(manifest_file) if manifest_file else None
         except tarfile.TarError:
-            return bad_archive(f"'{in_path}' is damaged and was not loaded.")
+            return bad_archive(f"'{shown_input}' is damaged and was not loaded.")
         except ValueError:
             manifest = None
         if not isinstance(manifest, dict):
@@ -494,8 +560,16 @@ def run_image_load(
                 ),
             )
         name = manifest.get("name")
-        if schema != _SCHEMA_VERSION or not isinstance(name, str) or not _valid_entry_name(name):
+        # Names must be printable: they are shown in tables and typed back as
+        # 'celesto image rm <name>', so control characters are never accepted.
+        if (
+            schema != _SCHEMA_VERSION
+            or not isinstance(name, str)
+            or not name.isprintable()
+            or not _valid_entry_name(name)
+        ):
             return bad_archive()
+        shown_name = shlex.quote(display_safe(name))
 
         # Only members declared in the manifest, as regular files, at safe
         # relative paths, are ever written to disk — extraction below builds
@@ -517,6 +591,7 @@ def run_image_load(
                 or meta["size"] < 0
                 or not isinstance(meta.get("sha256"), str)
                 or not _SHA256_RE.match(meta["sha256"])
+                or not meta["path"].isprintable()
                 or not _valid_relative_file_path(meta["path"])
             ):
                 return bad_archive()
@@ -542,10 +617,10 @@ def run_image_load(
             for key in declared
         ):
             return bad_archive(
-                f"'{in_path}' contains files that 'celesto image save' never writes "
+                f"'{shown_input}' contains files that 'celesto image save' never writes "
                 "and was not loaded.",
                 recovery="Recreate it on the source machine with "
-                f"'celesto image save {name} -o {shlex.quote(in_path.name)}'.",
+                f"'celesto image save {shown_name} -o {shown_input_name}'.",
             )
         try:
             configured_budget = int(
@@ -584,11 +659,11 @@ def run_image_load(
             ):
                 return _fail(
                     command_name,
-                    f"'{in_path}' contains unexpected entries and was not loaded.",
+                    f"'{shown_input}' contains unexpected entries and was not loaded.",
                     json_output=json_output,
                     code="invalid_input",
                     recovery="Recreate it on the source machine with "
-                    f"'celesto image save {name} -o {shlex.quote(in_path.name)}'.",
+                    f"'celesto image save {shown_name} -o {shown_input_name}'.",
                     exit_code=2,
                 )
             if member.size > budget:
@@ -604,13 +679,13 @@ def run_image_load(
             seen.add(member.name)
         missing = set(allowed) - seen
         if missing:
-            return bad_archive(f"'{in_path}' is incomplete and was not loaded.")
+            return bad_archive(f"'{shown_input}' is incomplete and was not loaded.")
 
         target = root / name
         if target.exists() and not force:
             return _fail(
                 command_name,
-                f"'{name}' already exists.",
+                f"'{display_safe(name)}' already exists.",
                 json_output=json_output,
                 recovery=f"Run 'celesto image load -i {quoted_input} --force' to replace it.",
             )
@@ -718,7 +793,9 @@ def run_image_load(
             return budget_exceeded()
         except (tarfile.TarError, zstandard.ZstdError) as exc:
             shutil.rmtree(partial, ignore_errors=True)
-            return bad_archive(f"'{in_path}' is damaged and was not loaded: {_brief_error(exc)}.")
+            return bad_archive(
+                f"'{shown_input}' is damaged and was not loaded: {_brief_error(exc)}."
+            )
         except OSError as exc:
             shutil.rmtree(partial, ignore_errors=True)
             return _fail(
@@ -752,10 +829,14 @@ def run_image_load(
     if json_output:
         return emit_success(command_name, payload)
     console = console_stdout()
+    # The name comes from the archive: render it literally, never as markup.
     console.print(
-        f"Loaded [bold]{name}[/bold] ({_format_bytes(payload['size_bytes'])}). "
-        "Run 'celesto image list' to confirm."
+        Text.assemble(
+            "Loaded ",
+            (display_safe(name), "bold"),
+            f" ({_format_bytes(payload['size_bytes'])}). Run 'celesto image list' to confirm.",
+        )
     )
     for warning in warnings:
-        console.print(f"[yellow]{warning}[/yellow]")
+        console.print(literal_text(warning, style="yellow"))
     return 0
