@@ -126,12 +126,18 @@ PROFILE="${CELESTO_KERNEL_PROFILE:-sandbox}"
 case "$PROFILE" in
     sandbox) ASSET="vmlinux-$CELESTO_ARCH" ;;
     github-ci) ASSET="vmlinux-github-ci-$CELESTO_ARCH" ;;
+    github-ci-android)
+        [ "$CELESTO_ARCH" = amd64 ] || { echo 'Android CI requires amd64' >&2; exit 2; }
+        ASSET="vmlinux-github-ci-android-$CELESTO_ARCH" ;;
     *) echo "unknown kernel profile: $PROFILE" >&2; exit 2 ;;
 esac
 WORK_DIR="${WORK_DIR:-$(mktemp -d)}/$PROFILE-$CELESTO_ARCH"
 mkdir -p "$WORK_DIR"
 WORK_DIR="$(cd "$WORK_DIR" && pwd)"
-PROFILE_FRAGMENT="$SCRIPT_DIR/profiles/$PROFILE.fragment"
+PROFILE_FRAGMENTS=("$SCRIPT_DIR/profiles/$PROFILE.fragment")
+if [ "$PROFILE" = github-ci-android ]; then
+    PROFILE_FRAGMENTS=("$SCRIPT_DIR/profiles/github-ci.fragment" "${PROFILE_FRAGMENTS[@]}")
+fi
 TARBALL="$WORK_DIR/linux-$LINUX_VERSION.tar.xz"
 SRC_DIR="$WORK_DIR/linux-$LINUX_VERSION"
 ELF_ARTIFACT="$OUT_DIR/${ASSET}.elf"
@@ -163,13 +169,29 @@ fi
 
 cd "$SRC_DIR"
 
+# Linux 7.3 otherwise ties executable-memory ROX to loadable-module hardening.
+# The Android kernel has no modules, but built-in mitigation thunks still need
+# writable-or-executable transitions. Keep all mitigations and strict RWX on.
+if [ "$PROFILE" = github-ci-android ]; then
+    [ "$LINUX_VERSION" = 7.3 ] || { echo 'Review the Android execmem hardening patch for this Linux version' >&2; exit 1; }
+    execmem_patch="$SCRIPT_DIR/patches/linux-7.3-x86-execmem-rox.patch"
+    if patch --dry-run --batch --forward --fuzz=0 -p1 < "$execmem_patch" >/dev/null 2>&1; then
+        patch --batch --forward --fuzz=0 -p1 < "$execmem_patch"
+    elif patch --dry-run --batch --reverse --fuzz=0 -p1 < "$execmem_patch" >/dev/null 2>&1; then
+        echo '==> Android execmem hardening patch already applied'
+    else
+        echo 'Android execmem patch does not match the pinned kernel source' >&2
+        exit 1
+    fi
+fi
+
 # 3. Apply baseline defconfig + our fragments (common + per-arch).
 echo "==> Generating .config (baseline=$DEFCONFIG + common + $CELESTO_ARCH fragments)"
 "$MAKE_BIN" ARCH="$KARCH" "$DEFCONFIG" >/dev/null
 
-# merge_config.sh accepts multiple fragments; -m mode merges, preserving any
-# settings not mentioned. Common first, per-arch second.
-scripts/kconfig/merge_config.sh -m -O . .config "$COMMON_FRAGMENT" "$ARCH_FRAGMENT" "$PROFILE_FRAGMENT" >/dev/null
+# Merge the CI parent before Android's overrides. Ordinary builds retain their
+# existing inputs, and verification below uses this same ordered profile stack.
+scripts/kconfig/merge_config.sh -m -O . .config "$COMMON_FRAGMENT" "$ARCH_FRAGMENT" "${PROFILE_FRAGMENTS[@]}" >/dev/null
 
 # olddefconfig fills in any new symbols introduced by Linux that weren't in
 # the merged base — picks each one's default. Without this, a Linux bump can
@@ -225,7 +247,7 @@ awk '
     /^# CONFIG_.* is not set/ { value[$2] = "# " $2 " is not set"; next }
     /^CONFIG_.*=/ { split($1, parts, "="); value[parts[1]] = $1 }
     END { for (symbol in value) print value[symbol] }
-' "$COMMON_FRAGMENT" "$ARCH_FRAGMENT" "$PROFILE_FRAGMENT" > "$WORK_DIR/effective.fragment"
+' "$COMMON_FRAGMENT" "$ARCH_FRAGMENT" "${PROFILE_FRAGMENTS[@]}" > "$WORK_DIR/effective.fragment"
 verify_fragment "$WORK_DIR/effective.fragment"
 [ "$fail" -eq 0 ] || { echo "==> Fragment verification failed"; exit 1; }
 

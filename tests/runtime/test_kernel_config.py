@@ -20,6 +20,15 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 COMMON_FRAGMENT = REPO_ROOT / "kernel" / "microvm" / "config.fragment"
 
 
+def test_android_kernel_has_builtin_kvm_without_changing_ordinary_profiles() -> None:
+    """The Android image cannot load modules; ordinary images must not acquire KVM."""
+    profiles = REPO_ROOT / "kernel" / "microvm" / "profiles"
+    required = {"CONFIG_VIRTUALIZATION", "CONFIG_KVM", "CONFIG_KVM_INTEL", "CONFIG_KVM_AMD"}
+    assert required <= _enabled_symbols(profiles / "github-ci-android.fragment")
+    for profile in ("sandbox", "github-ci"):
+        assert "CONFIG_KVM" not in _enabled_symbols(profiles / f"{profile}.fragment")
+
+
 def _enabled_symbols(fragment: Path) -> set[str]:
     """Return symbols explicitly enabled in a kernel config fragment."""
     symbols: set[str] = set()
