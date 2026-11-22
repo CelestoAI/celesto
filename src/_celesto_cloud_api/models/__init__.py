@@ -122,16 +122,6 @@ from .customer_organization_analytics_statuses import (
     CustomerOrganizationAnalyticsStatuses,
 )
 from .daily_platform_activity import DailyPlatformActivity
-from .delegated_access_connect_request import DelegatedAccessConnectRequest
-from .delegated_access_connect_response import DelegatedAccessConnectResponse
-from .delegated_access_connection_response import DelegatedAccessConnectionResponse
-from .delegated_access_connection_response_access_rules_type_0 import (
-    DelegatedAccessConnectionResponseAccessRulesType0,
-)
-from .delegated_access_drive_list_response import DelegatedAccessDriveListResponse
-from .delegated_access_list_response import DelegatedAccessListResponse
-from .delegated_access_revoke_response import DelegatedAccessRevokeResponse
-from .delegated_drive_file import DelegatedDriveFile
 from .disconnect_github_v1_integrations_github_disconnect_delete_response_disconnect_github_v1_integrations_github_disconnect_delete import (
     DisconnectGithubV1IntegrationsGithubDisconnectDeleteResponseDisconnectGithubV1IntegrationsGithubDisconnectDelete,
 )
@@ -140,8 +130,6 @@ from .download_url_v1_integrations_github_actions_cache_celesto_download_url_pos
     DownloadUrlV1IntegrationsGithubActionsCacheCelestoDownloadUrlPostResponseDownloadUrlV1IntegrationsGithubActionsCacheCelestoDownloadUrlPost,
 )
 from .drain_acknowledgement import DrainAcknowledgement
-from .drive_access_rules_response import DriveAccessRulesResponse
-from .drive_access_rules_update import DriveAccessRulesUpdate
 from .email_webhook_v1_webhooks_email_provider_post_body import (
     EmailWebhookV1WebhooksEmailProviderPostBody,
 )
@@ -515,20 +503,10 @@ __all__ = (
     "CustomTemplateStatus",
     "CustomTemplateUpdate",
     "DailyPlatformActivity",
-    "DelegatedAccessConnectionResponse",
-    "DelegatedAccessConnectionResponseAccessRulesType0",
-    "DelegatedAccessConnectRequest",
-    "DelegatedAccessConnectResponse",
-    "DelegatedAccessDriveListResponse",
-    "DelegatedAccessListResponse",
-    "DelegatedAccessRevokeResponse",
-    "DelegatedDriveFile",
     "DisconnectGithubV1IntegrationsGithubDisconnectDeleteResponseDisconnectGithubV1IntegrationsGithubDisconnectDelete",
     "DownloadUrlRequest",
     "DownloadUrlV1IntegrationsGithubActionsCacheCelestoDownloadUrlPostResponseDownloadUrlV1IntegrationsGithubActionsCacheCelestoDownloadUrlPost",
     "DrainAcknowledgement",
-    "DriveAccessRulesResponse",
-    "DriveAccessRulesUpdate",
     "EmailWebhookV1WebhooksEmailProviderPostBody",
     "FailedExitCode",
     "FinalizeRequest",
