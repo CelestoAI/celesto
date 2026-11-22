@@ -159,7 +159,7 @@ Command streaming and terminal WebSockets require a separate tested protocol lay
 
 Commit a reviewed schema snapshot with its backend revision/hash, generator config, and generated source. Backend CI exports and validates the artifact; SDK CI regenerates from the pinned artifact and fails on drift, then runs type checks and provider contract tests. Backend schema updates should produce reviewable SDK diffs. SDK builds must not fetch an unversioned live schema.
 
-Before retiring the SDK repository, inventory its non-computer APIs and decide which transfer to this repository. Generation must not silently drop existing agents, deployments, or delegated-access functionality merely because this first facade targets computers.
+Before retiring the SDK repository, inventory its non-computer APIs and decide which transfer to this repository. Generation must not silently drop existing agents or deployments functionality merely because this first facade targets computers.
 
 References: [backend](https://github.com/CelestoAI/backend), [existing Python wrapper](https://github.com/CelestoAI/sdk/blob/main/src/celesto/sdk/computer.py), [FastAPI schema export](https://fastapi.tiangolo.com/how-to/extending-openapi/), [OpenAPI Generator Python](https://openapi-generator.tech/docs/generators/python/), [TypeScript Fetch](https://openapi-generator.tech/docs/generators/typescript-fetch/).
 
