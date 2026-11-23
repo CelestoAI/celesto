@@ -36,6 +36,10 @@ A live snapshot leaves a running computer that uses QEMU available, but it must 
 celesto computer snapshot create demo --snapshot-type disk --resume-source --live-only
 ```
 
+## Snapshot sizes on disk
+
+On Linux, snapshots of Firecracker computers copy the disk without writing its empty space. On btrfs and XFS, the copy also shares unchanged data with the computer's disk until one of them changes. Tools such as `ls` still show the full disk size, so a snapshot can look larger than the space it actually uses. Run `df -h` to see how much space is free.
+
 ## Current limits
 
 Snapshots do not support Windows computers, public-only networking, shared folders, extra drives, shared disks, or raw QEMU disks. Public-only computers require a new session instead of snapshot creation or restore. Snapshot creation can pause a computer unless you use the live-only command above.

@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
+import time
 from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
@@ -175,10 +176,10 @@ class FirecrackerRuntimeAdapter(RuntimeAdapter):
         """Create a Firecracker snapshot and copy the managed disk.
 
         The Firecracker VM state and guest memory are always captured in full
-        so the snapshot restores on its own. ``snapshot_type=DIFF`` only
-        changes how the disk is copied: a copy-on-write reflink clone that
-        shares unchanged blocks with the source on CoW filesystems, instead of
-        a full byte-for-byte copy.
+        so the snapshot restores on its own. Every snapshot type copies the
+        disk with ``clone_or_sparse_copy``: a reflink clone on btrfs and XFS,
+        or a copy that skips empty space elsewhere. The copy is an independent
+        file, so the snapshot does not depend on the source disk.
         """
         vm_info = request.vm_info
         client = self._require_client(vm_info)
@@ -187,12 +188,14 @@ class FirecrackerRuntimeAdapter(RuntimeAdapter):
             memory_path = request.snapshot_root / "mem.bin"
             disk_path = request.snapshot_root / "disk.ext4"
 
+            paused_at: float | None = None
             if request.original_status == VMState.RUNNING:
                 client.pause_vm()
+                paused_at = time.monotonic()
             captured_at = datetime.now(UTC)
 
             if request.snapshot_type == SnapshotType.DISK:
-                shutil.copy2(request.managed_disk_path, disk_path)
+                _copy_snapshot_disk(request, disk_path, paused_at)
                 return SnapshotCreateResult(
                     artifacts=SnapshotArtifacts(disk_path=disk_path),
                     source_status=VMState.PAUSED,
@@ -200,10 +203,7 @@ class FirecrackerRuntimeAdapter(RuntimeAdapter):
                 )
 
             client.create_snapshot(state_path, memory_path, snapshot_type="Full")
-            if request.snapshot_type == SnapshotType.DIFF:
-                clone_or_sparse_copy(request.managed_disk_path, disk_path)
-            else:
-                shutil.copy2(request.managed_disk_path, disk_path)
+            _copy_snapshot_disk(request, disk_path, paused_at)
             return SnapshotCreateResult(
                 artifacts=SnapshotArtifacts(
                     state_path=state_path,
@@ -324,3 +324,30 @@ class FirecrackerRuntimeAdapter(RuntimeAdapter):
                 },
             )
         return FirecrackerClient(vm_info.control_socket_path)
+
+
+def _copy_snapshot_disk(
+    request: SnapshotCreateRequest, disk_path: Path, paused_at: float | None
+) -> None:
+    """Copy the managed disk into the snapshot and log how long the VM was paused."""
+    started = time.monotonic()
+    method = clone_or_sparse_copy(request.managed_disk_path, disk_path)
+    finished = time.monotonic()
+    copy_seconds = finished - started
+    pause_seconds = None if paused_at is None else finished - paused_at
+    logger.debug(
+        "Copied disk for %s snapshot %s of %s with %s in %.3fs (paused %s)",
+        request.snapshot_type.value,
+        request.snapshot_id,
+        request.vm_info.vm_id,
+        method,
+        copy_seconds,
+        "n/a" if pause_seconds is None else f"{pause_seconds:.3f}s",
+        extra={
+            "snapshot_id": request.snapshot_id,
+            "snapshot_type": request.snapshot_type.value,
+            "copy_method": method,
+            "copy_seconds": copy_seconds,
+            "pause_seconds": pause_seconds,
+        },
+    )

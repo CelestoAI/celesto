@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- Copy the disk faster in Firecracker `disk` and `full` snapshots. They now use the same copy as `diff` snapshots: a clone on btrfs and XFS, and a copy that skips empty space on other filesystems. The computer stays paused for a shorter time, and snapshots of mostly empty disks use less space.
+
 ### Removed
 
 - Drop the retired Celesto Cloud endpoints from the bundled private API client: the agent builder, managed agents and their runs, sessions, end users, credentials, MCP servers and settings, conversation threads, Telegram bots, model providers, traces and agent deployments. The service no longer serves them. The public `Computer` interface is unchanged.
