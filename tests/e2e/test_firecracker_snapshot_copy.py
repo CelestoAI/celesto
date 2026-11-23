@@ -38,6 +38,7 @@ from _util import BOOT_TIMEOUT, require_backend_available, selected_backend
 
 from celesto import Celesto
 from celesto.runtime.backends import BACKEND_FIRECRACKER
+from celesto.storage import MemoryStateManager
 from celesto.types import SnapshotInfo, SnapshotType
 
 pytestmark = pytest.mark.e2e
@@ -87,7 +88,16 @@ def test_firecracker_snapshots_use_fast_disk_copy(
     )
     caplog.set_level(logging.DEBUG, logger=_COPY_LOGGER)
 
-    sandbox = Celesto(backend=BACKEND_FIRECRACKER, os="alpine", comm_channel="ssh")
+    # from_snapshot needs the same inventory and data_dir as the source computer.
+    data_dir = tmp_path / "data"
+    inventory = MemoryStateManager(data_dir)
+    sandbox = Celesto(
+        backend=BACKEND_FIRECRACKER,
+        os="alpine",
+        comm_channel="ssh",
+        data_dir=data_dir,
+        state_manager=inventory,
+    )
     restored: Celesto | None = None
     evidence: dict[str, Any] = {"backend": BACKEND_FIRECRACKER}
     try:
@@ -105,7 +115,11 @@ def test_firecracker_snapshots_use_fast_disk_copy(
         sandbox.delete()
 
         restored = Celesto.from_snapshot(
-            disk.snapshot_id, backend=BACKEND_FIRECRACKER, resume_vm=True
+            disk.snapshot_id,
+            backend=BACKEND_FIRECRACKER,
+            resume_vm=True,
+            data_dir=data_dir,
+            state_manager=inventory,
         )
         result = restored.run(f"cat {_MARKER_PATH}")
         evidence["restored_marker"] = result.stdout.strip()
