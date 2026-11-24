@@ -2,7 +2,8 @@
 
 Celesto builds separate guest kernels for ordinary sandboxes and GitHub CI.
 Both use the same pinned Linux source, common configuration, and architecture
-configuration. GitHub CI adds an XFS overlay for filesystem-intensive workloads. Builds need
+configuration. GitHub CI adds XFS for filesystem-intensive workloads and Landlock,
+so CI tools can sandbox themselves. Builds need
 Python 3 in addition to the compiler and kernel build dependencies; arm64 uses
 it to generate DRM register headers.
 
@@ -13,8 +14,10 @@ linux.version + linux.sha256
     profiles/github-ci.fragment     -> vmlinux-github-ci-<arch>.{elf,image,config}
 ```
 
-The sandbox profile keeps XFS disabled. The CI overlay enables it as a built-in
-driver; neither profile requires kernel modules or an initrd in production.
+The sandbox profile keeps XFS and Landlock disabled. The CI overlay enables both
+as built-ins; neither profile requires kernel modules or an initrd in production.
+Landlock lets an unprivileged program restrict its own file and network access.
+It grants no permissions and stays inactive until a program asks for it.
 Each build produces an ELF for Firecracker and an Image/bzImage for QEMU.
 
 Build a specific profile and architecture on Linux:
