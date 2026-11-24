@@ -114,6 +114,23 @@ def _validate_cleanup_id(vm_id: str) -> None:
         raise ValueError("Invalid sandbox name; run 'celesto sandbox list' to choose a sandbox.")
 
 
+# qcow2 layout for a per-VM overlay when ``qcow2_subclusters`` is on. With
+# extended L2 entries a 128 KiB cluster holds 32 subclusters of 4 KiB, so a
+# small guest write allocates only what it touches instead of copying a whole
+# cluster up from the backing image first (copy-on-write amplification).
+_QCOW2_SUBCLUSTER_OPTIONS = "extended_l2=on,cluster_size=128k"
+
+
+def _qcow2_subclusters(config: VMConfig) -> bool:
+    """Return whether this VM's new qcow2 overlay should use subclusters."""
+    return config.qemu_root_disk is not None and config.qemu_root_disk.qcow2_subclusters
+
+
+def _qcow2_overlay_options(subclusters: bool) -> list[str]:
+    """Return the ``qemu-img create`` options for a per-VM qcow2 overlay."""
+    return ["-o", _QCOW2_SUBCLUSTER_OPTIONS] if subclusters else []
+
+
 def _reject_external_qcow2_files(path: Path) -> None:
     """Inspect only the fixed header, without following any image references."""
     with path.open("rb") as source:
@@ -985,6 +1002,7 @@ class CelestoManager:
         overlay_path: Path,
         *,
         backing_format: str | None = None,
+        subclusters: bool = False,
     ) -> None:
         """Create a thin qcow2 overlay backed by a shared base image.
 
@@ -1009,6 +1027,7 @@ class CelestoManager:
                 str(base_path.resolve()),
                 "-F",
                 base_format,
+                *_qcow2_overlay_options(subclusters),
                 str(overlay_path),
             ],
             capture_output=True,
@@ -1290,6 +1309,7 @@ class CelestoManager:
                     config.rootfs_path,
                     instance_rootfs,
                     backing_format=config.qemu_rootfs_format,
+                    subclusters=_qcow2_subclusters(config),
                 )
             else:
                 self._copy_with_reflink(config.rootfs_path, instance_rootfs)
@@ -5309,6 +5329,7 @@ class CelestoManager:
                     config.rootfs_path,
                     instance_rootfs,
                     backing_format=config.qemu_rootfs_format,
+                    subclusters=_qcow2_subclusters(config),
                 )
             else:
                 await self._async_copy_with_reflink(config.rootfs_path, instance_rootfs)
@@ -5323,6 +5344,7 @@ class CelestoManager:
         overlay_path: Path,
         *,
         backing_format: str | None = None,
+        subclusters: bool = False,
     ) -> None:
         """Async version of :meth:`_create_qemu_overlay_disk`."""
         from celesto.utils import async_run_command
@@ -5345,6 +5367,7 @@ class CelestoManager:
                 str(base_path.resolve()),
                 "-F",
                 base_format,
+                *_qcow2_overlay_options(subclusters),
                 str(overlay_path),
             ],
             use_sudo=False,
