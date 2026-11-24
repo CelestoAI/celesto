@@ -4,7 +4,7 @@
 
 ### Added
 
-- Enable Landlock in the GitHub CI kernel, so CI tools that sandbox themselves, such as `setpriv --landlock-access`, work on Celesto runners. Tools that skipped their sandbox because Landlock was missing will now enforce it. Sandbox kernels are unchanged. Takes effect with the next kernel release.
+- Enable Landlock in the GitHub CI kernel, so CI tools that sandbox themselves, such as `setpriv --landlock-access`, work on Celesto runners. Tools that skipped their sandbox because Landlock was missing will now enforce it. Sandbox kernels are unchanged. Ships in the `kernels-2026.11.24.0` kernel release.
 
 ### Removed
 
