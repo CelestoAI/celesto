@@ -187,13 +187,16 @@ def test_qemu_guest_runs_on_vhost_pci_nic_and_subcluster_overlay(
         after = _guest(sandbox, "sha256sum /root/small-writes.bin").split()[0]
         evidence["small_writes_survive_restart"] = before == after
     finally:
-        artifact = _artifact_dir(tmp_path) / "qemu-io-tuning.json"
-        artifact.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n")
-        print(f"QEMU I/O tuning evidence: {artifact}")
-        with suppress(Exception):
-            sandbox.stop()
-        with suppress(Exception):
-            sandbox.delete()
+        try:
+            artifact = _artifact_dir(tmp_path) / "qemu-io-tuning.json"
+            artifact.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n")
+            print(f"QEMU I/O tuning evidence: {artifact}")
+        finally:
+            # Clean up even if the evidence cannot be written.
+            with suppress(Exception):
+                sandbox.stop()
+            with suppress(Exception):
+                sandbox.delete()
 
     assert evidence["host"]["vhost_net_fds"] > 0, evidence
     assert evidence["host"]["overlay"] == {
