@@ -24,7 +24,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(inputs.policy_release_validation && '["release"]' || '["1","2"]') }}
+        shard: >-
+          ${{ fromJSON(inputs.policy_release_validation && '["release"]' ||
+            (inputs.backend == 'qemu' && '["1","2","3"]' || '["1","2"]')) }}
 
     steps:
       - name: Check out repository
@@ -264,18 +266,28 @@ jobs:
           else
             # Keep modules whole for shared VM fixtures. The second shard picks
             # up every other file, including newly added tests.
+            third_shard=()
             if [[ "$E2E_BACKEND" == "qemu" ]]; then
-              first_shard=(tests/e2e/test_browser.py tests/e2e/test_guest_docker.py)
+              first_shard=(tests/e2e/test_browser.py tests/e2e/test_bridge_networking.py)
+              third_shard=(
+                tests/e2e/test_guest_docker.py
+                tests/e2e/test_network_policy.py
+                tests/e2e/test_qemu_incremental_snapshot.py
+                tests/e2e/test_qemu_io_tuning.py
+                tests/e2e/test_ssh_paste.py
+              )
             else
               first_shard=(tests/e2e/test_network_policy.py tests/e2e/test_ssh_paste.py)
             fi
             if [[ "$E2E_SHARD" == "1" ]]; then
               test_paths=("${first_shard[@]}")
+            elif [[ "$E2E_SHARD" == "3" ]]; then
+              test_paths=("${third_shard[@]}")
             else
               chromium=$(command -v chromium)
               "$chromium" --version
               browser_env+=("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$chromium")
-              for path in "${first_shard[@]}"; do
+              for path in "${first_shard[@]}" "${third_shard[@]}"; do
                 pytest_args+=(--ignore="$path")
               done
             fi
@@ -349,7 +361,7 @@ jobs:
         if: ${{ always() && !inputs.policy_release_validation }}
         uses: actions/upload-artifact@v4
         with:
-          name: unreleased-ubuntu-candidate-${{ inputs.backend }}${{ matrix.shard == '2' && '-shard-2' || '' }}
+          name: unreleased-ubuntu-candidate-${{ inputs.backend }}${{ matrix.shard != '1' && format('-shard-{0}', matrix.shard) || '' }}
           path: ${{ runner.temp }}/ubuntu-candidate/artifacts
           compression-level: 0
           retention-days: 3
