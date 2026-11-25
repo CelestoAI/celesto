@@ -23,7 +23,7 @@ answering at all proves the vhost-net data path works. Failure modes:
 4. The overlay keeps the 64 KiB layout, or small writes do not survive a
    restart on the subcluster layout.
 
-The test writes ``qemu-io-tuning.json`` with the evidence to
+Each variant writes ``qemu-io-<variant>.json`` with its evidence to
 ``$CELESTO_E2E_ARTIFACT_DIR`` (or the test's tmp dir).
 """
 
@@ -122,13 +122,25 @@ def _artifact_dir(tmp_path: Path) -> Path:
     return directory
 
 
+def _console_tail(sandbox: Celesto, lines: int = 60) -> list[str]:
+    log = sandbox.data_dir / f"{sandbox.vm_id}.log"
+    with suppress(OSError):
+        return log.read_text(errors="replace").splitlines()[-lines:]
+    return []
+
+
+@pytest.mark.parametrize("tuned", [True, False], ids=["tuned", "baseline"])
 def test_qemu_guest_runs_on_vhost_pci_nic_and_subcluster_overlay(
-    request: pytest.FixtureRequest, tmp_path: Path
+    tuned: bool, request: pytest.FixtureRequest, tmp_path: Path
 ) -> None:
+    """The tuned guest works end to end; ``baseline`` runs the same steps on
+    the default NIC and disk so a restart failure can be pinned on the tuning
+    or not."""
     _require_qemu_with_vhost_net(request)
 
+    variant = "tuned" if tuned else "baseline"
     config, ssh_key_path = _build_auto_config(
-        vm_name=f"e2e-qemu-io-{secrets.token_hex(2)}",
+        vm_name=f"e2e-qemu-io-{variant}-{secrets.token_hex(2)}",
         os="alpine",
         backend=BACKEND_QEMU,
         qemu_machine="auto",
@@ -136,17 +148,15 @@ def test_qemu_guest_runs_on_vhost_pci_nic_and_subcluster_overlay(
         disk_size_mib=None,
         ssh_key_path=None,
     )
-    config = config.model_copy(
-        update={
-            "qemu_network": "tap",
-            "qemu_net": QemuNetOptions(vhost=True, bus="pci"),
-            "qemu_root_disk": QemuRootDiskOptions(
-                bus="pci", iothread=True, aio="io_uring", qcow2_subclusters=True
-            ),
-        }
-    )
+    update: dict[str, Any] = {"qemu_network": "tap"}
+    if tuned:
+        update["qemu_net"] = QemuNetOptions(vhost=True, bus="pci")
+        update["qemu_root_disk"] = QemuRootDiskOptions(
+            bus="pci", iothread=True, aio="io_uring", qcow2_subclusters=True
+        )
+    config = config.model_copy(update=update)
 
-    evidence: dict[str, Any] = {"vm_id": config.vm_id}
+    evidence: dict[str, Any] = {"vm_id": config.vm_id, "variant": variant}
     sandbox = Celesto(config, ssh_key_path=ssh_key_path, comm_channel="ssh")
     try:
         sandbox.start(boot_timeout=BOOT_TIMEOUT)
@@ -155,6 +165,7 @@ def test_qemu_guest_runs_on_vhost_pci_nic_and_subcluster_overlay(
         info = sandbox.info
         assert info.pid is not None
         assert info.config.rootfs_path is not None
+        evidence["network"] = info.network.model_dump(mode="json") if info.network else None
         evidence["host"] = {
             "vhost_net_fds": _open_vhost_net_fds(info.pid),
             "overlay": _overlay_info(Path(info.config.rootfs_path)),
@@ -164,7 +175,7 @@ def test_qemu_guest_runs_on_vhost_pci_nic_and_subcluster_overlay(
             "root_disk_device": _guest(sandbox, "readlink -f /sys/block/vda/device"),
         }
 
-        # A 1 MiB upload streams through SSH over the tuned NIC.
+        # A 1 MiB upload streams through SSH over the NIC under test.
         payload = os.urandom(1024 * 1024)
         upload = tmp_path / "payload.bin"
         upload.write_bytes(payload)
@@ -174,6 +185,11 @@ def test_qemu_guest_runs_on_vhost_pci_nic_and_subcluster_overlay(
 
         _guest(sandbox, _SMALL_WRITES)
         before = _guest(sandbox, "sha256sum /root/small-writes.bin").split()[0]
+        # Re-read from the disk, not the page cache.
+        _guest(sandbox, "sync && echo 3 > /proc/sys/vm/drop_caches")
+        reread = _guest(sandbox, "sha256sum /root/small-writes.bin").split()[0]
+        evidence["small_writes_reread_from_disk"] = before == reread
+
         sandbox.stop()
         check = subprocess.run(
             ["qemu-img", "check", "--output=json", str(info.config.rootfs_path)],
@@ -183,14 +199,23 @@ def test_qemu_guest_runs_on_vhost_pci_nic_and_subcluster_overlay(
         )
         evidence["overlay_check_exit"] = check.returncode
 
-        sandbox.start(boot_timeout=BOOT_TIMEOUT)
-        after = _guest(sandbox, "sha256sum /root/small-writes.bin").split()[0]
-        evidence["small_writes_survive_restart"] = before == after
+        try:
+            sandbox.start(boot_timeout=BOOT_TIMEOUT)
+            restarted = sandbox.info
+            evidence["restart_network"] = (
+                restarted.network.model_dump(mode="json") if restarted.network else None
+            )
+            after = _guest(sandbox, "sha256sum /root/small-writes.bin").split()[0]
+            evidence["small_writes_survive_restart"] = before == after
+        except Exception as error:
+            evidence["restart_error"] = f"{type(error).__name__}: {error}"
+            evidence["restart_console_tail"] = _console_tail(sandbox)
+            raise
     finally:
         try:
-            artifact = _artifact_dir(tmp_path) / "qemu-io-tuning.json"
+            artifact = _artifact_dir(tmp_path) / f"qemu-io-{variant}.json"
             artifact.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n")
-            print(f"QEMU I/O tuning evidence: {artifact}")
+            print(f"QEMU I/O evidence: {artifact}")
         finally:
             # Clean up even if the evidence cannot be written.
             with suppress(Exception):
@@ -198,6 +223,12 @@ def test_qemu_guest_runs_on_vhost_pci_nic_and_subcluster_overlay(
             with suppress(Exception):
                 sandbox.delete()
 
+    assert evidence["upload_sha256_matches"], evidence
+    assert evidence["small_writes_reread_from_disk"], evidence
+    assert evidence["overlay_check_exit"] == 0, evidence
+    assert evidence["small_writes_survive_restart"], evidence
+    if not tuned:
+        return
     assert evidence["host"]["vhost_net_fds"] > 0, evidence
     assert evidence["host"]["overlay"] == {
         "format": "qcow2",
@@ -206,6 +237,3 @@ def test_qemu_guest_runs_on_vhost_pci_nic_and_subcluster_overlay(
     }, evidence
     assert "/pci" in evidence["guest"]["nic_device"], evidence
     assert "/pci" in evidence["guest"]["root_disk_device"], evidence
-    assert evidence["upload_sha256_matches"], evidence
-    assert evidence["overlay_check_exit"] == 0, evidence
-    assert evidence["small_writes_survive_restart"], evidence
