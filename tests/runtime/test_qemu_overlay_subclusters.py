@@ -76,40 +76,31 @@ def _layout(disk: Path | None) -> tuple[int, bool]:
 
 
 def test_overlay_uses_subclusters_when_requested(tmp_path: Path) -> None:
-    manager = _manager(tmp_path)
-    try:
+    with _manager(tmp_path) as manager:
         config = manager._materialize_rootfs(
             _config(tmp_path, QemuRootDiskOptions(qcow2_subclusters=True))
         )
-    finally:
-        manager.close()
 
     assert config.rootfs_format == "qcow2"
     assert _layout(config.rootfs_path) == (128 * 1024, True)
 
 
 def test_overlay_keeps_default_layout_without_the_option(tmp_path: Path) -> None:
-    manager = _manager(tmp_path)
-    try:
+    with _manager(tmp_path) as manager:
         # Root disk tuning without the option must not change the layout.
         config = manager._materialize_rootfs(
             _config(tmp_path, QemuRootDiskOptions(bus="pci", iothread=True))
         )
-    finally:
-        manager.close()
 
     assert _layout(config.rootfs_path) == (64 * 1024, False)
 
 
 def test_async_overlay_uses_subclusters_when_requested(tmp_path: Path) -> None:
-    manager = _manager(tmp_path)
-    try:
+    with _manager(tmp_path) as manager:
         config = asyncio.run(
             manager._async_materialize_rootfs(
                 _config(tmp_path, QemuRootDiskOptions(qcow2_subclusters=True))
             )
         )
-    finally:
-        manager.close()
 
     assert _layout(config.rootfs_path) == (128 * 1024, True)
