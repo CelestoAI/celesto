@@ -189,8 +189,12 @@ jobs:
             # device and run pytest with the kvm group active below.
             sudo chgrp kvm /dev/vhost-vsock || true
             sudo chmod 660 /dev/vhost-vsock || true
+            # QEMU opens this device for TAP NICs with vhost=on.
+            sudo modprobe vhost_net
+            sudo chgrp kvm /dev/vhost-net
+            sudo chmod 660 /dev/vhost-net
           fi
-          ls -l /dev/kvm /dev/vhost-vsock || true
+          ls -l /dev/kvm /dev/vhost-vsock /dev/vhost-net || true
 
       # uv workspace builds celesto-core from the local celesto-core/ directory.
       - name: Install dependencies
@@ -279,9 +283,21 @@ jobs:
               done
             fi
           fi
-          sudo -n -E -u "$USER" -g kvm -- env "PATH=$PATH" "CELESTO_IMAGES_RELEASE_TAG=${CELESTO_IMAGES_RELEASE_TAG:-}" "$(command -v uv)" run \
+          mkdir -p "$RUNNER_TEMP/e2e-evidence"
+          sudo -n -E -u "$USER" -g kvm -- env "PATH=$PATH" \
+            "CELESTO_IMAGES_RELEASE_TAG=${CELESTO_IMAGES_RELEASE_TAG:-}" \
+            "CELESTO_E2E_ARTIFACT_DIR=$RUNNER_TEMP/e2e-evidence" "$(command -v uv)" run \
             --with playwright --with websockets --with 'pydantic-ai-slim[openai]' \
             pytest -m e2e "${test_paths[@]}" -v --e2e-backend "$E2E_BACKEND" "${pytest_args[@]}"
+
+      - name: Upload e2e evidence
+        if: ${{ always() && !inputs.policy_release_validation }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-evidence-${{ inputs.backend }}-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/e2e-evidence
+          retention-days: 14
+          if-no-files-found: ignore
 
       - name: Build baseline and candidate wheels
         if: inputs.policy_release_validation && inputs.backend == 'firecracker'

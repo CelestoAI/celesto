@@ -34,6 +34,7 @@ from celesto.types import (
     NetworkConfig,
     PortForwardConfig,
     QemuMachine,
+    QemuNetOptions,
     QemuRootDiskOptions,
     VMConfig,
     VMInfo,
@@ -901,3 +902,108 @@ def test_saved_config_omits_unset_root_disk_tuning(tmp_path: Path) -> None:
     tuned = config.model_copy(update={"qemu_root_disk": QemuRootDiskOptions(bus="pci")})
     restored = VMConfig.model_validate_json(tuned.model_dump_json())
     assert restored.qemu_root_disk == QemuRootDiskOptions(bus="pci")
+
+
+# ── Network device tuning ─────────────────────────────────────────────
+# Failure modes these guard against:
+# 1. Default configs gain vhost=on, so QEMU refuses to start on hosts
+#    without /dev/vhost-net.
+# 2. vhost=on lands on a SLIRP netdev, which QEMU rejects.
+# 3. A PCI NIC leaves microvm at pcie=off, so virtio-net-pci has no bus.
+# 4. Saved configs gain a key that older Celesto releases reject on load.
+
+
+def _tuned_tap_vm_info(tmp_path: Path, **update: object) -> VMInfo:
+    vm_info = _tap_vm_info(tmp_path)
+    data = vm_info.config.model_dump()
+    data.update(update)
+    return vm_info.model_copy(update={"config": VMConfig.model_validate(data)})
+
+
+def _linux_argv(vm_info: VMInfo) -> list[str]:
+    return build_qemu_argv(
+        vm_info,
+        qemu_bin=Path("/usr/bin/qemu-system-x86_64"),
+        boot_args=vm_info.config.boot_args,
+        platform_spec=_LINUX_SPEC,
+        host_system="Linux",
+    )
+
+
+def test_tap_netdev_has_no_vhost_by_default(tmp_path: Path) -> None:
+    cmd = _linux_argv(_tuned_tap_vm_info(tmp_path))
+
+    assert cmd[cmd.index("-netdev") + 1] == ("tap,id=net0,ifname=tap5,script=no,downscript=no")
+
+
+def test_tap_netdev_turns_on_vhost(tmp_path: Path) -> None:
+    cmd = _linux_argv(_tuned_tap_vm_info(tmp_path, qemu_net=QemuNetOptions(vhost=True)))
+
+    assert cmd[cmd.index("-netdev") + 1] == (
+        "tap,id=net0,ifname=tap5,script=no,downscript=no,vhost=on"
+    )
+    assert cmd[cmd.index("-machine") + 1].startswith("microvm,accel=kvm,acpi=on,pcie=off,")
+    assert "virtio-net-device,netdev=net0,mac=52:54:00:12:34:56" in cmd
+
+
+def test_slirp_netdev_ignores_vhost(tmp_path: Path) -> None:
+    vm_info = _qemu_vm_info(tmp_path)
+    config = vm_info.config.model_copy(update={"qemu_net": QemuNetOptions(vhost=True)})
+    cmd = _linux_argv(vm_info.model_copy(update={"config": config}))
+
+    assert cmd[cmd.index("-netdev") + 1].startswith("user,id=net0,")
+    assert "vhost" not in cmd[cmd.index("-netdev") + 1]
+
+
+def test_microvm_pci_nic_turns_on_pcie(tmp_path: Path) -> None:
+    vm_info = _with_vsock(
+        _tuned_tap_vm_info(tmp_path, qemu_net=QemuNetOptions(vhost=True, bus="pci"))
+    )
+    cmd = _linux_argv(vm_info)
+
+    assert cmd[cmd.index("-machine") + 1] == (
+        "microvm,accel=kvm,acpi=on,pcie=on,pic=off,pit=off,rtc=on"
+    )
+    device_args = [cmd[i + 1] for i, token in enumerate(cmd) if token == "-device"]
+    assert "virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56" in device_args
+    assert not any(arg.startswith("virtio-net-device,") for arg in device_args)
+    # Only the NIC moves: the root disk and vsock stay on virtio-mmio.
+    assert "virtio-blk-device,drive=rootdisk0-drive" in device_args
+    assert "vhost-vsock-device,guest-cid=42" in device_args
+
+
+def test_q35_keeps_pci_nic_with_net_options(tmp_path: Path) -> None:
+    vm_info = _tuned_tap_vm_info(
+        tmp_path, qemu_machine="q35", qemu_net=QemuNetOptions(vhost=True, bus="pci")
+    )
+    cmd = _linux_argv(vm_info)
+
+    assert cmd[cmd.index("-machine") + 1] == "q35,accel=kvm"
+    assert "virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56" in cmd
+    assert cmd[cmd.index("-netdev") + 1].endswith(",vhost=on")
+
+
+def test_saved_config_omits_unset_net_and_subcluster_tuning(tmp_path: Path) -> None:
+    config = _qemu_vm_info(tmp_path).config
+    assert '"qemu_net"' not in config.model_dump_json()
+
+    # A root disk tuned like a CI runner today must save exactly as before,
+    # so a release that predates qcow2_subclusters can still load it.
+    ci_disk = QemuRootDiskOptions(bus="pci", iothread=True, cache="unsafe", aio="io_uring")
+    saved = config.model_copy(update={"qemu_root_disk": ci_disk}).model_dump()
+    assert saved["qemu_root_disk"] == {
+        "bus": "pci",
+        "iothread": True,
+        "cache": "unsafe",
+        "aio": "io_uring",
+    }
+
+    tuned = config.model_copy(
+        update={
+            "qemu_net": QemuNetOptions(vhost=True, bus="pci"),
+            "qemu_root_disk": QemuRootDiskOptions(qcow2_subclusters=True),
+        }
+    )
+    restored = VMConfig.model_validate_json(tuned.model_dump_json())
+    assert restored.qemu_net == QemuNetOptions(vhost=True, bus="pci")
+    assert restored.qemu_root_disk == QemuRootDiskOptions(qcow2_subclusters=True)

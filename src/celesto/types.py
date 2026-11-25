@@ -656,12 +656,19 @@ class QemuRootDiskOptions(BaseModel):
             only for disks that are thrown away with the VM.
         aio: QEMU ``aio=`` engine for the root drive. ``"native"`` needs
             ``cache="none"`` or ``cache="directsync"`` (O_DIRECT).
+        qcow2_subclusters: Create the per-VM qcow2 overlay with
+            ``extended_l2=on,cluster_size=128k``. A guest write smaller than a
+            cluster then allocates only its 4 KiB subclusters, instead of
+            copying a whole cluster up from the backing image first. Applies
+            only when Celesto creates a new qcow2 overlay; an existing disk
+            keeps its layout. Needs QEMU 5.2 or later.
     """
 
     bus: Literal["mmio", "pci"] = "mmio"
     iothread: bool = False
     cache: Literal["writeback", "writethrough", "none", "directsync", "unsafe"] = "writeback"
     aio: Literal["threads", "native", "io_uring"] = "threads"
+    qcow2_subclusters: bool = False
 
     @model_validator(mode="after")
     def _check_native_aio_uses_direct_io(self) -> "QemuRootDiskOptions":
@@ -669,6 +676,27 @@ class QemuRootDiskOptions(BaseModel):
         if self.aio == "native" and self.cache not in {"none", "directsync"}:
             raise ValueError('aio=native needs cache="none" or cache="directsync"')
         return self
+
+    model_config = {"frozen": True, "extra": "forbid"}
+
+
+class QemuNetOptions(BaseModel):
+    """QEMU tuning for a VM's network device.
+
+    Attributes:
+        vhost: Move the virtio-net data path into the host kernel
+            (``vhost=on``) instead of QEMU's main loop. Applies to TAP
+            networking only (``qemu_network="tap"`` or bridge mode); SLIRP
+            ignores it. QEMU refuses to start when it cannot open
+            ``/dev/vhost-net``, so set it only on hosts that provide it.
+        bus: ``"mmio"`` (default) keeps the NIC on virtio-mmio. ``"pci"``
+            attaches it as ``virtio-net-pci`` and turns on the microvm PCIe
+            bus. Applies to the Linux x86_64 ``microvm`` machine only; other
+            machines keep their own wiring.
+    """
+
+    vhost: bool = False
+    bus: Literal["mmio", "pci"] = "mmio"
 
     model_config = {"frozen": True, "extra": "forbid"}
 
@@ -727,6 +755,10 @@ class VMConfig(BaseModel):
             aio). ``None`` (default) keeps QEMU's defaults. Saved configs omit
             the field while it is ``None``, so older Celesto versions can still
             load them. Ignored by non-QEMU backends.
+        qemu_net: Optional QEMU network device tuning (vhost, bus). ``None``
+            (default) keeps QEMU's defaults. Saved configs omit the field while
+            it is ``None``, like ``qemu_root_disk``. Ignored by non-QEMU
+            backends.
         disk_mode: Disk lifecycle mode:
             - ``"isolated"`` (default): clone rootfs per VM for sandbox isolation.
             - ``"shared"``: boot directly from ``rootfs_path``.
@@ -773,6 +805,7 @@ class VMConfig(BaseModel):
     qemu_network: Literal["slirp", "tap"] = "slirp"
     qemu_machine: QemuMachine = "auto"
     qemu_root_disk: QemuRootDiskOptions | None = None
+    qemu_net: QemuNetOptions | None = None
     disk_mode: Literal["isolated", "shared"] = "isolated"
     disk_size_mib: Annotated[int, Field(ge=1)] | None = None
     grow_filesystem: bool = False
@@ -789,16 +822,27 @@ class VMConfig(BaseModel):
     network_attachment: NetworkAttachmentConfig = Field(default_factory=NetworkAttachmentConfig)
 
     @model_serializer(mode="wrap")
-    def _omit_unset_qemu_root_disk(self, handler: SerializerFunctionWrapHandler):  # type: ignore[no-untyped-def]
-        """Leave ``qemu_root_disk`` out of saved configs while it is unset.
+    def _omit_unset_qemu_tuning(self, handler: SerializerFunctionWrapHandler):  # type: ignore[no-untyped-def]
+        """Leave unset QEMU tuning out of saved configs.
 
-        VMConfig forbids unknown fields, so a config saved with this key could
-        not be loaded by a Celesto release from before it existed. No return
+        VMConfig forbids unknown fields, so a config saved with
+        ``qemu_root_disk`` or ``qemu_net`` could not be loaded by a Celesto
+        release from before that field existed. Each one is written only
+        while it is set. Inside ``qemu_root_disk``, ``qcow2_subclusters`` is
+        written only while it is on, for the same reason. No return
         annotation: one would replace VMConfig's serialization schema.
         """
         data = handler(self)
-        if self.qemu_root_disk is None and isinstance(data, dict):
+        if not isinstance(data, dict):
+            return data
+        if self.qemu_root_disk is None:
             data.pop("qemu_root_disk", None)
+        elif not self.qemu_root_disk.qcow2_subclusters and isinstance(
+            data.get("qemu_root_disk"), dict
+        ):
+            data["qemu_root_disk"].pop("qcow2_subclusters", None)
+        if self.qemu_net is None:
+            data.pop("qemu_net", None)
         return data
 
     @property

@@ -55,8 +55,9 @@ _Q35_AHCI_PORTS = 6
 
 _QEMU_MACHINE_ENV = "CELESTO_QEMU_MACHINE"
 _QEMU_MICROVM_MACHINE = "microvm,accel=kvm,acpi=on,pcie=off,pic=off,pit=off,rtc=on"
-# microvm with its PCIe bus on, for a root disk on virtio-blk-pci. The other
-# microvm devices (NIC, vsock, 9p) stay on virtio-mmio.
+# microvm with its PCIe bus on, for a root disk on virtio-blk-pci or a NIC on
+# virtio-net-pci. The other microvm devices (vsock, 9p, extra drives unless the
+# root disk is on PCI) stay on virtio-mmio.
 _QEMU_MICROVM_PCIE_MACHINE = "microvm,accel=kvm,acpi=on,pcie=on,pic=off,pit=off,rtc=on"
 _QEMU_MACHINE_VALUES: set[QemuMachine] = {"auto", "q35", "microvm"}
 
@@ -245,6 +246,8 @@ def build_qemu_argv(
         if root_disk.aio != "threads":
             drive_arg += f",aio={root_disk.aio}"
     root_disk_on_pci = use_qemu_microvm and root_disk is not None and root_disk.bus == "pci"
+    net_options = vm_info.config.qemu_net
+    nic_on_pci = use_qemu_microvm and net_options is not None and net_options.bus == "pci"
     root_iothread_id = (
         f"{root_node_name}-iothread"
         if use_qemu_microvm and root_disk is not None and root_disk.iothread
@@ -254,6 +257,10 @@ def build_qemu_argv(
         # Attach to the pre-created host TAP. script=no/downscript=no: the host
         # side (link up, IP, routes, NAT) is owned by NetworkManager, not QEMU.
         netdev_arg = f"tap,id=net0,ifname={vm_info.network.tap_device},script=no,downscript=no"
+        if net_options is not None and net_options.vhost:
+            # The kernel's vhost-net worker moves packets between the TAP and
+            # the guest rings, so they no longer pass through QEMU's main loop.
+            netdev_arg += ",vhost=on"
     else:
         hostfwd_rules = []
         if vm_info.network.ssh_host_port is not None:
@@ -425,7 +432,9 @@ def build_qemu_argv(
             ]
         )
     elif use_qemu_microvm:
-        machine = _QEMU_MICROVM_PCIE_MACHINE if root_disk_on_pci else _QEMU_MICROVM_MACHINE
+        machine = (
+            _QEMU_MICROVM_PCIE_MACHINE if root_disk_on_pci or nic_on_pci else _QEMU_MICROVM_MACHINE
+        )
         cmd.extend(["-machine", machine, "-cpu", "host"])
         iothread_opt = ""
         if root_iothread_id is not None:
@@ -448,7 +457,8 @@ def build_qemu_argv(
                 cmd.extend(["-device", f"virtio-blk-device,drive={drive_id}"])
         for fsdev_id, tag in workspace_fsdev_ids:
             cmd.extend(["-device", f"virtio-9p-device,fsdev={fsdev_id},mount_tag={tag}"])
-        cmd.extend(["-device", f"virtio-net-device,netdev=net0,mac={guest_mac}"])
+        nic_device = "virtio-net-pci" if nic_on_pci else "virtio-net-device"
+        cmd.extend(["-device", f"{nic_device},netdev=net0,mac={guest_mac}"])
         if not root_disk_on_pci:
             cmd.extend(["-device", f"virtio-blk-device,drive={root_drive_id}{iothread_opt}"])
     else:
