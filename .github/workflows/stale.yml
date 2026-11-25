@@ -1,0 +1,37 @@
+name: Close stale issues
+
+on:
+  schedule:
+    - cron: "37 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write # Clear the action's saved progress cache.
+  issues: write
+
+concurrency: stale-issues
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93 # v11.0.0
+        with:
+          # Manual runs preview changes without touching issues.
+          debug-only: ${{ github.event_name == 'workflow_dispatch' }}
+          days-before-issue-stale: 90
+          days-before-issue-close: 14
+          stale-issue-label: stale
+          stale-issue-message: >-
+            This issue has had no activity for 90 days. If it still needs
+            attention, leave a comment to keep it open. Otherwise, it will
+            close in 14 days.
+          close-issue-message: >-
+            This issue was closed after 14 more days without activity. If it
+            still needs attention, leave a comment so a maintainer can reopen it.
+          exempt-all-issue-assignees: true
+          exempt-all-issue-milestones: true
+          exempt-issue-labels: "good first issue,help wanted"
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+          remove-pr-stale-when-updated: false

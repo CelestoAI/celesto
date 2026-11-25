@@ -6,3 +6,9 @@ CONFIG_XFS_FS=y
 # with MADV_HUGEPAGE can wait for compaction; all other memory never does.
 CONFIG_TRANSPARENT_HUGEPAGE=y           # why: rustc and other CI builds take ~58% fewer page faults
 CONFIG_TRANSPARENT_HUGEPAGE_ALWAYS=y    # why: rustc does not madvise; "always" measured -4.5% Intel / -7.8% AMD build time
+
+# Landlock for CI only. Sandboxes keep it off until a customer needs it.
+# A program can only take permissions away from itself, so this grants nothing.
+# CONFIG_LSM already lists landlock first, so no boot parameter is needed.
+CONFIG_SECURITYFS=y                     # why: /sys/kernel/security/lsm shows tools that Landlock is active
+CONFIG_SECURITY_LANDLOCK=y              # why: setpriv --landlock-access and other self-sandboxing CI tools

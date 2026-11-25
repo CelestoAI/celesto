@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Enable Landlock in the GitHub CI kernel, so CI tools that sandbox themselves, such as `setpriv --landlock-access`, work on Celesto runners. Tools that skipped their sandbox because Landlock was missing will now enforce it. Sandbox kernels are unchanged. Ships in the `kernels-2026.11.24.0` kernel release.
+
 ### Removed
 
 - Drop the retired Celesto Cloud endpoints from the bundled private API client: the agent builder, managed agents and their runs, sessions, end users, credentials, MCP servers and settings, conversation threads, Telegram bots, model providers, traces and agent deployments. The service no longer serves them. The public `Computer` interface is unchanged.
