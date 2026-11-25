@@ -158,14 +158,16 @@ def test_published_image_workflow_uploads_guest_agent_binaries() -> None:
 
 
 def test_e2e_uses_image_release_fallback_until_pinned_release_is_public() -> None:
-    workflow = (_REPO_ROOT / ".github" / "workflows" / "e2e.yml").read_text()
+    workflows = _REPO_ROOT / ".github" / "workflows"
+    workflow = (workflows / "e2e-backend.yml").read_text()
+    launcher = (workflows / "e2e.yml").read_text()
     assert "Resolve image release fallback" in workflow
     assert "draft == false and .prerelease == false" in workflow
     assert "application/vnd.github.raw" in workflow
     assert "contents/src/celesto/images/published.py?ref=$fallback" in workflow
     assert "using published-image catalog from $fallback" in workflow
     assert "CELESTO_IMAGES_RELEASE_TAG=${CELESTO_IMAGES_RELEASE_TAG:-}" in workflow
-    assert "github.event_name == 'pull_request'" not in workflow
+    assert "github.event_name == 'pull_request'" not in workflow + launcher
 
 
 def test_smoke_published_images_uses_pinned_image_release_tag() -> None:
