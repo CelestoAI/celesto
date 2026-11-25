@@ -243,13 +243,6 @@ jobs:
           npm ci --prefix ui
           npm run build --prefix ui
 
-      - name: Select preinstalled Chromium
-        if: matrix.shard == '2'
-        run: |
-          chromium=$(command -v chromium)
-          "$chromium" --version
-          printf 'PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=%s\n' "$chromium" >> "$GITHUB_ENV"
-
       - name: Assert native extension available
         run: |
           sudo -n -E -u "$USER" -g kvm -- env "PATH=$PATH" "$(command -v uv)" run python -c "from celesto_core import network; assert network.available(), 'Native extension reports native networking unavailable on Linux'; print('celesto-core: OK')"
@@ -265,6 +258,7 @@ jobs:
         run: |
           test_paths=(tests/e2e)
           pytest_args=()
+          browser_env=()
           if [[ "$E2E_SHARD" == "release" ]]; then
             test_paths=(tests/e2e/test_network_policy.py)
           else
@@ -278,6 +272,9 @@ jobs:
             if [[ "$E2E_SHARD" == "1" ]]; then
               test_paths=("${first_shard[@]}")
             else
+              chromium=$(command -v chromium)
+              "$chromium" --version
+              browser_env+=("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$chromium")
               for path in "${first_shard[@]}"; do
                 pytest_args+=(--ignore="$path")
               done
@@ -286,7 +283,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/e2e-evidence"
           sudo -n -E -u "$USER" -g kvm -- env "PATH=$PATH" \
             "CELESTO_IMAGES_RELEASE_TAG=${CELESTO_IMAGES_RELEASE_TAG:-}" \
-            "CELESTO_E2E_ARTIFACT_DIR=$RUNNER_TEMP/e2e-evidence" "$(command -v uv)" run \
+            "CELESTO_E2E_ARTIFACT_DIR=$RUNNER_TEMP/e2e-evidence" "${browser_env[@]}" \
+            "$(command -v uv)" run \
             --with playwright --with websockets --with 'pydantic-ai-slim[openai]' \
             pytest -m e2e "${test_paths[@]}" -v --e2e-backend "$E2E_BACKEND" "${pytest_args[@]}"
 
