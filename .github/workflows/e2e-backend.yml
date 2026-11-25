@@ -239,8 +239,12 @@ jobs:
           npm ci --prefix ui
           npm run build --prefix ui
 
-      - name: Install Chromium
-        run: uv run --with playwright --with websockets --with 'pydantic-ai-slim[openai]' python -m playwright install --with-deps chromium
+      - name: Select preinstalled Chromium
+        if: matrix.shard == '2'
+        run: |
+          chromium=$(command -v chromium)
+          "$chromium" --version
+          printf 'PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=%s\n' "$chromium" >> "$GITHUB_ENV"
 
       - name: Assert native extension available
         run: |

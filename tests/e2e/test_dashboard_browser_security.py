@@ -91,10 +91,14 @@ def test_dashboard_login_authenticates_ui_without_cross_port_cookies(
                 page = context.new_page()
                 page.set_default_timeout(5000)
                 page.on("pageerror", lambda error: browser_errors.append(str(error)))
+                # Full Chrome and Chromium also request the optional site icon.
                 page.on(
                     "console",
                     lambda message: (
-                        browser_errors.append(message.text) if message.type == "error" else None
+                        browser_errors.append(message.text)
+                        if message.type == "error"
+                        and message.location["url"] != f"{origin}/favicon.ico"
+                        else None
                     ),
                 )
                 page.on(
