@@ -43,6 +43,8 @@ celesto computer create --cloud --size micro --template scratch --no-internet
 
 The Python equivalent is `Computer(size_id="micro", network_policy={"mode": "off"})`.
 Cloud creation also accepts `image`, `template_id`, and `template_version`.
+Scratch has a shell and basic network tools. Choose `template_id="coding-agent"`
+when your workflow needs Python or Node.js.
 
 ## Stream command output
 
@@ -58,8 +60,8 @@ use `POST /v1/computers/{id}/exec` if you only need the final result.
 from celesto import CloudComputer as Computer
 from celesto import CommandExitEvent, CommandOutputEvent
 
-with Computer() as comp:
-    for event in comp.run_stream("python agent.py"):
+with Computer(size_id="micro") as comp:
+    for event in comp.run_stream("uname -a"):
         if isinstance(event, CommandOutputEvent):
             print(event.data, end="")
         elif isinstance(event, CommandExitEvent):
@@ -186,14 +188,30 @@ application first, listening on `0.0.0.0` and a port from `1024` to `65535`.
 For example, this serves a small demo page from its own directory:
 
 ```python
+from celesto import CelestoError
 from celesto import CloudComputer as Computer
 
-with Computer() as comp:
+with Computer(size_id="micro", template_id="coding-agent") as comp:
     comp.run("mkdir -p /tmp/demo && printf 'Hello from Celesto' > /tmp/demo/index.html")
     comp.run(
         "nohup python3 -m http.server 8000 --bind 0.0.0.0 --directory /tmp/demo "
         ">/tmp/demo.log 2>&1 </dev/null &"
     )
+    try:
+        health = comp.run(
+            "curl -fsS --max-time 2 --retry 5 --retry-connrefused "
+            "--retry-delay 1 --retry-max-time 10 http://127.0.0.1:8000/",
+            timeout=20,
+        )
+        if health.exit_code != 0:
+            raise RuntimeError(health.stderr.strip() or f"curl exited with code {health.exit_code}")
+    except (CelestoError, RuntimeError) as error:
+        try:
+            log = comp.run("tail -c 2048 /tmp/demo.log", timeout=5).stdout.strip()
+        except CelestoError:
+            log = ""
+        raise RuntimeError(f"Preview did not start:\n{log or error}") from error
+
     route = comp.publish_port(8000)
     print(route.url)
     print(comp.published_ports())
