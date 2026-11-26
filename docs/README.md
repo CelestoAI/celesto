@@ -15,6 +15,7 @@ Celesto gives an AI agent a disposable computer for running code, using a browse
 
 - [Run locally or in the cloud](local-first.md) — choose where computers run and migrate from cloud-first Python defaults.
 - [Python cloud computers](python-cloud.md) — run commands, connect to browsers and screens, publish HTTP applications, and clean up resources.
+- [TypeScript cloud computers](../ts-cloud/README.md) — create and control Cloud computers from Node.js with `@celestoai/sdk`.
 - [Browser sessions](guides/browser.md) — run Chromium and connect with a browser or Playwright.
 - [Computers with a desktop](guides/computers.md) — run a visible desktop with Chromium, a terminal, files, and a text editor.
 - [Snapshots](guides/snapshots.md) — save and restore supported computer state.

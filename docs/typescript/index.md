@@ -2,6 +2,10 @@
 
 The TypeScript SDK lets a Node.js agent create and control a disposable computer on the same machine. It needs no cloud account, API key, or manually managed server.
 
+This guide covers the local `@celestoai/celesto` package. To run computers in
+Celesto Cloud from Node.js, use [`@celestoai/sdk`](../../ts-cloud/README.md).
+To call the Cloud API without an SDK, see [create computers directly over HTTP](../python-cloud.md#create-computers-directly-over-http).
+
 > **Alpha:** Node.js 20.4 or newer is supported on Linux x64 and Apple Silicon macOS. The SDK API can be type-checked elsewhere, but the runtime is not yet supported there.
 
 ## Set up
