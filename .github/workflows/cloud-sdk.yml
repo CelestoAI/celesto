@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   package:
-    runs-on: ubuntu-latest
+    runs-on: celesto-standard
     strategy:
       matrix:
         node: ["18", "24"]
