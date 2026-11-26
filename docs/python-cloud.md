@@ -188,6 +188,7 @@ application first, listening on `0.0.0.0` and a port from `1024` to `65535`.
 For example, this serves a small demo page from its own directory:
 
 ```python
+from celesto import CelestoError
 from celesto import CloudComputer as Computer
 
 with Computer(size_id="micro", template_id="coding-agent") as comp:
@@ -196,13 +197,21 @@ with Computer(size_id="micro", template_id="coding-agent") as comp:
         "nohup python3 -m http.server 8000 --bind 0.0.0.0 --directory /tmp/demo "
         ">/tmp/demo.log 2>&1 </dev/null &"
     )
-    health = comp.run(
-        "curl -fsS --retry 5 --retry-connrefused --retry-delay 1 http://127.0.0.1:8000/"
-    )
-    if health.exit_code != 0:
-        log = comp.run("tail -c 2048 /tmp/demo.log")
-        diagnostics = log.stdout.strip() or health.stderr.strip() or "No diagnostics were captured."
-        raise RuntimeError(f"Preview did not start:\n{diagnostics}")
+    try:
+        health = comp.run(
+            "curl -fsS --max-time 2 --retry 5 --retry-connrefused "
+            "--retry-delay 1 --retry-max-time 10 http://127.0.0.1:8000/",
+            timeout=20,
+        )
+        if health.exit_code != 0:
+            raise RuntimeError(health.stderr.strip() or f"curl exited with code {health.exit_code}")
+    except (CelestoError, RuntimeError) as error:
+        try:
+            log = comp.run("tail -c 2048 /tmp/demo.log", timeout=5).stdout.strip()
+        except CelestoError:
+            log = ""
+        raise RuntimeError(f"Preview did not start:\n{log or error}") from error
+
     route = comp.publish_port(8000)
     print(route.url)
     print(comp.published_ports())
