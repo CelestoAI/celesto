@@ -12,10 +12,6 @@ Use this package when you want to:
 - Run shell commands from JavaScript or TypeScript.
 - Keep agent work separate from your laptop, server, or production system.
 - Run an agent for each of your own users, with a spending limit per user.
-- Ask a user to approve access to Google Drive through Gatekeeper.
-
-Gatekeeper is Celesto's access helper. It lets a user approve which external
-files or folders your app can use.
 
 This is the Cloud SDK. To run computers on your own machine, use the separate
 [@celestoai/celesto](https://github.com/CelestoAI/celesto/tree/main/ts) package.
@@ -41,7 +37,10 @@ pip install celesto
 celesto auth login
 ```
 
-The `Computer` API checks an explicitly passed `token` or `apiKey` first, then `CELESTO_API_KEY` in the shell, the current project's `.env`, and credentials saved by `celesto auth login`. You can use a local `.env` instead of the CLI:
+The `Computer` API checks an explicitly passed `token` or `apiKey` first, then
+`CELESTO_API_KEY` in the shell, the current project's `.env`, and credentials
+saved by `celesto auth login`. A saved login is used only with the API URL it
+was saved for. You can use a local `.env` instead of the CLI:
 
 ```bash .env
 CELESTO_API_KEY="your-api-key"
@@ -247,22 +246,16 @@ the same options on retry. The SDK does not retry automatically.
 
 ### Control Internet Access
 
-Internet is on by default. Disable outbound connections when you create a
-computer:
+Internet is on by default. To disable outbound connections, replace the
+`Computer.create()` line in the [quickstart](#quickstart):
 
 ```js
-import { Computer } from "@celestoai/sdk";
-
 const computer = await Computer.create({ networkPolicy: { mode: "off" } });
-try {
-  console.log((await computer.run("uname -a")).stdout);
-} finally {
-  await computer.delete();
-}
 ```
 
-Commands and terminal sessions still work without internet access. The policy
-cannot be changed after creation. Pool computers do not support
+Keep the quickstart's readiness check and cleanup. Commands and terminal
+sessions still work without internet access. The policy cannot be changed
+after creation. Pool computers do not support
 `persistentHome: true`. Domain and IP allowlists are not supported.
 
 ### Templates
@@ -283,17 +276,11 @@ for (const template of templates) {
 }
 ```
 
-Create a computer from a template:
+To create a computer from a template, change the create call in the
+[quickstart](#quickstart):
 
 ```js
-import { Computer } from "@celestoai/sdk";
-
 const computer = await Computer.create({ templateId: "coding-agent" });
-try {
-  console.log(computer.name);
-} finally {
-  await computer.delete();
-}
 ```
 
 ### Run a Command
@@ -426,16 +413,18 @@ Install Playwright Core in the application that runs this code:
 npm install playwright-core
 ```
 
-Then connect to the browser already running in the Celesto computer:
+Create a computer with the `browser-agent` template and wait until it is
+running, as in the [quickstart](#quickstart). Replace `curie` with its name or
+ID to connect without creating another computer:
 
 ```js
 import { Computer } from "@celestoai/sdk";
 import { chromium } from "playwright-core";
 
-const computer = await Computer.create({ templateId: "browser-agent" });
+const computer = await Computer.get("curie");
+const connection = await computer.createBrowserConnection();
+const browser = await chromium.connectOverCDP(connection.url);
 try {
-  const connection = await computer.createBrowserConnection();
-  const browser = await chromium.connectOverCDP(connection.url);
   const context = browser.contexts()[0];
   if (!context) throw new Error("Celesto browser did not provide a context");
   const pages = context.pages();
@@ -444,9 +433,11 @@ try {
   await page.goto("https://example.com");
   console.log(await page.title());
 } finally {
-  await computer.delete();
+  await browser.close();
 }
 ```
+
+Delete the computer separately when you no longer need it.
 
 ### Display Connections
 
@@ -468,35 +459,6 @@ contain short-lived secret tokens, so do not log, persist, or share them. Create
 a new connection after a disconnect or expiry. Browser automation and
 read-write display connections require write access to the computer.
 
-## Gatekeeper
-
-Use Gatekeeper when your app needs user-approved access to an external resource,
-such as Google Drive.
-
-Create a file named `gatekeeper-connect.mjs`:
-
-```js
-import { GatekeeperClient } from "@celestoai/sdk/gatekeeper";
-
-const client = new GatekeeperClient({ token: process.env.CELESTO_API_KEY });
-
-const connect = await client.connect({
-  subject: "customer_123",
-  provider: "google_drive",
-  projectName: "Default",
-});
-
-if (connect.status === "redirect") {
-  console.log(connect.oauthUrl);
-} else {
-  console.log(connect.status);
-}
-```
-
-If the response prints a URL, open it so the user can approve access.
-
-Full Gatekeeper docs: https://docs.celesto.ai/celesto-sdk/gatekeeper
-
 ## Configuration
 
 | Option | What it does |
@@ -505,11 +467,12 @@ Full Gatekeeper docs: https://docs.celesto.ai/celesto-sdk/gatekeeper
 | `apiKey` | Alias for `token` |
 | `baseUrl` | Custom Celesto API URL |
 | `organizationId` | Sends the `X-Current-Organization` header |
-| `timeoutMs` | Request timeout in milliseconds |
+| `timeoutMs` | Deadline in milliseconds for each request, including reading the response body |
 | `headers` | Extra headers to send with every request |
 
 Pass these options as the second argument to `Computer.create()` or
-`Computer.get()`. An explicit `token` or `apiKey` takes precedence over local credential discovery. Gatekeeper clients accept the same options in their constructor and require an explicit token.
+`Computer.get()`. An explicit `token` or `apiKey` takes precedence over local
+credential discovery.
 
 JWT is a signed login token. Most users should use a Celesto API key.
 

@@ -40,3 +40,9 @@ export class CelestoNetworkError extends CelestoError {
     this.cause = cause;
   }
 }
+
+export function toNetworkError(cause: unknown): CelestoNetworkError {
+  if (cause instanceof CelestoNetworkError) return cause;
+  const error = cause instanceof Error ? cause : new Error(String(cause));
+  return new CelestoNetworkError(error.message, error);
+}

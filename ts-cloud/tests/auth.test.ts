@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
@@ -88,6 +91,25 @@ test("saved CLI credentials are used after environment sources miss", async () =
   });
 
   assert.equal(apiKey, "saved-key");
+});
+
+test("reads the CLI's actual saved login format and keeps the key on its saved origin", async (t) => {
+  const homeDir = await mkdtemp(join(tmpdir(), "celesto-sdk-home-"));
+  t.after(() => rm(homeDir, { recursive: true, force: true }));
+  const dir = join(homeDir, ".celesto");
+  await mkdir(dir);
+  await writeFile(join(dir, "credentials"), JSON.stringify({
+    api_key: "fixture-key",
+    base_url: "https://saved.example.test/",
+  }), { mode: 0o600 });
+  const options = { env: {}, cwd: homeDir, homeDir };
+  const config = await resolveClientConfig({ baseUrl: undefined }, options);
+  assert.equal(config.token, "fixture-key");
+  assert.equal(config.baseUrl, "https://saved.example.test");
+  await assert.rejects(
+    resolveClientConfig({ baseUrl: "https://other.example.test" }, options),
+    /different API URL/i,
+  );
 });
 
 test("missing credentials return the actionable SDK error", async () => {

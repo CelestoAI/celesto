@@ -1,4 +1,4 @@
-import { CelestoApiError, CelestoNetworkError } from "./errors";
+import { CelestoApiError, toNetworkError } from "./errors";
 import { RequestContext, RequestOptions } from "./config";
 
 const joinUrl = (baseUrl: string, path: string): string => {
@@ -84,7 +84,6 @@ const buildRequestInit = (
   const init: RequestInit = {
     method: options.method,
     headers,
-    signal: options.signal,
   };
   if (options.body !== undefined) {
     headers["Content-Type"] = headers["Content-Type"] ?? "application/json";
@@ -95,19 +94,30 @@ const buildRequestInit = (
   return { url, init };
 };
 
+function requestDeadline(signal?: AbortSignal, timeoutMs?: number) {
+  if (!timeoutMs || timeoutMs <= 0 || signal?.aborted) return { signal, cleanup: () => {} };
+  const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  signal?.addEventListener("abort", abort, { once: true });
+  const timer = setTimeout(
+    () => controller.abort(new DOMException("Celesto request timed out.", "TimeoutError")),
+    timeoutMs,
+  );
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+    },
+  };
+}
+
 export const request = async <T>(ctx: RequestContext, options: RequestOptions): Promise<T> => {
   const { url, init } = buildRequestInit(ctx, options);
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  let controller: AbortController | undefined;
-
-  if (!options.signal && ctx.timeoutMs && ctx.timeoutMs > 0) {
-    controller = new AbortController();
-    timeoutId = setTimeout(() => controller?.abort(), ctx.timeoutMs);
-    init.signal = controller.signal;
-  }
-
+  const { signal, cleanup } = requestDeadline(options.signal, ctx.timeoutMs);
   try {
-    const response = await ctx.fetch(url, init);
+    if (signal?.aborted) throw signal.reason;
+    const response = await ctx.fetch(url, { ...init, signal });
     const data = await parseResponseBody(response);
 
     if (!response.ok) {
@@ -126,23 +136,22 @@ export const request = async <T>(ctx: RequestContext, options: RequestOptions): 
     if (err instanceof CelestoApiError) {
       throw err;
     }
-    const error = err instanceof Error ? err : new Error(String(err));
-    throw new CelestoNetworkError(error.message, error);
+    throw toNetworkError(err);
   } finally {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
+    cleanup();
   }
 };
 
-/** Make an authenticated request without consuming its response body. */
+/** Make an authenticated request. The caller cleans up the deadline after reading the body. */
 export const requestStream = async (
   ctx: RequestContext,
   options: RequestOptions,
-): Promise<Response> => {
+): Promise<{ response: Response; cleanup: () => void }> => {
   const { url, init } = buildRequestInit(ctx, options);
+  const { signal, cleanup } = requestDeadline(options.signal, ctx.timeoutMs);
   try {
-    const response = await ctx.fetch(url, init);
+    if (signal?.aborted) throw signal.reason;
+    const response = await ctx.fetch(url, { ...init, signal });
     if (!response.ok) {
       const data = await parseResponseBody(response);
       const message = extractErrorMessage(data, response.status);
@@ -154,12 +163,12 @@ export const requestStream = async (
         response.headers,
       );
     }
-    return response;
+    return { response, cleanup };
   } catch (err) {
+    cleanup();
     if (err instanceof CelestoApiError) {
       throw err;
     }
-    const error = err instanceof Error ? err : new Error(String(err));
-    throw new CelestoNetworkError(error.message, error);
+    throw toNetworkError(err);
   }
 };

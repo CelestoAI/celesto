@@ -326,32 +326,6 @@ const pickOverrides = (options?: RequestOverrides): RequestOverrides => ({
   signal: options?.signal,
 });
 
-const createManagedSignal = (
-  signal: AbortSignal | undefined,
-  timeoutMs: number | undefined,
-): { signal: AbortSignal | undefined; cleanup: () => void } => {
-  if (!timeoutMs || timeoutMs <= 0) {
-    return { signal, cleanup: () => {} };
-  }
-
-  const controller = new AbortController();
-  const abort = () => controller.abort();
-  if (signal?.aborted) {
-    abort();
-  } else {
-    signal?.addEventListener("abort", abort, { once: true });
-  }
-  const timer = setTimeout(abort, timeoutMs);
-
-  return {
-    signal: controller.signal,
-    cleanup: () => {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", abort);
-    },
-  };
-};
-
 /**
  * Client for managing sandboxed computers (AI sandboxes).
  *
@@ -461,25 +435,14 @@ export class ComputersClient {
       throw new TypeError("Choose a whole-number command timeout between 1 and 300 seconds.");
     }
     const ctx = buildRequestContext(this.config);
-    const managedSignal = createManagedSignal(
-      params.signal ?? options?.signal,
-      this.config.timeoutMs,
-    );
-    try {
-      const data = await request<ComputerExecResponseWire>(ctx, {
-        method: "POST",
-        path: computersPath(`/${encodeURIComponent(computerId)}/exec`),
-        body: {
-          command,
-          timeout,
-        },
-        headers: options?.headers,
-        signal: managedSignal.signal,
-      });
-      return toExecResponse(data);
-    } finally {
-      managedSignal.cleanup();
-    }
+    const data = await request<ComputerExecResponseWire>(ctx, {
+      method: "POST",
+      path: computersPath(`/${encodeURIComponent(computerId)}/exec`),
+      body: { command, timeout },
+      headers: options?.headers,
+      signal: params.signal ?? options?.signal,
+    });
+    return toExecResponse(data);
   }
 
   /** Yield output and exit events after the command has finished. */

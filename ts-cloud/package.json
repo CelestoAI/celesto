@@ -1,7 +1,7 @@
 {
   "name": "@celestoai/sdk",
   "version": "0.1.7",
-  "description": "Celesto SDK \u2014 managed agents, Gatekeeper, and Computers clients for Node.js",
+  "description": "Celesto Cloud SDK for managed agents and computers in Node.js",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -17,11 +17,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
-    },
-    "./gatekeeper": {
-      "types": "./dist/gatekeeper/index.d.ts",
-      "import": "./dist/gatekeeper/index.js",
-      "require": "./dist/gatekeeper/index.cjs"
     },
     "./computers": {
       "types": "./dist/computers/index.d.ts",

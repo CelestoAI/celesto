@@ -1,19 +1,3 @@
-export { GatekeeperClient } from "./gatekeeper";
-export type {
-  GatekeeperAccessRules,
-  GatekeeperAccessRulesParams,
-  GatekeeperAccessRulesUpdate,
-  GatekeeperConnectRequest,
-  GatekeeperConnectResponse,
-  GatekeeperConnection,
-  GatekeeperDriveFile,
-  GatekeeperDriveListParams,
-  GatekeeperDriveListResponse,
-  GatekeeperListConnectionsParams,
-  GatekeeperListConnectionsResponse,
-  GatekeeperRevokeParams,
-  GatekeeperRevokeResponse,
-} from "./gatekeeper";
 export { Computer } from "./computers";
 export type {
   BrowserConnectionInfo,

@@ -8,10 +8,12 @@
  * user spent this month?" is one call.
  */
 
+import { setTimeout as delay } from "node:timers/promises";
 import { buildRequestContext, ClientConfig, RequestOverrides } from "../core/config";
+import { CelestoNetworkError, toNetworkError } from "../core/errors";
 import { request, requestStream } from "../core/http";
 import { ConfigKeyNotAllowedError, SessionBusyError, toManagedAgentError } from "./errors";
-import { RunEvent, SseDecoder, toRunEvent } from "./events";
+import { isTerminal, RunEvent, SseDecoder, toRunEvent } from "./events";
 import {
   Agent,
   AgentConfig,
@@ -359,8 +361,14 @@ const toMoneyString = (value: string | number): string => {
   return text;
 };
 
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+async function waitToRetry(error: SessionBusyError, signal?: AbortSignal): Promise<void> {
+  const ms = error.retryAfter !== undefined ? error.retryAfter * 1000 : DEFAULT_RETRY_BACKOFF_MS;
+  try {
+    await delay(ms, undefined, { signal });
+  } catch (cause) {
+    throw toNetworkError(cause);
+  }
+}
 
 const newIdempotencyKey = (): string => {
   const uuid = globalThis.crypto?.randomUUID?.();
@@ -614,9 +622,7 @@ export class RunsClient extends BaseClient {
         return toRun(wire);
       } catch (error) {
         if (!(error instanceof SessionBusyError) || attempt >= maxRetries) throw error;
-        await sleep(
-          error.retryAfter !== undefined ? error.retryAfter * 1000 : DEFAULT_RETRY_BACKOFF_MS,
-        );
+        await waitToRetry(error, options?.signal);
       }
     }
   }
@@ -631,7 +637,7 @@ export class RunsClient extends BaseClient {
    *
    * A failed run arrives as a `run.failed` event, not a thrown error —
    * including a run stopped mid-stream because the end user ran out of
-   * budget. Errors are thrown for runs that never started.
+   * budget. A connection that closes before a final event throws an error.
    *
    * A replay of an idempotency key omits `message.delta`: partial text is
    * never stored, so there is nothing to replay.
@@ -660,9 +666,9 @@ export class RunsClient extends BaseClient {
     };
 
     for (let attempt = 0; ; attempt += 1) {
-      let response: Response;
+      let stream: Awaited<ReturnType<typeof requestStream>>;
       try {
-        response = await requestStream(buildRequestContext(this.config), {
+        stream = await requestStream(buildRequestContext(this.config), {
           method: "POST",
           path: runtimePath(`/agents/${encodeURIComponent(agentId)}/runs`),
           body: this.runBody(params, true),
@@ -672,13 +678,15 @@ export class RunsClient extends BaseClient {
       } catch (error) {
         const typed = toManagedAgentError(error);
         if (!(typed instanceof SessionBusyError) || attempt >= maxRetries) throw typed;
-        await sleep(
-          typed.retryAfter !== undefined ? typed.retryAfter * 1000 : DEFAULT_RETRY_BACKOFF_MS,
-        );
+        await waitToRetry(typed, options?.signal);
         continue;
       }
 
-      yield* readEventStream(response);
+      try {
+        yield* readEventStream(stream.response);
+      } finally {
+        stream.cleanup();
+      }
       return;
     }
   }
@@ -924,24 +932,20 @@ async function* readEventStream(response: Response): AsyncGenerator<RunEvent> {
 
   try {
     for (;;) {
-      const chunk = await reader.read();
-      if (chunk.done) {
-        completed = true;
-        for (const frame of sse.push(textDecoder.decode())) {
-          const event = toRunEvent(frame);
-          if (event) yield event;
-        }
-        for (const frame of sse.flush()) {
-          const event = toRunEvent(frame);
-          if (event) yield event;
-        }
-        return;
-      }
-
-      for (const frame of sse.push(textDecoder.decode(chunk.value, { stream: true }))) {
+      const chunk = await reader.read().catch((cause) => {
+        throw toNetworkError(cause);
+      });
+      completed = chunk.done;
+      const frames = chunk.done
+        ? [...sse.push(textDecoder.decode()), ...sse.flush()]
+        : sse.push(textDecoder.decode(chunk.value, { stream: true }));
+      for (const frame of frames) {
         const event = toRunEvent(frame);
-        if (event) yield event;
+        if (!event) continue;
+        yield event;
+        if (isTerminal(event)) return;
       }
+      if (completed) throw new CelestoNetworkError("The run stream ended before a final event. Check the run's status before retrying.");
     }
   } finally {
     if (!completed) {

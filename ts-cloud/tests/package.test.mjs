@@ -22,13 +22,16 @@ test("the installed npm package creates, runs commands, and deletes Cloud comput
   await mkdir(artifacts, { recursive: true });
   const pack = await run("npm", ["pack", "--json", "--pack-destination", artifacts], { cwd: packageRoot });
   const packed = JSON.parse(pack.stdout);
-  const [{ filename }] = Array.isArray(packed) ? packed : Object.values(packed);
+  const [{ filename, files }] = Array.isArray(packed) ? packed : Object.values(packed);
+  assert(!files.some(({ path }) => path.startsWith("dist/gatekeeper/")), "Gatekeeper must not ship");
   await run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--no-package-lock",
     join(artifacts, filename)], { cwd: fixture });
 
   const entry = join(fixture, "consumer.mjs");
-  await writeFile(entry, 'export { Computer } from "@celestoai/sdk";\n');
-  const { Computer } = await import(pathToFileURL(entry).href);
+  await writeFile(entry, 'export * from "@celestoai/sdk";\n');
+  const sdk = await import(pathToFileURL(entry).href);
+  const { Computer } = sdk;
+  assert(!("GatekeeperClient" in sdk));
   const types = join(fixture, "consumer.mts");
   await writeFile(types, `
 import { Computer, type CreateComputerParams } from "@celestoai/sdk";
@@ -43,11 +46,12 @@ export async function create(): Promise<string | null | undefined> {
   ]);
 
   const require = createRequire(entry);
+  assert(!("GatekeeperClient" in require("@celestoai/sdk")));
+  assert.throws(() => require("@celestoai/sdk/gatekeeper"), { code: "ERR_PACKAGE_PATH_NOT_EXPORTED" });
   for (const [subpath, symbol] of [
     ["", "Computer"],
     ["/computers", "Computer"],
     ["/agents", "ManagedAgentsClient"],
-    ["/gatekeeper", "GatekeeperClient"],
   ]) {
     assert.equal(typeof require(`@celestoai/sdk${subpath}`)[symbol], "function", `${subpath}:${symbol}`);
   }

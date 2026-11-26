@@ -16,7 +16,7 @@ import {
   parseSseFrames,
 } from "../src/agents";
 import type { ClientConfig } from "../src/core/config";
-import { CelestoApiError } from "../src/core/errors";
+import { CelestoApiError, CelestoNetworkError } from "../src/core/errors";
 
 interface RecordedCall {
   url: string;
@@ -561,6 +561,28 @@ describe("idempotency and retries", () => {
       },
     );
   });
+
+  for (const kind of ["create", "stream"] as const) {
+    it(`${kind} stops a canceled retry delay without sending another request`, async () => {
+      const abort = new AbortController();
+      const { fetch, calls } = makeFetchMock(() => {
+        setTimeout(() => abort.abort(), 0);
+        return {
+          status: 409,
+          body: { detail: { code: "session_busy", message: "Run in flight." } },
+          headers: { "retry-after": "1" },
+        };
+      });
+      const { runs } = new ManagedAgentsClient(makeConfig(fetch));
+      const params = { input: "Hi", endUserId: "usr_8837", maxRetries: 1 };
+      const options = { signal: abort.signal };
+      const pending = kind === "create"
+        ? runs.create("agt_1", params, options)
+        : runs.stream("agt_1", params, options).next();
+      await assert.rejects(pending, CelestoNetworkError);
+      assert.equal(calls.length, 1);
+    });
+  }
 });
 
 describe("typed errors", () => {
@@ -731,6 +753,45 @@ describe("the run event stream", () => {
       false,
     );
   });
+
+  it("stream() rejects if a partial answer ends without a final event", async () => {
+    const fetch = streamingFetch(['event: message.delta\ndata: {"text":"partial","turn":1}\n\n']);
+    const { runs } = new ManagedAgentsClient(makeConfig(fetch));
+    const events = runs.stream("agt_1", { input: "Hi", endUserId: "usr_8837" });
+    assert.equal((await events.next()).value?.name, "message.delta");
+    await assert.rejects(events.next(), /before.*final event/i);
+  });
+
+  for (const phase of ["request", "stream headers", "stream body"] as const) {
+    it(`applies the configured deadline with a caller signal during ${phase}`, async () => {
+      const caller = new AbortController();
+      const fallback = setTimeout(() => caller.abort(), 200);
+      const fetch: typeof globalThis.fetch = async (_url, init) => {
+        if (phase === "stream body") {
+          return new Response(new ReadableStream({
+            start(controller) {
+              init?.signal?.addEventListener("abort", () => controller.error(init.signal?.reason));
+            },
+          }));
+        }
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+        });
+      };
+      const { runs } = new ManagedAgentsClient({ ...makeConfig(fetch), timeoutMs: 10 });
+      const params = { input: "Hi", endUserId: "usr_8837" };
+      const options = { signal: caller.signal };
+      try {
+        const pending = phase === "request"
+          ? runs.create("agt_1", params, options)
+          : runs.stream("agt_1", params, options).next();
+        await assert.rejects(pending, CelestoNetworkError);
+        assert.equal(caller.signal.aborted, false, "the configured deadline should fire first");
+      } finally {
+        clearTimeout(fallback);
+      }
+    });
+  }
 
   it("stream() throws the typed error when the run is refused up front", async () => {
     const { fetch } = makeFetchMock(() => ({
