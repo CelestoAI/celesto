@@ -1,0 +1,65 @@
+{
+  "name": "@celestoai/sdk",
+  "version": "0.1.7",
+  "description": "Run and manage Celesto Cloud computers from Node.js",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CelestoAI/celesto.git",
+    "directory": "ts-cloud"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./computers": {
+      "import": {
+        "types": "./dist/computers/index.d.ts",
+        "default": "./dist/computers/index.js"
+      },
+      "require": {
+        "types": "./dist/computers/index.d.cts",
+        "default": "./dist/computers/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "CHANGELOG.md"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "test:package": "node --test tests/package.test.mjs",
+    "check": "npm run lint && npm test && npm run build && npm run test:package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsup": "^8.0.2",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2"
+  }
+}

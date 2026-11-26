@@ -69,6 +69,29 @@ uv run celesto doctor --json --strict
 
 ## Quality Checks
 
+### Cloud TypeScript SDK
+
+The Cloud package `@celestoai/sdk` lives in `ts-cloud/`. The local package
+`@celestoai/celesto` has its own checks and releases in `ts/`.
+
+```bash
+cd ts-cloud
+npm ci
+npm run check
+```
+
+To move npm publishing from `CelestoAI/sdk`, configure `@celestoai/sdk`'s npm
+trusted publisher for this repository's `cloud-sdk.yml` workflow and
+`npm-cloud-sdk` environment. Disable the old repository's Node publishing job
+when switching over. Keep its unrelated release jobs unchanged.
+
+To publish, run **Cloud TypeScript SDK** from `main` and enter the exact
+`ts-cloud/package.json` version as `publish_version`. The workflow checks
+the package and publishes the tested archive only if the versions match.
+Leave the version blank to test without publishing.
+
+### Core package
+
 Run these before opening a PR:
 
 ```bash

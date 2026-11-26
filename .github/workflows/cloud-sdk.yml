@@ -1,0 +1,68 @@
+name: Cloud TypeScript SDK
+
+on:
+  pull_request:
+    paths: ["ts-cloud/**", ".github/workflows/cloud-sdk.yml"]
+  push:
+    branches: [main]
+    paths: ["ts-cloud/**", ".github/workflows/cloud-sdk.yml"]
+  workflow_dispatch:
+    inputs:
+      publish_version:
+        description: Publish this exact SDK version from main; leave blank to test only
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: ["18", "24"]
+    defaults:
+      run:
+        working-directory: ts-cloud
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: ts-cloud/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cloud-sdk-node-${{ matrix.node }}
+          path: artifacts/cloud-sdk/
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish_version != ''
+    needs: package
+    runs-on: ubuntu-latest
+    environment: npm-cloud-sdk
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+      - run: npm install --global npm@^11.5.1
+      - uses: actions/download-artifact@v4
+        with:
+          name: cloud-sdk-node-24
+      - name: Verify version and publish the tested package
+        env:
+          PUBLISH_VERSION: ${{ inputs.publish_version }}
+        run: |
+          archive="$(node -p 'require("./cloud-contract.json").filename')"
+          version="$(tar -xOf "$archive" package/package.json | node -p 'JSON.parse(require("node:fs").readFileSync(0, "utf8")).version')"
+          test "$PUBLISH_VERSION" = "$version"
+          npm publish "./$archive" --access public

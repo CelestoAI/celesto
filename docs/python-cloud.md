@@ -33,6 +33,8 @@ adding credit; that error reports the allowed count when available.
 Pass `size_id="micro"` for a small cloud computer, or choose another named size
 allowed by your credits. Omit it to let the backend choose your account's default.
 CPU, RAM, and disk overrides are not supported by the current cloud API.
+For exact CPU, RAM, and disk values, check the current size catalog
+(`GET /v1/billing/sizes`) rather than relying on a display name such as Large.
 
 ```console
 celesto computer create --cloud --size micro
@@ -49,7 +51,8 @@ computers deliver output as it arrives. Cloud computers currently deliver the
 events after the command finishes because the cloud API returns a completed
 command response. Cloud stdout is yielded before stderr, so their original
 interleaving is unavailable. Use `terminal()` when you need live output from a
-cloud shell.
+cloud shell. The cloud API does not expose `POST /v1/computers/{id}/exec/stream`;
+use `POST /v1/computers/{id}/exec` if you only need the final result.
 
 ```python
 from celesto import CloudComputer as Computer
@@ -118,11 +121,20 @@ reconnected.delete()
 
 Persistent and reconnected handles cannot enter a `with` block. Reconnecting never creates or starts a replacement computer. Outside a block, both lifetimes require explicit deletion. Neither lifetime adds server-side expiry or guarantees cleanup after a process crash or network loss. Cloud service policies still apply.
 
-Persistence here means retaining the computer resource; it does not enable an external disk. `external_volume_enabled=True` is a separate cloud option for disk retention across stop/restore, not a lifecycle setting.
+Persistence here means retaining the computer resource; it does not enable an
+external disk. Pool computers do not support `external_volume_enabled=True`.
 
 `stop()` waits until the cloud computer is stopped. `resume()` starts that same
 computer and waits until it is running. Both work on a reconnected handle and
 preserve the computer ID and its ephemeral disk on the cloud server where it runs.
+Do not rely on running processes surviving a stop and resume, even if one did
+before. After resuming, restart any missing services and check that they respond
+before sending traffic to them.
+
+Deleting a computer while it is still `creating` can return HTTP 409. If it does,
+poll that computer's status until it leaves `creating`, then retry deletion using
+the same computer ID. If creation does not finish before your deadline, keep the
+ID so you can check and clean up that computer later.
 
 ## Connect to the browser or screen
 
@@ -190,11 +202,12 @@ with Computer() as comp:
     print(removed.status)
 ```
 
-Publishing makes the application accessible from the internet; add authentication
-to the application if it needs access control. The route does not start your
-application or guarantee it is ready to respond. These methods publish HTTP
-applications, not arbitrary TCP or UDP services. Celesto system ports are reserved
-and may be rejected by the service even within the allowed range.
+Publishing makes the application accessible from the internet. Celesto does not
+provide a header or cookie gate for published ports. Add authentication to the
+application before publishing it if it needs access control. The route does not
+start your application or guarantee it is ready to respond. These methods publish
+HTTP applications, not arbitrary TCP or UDP services. Celesto system ports are
+reserved and may be rejected by the service even within the allowed range.
 
 Each result is a `PublishedPort`, importable from `celesto`, with `computer_id`,
 `port`, `status`, and optional `id`, `url`, and `created_at` (the service's timestamp
@@ -226,7 +239,12 @@ If you use `celesto auth login`, its saved key is used only when neither
 not replace a key supplied by your script or environment. Named keys stay
 restricted to their organization and their owner's organization role.
 
-Cloud creation accepts `vcpus`, `ram_mb`, `disk_size_mb`, `image`, `template_id`, `template_version`, and `external_volume_enabled`. Local options such as `mounts` and `data_dir` are not cloud options and are rejected. `startup_timeout` and `cleanup_timeout` default to 120 seconds and bound polling; individual network timeout limits are not a guarantee against every stalled or trickling response.
+Use a named size for cloud creation. The Python SDK still accepts `vcpus`,
+`ram_mb`, and `disk_size_mb` as arguments, but the current cloud API can reject
+these overrides. Local options such as `mounts` and `data_dir` are not cloud
+options and are rejected. `startup_timeout` and `cleanup_timeout` default to
+120 seconds and bound polling; individual network timeout limits are not a
+guarantee against every stalled or trickling response.
 
 HTTP failures raise `CloudAPIError` with `status_code` and a stable `code`.
 Missing computers raise `VMNotFoundError`. Transport failures, unreadable
@@ -270,8 +288,33 @@ If your code and cleanup both fail, handle the resulting exception group so
 both failures remain visible. The published [error-handling guide](https://celesto.ai/docs/cloud/errors)
 shows a complete handler, safe recovery for each limit, and the structured fields.
 
-Cloud creation supplies a unique idempotency key, as required by the pool API.
-The Scratch template uses its advertised disk default when `disk_size_mb` is omitted.
+### Create computers directly over HTTP
+
+`POST /v1/computers` requires an `Idempotency-Key` header for pool computers.
+Generate a unique key for each computer you intend to create. If you retry the
+same create request, reuse its key and body. Send `{"size_id": "micro"}` to
+select Micro, or `{}` to use the account default. The Python SDK sets the header
+for you.
+
+The create API does not support caller-supplied `name`, `labels`, or `size`
+fields. Unknown fields may be silently ignored. Save the returned computer ID
+with your job record and use that ID for cleanup rather than guessing which
+computer belongs to your job.
+
+## Run software in a cloud computer
+
+- **Secrets and files:** Cloud `/exec` accepts command text, not stdin, and
+  does not provide a file upload or download API. Server-side command logging
+  and retention are not documented here. Do not embed secrets in command text
+  or print them to output. Base64 does not protect secrets.
+- **Background services:** Don't assume that a `systemd --user` manager is
+  running. If an installer requires one, as `t3 service install` does, run the
+  application in the foreground instead if it supports that mode.
+- **GitHub downloads:** Unauthenticated `api.github.com` requests can hit
+  GitHub's shared IP rate limit even from a fresh computer. If
+  `X-RateLimit-Remaining` is `0`, wait until `X-RateLimit-Reset`, or use a
+  pinned release asset URL if the installer supports it. A direct asset URL
+  avoids the API call to list releases.
 
 ## Live smoke test
 
@@ -308,10 +351,9 @@ The private `_celesto_cloud_api` package contains generated requests and models.
 inside the same Python distribution as `celesto`; it is not a separate PyPI package or a
 public SDK interface. The public `Computer` keeps these types out of its API and uses the
 generated ordinary command, published-port, and terminal-session endpoints.
-Streaming uses a small handwritten SSE adapter because generated OpenAPI clients
-buffer `text/event-stream` responses. Terminal WebSocket I/O uses a small
-handwritten bounded adapter. Browser/display connections use generated HTTP issuance calls and handwritten
-public result types. File APIs are not exposed by this wrapper yet.
+Cloud `run_stream()` turns the completed command response into events. Terminal
+WebSocket I/O uses a small handwritten bounded adapter. Browser/display
+connections use generated HTTP issuance calls and handwritten public result types.
 
 The generator consumes the committed `openapi/cloud.json` snapshot. After updating that snapshot from the backend's exported document, regenerate with:
 

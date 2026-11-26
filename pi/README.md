@@ -108,6 +108,10 @@ fixtures/private/
 
 The extension does not automatically forward its authentication credentials or model-provider credentials. `CELESTO_API_KEY` is used locally to contact Celesto Cloud. Explicit transfers use overridable filename filters: `.gitignore` or `.celestoignore` negations can include files such as `.env`, so review those rules before pushing secrets.
 
+Push and sync move base64-encoded file contents through Cloud command text or
+output. Base64 does not protect secrets. Keep secret files out of transfers,
+even if you can override the default filters.
+
 ## Command output
 
 Cloud command output is buffered until completion. The extension uses the current `/exec` API, and explicit transfers use chunks that fit its 10,000-character command limit. Pi cancellation also requests termination of the remote process group.
