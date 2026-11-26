@@ -45,12 +45,15 @@ from rich.progress import (
     TimeElapsedColumn,
     TransferSpeedColumn,
 )
+from rich.text import Text
 
 from celesto import __version__
 from celesto.cli.output import (
     console_stdout,
+    display_safe,
     emit_error,
     emit_success,
+    literal_text,
     render_empty,
     render_error,
 )
@@ -144,6 +147,22 @@ def _valid_entry_name(requested: str) -> bool:
     return valid_namespaced and all(
         _SAFE_SEGMENT_RE.match(seg) and not seg.startswith(".") for seg in segments[1:]
     )
+
+
+# Shown in place of a name that has no printable characters at all.
+# A `custom/<name>` handle can exceed display_safe's default cap (255-byte
+# directory names); image handles must always be shown whole.
+_NAME_DISPLAY_LIMIT = 1024
+_UNPRINTABLE_NAME = "<unprintable name>"
+
+
+def _version_cell(version: str | None, current: bool | None) -> Text:
+    """Render a version string literally, marking stale entries in yellow."""
+    cell = literal_text(version or "-")
+    if current is False:
+        cell.append(" (stale)")
+        cell.stylize("yellow")
+    return cell
 
 
 class ImageRow(TypedDict):
@@ -286,6 +305,9 @@ def _brief_error(exc: BaseException, limit: int = 160) -> str:
     """
     text = str(exc).strip()
     text = text.splitlines()[0] if text else exc.__class__.__name__
+    # Exception text can carry user- or archive-supplied paths: keep control
+    # characters out of it before it reaches the terminal.
+    text = display_safe(text)
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
@@ -492,11 +514,18 @@ def _resolve_entries(requested: str, root: Path) -> list[Path]:
                     and child.name.startswith(segments[2])
                 ]
                 if len(prefix_matches) > 1:
+                    # Fingerprint folders can come from loaded archives: keep
+                    # control characters out of the message callers print.
                     options = ", ".join(
-                        f"{segments[0]}/{segments[1]}/{child.name}" for child in prefix_matches
+                        display_safe(
+                            f"{segments[0]}/{segments[1]}/{child.name}",
+                            limit=_NAME_DISPLAY_LIMIT,
+                        )
+                        for child in prefix_matches
                     )
                     raise ValueError(
-                        f"'{requested}' matches more than one build. Pick one of: {options}."
+                        f"'{display_safe(requested, limit=_NAME_DISPLAY_LIMIT)}' matches "
+                        f"more than one build. Pick one of: {options}."
                     )
                 return prefix_matches
         return []
@@ -1017,14 +1046,13 @@ def run_image_list(
     table.add_column("Size", justify="right")
     for row in rows:
         platform_parts = [part for part in (row["arch"], row["vmm"], row["os"]) if part]
-        version = row["version"] or "-"
-        if row["current"] is False:
-            version = f"[yellow]{version} (stale)[/yellow]"
         table.add_row(
-            row["name"],
+            # Names and metadata come from disk and loaded archives: render literally.
+            # The name is the handle `celesto image rm` needs, so never shorten it.
+            literal_text(row["name"], empty=_UNPRINTABLE_NAME, limit=_NAME_DISPLAY_LIMIT),
             row["kind"],
-            "/".join(platform_parts) or "-",
-            version,
+            literal_text("/".join(platform_parts)),
+            _version_cell(row["version"], row["current"]),
             _relative_time(row["created"]),
             _format_bytes(row["size_bytes"]),
         )
@@ -1178,41 +1206,47 @@ def run_image_inspect(
 
     console = console_stdout()
     for entry in entries:
-        table = Table(title=entry["name"], show_header=False)
+        # Every value below comes from the entry on disk, which a loaded archive
+        # controls: render it literally so markup stays visible and control
+        # characters never reach the terminal.
+        table = Table(
+            title=literal_text(entry["name"], empty=_UNPRINTABLE_NAME, limit=_NAME_DISPLAY_LIMIT),
+            show_header=False,
+        )
         table.add_column("Field")
         table.add_column("Value", overflow="fold")
         table.add_row("Kind", entry["kind"])
         if entry["preset"]:
-            table.add_row("Preset", entry["preset"])
+            table.add_row("Preset", literal_text(entry["preset"]))
         platform_parts = [p for p in (entry["arch"], entry["vmm"], entry["os"]) if p]
-        table.add_row("Platform", "/".join(platform_parts) or "-")
-        version = entry["version"] or "-"
-        if entry["current"] is False:
-            version = f"[yellow]{version} (stale)[/yellow]"
-        table.add_row("Version", version)
+        table.add_row("Platform", literal_text("/".join(platform_parts)))
+        table.add_row("Version", _version_cell(entry["version"], entry["current"]))
         created = entry["created"]
         table.add_row("Created", f"{_relative_time(created)} ({created})" if created else "-")
         table.add_row("Size", _format_bytes(entry["size_bytes"]))
-        table.add_row("Path", entry["path"])
+        table.add_row("Path", literal_text(entry["path"]))
         macos = entry.get("macos")
         if macos is not None:
-            table.add_row("Source IPSW", macos["source_ipsw"])
+            table.add_row("Source IPSW", literal_text(macos["source_ipsw"]))
             table.add_row("Logical size", _format_bytes(macos["logical_size_bytes"]))
             table.add_row("Allocated size", _format_bytes(macos["allocated_size_bytes"]))
-            table.add_row("Runtime version", macos["driver_version"])
+            table.add_row("Runtime version", literal_text(macos["driver_version"]))
         manifest = entry["manifest"]
         if manifest is not None:
-            table.add_row("Release tag", manifest["images_release_tag"])
-            table.add_row("Kernel URL", manifest["kernel_url"])
-            table.add_row("Kernel SHA-256", manifest["kernel_sha256"])
-            table.add_row("Rootfs URL", manifest["rootfs_url"])
-            table.add_row("Rootfs SHA-256", manifest["rootfs_sha256"])
+            table.add_row("Release tag", literal_text(manifest["images_release_tag"]))
+            table.add_row("Kernel URL", literal_text(manifest["kernel_url"]))
+            table.add_row("Kernel SHA-256", literal_text(manifest["kernel_sha256"]))
+            table.add_row("Rootfs URL", literal_text(manifest["rootfs_url"]))
+            table.add_row("Rootfs SHA-256", literal_text(manifest["rootfs_sha256"]))
         if entry["rootfs_sidecar"]:
-            table.add_row("Rootfs sidecar", entry["rootfs_sidecar"])
+            table.add_row("Rootfs sidecar", literal_text(entry["rootfs_sidecar"]))
         if entry["files"]:
-            file_lines = "\n".join(
-                f"{f['name']}  {_format_bytes(f['size_bytes'])}"
-                f" ({_format_bytes(f['size_on_disk_bytes'])} on disk)"
+            file_lines = Text("\n").join(
+                Text.assemble(
+                    literal_text(f["name"], empty=_UNPRINTABLE_NAME),
+                    f"  {_format_bytes(f['size_bytes'])}"
+                    f" ({_format_bytes(f['size_on_disk_bytes'])} on disk)",
+                )
                 for f in entry["files"]
             )
             table.add_row("Files", file_lines)
