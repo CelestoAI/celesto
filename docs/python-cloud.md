@@ -200,7 +200,9 @@ with Computer(size_id="micro", template_id="coding-agent") as comp:
         "curl -fsS --retry 5 --retry-connrefused --retry-delay 1 http://127.0.0.1:8000/"
     )
     if health.exit_code != 0:
-        raise RuntimeError("Preview did not start. Check /tmp/demo.log inside the computer.")
+        log = comp.run("tail -c 2048 /tmp/demo.log")
+        diagnostics = log.stdout.strip() or health.stderr.strip() or "No diagnostics were captured."
+        raise RuntimeError(f"Preview did not start:\n{diagnostics}")
     route = comp.publish_port(8000)
     print(route.url)
     print(comp.published_ports())
