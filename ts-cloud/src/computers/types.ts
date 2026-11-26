@@ -8,6 +8,7 @@ export type ComputerStatus =
   | "restorable"
   | "deleting"
   | "deleted"
+  | "lost"
   | "error";
 
 export interface ComputerConnectionInfo {

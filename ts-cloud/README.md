@@ -11,7 +11,6 @@ Use this package when you want to:
 - Run an AI agent or harness in a clean computer.
 - Run shell commands from JavaScript or TypeScript.
 - Keep agent work separate from your laptop, server, or production system.
-- Run an agent for each of your own users, with a spending limit per user.
 
 This is the Cloud SDK. To run computers on your own machine, use the separate
 [@celestoai/celesto](https://github.com/CelestoAI/celesto/tree/main/ts) package.
@@ -84,143 +83,6 @@ Run it:
 ```bash
 node quickstart.mjs
 ```
-
-## Run Agents for Your Users
-
-If you are building a product on top of an AI agent, every run happens for one
-of *your* users. Celesto keeps them apart: each run is recorded against the user
-it acted for, so you can see what that person's agent did and what it cost, and
-stop it from spending more than you allow.
-
-You identify each of your users with a string you already have — a database ID,
-an email, anything. Celesto stores it as you send it. There is no Celesto user
-ID to look up and no mapping table to keep.
-
-This example creates an agent, runs it for one user, prints the answer as it
-arrives, and then reads that user's spending.
-
-```ts
-import { ManagedAgentsClient } from "@celestoai/sdk";
-
-const celesto = new ManagedAgentsClient({ apiKey: process.env.CELESTO_API_KEY });
-
-const agent = await celesto.agents.create({
-  name: "support-bot",
-  model: "openai/gpt-5.4-mini",
-  instructions: "Answer order questions in one short paragraph.",
-});
-
-for await (const event of celesto.runs.stream(agent.id, {
-  input: "Where is my order?",
-  endUserId: "usr_8837",
-})) {
-  if (event.name === "message.delta") process.stdout.write(event.data.text ?? "");
-}
-
-const { budget } = await celesto.endUsers.get("usr_8837");
-console.log(`\nSpent ${budget.spentUsd} of ${budget.capUsd}`);
-```
-
-Switching on `event.name` narrows the event, so `event.data` is typed for that
-event and nothing else.
-
-### Wait Instead of Streaming
-
-`stream()` gives you the answer as it is written. `create()` waits and gives you
-the finished run:
-
-```ts
-import { ManagedAgentsClient } from "@celestoai/sdk";
-
-const celesto = new ManagedAgentsClient({ apiKey: process.env.CELESTO_API_KEY });
-const agentId = "agt_your_agent_id";
-
-const run = await celesto.runs.create(agentId, {
-  input: "Where is my order?",
-  endUserId: "usr_8837",
-});
-console.log(run.output, run.usage.costUsd);
-```
-
-### Money Is a String
-
-Every amount — `costUsd`, `spentUsd`, `capUsd` — is a decimal string such as
-`"0.000450"`, never a `number`. A single answer can cost a few millionths of a
-dollar, which a JavaScript number cannot hold exactly. Display and compare the
-string; if you need arithmetic, use a decimal library rather than `parseFloat`.
-
-Writes are strings too. `budgetCapUsd` is typed `string`, so a number fails to
-compile, and passing one anyway throws rather than sending it — `0.1 + 0.2`
-stringifies to `"0.30000000000000004"`, and the only place that can still be
-fixed is before it leaves your program.
-
-### Set a Spending Limit
-
-Give one user a cap, or set the default for everyone:
-
-```ts
-import { ManagedAgentsClient } from "@celestoai/sdk";
-
-const celesto = new ManagedAgentsClient({ apiKey: process.env.CELESTO_API_KEY });
-
-await celesto.endUsers.update("usr_8837", { budgetCapUsd: "5.00" });
-await celesto.settings.update({ defaultEndUserBudgetUsd: "0.50" });
-```
-
-The cap covers a 30-day window that starts the first time that user runs
-anything. When it runs out, the next run throws `BudgetExceededError`, and a run
-already in flight stops at its next step with a `run.failed` event.
-
-### Retry Safely
-
-Pass `idempotencyKey` to make a retry safe: sending the same key again returns
-the run that already happened instead of running the agent — and charging your
-user — twice.
-
-```ts
-import { ManagedAgentsClient } from "@celestoai/sdk";
-
-const celesto = new ManagedAgentsClient({ apiKey: process.env.CELESTO_API_KEY });
-const agentId = "agt_your_agent_id";
-
-const run = await celesto.runs.create(agentId, {
-  input: "Where is my order?",
-  endUserId: "usr_8837",
-  idempotencyKey: "order-status-42",
-});
-```
-
-One conversation runs one agent at a time. If a second run arrives while the
-first is still going, Celesto throws `SessionBusyError`. Pass `maxRetries: 2` to
-wait and try again; the SDK creates an idempotency key for you when you do.
-
-### Keep the Conversation Going
-
-Every run belongs to a session, which is that user's transcript. Leave
-`sessionId` out and Celesto starts one; pass it back to continue:
-
-```ts
-import { ManagedAgentsClient } from "@celestoai/sdk";
-
-const celesto = new ManagedAgentsClient({ apiKey: process.env.CELESTO_API_KEY });
-const agentId = "agt_your_agent_id";
-
-const first = await celesto.runs.create(agentId, {
-  input: "Hello",
-  endUserId: "usr_8837",
-});
-const followUp = await celesto.runs.create(agentId, {
-  input: "And the one before that?",
-  endUserId: "usr_8837",
-  sessionId: first.sessionId,
-});
-```
-
-### Change an Agent
-
-Updating an agent saves a new version and leaves the old ones readable. Runs
-remember the version they used, so a change never rewrites what already
-happened. `celesto.agents.activateVersion(agent.id, 1)` goes back.
 
 ## Computers
 
@@ -327,7 +189,7 @@ guarantee the remote command stopped. For interactive live output, use
 ### Manage Computers
 
 `computerId` can be `computer.id` from `Computer.create()` or a computer name
-shown by the Celesto command-line tool: `celesto computer list`.
+shown by the Celesto command-line tool: `celesto computer list --cloud`.
 
 | Method | What it does |
 | --- | --- |
@@ -486,22 +348,6 @@ The SDK exports these error classes:
 | `CelestoNetworkError` | The network request fails |
 | `CelestoError` | Base class for API and network errors |
 | `TypeError` | The SDK rejects unsupported create options or invalid command arguments before sending a request |
-
-Managed agents add an error class per reason an operation can be refused, so you
-can react to the specific one. Each extends `ManagedAgentError`, which extends
-`CelestoApiError`.
-
-| Error | When it is used |
-| --- | --- |
-| `BudgetExceededError` | This user has spent their budget for the window |
-| `SessionBusyError` | Another run holds the conversation. Retryable; check `retryAfter` |
-| `IdempotencyConflictError` | This key was already used with a different request |
-| `AgentArchivedError` | The agent no longer takes runs |
-| `ProviderNotConnectedError` | No credential is connected for the agent's model |
-| `SessionAgentMismatchError` | That conversation belongs to a different agent |
-| `SessionEndUserMismatchError` | That conversation belongs to a different user |
-| `ModelRequiresOwnKeyError` | This model runs only on your own provider key |
-| `ConfigKeyNotAllowedError` | The agent config carried an unsupported setting. Thrown by `agents.create()`/`agents.update()` before any request is sent, not by a run |
 
 ## Develop Locally
 

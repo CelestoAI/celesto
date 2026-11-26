@@ -4,7 +4,6 @@ export default defineConfig({
   entry: {
     index: "src/index.ts",
     "computers/index": "src/computers/index.ts",
-    "agents/index": "src/agents/index.ts",
   },
   format: ["esm", "cjs"],
   dts: true,

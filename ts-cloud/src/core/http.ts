@@ -141,34 +141,3 @@ export const request = async <T>(ctx: RequestContext, options: RequestOptions): 
     cleanup();
   }
 };
-
-/** Make an authenticated request. The caller cleans up the deadline after reading the body. */
-export const requestStream = async (
-  ctx: RequestContext,
-  options: RequestOptions,
-): Promise<{ response: Response; cleanup: () => void }> => {
-  const { url, init } = buildRequestInit(ctx, options);
-  const { signal, cleanup } = requestDeadline(options.signal, ctx.timeoutMs);
-  try {
-    if (signal?.aborted) throw signal.reason;
-    const response = await ctx.fetch(url, { ...init, signal });
-    if (!response.ok) {
-      const data = await parseResponseBody(response);
-      const message = extractErrorMessage(data, response.status);
-      throw new CelestoApiError(
-        message,
-        response.status,
-        data,
-        response.headers.get("x-request-id") ?? undefined,
-        response.headers,
-      );
-    }
-    return { response, cleanup };
-  } catch (err) {
-    cleanup();
-    if (err instanceof CelestoApiError) {
-      throw err;
-    }
-    throw toNetworkError(err);
-  }
-};

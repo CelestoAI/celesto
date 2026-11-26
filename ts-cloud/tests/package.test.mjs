@@ -23,7 +23,6 @@ test("the installed npm package creates, runs commands, and deletes Cloud comput
   const pack = await run("npm", ["pack", "--json", "--pack-destination", artifacts], { cwd: packageRoot });
   const packed = JSON.parse(pack.stdout);
   const [{ filename, files }] = Array.isArray(packed) ? packed : Object.values(packed);
-  assert(!files.some(({ path }) => path.startsWith("dist/gatekeeper/")), "Gatekeeper must not ship");
   await run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--no-package-lock",
     join(artifacts, filename)], { cwd: fixture });
 
@@ -31,30 +30,35 @@ test("the installed npm package creates, runs commands, and deletes Cloud comput
   await writeFile(entry, 'export * from "@celestoai/sdk";\n');
   const sdk = await import(pathToFileURL(entry).href);
   const { Computer } = sdk;
-  assert(!("GatekeeperClient" in sdk));
-  const types = join(fixture, "consumer.mts");
-  await writeFile(types, `
-import { Computer, type CreateComputerParams } from "@celestoai/sdk";
+  const typeChecks = ["mts", "cts"].map((extension) => join(fixture, `consumer.${extension}`));
+  const typeCheck = `
+import { Computer, type ComputerStatus, type CreateComputerParams } from "@celestoai/sdk";
+import { Computer as ComputerSubpath, type ListComputersParams } from "@celestoai/sdk/computers";
 const params: CreateComputerParams = { sizeId: "micro", idempotencyKey: "job-42" };
 export async function create(): Promise<string | null | undefined> {
   return (await Computer.create(params)).sizeId;
 }
-`);
+export function listLost(): Promise<Computer[]> {
+  const status: ComputerStatus = "lost";
+  const filter: ListComputersParams = { status };
+  return ComputerSubpath.list(filter);
+}
+`;
+  await Promise.all(typeChecks.map((file) => writeFile(file, typeCheck)));
   await run(process.execPath, [
     join(packageRoot, "node_modules/typescript/bin/tsc"), "--noEmit", "--strict", "--skipLibCheck",
-    "--module", "nodenext", "--target", "es2022", types,
+    "--module", "node16", "--target", "es2022", ...typeChecks,
   ]);
 
   const require = createRequire(entry);
-  assert(!("GatekeeperClient" in require("@celestoai/sdk")));
-  assert.throws(() => require("@celestoai/sdk/gatekeeper"), { code: "ERR_PACKAGE_PATH_NOT_EXPORTED" });
-  for (const [subpath, symbol] of [
-    ["", "Computer"],
-    ["/computers", "Computer"],
-    ["/agents", "ManagedAgentsClient"],
-  ]) {
-    assert.equal(typeof require(`@celestoai/sdk${subpath}`)[symbol], "function", `${subpath}:${symbol}`);
+  const commonjs = require("@celestoai/sdk");
+  for (const [subpath, name] of [["agents", "ManagedAgentsClient"], ["gatekeeper", "GatekeeperClient"]]) {
+    assert(!files.some(({ path }) => path.startsWith(`dist/${subpath}/`)), `${subpath} must not ship`);
+    assert(!(name in sdk) && !(name in commonjs), `${name} must not be exported`);
+    assert.throws(() => require(`@celestoai/sdk/${subpath}`), { code: "ERR_PACKAGE_PATH_NOT_EXPORTED" });
   }
+  assert.equal(typeof commonjs.Computer, "function");
+  assert.equal(typeof require("@celestoai/sdk/computers").Computer, "function");
 
   const computers = new Map();
   const requests = [];
@@ -98,6 +102,16 @@ export async function create(): Promise<string | null | undefined> {
       computers.set(id, computer);
       return reply(201, computer);
     }
+    if (method === "GET" && url === "/v1/computers?status=lost") {
+      return reply(200, {
+        computers: [{
+          id: "cmp_lost", name: "lost-computer", status: "lost", vcpus: 1, ram_mb: 512,
+          disk_size_mb: 8192, image: "ubuntu", template_id: "scratch",
+          created_at: "2026-11-24T00:00:00Z",
+        }],
+        count: 1,
+      });
+    }
 
     const match = /^\/v1\/computers\/(cmp_\d+)(\/exec)?$/.exec(url ?? "");
     const computer = computers.get(match?.[1]);
@@ -127,6 +141,9 @@ export async function create(): Promise<string | null | undefined> {
     server.closeAllConnections();
   }));
   const config = { token: "contract-fixture", baseUrl: `http://127.0.0.1:${server.address().port}` };
+
+  const lost = await Computer.list({ status: "lost" }, config);
+  assert.deepEqual(lost.map(({ id, status }) => ({ id, status })), [{ id: "cmp_lost", status: "lost" }]);
 
   for (let i = 0; i < 2; i++) {
     const computer = await Computer.create({}, config);
