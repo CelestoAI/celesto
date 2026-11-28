@@ -71,6 +71,7 @@ Never lead with a flags table. Explain what the command does in plain language f
 - [ ] Commands that print useful output show that output as a comment
 - [ ] Conceptually distinct workflows (e.g. sandbox vs. browser) are in separate sections
 - [ ] Flags/options table, if present, appears after the prose description
+- [ ] Cloud size examples and trial limits match [Choose a cloud size](../../../docs/python-cloud.md#choose-a-cloud-size)
 - [ ] No jargon (SSH, TAP device, CIDR, firecracker, QEMU) without a plain-language explanation on first use
 
 ## Output Format
