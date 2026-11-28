@@ -31,9 +31,9 @@ adding credit; that error reports the allowed count when available.
 ## Choose a cloud size
 
 Pass `size_id="micro"` for a small cloud computer, or choose another named size
-allowed by your credits. The free trial covers `micro`, `small`, and
-`standard`. Larger sizes require eligible workspace credit. Omit the size to
-let the backend choose your account's default.
+allowed by your credits. The free trial covers machines up to Standard
+(`standard`, 2 vCPUs, 4 GB RAM). Larger sizes require eligible workspace
+credit. Omit the size to let the backend choose your account's default.
 CPU, RAM, and disk overrides are not supported by the current cloud API.
 For exact CPU, RAM, and disk values, check the current size catalog
 (`GET /v1/billing/sizes`) rather than relying on a display name such as Large.
