@@ -437,8 +437,8 @@ class _CloudComputer:
                     )
                 elif code == "trial_micro_only":
                     recovery = (
-                        "The free trial covers Micro, Small, and Standard. Choose one of "
-                        "these sizes in the dashboard or add prepaid credit."
+                        "The free trial covers machines up to Standard (2 vCPUs, 4 GB RAM). "
+                        "Choose an eligible size in the dashboard or add prepaid credit."
                     )
                 elif code == "promotional_size_not_allowed":
                     recovery = (

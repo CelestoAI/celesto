@@ -859,7 +859,7 @@ def test_other_error_statuses_do_not_retain_detail(cloud, status):
         (403, {"error_code": "organization_access_denied"}, "organization"),
         (403, "Scoped credentials are restricted to MCP", "MCP"),
         (403, "Account suspended. Contact support.", "suspended"),
-        (403, {"error_code": "trial_micro_only"}, "Micro"),
+        (403, {"error_code": "trial_micro_only"}, "up to Standard (2 vCPUs, 4 GB RAM)"),
         (403, {"error_code": "promotional_size_not_allowed"}, "credit"),
         (402, {"error_code": "trial_expired"}, "trial"),
         (402, {"error_code": "prepaid_credit_depleted"}, "credit"),
